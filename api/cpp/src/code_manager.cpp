@@ -24,8 +24,8 @@
 
 #include "boost/range/iterator_range.hpp"
 
-#include "code_manager.h"
 #include "api/cpp/src/utils/utils.h"
+#include "code_manager.h"
 #include "src/dto/constant.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_manager.h"
@@ -83,7 +83,8 @@ void CodeManager::DoLoadFunctions(const std::vector<std::string> &paths)
 
     YRLOG_INFO("{}={}", DynamicLibraryEnvKey, GetEnv(DynamicLibraryEnvKey));
     if (libPaths.size() == 0) {
-        throw Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE, "cannot find shared library file");
+        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE,
+                            "cannot find shared library file");
     }
     for (auto &lib : libPaths) {
         OpenLibrary(lib.string());
@@ -111,7 +112,7 @@ void CodeManager::OpenLibrary(const std::string &path)
     if (handle == nullptr) {
         std::string err(dlerror());
         YRLOG_ERROR("Failed to open library from path {}, reason: {}", path, err);
-        throw Exception(ErrorCode::ERR_USER_CODE_LOAD, "path: " + path + ", error: " + err);
+        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, "path: " + path + ", error: " + err);
     }
 
     libs.emplace(path, handle);

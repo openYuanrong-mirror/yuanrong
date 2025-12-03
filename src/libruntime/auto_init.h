@@ -61,9 +61,6 @@ Will try to get the cluster info in following steps,
      * and then get info the same as step 3.
 */
 
-const std::string kDefaultDeployPathBase = "/tmp/yr_sessions";
-const std::string kDefaultDeployPathCurrMasterInfo = kDefaultDeployPathBase + "/yr_current_master_info";
-
 const std::string kEnvYrServerAddress = "YR_SERVER_ADDRESS";  // address for posix invoke, can be frontend or bus
 const std::string kEnvYrDatasystemAddress = "YR_DS_ADDRESS";  // datasystem address
 
@@ -82,7 +79,7 @@ public:
 public:
     // public methods
     void AutoParse();
-    void ParseFromMasterInfo(const std::string &masterInfoPath = kDefaultDeployPathCurrMasterInfo);
+    void ParseFromMasterInfo();
 
 private:
     void ParseFromEnv();

@@ -312,7 +312,7 @@ public:
         this->opts = std::move(optsInput);
         this->opts.CheckOptionsValid();
         if (opts.retryChecker) {
-            throw Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
+            throw YR::Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
         }
         if (InstanceRangeEnabled(this->opts.instanceRange)) {
             this->opts.groupName = yrRuntime->GenerateGroupName();
@@ -343,7 +343,7 @@ public:
         this->opts = optsInput;
         this->opts.CheckOptionsValid();
         if (opts.retryChecker) {
-            throw Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
+            throw YR::Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
         }
         if (InstanceRangeEnabled(this->opts.instanceRange)) {
             this->opts.groupName = yrRuntime->GenerateGroupName();

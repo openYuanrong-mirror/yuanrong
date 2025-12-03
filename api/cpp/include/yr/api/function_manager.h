@@ -325,12 +325,12 @@ public:
     {
         auto funcId = GetUniqueFuncId(func);
         if (!funcIdToName_.emplace(funcId, name).second) {
-            throw Exception::RegisterFunctionException(name);
+            throw YR::Exception::RegisterFunctionException(name);
         }
 
         auto happened = funcMap_.emplace(name, std::bind(FunctionCaller<Func>, func, _1, _2)).second;
         if (!happened) {
-            throw Exception::RegisterFunctionException(name);
+            throw YR::Exception::RegisterFunctionException(name);
         }
     }
 
@@ -343,12 +343,12 @@ public:
 
         auto funcId = GetUniqueFuncId(func);
         if (!memberFuncIdToName_.emplace(funcId, name).second) {
-            throw Exception::RegisterFunctionException(name);
+            throw YR::Exception::RegisterFunctionException(name);
         }
 
         auto happened = memberFuncMap_.emplace(name, std::bind(MemberFunctionCaller<Func>, func, _1, _2, _3)).second;
         if (!happened) {
-            throw Exception::RegisterFunctionException(name);
+            throw YR::Exception::RegisterFunctionException(name);
         }
         if (ckptFuncMap_.find(clsName) == ckptFuncMap_.end()) {
             ckptFuncMap_.emplace(clsName, std::bind(Checkpoint<ClassType>, _1));
@@ -372,7 +372,7 @@ public:
     template <typename Func>
     enable_if_not_member_func_t<Func> RegisterRecoverFunction(const std::string &name, Func func)
     {
-        throw Exception::RegisterRecoverFunctionException();
+        throw YR::Exception::RegisterRecoverFunctionException();
     }
 
     boost::optional<CheckpointFunction &> GetCheckpointFunction(const std::string &className)
@@ -398,7 +398,7 @@ public:
     template <typename Func>
     enable_if_not_member_func_t<Func> RegisterShutdownFunctions(const std::string &name, Func func)
     {
-        throw Exception::RegisterShutdownFunctionException();
+        throw YR::Exception::RegisterShutdownFunctionException();
     }
 
     boost::optional<WrapperShutdownCaller &> GetShutdownFunction(const std::string &className)

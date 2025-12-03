@@ -137,5 +137,7 @@ public:
     bool dedupLogs = true;
 
     bool launchUserBinary = false;
+
+    std::string workingDir = "";
 };
 }  // namespace YR

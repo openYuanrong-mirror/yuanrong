@@ -452,6 +452,7 @@ void ClusterModeRuntime::Init()
     libConfig.tenantId = ConfigManager::Singleton().tenantId;
     libConfig.logToDriver = ConfigManager::Singleton().logToDriver;
     libConfig.dedupLogs = ConfigManager::Singleton().dedupLogs;
+    libConfig.workingDir = ConfigManager::Singleton().workingDir;
 
     libConfig.libruntimeOptions.functionExecuteCallback = internal::ExecuteFunction;
     if (ConfigManager::Singleton().launchUserBinary == true) {
@@ -577,7 +578,7 @@ std::string ClusterModeRuntime::Put(const void *data, uint64_t dataSize,
                                     const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
 {
     if (data == nullptr || dataSize == 0) {
-        throw Exception::InvalidParamException("Put val is nullptr");
+        throw YR::Exception::InvalidParamException("Put val is nullptr");
     }
     auto param = BuildCreateParam(createParam);
     auto dataObj = std::make_shared<YR::Libruntime::DataObject>();
@@ -739,7 +740,12 @@ void ClusterModeRuntime::DecreGlobalReference(const std::vector<std::string> &ob
     }
 }
 
-void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, YR::SetParam setParam)
+void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, SetParam setParam)
+{
+    return KVWrite(key, value, std::strlen(value), setParam);
+}
+
+void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, size_t len, YR::SetParam setParam)
 {
     auto dsSetParam = BuildSetParam(setParam);
     GetLibRuntime()->SetTenantIdWithPriority();
@@ -748,7 +754,7 @@ void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, YR::
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     auto nativeBuffer = std::make_shared<YR::Libruntime::NativeBuffer>(static_cast<void *>(const_cast<char *>(value)),
-                                                                       std::strlen(value));
+                                                                       len);
 
     err = GetLibRuntime()->KVWrite(key, nativeBuffer, dsSetParam);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {

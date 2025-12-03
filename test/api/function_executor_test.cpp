@@ -82,16 +82,16 @@ TEST_F(FunctionExecutorTest, LoadFunctionsSuccessfullyTest)
 {
     fs::path currentPath = fs::current_path();
     auto path = currentPath.string();
-    auto idx = path.rfind("yuanrong-runtime");
+    auto idx = path.rfind("yuanrong");
     std::string subPath = path.substr(0, idx);
-    auto libPath = subPath + "yuanrong-runtime/metrics/lib";
+    auto libPath = subPath + "yuanrong/metrics/lib";
     InitGlobalTimer();
     YR::Libruntime::ErrorInfo err;
     err = LoadFunctions({libPath});
-    ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK) << err.Msg();
 
     err = exec_->LoadFunctions({libPath + "/libz.so"});
-    ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK) << err.Msg();
     CloseGlobalTimer();
 }
 

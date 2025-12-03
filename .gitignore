@@ -46,6 +46,13 @@ test/st/functions/**/*.xml
 go/pkg/mod/
 cmake-build-debug
 api/python/build/
+build/
+go/output/bin/client/dist/
+go/pkg/dashboard/client/dist/
+go/pkg/dashboard/client/node_modules/
+example/custom_runtime/openyuanrong
+example/custom_runtime/worker/yuanrong
+outputapi/python/build/
 api/python/dist/
 api/python/*.egg-info/
 build/

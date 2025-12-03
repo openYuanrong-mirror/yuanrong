@@ -16,10 +16,11 @@
 
 #include "yr/yr.h"
 
-#include "cluster_mode_runtime.h"
+#include "api/cpp/include/yr/api/kv_manager.h"
 #include "api/cpp/src/code_manager.h"
 #include "api/cpp/src/config_manager.h"
 #include "api/cpp/src/internal.h"
+#include "cluster_mode_runtime.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_manager.h"
 #include "yr/api/runtime.h"
@@ -128,8 +129,8 @@ void Finalize(void)
 {
     CheckInitialized();
     if (ConfigManager::Singleton().inCluster && !ConfigManager::Singleton().isDriver) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "Finalize is not allowed to use on cloud");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "Finalize is not allowed to use on cloud");
     }
     ReentrantFinalize();
     SetInitialized(false);
@@ -140,8 +141,8 @@ void Exit(void)
     CheckInitialized();
     bool isRemoteRuntime = ConfigManager::Singleton().inCluster && !ConfigManager::Singleton().isDriver;
     if (!isRemoteRuntime) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "Not support exit out of cluster");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "Not support exit out of cluster");
     } else if (!YR::internal::IsLocalMode()) {
         YR::internal::GetRuntime()->Exit();
     }
@@ -160,18 +161,35 @@ bool IsOnCloud()
 bool IsLocalMode()
 {
     if (!g_isInit) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_INIT_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "Please init YR first");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_INIT_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
+                            "Please init YR first");
     }
     return ConfigManager::Singleton().IsLocalMode();
+}
+
+void WriteBytes(void *data, size_t size, int tag, int index, int src, int dst)
+{
+    char *data_char = reinterpret_cast<char *>(data);
+    std::string key =
+        std::to_string(tag) + "-" + std::to_string(index) + "-" + std::to_string(src) + "-" + std::to_string(dst);
+    return KVManager::WriteRaw(key, data_char, size);
+}
+
+void ReadBytes(void *data, size_t size, int tag, int index, int src, int dst)
+{
+    std::string key =
+        std::to_string(tag) + "-" + std::to_string(index) + "-" + std::to_string(src) + "-" + std::to_string(dst);
+    auto buffer = KVManager::ReadBuffer(key);
+    auto read_size = buffer->GetSize() < size ? buffer->GetSize() : size;
+    memcpy_s(data, size, buffer->ImmutableData(), read_size);
 }
 
 std::shared_ptr<Producer> CreateProducer(const std::string &streamName, ProducerConf producerConf)
 {
     CheckInitialized();
     if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "local mode does not support CreateProducer\n");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "local mode does not support CreateProducer\n");
     }
     std::shared_ptr<Producer> producer = YR::internal::GetRuntime()->CreateStreamProducer(streamName, producerConf);
     return producer;
@@ -181,8 +199,8 @@ std::shared_ptr<Consumer> Subscribe(const std::string &streamName, const Subscri
 {
     CheckInitialized();
     if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "local mode does not support Subscribe\n");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "local mode does not support Subscribe\n");
     }
     std::shared_ptr<Consumer> consumer = YR::internal::GetRuntime()->CreateStreamConsumer(streamName, config, autoAck);
     return consumer;
@@ -192,8 +210,8 @@ void DeleteStream(const std::string &streamName)
 {
     CheckInitialized();
     if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "local mode does not support DeleteStream\n");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "local mode does not support DeleteStream\n");
     }
     YR::internal::GetRuntime()->DeleteStream(streamName);
 }
@@ -203,12 +221,12 @@ void SaveState(const int &timeout)
     CheckInitialized();
     bool isRemoteRuntime = ConfigManager::Singleton().inCluster && !ConfigManager::Singleton().isDriver;
     if (!isRemoteRuntime) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "SaveState is only supported on cloud with posix api");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "SaveState is only supported on cloud with posix api");
     }
     if (YR::internal::IsLocalMode()) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "SaveState is not supported in local mode");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "SaveState is not supported in local mode");
     }
     YR::internal::GetRuntime()->SaveState(timeout);
 }
@@ -218,13 +236,13 @@ void LoadState(const int &timeout)
     CheckInitialized();
     bool isRemoteRuntime = ConfigManager::Singleton().inCluster && !ConfigManager::Singleton().isDriver;
     if (!isRemoteRuntime) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "LoadState is only supported on cloud with posix api");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "LoadState is only supported on cloud with posix api");
     }
 
     if (YR::internal::IsLocalMode()) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
-                        "LoadState is not supported in local mode");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE,
+                            YR::Libruntime::ModuleCode::RUNTIME, "LoadState is not supported in local mode");
     }
     YR::internal::GetRuntime()->LoadState(timeout);
 }
@@ -240,8 +258,8 @@ std::shared_ptr<MutableBuffer> CreateBuffer(uint64_t size)
 {
     CheckInitialized();
     if (ConfigManager::Singleton().IsLocalMode()) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
-                        "local mode does not support CreateBuffer\n");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
+                            "local mode does not support CreateBuffer\n");
     } else {
         return YR::internal::GetRuntime()->CreateMutableBuffer(size);
     }
@@ -251,8 +269,8 @@ std::vector<std::shared_ptr<MutableBuffer>> Get(const std::vector<ObjectRef<Muta
 {
     CheckInitialized();
     if (ConfigManager::Singleton().IsLocalMode()) {
-        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
-                        "local mode does not support Get\n");
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
+                            "local mode does not support Get\n");
     } else {
         std::vector<std::string> ids;
         for (size_t i = 0; i < objs.size(); i++) {

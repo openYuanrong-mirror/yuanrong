@@ -35,6 +35,23 @@ public:
         return kvManager;
     }
 
+    static void WriteRaw(const std::string &key, const char *value, size_t len)
+    {
+        CheckInitialized();
+        SetParam setParam;
+        return internal::IsLocalMode()
+                   ? internal::GetLocalModeRuntime()->KVWrite(
+                         key, std::make_shared<msgpack::sbuffer>(YR::internal::Serialize(value)), setParam.existence)
+                   : YR::internal::GetRuntime()->KVWrite(key, value, len, setParam);
+    }
+
+    static std::shared_ptr<Buffer> ReadBuffer(const std::string &key, int timeout = DEFAULT_GET_TIMEOUT_SEC)
+    {
+        CheckInitialized();
+        return internal::IsLocalMode()
+                ? internal::GetLocalModeRuntime()->KVRead(key, timeout == NO_TIMEOUT ? timeout : timeout * S_TO_MS)
+                : internal::GetRuntime()->KVRead(key, timeout == NO_TIMEOUT ? timeout : timeout * S_TO_MS);
+    }
     /**
      * @brief Sets the value of a key.
      *
@@ -57,7 +74,7 @@ public:
         CheckInitialized();
         std::shared_ptr<msgpack::sbuffer> sbuf;
         if (value == nullptr) {
-            throw Exception::InvalidParamException("KV Set value is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set value is nullptr");
         }
         SetParam setParam;
         setParam.existence = existence;
@@ -92,7 +109,7 @@ public:
         CheckInitialized();
         std::shared_ptr<msgpack::sbuffer> sbuf;
         if (value == nullptr) {
-            throw Exception::InvalidParamException("KV Set value is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set value is nullptr");
         }
         SetParam setParam;
         setParam.existence = existence;
@@ -153,7 +170,7 @@ public:
         CheckInitialized();
         std::shared_ptr<msgpack::sbuffer> sbuf;
         if (value == nullptr) {
-            throw Exception::InvalidParamException("KV Set value is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set value is nullptr");
         }
         sbuf = std::make_shared<msgpack::sbuffer>();
         sbuf->write(value, strlen(value));
@@ -184,7 +201,7 @@ public:
     {
         CheckInitialized();
         if (value == nullptr) {
-            throw Exception::InvalidParamException("KV Set value is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set value is nullptr");
         }
         std::shared_ptr<msgpack::sbuffer> sbuf;
         sbuf = std::make_shared<msgpack::sbuffer>();
@@ -241,7 +258,7 @@ public:
         CheckInitialized();
         std::shared_ptr<msgpack::sbuffer> sbuf;
         if (val == nullptr) {
-            throw Exception::InvalidParamException("KV Set val is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set val is nullptr");
         }
         sbuf = std::make_shared<msgpack::sbuffer>();
         sbuf->write(val, strlen(val));
@@ -272,7 +289,7 @@ public:
     {
         CheckInitialized();
         if (val == nullptr) {
-            throw Exception::InvalidParamException("KV Set val is nullptr");
+            throw YR::Exception::InvalidParamException("KV Set val is nullptr");
         }
         std::shared_ptr<msgpack::sbuffer> sbuf;
         sbuf = std::make_shared<msgpack::sbuffer>();
@@ -338,10 +355,10 @@ public:
     {
         CheckInitialized();
         if (keys.size() != vals.size() || keys.size() != lens.size()) {
-            throw Exception::InvalidParamException("arguments vector size not equal.");
+            throw YR::Exception::InvalidParamException("arguments vector size not equal.");
         }
         if (existence != ExistenceOpt::NX) {
-            throw Exception::InvalidParamException("ExistenceOpt should be NX.");
+            throw YR::Exception::InvalidParamException("ExistenceOpt should be NX.");
         }
         std::vector<std::shared_ptr<msgpack::sbuffer>> sbufVec;
         sbufVec.resize(keys.size());
@@ -445,12 +462,12 @@ public:
     {
         CheckInitialized();
         if (keys.size() != vals.size() || keys.size() != lens.size()) {
-            throw Exception::InvalidParamException(
+            throw YR::Exception::InvalidParamException(
                 "arguments vector size not equal. keys size is: " + std::to_string(keys.size()) +
                 ", vals size is: " + std::to_string(vals.size()) + ", lens size is: " + std::to_string(lens.size()));
         }
         if (mSetParam.existence != ExistenceOpt::NX) {
-            throw Exception::InvalidParamException("ExistenceOpt should be NX.");
+            throw YR::Exception::InvalidParamException("ExistenceOpt should be NX.");
         }
         std::vector<std::shared_ptr<msgpack::sbuffer>> sbufferVec;
         sbufferVec.resize(keys.size());
@@ -515,12 +532,12 @@ public:
     {
         CheckInitialized();
         if (keys.size() != vals.size()) {
-            throw Exception::InvalidParamException(
+            throw YR::Exception::InvalidParamException(
                 "input vector size not equal. keys size is: " + std::to_string(keys.size()) +
                 ", vals size is: " + std::to_string(vals.size()));
         }
         if (mSetParam.existence != ExistenceOpt::NX) {
-            throw Exception::InvalidParamException("ExistenceOpt should be NX.");
+            throw YR::Exception::InvalidParamException("ExistenceOpt should be NX.");
         }
         std::vector<std::shared_ptr<msgpack::sbuffer>> sbufVector;
         sbufVector.resize(keys.size());
@@ -601,12 +618,12 @@ public:
     {
         CheckInitialized();
         if (keys.size() != vals.size()) {
-            throw Exception::InvalidParamException(
+            throw YR::Exception::InvalidParamException(
                 "arguments vector size not equal. keys size is: " + std::to_string(keys.size()) +
                 ", vals size is: " + std::to_string(vals.size()));
         }
         if (mSetParam.existence != ExistenceOpt::NX) {
-            throw Exception::InvalidParamException("ExistenceOpt should be NX.");
+            throw YR::Exception::InvalidParamException("ExistenceOpt should be NX.");
         }
         std::vector<std::shared_ptr<msgpack::sbuffer>> sbufVec;
         sbufVec.resize(keys.size());
@@ -819,7 +836,7 @@ public:
     {
         CheckInitialized();
         if (keys.empty()) {
-            throw Exception::InvalidParamException("KVRead does not accept empty key list");
+            throw YR::Exception::InvalidParamException("KVRead does not accept empty key list");
         }
         auto result = internal::IsLocalMode()
                           ? internal::GetLocalModeRuntime()->KVRead(
@@ -889,10 +906,10 @@ public:
     {
         CheckInitialized();
         if (params.getParams.empty()) {
-            throw Exception::InvalidParamException("Get params does not accept empty key list");
+            throw YR::Exception::InvalidParamException("Get params does not accept empty key list");
         }
         if (params.getParams.size() != keys.size()) {
-            throw Exception::InvalidParamException("Get params size is not equal to keys size");
+            throw YR::Exception::InvalidParamException("Get params size is not equal to keys size");
         }
         auto results =
             internal::GetRuntime()->KVGetWithParam(keys, params, timeout == NO_TIMEOUT ? timeout : timeout * S_TO_MS);
@@ -987,7 +1004,7 @@ public:
     {
         CheckInitialized();
         if (keys.empty()) {
-            throw Exception::InvalidParamException("KVGet does not accept empty key list");
+            throw YR::Exception::InvalidParamException("KVGet does not accept empty key list");
         }
         auto sbufVec = internal::IsLocalMode()
                            ? internal::GetLocalModeRuntime()->KVRead(
@@ -1097,10 +1114,10 @@ private:
     {
         CheckInitialized();
         if (keys.size() != vals.size()) {
-            throw Exception::InvalidParamException("arguments vector size not equal.");
+            throw YR::Exception::InvalidParamException("arguments vector size not equal.");
         }
         if (existence != ExistenceOpt::NX) {
-            throw Exception::InvalidParamException("ExistenceOpt should be NX.");
+            throw YR::Exception::InvalidParamException("ExistenceOpt should be NX.");
         }
         return;
     }

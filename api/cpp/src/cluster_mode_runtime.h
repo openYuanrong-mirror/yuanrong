@@ -54,6 +54,8 @@ public:
 
     void KVWrite(const std::string &key, const char *value, SetParam setParam);
 
+    void KVWrite(const std::string &key, const char *value, size_t len, SetParam setParam);
+
     void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParamV2 setParam);
 
     void KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<msgpack::sbuffer>> &vals,

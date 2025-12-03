@@ -51,16 +51,20 @@ void ClusterAccessInfo::AutoParse()
     ParseFromMasterInfo();
 }
 
-void ClusterAccessInfo::ParseFromMasterInfo(const std::string &masterInfoPath)
+void ClusterAccessInfo::ParseFromMasterInfo()
 {
-    std::ifstream masterInfoFile(masterInfoPath);
-    if (!masterInfoFile.is_open()) {
-        return;
-    }
-
     std::string masterInfo;
-    if (!std::getline(masterInfoFile, masterInfo)) {
-        return;
+    if (!Config::Instance().YR_MASTER_INFO().empty()) {
+        masterInfo = Config::Instance().YR_MASTER_INFO();
+    } else {
+        std::ifstream masterInfoFile(Config::Instance().YR_MASTER_INFO_PATH());
+        if (!masterInfoFile.is_open()) {
+            return;
+        }
+
+        if (!std::getline(masterInfoFile, masterInfo)) {
+            return;
+        }
     }
 
     std::map<std::string, std::string> kvMap;
@@ -257,7 +261,7 @@ void CommandRunner::RunCommandUntil(std::vector<std::string> &args)
         bool fileExists = false;
 
         while (!fileExists && retries < MAX_RETRIES) {
-            fileExists = filesystem::exists(kDefaultDeployPathCurrMasterInfo);
+            fileExists = filesystem::exists(Config::Instance().YR_MASTER_INFO_PATH());
             if (fileExists) {
                 break;
             }

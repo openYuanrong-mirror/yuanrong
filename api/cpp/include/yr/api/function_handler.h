@@ -64,7 +64,7 @@ template <typename T>
 static inline T ParseArg(ObjectRef<T> &arg)
 {
     if (!arg.IsLocal()) {
-        throw Exception::InvalidParamException("cannot pass cluster object ref as local invoke args");
+        throw YR::Exception::InvalidParamException("cannot pass cluster object ref as local invoke args");
     }
     return *YR::internal::GetLocalModeRuntime()->Get(arg, -1);
 }

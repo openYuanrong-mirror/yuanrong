@@ -332,6 +332,7 @@ public:
     virtual int64_t WaitBeforeGet(const std::vector<std::string> &ids, int timeoutMs, bool allowPartial) = 0;
 
     virtual void KVWrite(const std::string &key, const char *value, SetParam setParam) = 0;
+    virtual void KVWrite(const std::string &key, const char *value, size_t len, SetParam setParam) = 0;
     virtual void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParam setParam) = 0;
 
     virtual void KVMSetTx(const std::vector<std::string> &keys,

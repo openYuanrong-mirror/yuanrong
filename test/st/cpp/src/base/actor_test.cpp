@@ -13,6 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <iostream>
+
+#include <ostream>
 #include <string>
 #include "base/utils.h"
 #include "gmock/gmock.h"
@@ -1026,6 +1029,25 @@ TEST_F(ActorTest, DISABLED_testGracefulShutdownWithManualSigterm)
     sleep(10);
     std::string result = YR::KV().Get("shutdownKey", 30);
     EXPECT_EQ(result, "shutdownValue");
+}
+
+    TEST_F(ActorTest, testWriteBytes)
+{
+    int cnt = 5;
+    double data[cnt] = {1.0, 2.0, 3.0, 4.0, 5.0};
+    size_t size = sizeof(double) * cnt;
+    int tag = 1;
+    int index = 0;
+    int scr = 0;
+    int dst = 1;
+    YR::WriteBytes(data, size, tag, index, scr, dst);
+
+    double read_data[cnt];
+    YR::ReadBytes(read_data, size, tag, index, scr, dst);
+    for (int i = 0; i < cnt; i++) {
+        std::cout << data[i] << "   " << read_data[i] << std::endl;
+        EXPECT_EQ(data[i], read_data[i]);
+    }
 }
 
 /*case

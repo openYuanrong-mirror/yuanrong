@@ -45,7 +45,7 @@ static T Deserialize(const msgpack::sbuffer &data)
     } catch (std::exception &e) {
         std::string msg = "failed to deserialize input argument whose type=" + std::string(typeid(T).name()) +
             " and len=" + std::to_string(data.size()) + ", original exception message: " + std::string(e.what());
-        throw Exception::DeserializeException(msg);
+        throw YR::Exception::DeserializeException(msg);
     }
 }
 
@@ -60,7 +60,7 @@ static T Deserialize(const std::shared_ptr<Buffer> data)
         std::string msg = "failed to deserialize input argument whose type=" + std::string(typeid(T).name()) +
                           " and len=" + std::to_string(data->GetSize()) +
                           ", original exception message: " + std::string(e.what());
-        throw Exception::DeserializeException(msg);
+        throw YR::Exception::DeserializeException(msg);
     }
 }
 }  // namespace internal

@@ -53,6 +53,7 @@ public:
     MOCK_METHOD3(KVWrite, void(const std::string &, std::shared_ptr<msgpack::sbuffer>, YR::SetParam));
     MOCK_METHOD3(KVWrite, void(const std::string &, std::shared_ptr<msgpack::sbuffer>, YR::SetParamV2));
     MOCK_METHOD3(KVWrite, void(const std::string &key, const char *value, YR::SetParam setParam));
+    MOCK_METHOD4(KVWrite, void(const std::string &key, const char *value, size_t len, YR::SetParam setParam));
     MOCK_METHOD2(KVRead, std::shared_ptr<YR::Buffer>(const std::string &, int));
     MOCK_METHOD3(KVRead, std::vector<std::shared_ptr<YR::Buffer>>(const std::vector<std::string> &, int, bool));
     MOCK_METHOD3(KVGetWithParam, std::vector<std::shared_ptr<YR::Buffer>>(const std::vector<std::string> &keys,

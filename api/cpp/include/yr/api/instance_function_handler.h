@@ -179,7 +179,7 @@ public:
         this->opts = std::move(optsInput);
         this->opts.CheckOptionsValid();
         if (opts.retryChecker) {
-            throw Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
+            throw YR::Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
         }
         return *this;
     }
@@ -189,7 +189,7 @@ public:
         this->opts = optsInput;
         this->opts.CheckOptionsValid();
         if (opts.retryChecker) {
-            throw Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
+            throw YR::Exception::InvalidParamException("retry checker is not yet supported for stateful functions");
         }
         return *this;
     }
@@ -211,7 +211,7 @@ private:
             T *funcInstance = (T *)internal::LocalInstanceManager<T>::Singleton().GetLocalInstance(instanceId);
             if (funcInstance == nullptr) {
                 std::string msg = "instance is nullptr, instanceId: " + instanceId;
-                throw Exception::InstanceIdEmptyException(msg);
+                throw YR::Exception::InstanceIdEmptyException(msg);
             }
             auto ret =
                 internal::LocalIntanceFuncCall(func, funcInstance, std::move(args), std::index_sequence_for<Args...>{});

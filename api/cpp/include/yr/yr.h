@@ -88,6 +88,10 @@ void Exit();
  */
 bool IsLocalMode();
 
+void WriteBytes(void *data, size_t size, int tag, int index, int src, int dst);
+
+void ReadBytes(void *data, size_t size, int tag, int index, int src, int dst);
+
 template <typename T>
 using InstanceHandler = NamedInstance<T>;
 
@@ -720,7 +724,7 @@ void Wait(const ObjectRef<T> &obj, int timeoutSec)
 {
     CheckInitialized();
     if (timeoutSec <= 0 && timeoutSec != -1) {
-        throw Exception::InvalidParamException("timeout should be larger than 0 or be -1");
+        throw YR::Exception::InvalidParamException("timeout should be larger than 0 or be -1");
     }
     if (obj.IsLocal()) {
         YR::internal::GetLocalModeRuntime()->Wait(obj, timeoutSec);
@@ -734,21 +738,21 @@ WaitResult<T> Wait(const std::vector<ObjectRef<T>> &objs, std::size_t waitNum, i
 {
     CheckInitialized();
     if (timeoutSec < 0 && timeoutSec != -1) {
-        throw Exception::InvalidParamException("timeout should be larger than 0 or be -1");
+        throw YR::Exception::InvalidParamException("timeout should be larger than 0 or be -1");
     }
 
     if (objs.empty()) {
-        throw Exception::InvalidParamException("Wait does not accept empty object list");
+        throw YR::Exception::InvalidParamException("Wait does not accept empty object list");
     }
 
     if (CheckRepeat(objs)) {
-        throw Exception::InvalidParamException("duplicate objectRef exists in objs vector");
+        throw YR::Exception::InvalidParamException("duplicate objectRef exists in objs vector");
     }
 
     internal::CheckIfObjectRefsHomogeneous(objs);
 
     if (waitNum == 0) {
-        throw Exception::InvalidParamException("waitNum cannot be 0");
+        throw YR::Exception::InvalidParamException("waitNum cannot be 0");
     }
 
     waitNum = waitNum > objs.size() ? objs.size() : waitNum;
@@ -804,11 +808,11 @@ void Cancel(const std::vector<ObjectRef<T>> &objs, bool isForce, bool isRecursiv
 {
     CheckInitialized();
     if (objs.empty()) {
-        throw Exception::InvalidParamException("Cancel does not accept empty object list");
+        throw YR::Exception::InvalidParamException("Cancel does not accept empty object list");
     }
     internal::CheckIfObjectRefsHomogeneous(objs);
     if (objs[0].IsLocal()) {
-        throw Exception::IncorrectFunctionUsageException("local mode does not support cancel");
+        throw YR::Exception::IncorrectFunctionUsageException("local mode does not support cancel");
     }
     std::vector<std::string> objIDs;
     for (auto &obj : objs) {
@@ -835,10 +839,10 @@ NamedInstance<F> GetInstance(const std::string &name, const std::string &nameSpa
 {
     CheckInitialized();
     if (name.empty()) {
-        throw Exception::InvalidParamException("name should not be empty");
+        throw YR::Exception::InvalidParamException("name should not be empty");
     }
     if (timeoutSec < 0) {
-        throw Exception::InvalidParamException("timeout should be greater than 0");
+        throw YR::Exception::InvalidParamException("timeout should be greater than 0");
     }
 
     auto funcMeta = YR::internal::GetRuntime()->GetInstance(name, nameSpace, timeoutSec);

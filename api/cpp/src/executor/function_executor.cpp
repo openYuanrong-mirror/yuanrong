@@ -73,7 +73,7 @@ void FunctionExecutor::OpenLibrary(const std::string &path)
     if (handle == nullptr) {
         std::string err(dlerror());
         YRLOG_ERROR("Failed to open library from path {}, reason: {}", path, err);
-        throw Exception(ErrorCode::ERR_USER_CODE_LOAD, "path: " + path + ", error: " + err);
+        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, "path: " + path + ", error: " + err);
     }
 
     libs_.emplace(path, handle);
@@ -98,7 +98,7 @@ void FunctionExecutor::DoLoadFunctions(const std::vector<std::string> &paths)
     }
     YRLOG_INFO("{}={}", DynamicLibraryEnvKey, GetEnv(DynamicLibraryEnvKey));
     if (libPaths.empty()) {
-        throw Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE, "cannot find shared library file.");
+        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE, "cannot find shared library file.");
     }
     for (auto &lib : libPaths) {
         OpenLibrary(lib.string());

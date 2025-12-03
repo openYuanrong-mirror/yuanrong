@@ -307,6 +307,7 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
 
     this->customEnvs = conf.customEnvs;
     this->launchUserBinary = conf.launchUserBinary;
+    this->workingDir = conf.workingDir;
 }
 
 bool ConfigManager::IsLocalMode() const

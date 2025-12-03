@@ -53,12 +53,12 @@ template <typename T>
 inline T RuntimeEnv::Get(const std::string &name) const
 {
     if (!Contains(name)) {
-        throw Exception::InvalidParamException("The field " + name + " not found.");
+        throw YR::Exception::InvalidParamException("The field " + name + " not found.");
     }
     try {
         return jsons_[name].get<T>();
     } catch (std::exception &e) {
-        throw Exception::InvalidParamException("Failed to get the field " + name + ": " + e.what());
+        throw YR::Exception::InvalidParamException("Failed to get the field " + name + ": " + e.what());
     }
 }
 
@@ -69,7 +69,7 @@ inline void RuntimeEnv::Set(const std::string &name, const T &value)
         nlohmann::json valueJ = value;
         jsons_[name] = valueJ;
     } catch (std::exception &e) {
-        throw Exception::InvalidParamException("Failed to set the field " + name + ": " + e.what());
+        throw YR::Exception::InvalidParamException("Failed to set the field " + name + ": " + e.what());
     }
 }
 }  // namespace YR

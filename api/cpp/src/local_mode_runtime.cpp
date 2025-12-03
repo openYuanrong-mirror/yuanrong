@@ -100,7 +100,7 @@ void LocalModeRuntime::LocalSubmit(std::function<void()> &&func)
         pool_->Init(threads_, LOCAL_THREAD_NAME);
     }
     if (threads_ == 0) {
-        throw Exception::InvalidParamException("cannot submit task to empty thread pool");
+        throw YR::Exception::InvalidParamException("cannot submit task to empty thread pool");
     }
     pool_->Handle(std::move(func), "");
 }

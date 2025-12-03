@@ -61,7 +61,7 @@ public:
             usleep(FETCH_INTERVAL_US);
         }
         std::string msg = "YR_INVOKE instance is empty, instanceId: " + instanceId;
-        throw Exception::InvalidParamException(msg);
+        throw YR::Exception::InvalidParamException(msg);
     }
 
     void SetResult(const std::string &instanceId, ObjectRef<T> &&res)
@@ -70,7 +70,7 @@ public:
         auto happened = InstanceObjMap.emplace(instanceId, res).second;
         if (!happened) {
             std::string msg = "YR_INVOKE instance is duplicated, instanceId: " + instanceId;
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         }
     }
 

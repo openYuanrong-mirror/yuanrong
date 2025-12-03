@@ -53,7 +53,7 @@ void CheckIfObjectRefsHomogeneous(const std::vector<ObjectRef<T>> &objs)
     bool result =
         std::all_of(objs.begin(), objs.end(), [isLocal](const ObjectRef<T> &obj) { return obj.IsLocal() == isLocal; });
     if (!result) {
-        throw Exception::InvalidParamException("cannot mix local and cluster object refs");
+        throw YR::Exception::InvalidParamException("cannot mix local and cluster object refs");
     }
 }
 
@@ -62,7 +62,7 @@ void CheckObjs(const std::vector<ObjectRef<T>> &objs)
 {
     CheckInitialized();
     if (objs.empty()) {
-        throw Exception::InvalidParamException("Get does not accept empty object list");
+        throw YR::Exception::InvalidParamException("Get does not accept empty object list");
     }
     CheckIfObjectRefsHomogeneous(objs);
 }

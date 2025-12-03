@@ -139,7 +139,7 @@ std::vector<std::shared_ptr<T>> LocalModeRuntime::Get(const std::vector<ObjectRe
             if (!allowPartial) {
                 std::string msg = "WaitFor wait result timeout -- " + std::to_string(originalTimeout);
                 // do not allow return partial successful result
-                throw Exception::InvalidParamException(msg);
+                throw YR::Exception::InvalidParamException(msg);
             }
             //  allow return partial successful result
             if (!IsAllFail(results)) {
@@ -147,7 +147,7 @@ std::vector<std::shared_ptr<T>> LocalModeRuntime::Get(const std::vector<ObjectRe
             }
             // get all fail
             std::string msg = "All objectRef get failed";
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         }
     }
     return results;

@@ -175,7 +175,7 @@ struct Config {
     /**
      * @brief Absolute path to openYuanRong function directory (where `service.yaml` resides). Empty by default.
      */
-    std::string workingdir = "";
+    std::string workingDir = "";
     /**
      * @brief Default namespace of this client's function.
      */

@@ -215,7 +215,7 @@ function check_sanitizers() {
   fi
 }
 
-while getopts 'athr:l:v:S:DcCgPET:p:m:j:gG' opt; do
+while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gG' opt; do
     case "$opt" in
     a)
         BUILD_ALL="true"
@@ -292,6 +292,9 @@ while getopts 'athr:l:v:S:DcCgPET:p:m:j:gG' opt; do
         SECBRELLA_CCE="ON"
         BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=SECBRELLA_CCE_LD_PRELOAD=${SECBRELLA_CCE_LD_PRELOAD}"
         BAZEL_OPTIONS="${BAZEL_OPTIONS} --sandbox_debug"
+        ;;
+    B)
+        BOOST_VERSION="${OPTARG}"
         ;;
     g)
         BAZEL_TARGETS="//api/python:cp_yr_proto //src/proto:libruntime_cc_proto //src/proto:libruntime_java_proto //src/proto:socket_cc_proto //src/proto:socket_java_proto"

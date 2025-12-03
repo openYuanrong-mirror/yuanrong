@@ -329,7 +329,7 @@ struct InvokeOptions {
         // check retry time
         if (retryTimes > MAX_OPTIONS_RETRY_TIME) {
             std::string msg = "invalid opts retryTimes: " + std::to_string(retryTimes);
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         }
 
         if (retryTimes == 0 && retryChecker != nullptr) {
@@ -342,9 +342,9 @@ struct InvokeOptions {
             std::string msg = "invalid opts instanceRange, min: " + std::to_string(instanceRange.min) +
                               ", max: " + std::to_string(instanceRange.max) +
                               ", please set the min and the max as follows: max = min = -1 or max >= min > 0.";
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         } else if (instanceRange.min <= instanceRange.max && instanceRange.min > 0 && !groupName.empty()) {
-            throw Exception::InvalidParamException(
+            throw YR::Exception::InvalidParamException(
                 "gang scheduling and range scheduling cannot be used at the same time, please select one scheduling to "
                 "set.");
         }

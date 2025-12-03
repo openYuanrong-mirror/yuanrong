@@ -152,7 +152,7 @@ private:
         if (!future_.valid()) {
             if (!allowPartial) {
                 std::string msg = "Get: object " + objId + " does not exist";
-                throw Exception::GetException(msg);
+                throw YR::Exception::GetException(msg);
             }
             std::cerr << "Get: object " << objId << " does not exist" << std::endl;
             return nullptr;
@@ -163,7 +163,7 @@ private:
                 return nullptr;
             }
             std::string msg = "WaitFor wait result timeout -- " + std::to_string(timeout);
-            throw Exception::GetException(msg);
+            throw YR::Exception::GetException(msg);
         }
 
         try {
@@ -171,7 +171,7 @@ private:
         } catch (YR::Exception &e) {
             throw e;
         } catch (std::exception &e) {
-            throw Exception::GetException("Get object failed, exception happens when executing user's function: " +
+            throw YR::Exception::GetException("Get object failed, exception happens when executing user's function: " +
                                           std::string(e.what()));
         }
     }
@@ -180,7 +180,7 @@ private:
     {
         if (!future_.valid()) {
             std::string msg = "Wait: object " + objId + " does not exist";
-            throw Exception::InnerSystemException(msg);
+            throw YR::Exception::InnerSystemException(msg);
         }
         if (timeout == -1) {
             future_.get();  // get throws exception
@@ -197,7 +197,7 @@ private:
     {
         if (!future_.valid()) {
             std::string msg = "IsReady: object " + objId + " does not exist";
-            throw Exception::InnerSystemException(msg);
+            throw YR::Exception::InnerSystemException(msg);
         }
         bool ready = (future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready);
         if (ready) {
@@ -265,7 +265,7 @@ MSGPACK_API_VERSION_NAMESPACE(MSGPACK_DEFAULT_API_NS)
         packer<Stream> &operator()(msgpack::packer<Stream> &o, YR::ObjectRef<T> const &v) const
         {
             if (v.IsLocal()) {
-                throw Exception::InvalidParamException("cannot serialize local object ref");
+                throw YR::Exception::InvalidParamException("cannot serialize local object ref");
             }
             o.pack_array(1);
             o.pack(v.ID());

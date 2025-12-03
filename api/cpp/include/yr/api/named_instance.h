@@ -28,7 +28,7 @@ namespace YR {
         std::string msg =                                                                                         \
             "unsupproted invoke type: range instance handler cannont be used to invoke directly, please execute " \
             "'GetInstances' first.";                                                                              \
-        throw Exception::IncorrectInvokeUsageException(msg);                                                      \
+        throw YR::Exception::IncorrectInvokeUsageException(msg);                                                      \
     }
 
 #define THROW_WHEN_IS_NOT_RANGE(groupName)                                                                        \
@@ -36,7 +36,7 @@ namespace YR {
         std::string msg =                                                                                         \
             "unsupproted function type: this function can only be used for range instance handler, please check " \
             "whether range is enabled in InvokeOptions.";                                                         \
-        throw Exception::IncorrectFunctionUsageException(msg);                                                    \
+        throw YR::Exception::IncorrectFunctionUsageException(msg);                                                    \
     }
 
 const std::string INSTANCE_KEY = "instanceKey";
@@ -490,7 +490,7 @@ std::shared_future<void> NamedInstance<InstanceType>::AsyncTerminate(bool isSync
         return promise->get_future().share();
     }
     if (!groupName.empty()) {
-        throw Exception::IncorrectFunctionUsageException("range instance does not support async terminate");
+        throw YR::Exception::IncorrectFunctionUsageException("range instance does not support async terminate");
     }
     return YR::internal::GetRuntime()->TerminateInstanceAsync(instanceId, isSync);
 }

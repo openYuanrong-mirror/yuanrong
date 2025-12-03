@@ -131,7 +131,7 @@ function compile_all(){
     pushd "${THIRD_PARTY_DIR}/boost/"
     chmod -R 700 "${THIRD_PARTY_DIR}/boost/"
     ./bootstrap.sh --without-libraries=python
-    ./b2 cxxflags=-fPIC cflags=-fPIC  link=static install --with-fiber --prefix=${THIRD_PARTY_DIR}/boost
+    ./b2 cxxflags=-fPIC cflags=-fPIC  link=static install --with-fiber --with-atomic --prefix=${THIRD_PARTY_DIR}/boost
     popd
   fi
   if [ ! -d "${THIRD_PARTY_DIR}/openssl/install" ]; then

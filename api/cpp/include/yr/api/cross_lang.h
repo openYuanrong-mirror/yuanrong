@@ -17,8 +17,12 @@
 #pragma once
 #include "yr/api/invoke_options.h"
 
+template <typename...>
+using void_t = void;
+
 namespace YR {
 namespace internal {
+
 class CrossLangBaseType {
 public:
     bool IsCrossLang(void)
@@ -84,12 +88,10 @@ private:
 };
 
 template <class, class = void>
-struct IsCrossLang : std::false_type {
-};
+struct IsCrossLang : std::false_type {};
 
 template <class T>
-struct IsCrossLang<T, std::void_t<decltype(std::declval<T>().IsCrossLang())>> : std::true_type {
-};
+struct IsCrossLang<T, void_t<decltype(std::declval<T>().IsCrossLang())>> : std::true_type {};
 }  // namespace internal
 
 class CppInstanceClass : public internal::CrossLangClass {
