@@ -44,7 +44,13 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::NewFsConn(c
                                                                                const std::string &dstInstance)
 {
     auto addr = GetIpAddr(ip, port);
-    auto [res, error] = InitFunctionSystemConn(addr, security);
+    bool uds = false;
+    if (dstInstance == "function-proxy" && YR::Libruntime::Config::Instance().YR_DPOSIX_UDS() != "") {
+        uds = true;
+        addr = YR::utility::Join({YR::Libruntime::Config::Instance().YR_DPOSIX_UDS(), "fs.sock"}, "/");
+        YRLOG_INFO("Use dposix uds path {} to connect function proxy", addr);
+    }
+    auto [res, error] = InitFunctionSystemConn(uds, addr, security);
     if (!error.OK()) {
         return std::make_pair(nullptr, error);
     }
@@ -161,7 +167,7 @@ ErrorInfo ClientsManager::ReleaseHttpClient(const std::string &ip, int port)
 }
 
 std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctionSystemConn(
-    std::string target, std::shared_ptr<Security> security)
+    bool uds, std::string target, std::shared_ptr<Security> security)
 {
     grpc::ChannelArguments args;
     std::shared_ptr<grpc::Channel> channel;
@@ -181,7 +187,7 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctio
         }
     }
     try {
-        std::string prefix = "ipv4:///";
+        std::string prefix = uds ? "unix://" : "ipv4:///";
         if (security != nullptr && security->IsFsAuthEnable()) {
             std::vector<std::unique_ptr<grpc::experimental::ClientInterceptorFactoryInterface>> interCeptorCreators;
             auto interCeptorCreator = new PosixClientAuthInterceptorFactory();

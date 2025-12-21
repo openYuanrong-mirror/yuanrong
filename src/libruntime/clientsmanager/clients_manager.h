@@ -72,7 +72,7 @@ public:
         const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &librtCfg);
 
     ErrorInfo ReleaseHttpClient(const std::string &ip, int port);
-    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> InitFunctionSystemConn(std::string target,
+    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> InitFunctionSystemConn(bool uds, std::string target,
                                                                                 std::shared_ptr<Security> security);
 
 private:

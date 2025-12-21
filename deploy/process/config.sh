@@ -67,7 +67,7 @@ max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,prometheus_address:,\
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
 fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
-runtime_home_dir:,\
+runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,\
 etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
@@ -172,6 +172,8 @@ DRIVER_GATEWAY_ENABLE="false"
 FUNCTION_AGENT_PORT=58866
 FUNCTION_PROXY_PORT=22772
 FUNCTION_PROXY_GRPC_PORT=22773
+ENABLE_DPOSIX_UDS=false
+DPOSIX_UDS_PATH=""
 GLOBAL_SCHEDULER_PORT=22770
 RUNTIME_INIT_PORT=21006
 DASHBOARD_PORT=9080
@@ -448,6 +450,8 @@ function usage() {
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
   echo -e "     --runtime_home_dir                                  runtime home dir(default is Home environment variable of the OpenYuanrong component deployment user)"
+  echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
+  echo -e "     --dposix_uds_path                                   dposix uds path, should be absolute path, if not set, will use deploy_path/NODE_ID/dposix_uds as default"
   echo -e "Data System Options:"
   echo -e "     --ds_master_port                                    data system master listening port (default 12123)"
   echo -e "     --ds_worker_port                                    data system worker listening port (default 31501)"
@@ -698,6 +702,8 @@ function parse_opt() {
     --enable_preemption) ENABLE_PREEMPTION=$2 && shift 2 ;;
     --kill_process_timeout_seconds) KILL_PROCESS_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
+    --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
+    --dposix_uds_path) DPOSIX_UDS_PATH=$2 && shift 2 ;;
     --) shift && break ;;
     *) log_error "Invalid option: $1" && return 1 ;;
     esac
@@ -713,6 +719,16 @@ function parse_arg_from_env() {
   fi
   if [ "X$YR_ETCD_ADDR_LIST" != "X" ]; then
     ETCD_ADDR_LIST=$YR_ETCD_ADDR_LIST
+  fi
+}
+
+function parse_uds_config() {
+  if [ "X${ENABLE_DPOSIX_UDS}" == "Xfalse" ] || [ "X${ENABLE_DPOSIX_UDS}" == "XFALSE" ]; then
+    DPOSIX_UDS_PATH=""
+    return 0
+  fi
+  if [ "X${DPOSIX_UDS_PATH}" == "X" ]; then
+    DPOSIX_UDS_PATH="${INSTALL_DIR_PARENT}/${NODE_ID}/dposix_uds/"
   fi
 }
 
@@ -1420,12 +1436,16 @@ function export_config() {
   export ENABLE_COLLECTOR COLLECTOR_PORT
   # faas
   export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER
+  # uds
+  export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH
 }
 
 function main() {
   parse_opt "$@"
   [ $? -ne 0 ] && help_msg && return 1
   parse_arg_from_env
+  [ $? -ne 0 ] && help_msg && return 1
+  parse_uds_config
   [ $? -ne 0 ] && help_msg && return 1
   check_input
   [ $? -ne 0 ] && help_msg && return 1
