@@ -53,9 +53,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime_id", type=str, required=True, help="Runtime ID")
     parser.add_argument("--job_id", type=str, required=True, help="Job ID")
     parser.add_argument("--log_level", type=str, required=True, help="Log level")
-    parser.add_argument("--env_file", type=str, default="", help="Path to environment variable file "
-                                                                 "(.env format: KEY=VALUE, one per line)")
-    parser.add_argument("--is_seed", action="store_true", help="If set, read /dev to block after startup")
     return parser.parse_args()
 
 
@@ -81,7 +78,7 @@ def configure(args: argparse.Namespace = None):
     config.runtime_id = args.runtime_id
     config.job_id = args.job_id
     config.log_level = args.log_level
-    config.env_file = args.env_file
+    config.env_file = os.environ.get("YR_ENV_FILE", "")
     config.ds_address = os.environ.get("DATASYSTEM_ADDR")
     config.is_driver = False
     log_dir = os.getenv("GLOG_log_dir")
@@ -107,18 +104,19 @@ def insert_sys_path():
 
 def main():
     """main"""
-    # Parse arguments first to get env_file path
+    # Parse arguments
     args = parse_args()
-        
-    # If --is_seed is set, read /dev to block
-    if args.is_seed:
-        with open('/dev/zero', 'rb') as dev_file:
-            dev_file.read()
+
+    # If YR_SEED_FILE is set, read the specified file to block
+    seed_file = os.environ.get("YR_SEED_FILE", "")
+    if seed_file:
+        with open(seed_file, 'rb') as f:
+            f.read()
     
-    
+    # Get env_file from environment variable
     # Load environment variables from file BEFORE any code reads from os.environ
     # This must be done before insert_sys_path() and configure() which read env vars
-    load_env_from_file(args.env_file)
+    load_env_from_file(os.environ.get("YR_ENV_FILE", ""))
     
     # If args are invalid, the script automatically exits when calling 'parser.parse_args()'.
     insert_sys_path()
