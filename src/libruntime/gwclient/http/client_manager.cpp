@@ -40,6 +40,7 @@ ClientManager::ClientManager(const std::shared_ptr<LibruntimeConfig> &libruntime
         boost::asio::make_work_guard(*ioc));
     this->maxIocThread = libruntimeConfig->httpIocThreadsNum;
     this->enableMTLS = libruntimeConfig->enableMTLS;
+    this->enableFrontendTLS = libruntimeConfig->enableFrontendTLS;
     this->maxConnSize_ = libruntimeConfig->maxConnSize;
     this->enableTLS_ = libruntimeConfig->enableTLS;
 }
@@ -61,7 +62,7 @@ ClientManager::~ClientManager()
 ErrorInfo ClientManager::InitCtxAndIocThread()
 {
     ErrorInfo err;
-    if (enableMTLS) {
+    if (enableFrontendTLS) {
         try {
             auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
@@ -69,9 +70,6 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             ctx->set_verify_mode(ssl::verify_peer);
             ctx->load_verify_file(librtCfg->verifyFilePath);
             ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
-            ctx->set_password_callback([&](std::size_t max_length, ssl::context_base::password_purpose purpose) {
-                return std::string(librtCfg->privateKeyPaaswd);
-            });
             ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
             for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));

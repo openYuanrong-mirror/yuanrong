@@ -219,6 +219,7 @@ struct LibruntimeConfig {
 
     std::string metaConfig = "";  // deprecated? pyx use it.
     bool enableMTLS = false;
+    bool enableFrontendTLS = false;
     bool enableTLS = false;
     std::string privateKeyPath = "";
     std::string certificateFilePath = "";

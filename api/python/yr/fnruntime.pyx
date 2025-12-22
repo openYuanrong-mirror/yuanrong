@@ -1292,6 +1292,7 @@ cdef class Fnruntime:
         config.rpcTimeout = ConfigManager().rpc_timeout
         config.tenantId = ConfigManager().tenant_id
         config.enableMTLS = ConfigManager().enable_mtls
+        config.enableFrontendTLS = ConfigManager().enable_frontend_tls
         config.privateKeyPath = ConfigManager().private_key_path
         config.certificateFilePath = ConfigManager().certificate_file_path
         config.verifyFilePath = ConfigManager().verify_file_path

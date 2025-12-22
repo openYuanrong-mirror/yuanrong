@@ -248,6 +248,7 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         vector[string] loadPaths
         CLanguageType selfLanguage
         bool enableMTLS
+        bool enableFrontendTLS
         string privateKeyPath
         string certificateFilePath
         string verifyFilePath

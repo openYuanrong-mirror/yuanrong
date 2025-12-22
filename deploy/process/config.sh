@@ -57,7 +57,7 @@ ds_master_port:,\
 curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_connect_timeout:,\
 ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_storage_auth_enable:,\
 is_partial_watch_instances:,\
-ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,\
+ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
 etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key_file:,etcd_ca_file:,\
@@ -294,6 +294,7 @@ STS_CONFIG="{}"
 SSL_BASE_PATH=""
 SCC_ENABLE="false"
 SSL_ENABLE="false"
+FRONTEND_SSL_ENABLE="false"
 SSL_ROOT_FILE="ca.crt"
 SSL_CERT_FILE="module.crt"
 SSL_KEY_FILE="module.key"
@@ -504,6 +505,7 @@ function usage() {
   echo -e "TLS Config Options:"
   echo -e "     --ssl_base_path                                     ssl base path, configure absolute path"
   echo -e "     --ssl_enable                                        ssl enabled, options: true/false (default false)"
+  echo -e "     --frontend_ssl_enable                               frontend ssl enabled, options: true/false (default false)"
   echo -e "     --ssl_root_file                                     ssl root ca file name, default is ca.crt"
   echo -e "     --ssl_cert_file                                     ssl module cert file name, default is module.crt"
   echo -e "     --ssl_key_file                                      ssl module key file name, default is module.key"
@@ -688,6 +690,7 @@ function parse_opt() {
     --block) BLOCK=$2 && shift 2 ;;
     --ssl_base_path) SSL_BASE_PATH=$2 && shift 2 ;;
     --ssl_enable) SSL_ENABLE=$2 && shift 2 ;;
+    --frontend_ssl_enable) FRONTEND_SSL_ENABLE=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
     --ssl_cert_file) SSL_CERT_FILE=$2 && shift 2 ;;
     --ssl_key_file) SSL_KEY_FILE=$2 && shift 2 ;;

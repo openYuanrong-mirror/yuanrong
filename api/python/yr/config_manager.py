@@ -77,6 +77,7 @@ class ConfigManager:
         self.rpc_timeout = _DEFAULT_RPC_TIMOUT
         self.tenant_id = ""
         self.enable_mtls = False
+        self.enable_frontend_tls = False
         self.private_key_path = ""
         self.certificate_file_path = ""
         self.verify_file_path = ""
@@ -281,6 +282,7 @@ class ConfigManager:
         self.rpc_timeout = conf.rpc_timeout
         self.tenant_id = conf.tenant_id
         self.enable_mtls = conf.enable_mtls
+        self.enable_frontend_tls = conf.enable_frontend_tls
         self.private_key_path = conf.private_key_path
         self.private_key_paaswd = conf.private_key_paaswd
         conf.private_key_paaswd = ""
