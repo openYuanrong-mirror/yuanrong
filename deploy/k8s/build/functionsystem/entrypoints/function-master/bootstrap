@@ -41,6 +41,7 @@ exec "${FUNCTION_MASTER}" --ip="${POD_IP}:${GLOBAL_SCHEDULER_PORT}" --meta_store
 --ssl_enable="${SSL_ENABLE}" --metrics_ssl_enable="${METRICS_SSL_ENABLE}" --ssl_base_path="${SSL_BASE_PATH}" \
 --ssl_root_file="${SSL_ROOT_FILE}" --ssl_cert_file="${SSL_CERT_FILE}" --ssl_key_file="${SSL_KEY_FILE}" \
 --enable_print_resource_view="${ENABLE_PRINT_RESOURCE_VIEW}" \
+--enable_vertical_scale="${ENABLE_VERTICAL_SCALE}" \
 --enable_metrics="${ENABLE_METRICS}" --metrics_config="${METRICS_CONFIG}" --metrics_config_file="${METRICS_CONFIG_FILE}" \
 --migrate_prefix="${MIGRATE_PREFIX}" --taint_tolerance_list="${TAINT_TOLERANCE_LIST}" \
 --worker_taint_exclude_labels="${WORKER_TAINT_EXCLUDES}" --migrate_enable="${MIGRATE_ENABLE}" \

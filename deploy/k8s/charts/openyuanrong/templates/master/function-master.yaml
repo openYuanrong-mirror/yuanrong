@@ -203,6 +203,8 @@ spec:
               value: "true"
             - name: ENABLE_PRINT_RESOURCE_VIEW
               value: "{{ .Values.global.common.enablePrintResourceView }}"
+            - name: ENABLE_VERTICAL_SCALE
+              value: "{{ .Values.global.common.enableVerticalScale }}"
             - name: WORKER_TAINT_EXCLUDES
               value: "{{ .Values.global.common.workerTaintExcludes }}"
             - name: SYSTEM_AUTH_MODE
