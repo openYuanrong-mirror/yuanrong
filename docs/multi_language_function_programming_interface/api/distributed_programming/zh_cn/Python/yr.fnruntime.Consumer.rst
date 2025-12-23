@@ -9,7 +9,7 @@ yr.fnruntime.Consumer
 
     样例：
         >>> try:
-        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionConfig.subscriptionType.STREAM)
         ...     consumer = yr.create_stream_consumer("streamName", config)
         ...     # .......
         ...     elements = consumer.receive(6000, 1)

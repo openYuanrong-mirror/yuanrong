@@ -750,7 +750,7 @@ def create_stream_consumer(stream_name: str, config: SubscriptionConfig) -> Cons
 
     Examples:
         >>> try:
-        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionConfig.subscriptionType.STREAM)
         ...     consumer = yr.create_stream_consumer("streamName", config)
         ... except RuntimeError as exp:
         ...     pass
