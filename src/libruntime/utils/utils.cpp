@@ -17,7 +17,10 @@
 
 #include <cctype>
 #include <chrono>
+#include <fstream>
 #include <sstream>
+
+#include "src/utility/logger/logger.h"
 
 namespace YR {
 const int IP_INDEX = 0;
@@ -72,7 +75,7 @@ long long GetCurrentTimestampNs()
 {
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::nanoseconds >(duration).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
 }
 
 std::string GetCurrentUTCTime()
@@ -293,5 +296,112 @@ std::string GetEnvValue(const std::string &key)
         return std::string(env);
     }
     return std::string("");
+}
+
+std::string StripWhitespace(const std::string &str)
+{
+    size_t start = str.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return "";
+    }
+    size_t end = str.find_last_not_of(" \t\r\n");
+    return str.substr(start, end - start + 1);
+}
+
+bool ShouldSkipLine(const std::string &line)
+{
+    return line.empty() || line[0] == '#';
+}
+
+bool ParseKeyValue(const std::string &line, std::string &key, std::string &value)
+{
+    size_t eqPos = line.find('=');
+    if (eqPos == std::string::npos) {
+        return false;
+    }
+
+    key = line.substr(0, eqPos);
+    value = line.substr(eqPos + 1);
+    return true;
+}
+
+std::string StripKeyValueWhitespace(const std::string &str)
+{
+    size_t start = str.find_first_not_of(" \t");
+    if (start == std::string::npos) {
+        return "";
+    }
+    size_t end = str.find_last_not_of(" \t");
+    return str.substr(start, end - start + 1);
+}
+
+void RemoveQuotes(std::string &value)
+{
+    const uint32_t minSize = 2;
+    if (value.length() >= minSize) {
+        if ((value[0] == '"' && value[value.length() - 1] == '"') ||
+            (value[0] == '\'' && value[value.length() - 1] == '\'')) {
+            value = value.substr(1, value.length() - minSize);
+        }
+    }
+}
+
+void LoadEnvFromFile(const std::string &envFile)
+{
+    if (envFile.empty()) {
+        YRLOG_WARN("Environment variable file is empty");
+        return;
+    }
+
+    std::ifstream file(envFile);
+    if (!file.is_open()) {
+        YRLOG_WARN("Environment variable file not found: {}", envFile);
+        return;
+    }
+
+    try {
+        std::string line;
+        size_t lineNum = 0;
+        size_t loadedCount = 0;
+
+        while (std::getline(file, line)) {
+            lineNum++;
+
+            line = StripWhitespace(line);
+            if (ShouldSkipLine(line)) {
+                continue;
+            }
+
+            std::string key = "";
+            std::string value = "";
+            if (!ParseKeyValue(line, key, value)) {
+                YRLOG_WARN("Invalid format in {} at line {}: expected KEY=VALUE format, got: {}", envFile, lineNum,
+                           line);
+                continue;
+            }
+
+            key = StripKeyValueWhitespace(key);
+            if (key.empty()) {
+                YRLOG_WARN("Empty key in {} at line {}", envFile, lineNum);
+                continue;
+            }
+
+            value = StripKeyValueWhitespace(value);
+            RemoveQuotes(value);
+
+            if (setenv(key.c_str(), value.c_str(), 1) != 0) {
+                YRLOG_ERROR("Failed to set environment variable: {}", key);
+                continue;
+            }
+            loadedCount++;
+        }
+
+        if (loadedCount > 0) {
+            YRLOG_DEBUG("Loaded {} environment variables from {}", loadedCount, envFile);
+            Libruntime::Config::Reset();
+        }
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("Failed to load environment variables from {}: {}", envFile, e.what());
+    }
 }
 }  // namespace YR

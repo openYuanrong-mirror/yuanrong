@@ -131,7 +131,7 @@ yr.init()
 
 # 在 1 核 CPU，1G 内存，1 个自定义 ssd 的资源上运行 add 函数
 opt = yr.InvokeOptions(cpu=1000, memory=1024)
-opt.custom_resource={"ssd":1}
+opt.custom_resources={"ssd":1}
 result = add.options(opt).invoke(1)
 print(yr.get(result))
 

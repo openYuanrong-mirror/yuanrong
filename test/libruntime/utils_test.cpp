@@ -16,6 +16,10 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
 
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/fsclient/protobuf/common.pb.h"
@@ -106,7 +110,7 @@ TEST_F(UtilsTest, SensitiveDataTest)
     std::string str = "data";
     std::unique_ptr<char[]> charArray = std::make_unique<char[]>(str.size() + 1);
     std::copy(str.begin(), str.end(), charArray.get());
-    charArray[str.size()] = '\0'; 
+    charArray[str.size()] = '\0';
     SensitiveData d1(std::move(charArray), str.size() + 1);
     SensitiveData d2 = SensitiveData(d1);
     SensitiveData d3 = d1;
@@ -183,6 +187,50 @@ TEST_F(UtilsTest, unhexlifyTest)
     ASSERT_EQ(res, -1);
     res = unhexlify("1", ascii);
     ASSERT_EQ(res, -1);
+}
+
+TEST_F(UtilsTest, LoadEnvFromFile)
+{
+    // Create temporary .env file with various scenarios
+    std::string tempFile = "/tmp/test_env_" + std::to_string(getpid()) + ".env";
+    std::ofstream file(tempFile);
+    file << "# Comment line\n";
+    file << "TEST_KEY1=value1\n";
+    file << "TEST_KEY2=value with spaces\n";
+    file << "TEST_SINGLE_QUOTE='quoted value'\n";
+    file << "TEST_DOUBLE_QUOTE=\"quoted value\"\n";
+    file << "TEST_WITH_EQUALS=key=value\n";
+    file << "TEST_WHITESPACE= value with spaces \n";
+    file << "\n";  // Empty line
+    file.close();
+
+    // Clear test environment variables
+    unsetenv("TEST_KEY1");
+    unsetenv("TEST_KEY2");
+    unsetenv("TEST_SINGLE_QUOTE");
+    unsetenv("TEST_DOUBLE_QUOTE");
+    unsetenv("TEST_WITH_EQUALS");
+    unsetenv("TEST_WHITESPACE");
+
+    {
+        YR::LoadEnvFromFile(tempFile);
+
+        ASSERT_STREQ(std::getenv("TEST_KEY1"), "value1");
+        ASSERT_STREQ(std::getenv("TEST_KEY2"), "value with spaces");
+        ASSERT_STREQ(std::getenv("TEST_SINGLE_QUOTE"), "quoted value");
+        ASSERT_STREQ(std::getenv("TEST_DOUBLE_QUOTE"), "quoted value");
+        ASSERT_STREQ(std::getenv("TEST_WITH_EQUALS"), "key=value");
+        ASSERT_STREQ(std::getenv("TEST_WHITESPACE"), "value with spaces");
+    }
+
+    // Cleanup
+    unlink(tempFile.c_str());
+    unsetenv("TEST_KEY1");
+    unsetenv("TEST_KEY2");
+    unsetenv("TEST_SINGLE_QUOTE");
+    unsetenv("TEST_DOUBLE_QUOTE");
+    unsetenv("TEST_WITH_EQUALS");
+    unsetenv("TEST_WHITESPACE");
 }
 
 }  // namespace test

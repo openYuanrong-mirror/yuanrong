@@ -71,14 +71,25 @@ DsStore::~DsStore()
 void DsStore::set(const std::string &key, const std::vector<char> &data)
 {
     auto str = std::string(data.begin(), data.end());
-    YR::KVManager::Set(ReplaceDsStoreKey(key), std::string(data.begin(), data.end()));
+    try {
+        YR::KVManager::Set(ReplaceDsStoreKey(key), std::string(data.begin(), data.end()));
+    } catch (YR::Exception &e) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION,
+                            "collective group " + groupName_ + " failed to execute, what: " + e.what());
+    }
     keys_.emplace(ReplaceDsStoreKey(key));
     std::this_thread::sleep_for(std::chrono::milliseconds(DS_STORE_CHECK_INTERVAL));
 }
 
 std::vector<char> DsStore::get(const std::string &key)
 {
-    std::string result = YR::KVManager::Get(ReplaceDsStoreKey(key));
+    std::string result;
+    try {
+        result = YR::KVManager::Get(ReplaceDsStoreKey(key));
+    } catch (YR::Exception &e) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION,
+                            "collective group " + groupName_ + " failed to execute, what: " + e.what());
+    }
     std::vector<char> out;
     out.assign(result.begin(), result.end());
     return out;
@@ -90,7 +101,13 @@ void DsStore::wait(const std::vector<std::string> &keys)
     for (const auto &key : keys) {
         editedKeys.push_back(ReplaceDsStoreKey(key));
     }
-    YR::KVManager::Get(editedKeys);
+
+    try {
+        YR::KVManager::Get(editedKeys);
+    } catch (YR::Exception &e) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION,
+                            "collective group " + groupName_ + " failed to execute, what: " + e.what());
+    }
 }
 
 void DsStore::wait(const std::vector<std::string> &keys, const std::chrono::milliseconds &timeout)
@@ -104,7 +121,13 @@ void DsStore::wait(const std::vector<std::string> &keys, const std::chrono::mill
     if (timeout.count() > 0 && timeoutSec == 0) {
         timeoutSec = 1;
     }
-    YR::KVManager::Get(editedKeys, timeoutSec);
+
+    try {
+        YR::KVManager::Get(editedKeys, timeoutSec);
+    } catch (YR::Exception &e) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION,
+                            "collective group " + groupName_ + " failed to execute, what: " + e.what());
+    }
 }
 
 void DsStore::clear()
@@ -117,7 +140,7 @@ void DsStore::clear()
 GlooCollectiveGroup::GlooCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, std::string storePrefix)
     : CollectiveGroup(groupSpec, rank, std::move(storePrefix))
 {
-    auto dsStore = std::make_shared<DsStore>();
+    auto dsStore = std::make_shared<DsStore>(groupName_);
     std::string prefixKey = groupName_;
     if (!storePrefix_.empty()) {
         prefixKey = groupName_ + "-" + storePrefix_;
@@ -150,8 +173,7 @@ GlooCollectiveGroup::GlooCollectiveGroup(const CollectiveGroupSpec &groupSpec, i
         }
         dev = gloo::transport::ibverbs::CreateDevice(attr);
     } else {
-        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                            "invalid backend type: " + backend);
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "invalid backend type: " + backend);
     }
 
     context_ = std::make_shared<gloo::rendezvous::Context>(rank_, worldSize_);
@@ -305,6 +327,6 @@ void GlooCollectiveGroup::DoAllGather(const void *sendbuf, void *recvbuf, int co
     opts.setOutput(static_cast<T *>(recvbuf), count * GetWorldSize());
     gloo::allgather(opts);
 }
-}  // namespace YR::collective
+}  // namespace YR::Collective
 
-#endif // ENABLE_GLOO
+#endif  // ENABLE_GLOO

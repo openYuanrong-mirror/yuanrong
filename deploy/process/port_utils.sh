@@ -28,6 +28,10 @@ function init_control_plane_port() {
     control_port_table["ds_master_port"]=${DS_MASTER_PORT}
     update_control_plane_port "ds_master_port"
   fi
+  if [ "X${ENABLE_METASERVICE}" != "Xtrue" ] || [ "X${ENABLE_METASERVICE}" != "XTRUE" ]; then
+    control_port_table["meta_service_port"]=${META_SERVICE_PORT}
+    update_control_plane_port "meta_service_port"
+  fi
   # function master
   control_port_table["global_scheduler_port"]=${GLOBAL_SCHEDULER_PORT}
   update_control_plane_port "global_scheduler_port"

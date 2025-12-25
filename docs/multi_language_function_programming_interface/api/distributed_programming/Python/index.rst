@@ -101,6 +101,7 @@ Function Group API
    yr.device.DataInfo
 
 
+
 Resource Group API
 ----------------------
 
@@ -116,6 +117,17 @@ Resource Group API
    yr.config.UserTLSConfig
    yr.config.DeploymentConfig
 
+
+
+Group API
+----------------------
+
+.. autosummary::
+   :nosignatures:
+   :toctree: generated/
+
+   yr.group
+   yr.config.GroupOptions
 
 
 KV Cache API

@@ -550,6 +550,20 @@ function start_collector() {
   return ${ret_code}
 }
 
+function start_meta_service() {
+  if [ "X${ENABLE_META_SERVICE}" != "Xtrue" ] && [ "X${ENABLE_META_SERVICE}" != "XTRUE" ]; then
+    return 0
+  fi
+  update_data_plane_port "meta_service_port"
+  META_SERVICE_PORT=${control_port_table["meta_service_port"]}
+  install_function_system "meta_service"
+  ret_code=$?
+  if [ ${ret_code} -eq 0 ]; then
+    check_and_set_component_checklist "meta_service" $META_SERVICE_PID
+  fi
+  return ${ret_code}
+}
+
 function start_ds_worker() {
   update_data_plane_port "ds_worker_port"
   DS_WORKER_PORT=${data_port_table["ds_worker_port"]}
@@ -907,6 +921,7 @@ function main() {
   start_function_scheduler
   start_dashboard
   start_collector
+  start_meta_service
   # check all component is working, if not, restart with change port(for control plane only restart).
   wait_for_ready_on_checklist
   time=$(echo $start "$(date +%s)" | awk '{print $2-$1}')

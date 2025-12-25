@@ -364,7 +364,7 @@ function show_component_error_log() {
   local log_name=$1
   local key_word=$2
   local note=$3
-  local output=$(grep -E "^[EW]" ${log_name} | grep "${key_word}")
+  local output=$(grep -a -E "^[EW]" ${log_name} | grep "${key_word}")
   if [ -n "$output" ]; then
     log_warning "${note} occurs error, errors as follows:"
     grep -E "^[EW]" ${log_name} | grep "${key_word}" | xargs -I {} echo "{}"

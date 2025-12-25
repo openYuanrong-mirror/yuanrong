@@ -96,6 +96,7 @@ class ConfigManager:
         self.namespace = ""
         self.log_to_driver = False
         self.dedup_logs = False
+        self.env_file = ""
 
     @property
     def deployment_config(self) -> DeploymentConfig:
@@ -298,6 +299,7 @@ class ConfigManager:
         self.runtime_env = conf.runtime_env
         self.log_to_driver = conf.log_to_driver
         self.dedup_logs = conf.dedup_logs
+        self.env_file = conf.env_file
 
     def get_function_id_by_language(self, language):
         """

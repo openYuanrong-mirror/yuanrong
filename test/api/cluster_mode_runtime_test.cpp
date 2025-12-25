@@ -1259,8 +1259,8 @@ TEST_F(ClusterModeTest, TestHybridLocalPassMix)
 {
     YR::InvokeOptions opt;
     opt.alwaysLocalMode = true;
-    auto x = YR::ObjectRef<int>("123", false, true);   // local object
-    auto y = YR::ObjectRef<int>("124", false, false);  // cluster object
+    auto x = YR::ObjectRef<int>("123", false, false);
+    auto y = YR::ObjectRef<int>("124", false, false);
     auto obj = YR::Function(TwoArgs).Options(opt).Invoke(x, y);
     EXPECT_THROW(
         {

@@ -139,6 +139,8 @@ InitCollectiveGroup
         - 必须在调用 ``YR::Init()`` 之后才能调用此函数。
         - 同一个 groupName 不能重复初始化，否则会抛出异常。
         - groupName 必须匹配正则表达式：``^[a-zA-Z0-9\-_!#%\^\*\(\)\+\=\:;]*$``
+        - 不支持 driver 中的 ``CreateCollectiveGroup`` 和 actor 中的 ``InitCollectiveGroup`` 混合加入同一个 group。同一个 group 必须全部使用 ``CreateCollectiveGroup`` 创建，或者全部使用 ``InitCollectiveGroup`` 初始化。
+        - 不支持动态增删 group 中的成员。group 创建后，成员数量固定，无法在运行时添加或删除成员。
 
     抛出：
         :cpp:class:`Exception` - 以下情形会抛出异常：
@@ -215,6 +217,8 @@ CreateCollectiveGroup
         - instanceIDs 的大小必须等于 worldSize。
         - ranks 的大小必须等于 worldSize。
         - 如果 groupName 已存在，将抛出异常，需要先调用 DestroyCollectiveGroup 销毁已存在的组。
+        - 不支持 driver 中的 ``CreateCollectiveGroup`` 和 actor 中的 ``InitCollectiveGroup`` 混合加入同一个 group。同一个 group 必须全部使用 ``CreateCollectiveGroup`` 创建，或者全部使用 ``InitCollectiveGroup`` 初始化。
+        - 不支持动态增删 group 中的成员。group 创建后，成员数量固定，无法在运行时添加或删除成员。
 
     抛出：
         :cpp:class:`Exception` - 以下情形会抛出异常：
@@ -379,6 +383,11 @@ Reduce
         - **op** - 规约操作符。
         - **dstRank** - 目标进程的 rank，规约结果将发送到此进程。
         - **groupName** - 组的名称，默认为 "default"。
+
+    .. note::
+        注意事项
+
+        - 非 root rank（非 dstRank）的 recvbuf 输出数据不可信，请不要使用。只有 dstRank 进程的 recvbuf 包含有效的规约结果。
 
     抛出：
         :cpp:class:`Exception` - 如果组不存在或尚未创建，将抛出异常。

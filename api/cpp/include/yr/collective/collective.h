@@ -19,9 +19,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "reduce_op.h"
 
@@ -131,6 +131,9 @@ protected:
  * @param prefix Storage prefix for key-value storage used by backend communication. Default is an empty string.
  * @note Must be called after YR::Init(). The same groupName cannot be initialized repeatedly, otherwise an exception
  * will be thrown. groupName must match the regex: ^[a-zA-Z0-9\-_!#%\^\*\(\)\+\=\:;]*$
+ *       Mixing CreateCollectiveGroup (in driver) and InitCollectiveGroup (in actor) for the same group is not
+ * supported. All members of a group must use either CreateCollectiveGroup or InitCollectiveGroup exclusively. Dynamic
+ * addition or removal of group members is not supported. Once a group is created, the member count is fixed.
  * @throws Exception Thrown if called before initialization, if groupName is invalid, or if the collective group already
  * exists.
  *
@@ -153,6 +156,9 @@ void InitCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, const s
  * @note The size of instanceIDs must equal worldSize. The size of ranks must equal worldSize.
  *       If groupName already exists, an exception will be thrown. You need to call DestroyCollectiveGroup first to
  * destroy the existing group.
+ *       Mixing CreateCollectiveGroup (in driver) and InitCollectiveGroup (in actor) for the same group is not
+ * supported. All members of a group must use either CreateCollectiveGroup or InitCollectiveGroup exclusively. Dynamic
+ * addition or removal of group members is not supported. Once a group is created, the member count is fixed.
  * @throws Exception Thrown if instanceIDs, ranks, and worldSize don't match, if groupName already exists, or if
  * groupName is invalid.
  *
@@ -206,6 +212,8 @@ void AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, co
  * @param op Reduction operator.
  * @param dstRank Rank of the destination process where the reduction result will be sent.
  * @param groupName Name of the group, default is "default".
+ * @note The recvbuf output data of non-root ranks (non-dstRank) is unreliable and should not be used. Only the dstRank
+ * process's recvbuf contains valid reduction results.
  * @throws Exception Thrown if the group doesn't exist or hasn't been created yet.
  *
  * @snippet{trimleft} collective_example.cpp reduce example
@@ -410,4 +418,4 @@ private:
     std::unordered_map<std::string, std::shared_ptr<CollectiveGroup>> groups_{};
 };
 
-}  // namespace YR::collective
+}  // namespace YR::Collective

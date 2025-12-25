@@ -1,3 +1,4 @@
+# 通知: 本项目已经正式迁移至 [AtomGit](https://atomgit.com/openeuler/yuanrong) 平台
 ![](./docs/images/logo-large.png)
 
 openYuanrong 是一个 Serverless 分布式计算引擎，致力于以一套统一 Serverless 架构支持 AI、大数据、微服务等各类分布式应用。它提供多语言函数编程接口，以单机编程体验简化分布式应用开发；提供分布式动态调度和数据共享等能力，实现分布式应用的高性能运行和集群的高效资源利用。

@@ -148,3 +148,12 @@ py_test(
     deps = ["//api/python:yr_lib"],
     env = SAN_ENV,
 )
+py_test(
+    name="test_load_env_from_file",
+    size="small",
+    srcs=["test_load_env_from_file.py"],
+    tags = ["smoke"],
+    imports = ["../../"],
+    deps = ["//api/python:yr_lib"],
+    env = SAN_ENV,
+)

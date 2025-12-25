@@ -121,7 +121,8 @@ void CreateCollectiveGroup(const CollectiveGroupSpec &groupSpec, const std::vect
     try {
         YR::KVManager::Set(COLLECTIVE_GROUP_INFO_PREFIX + groupSpec.groupName, info.ToString(), YR::ExistenceOpt::NX);
     } catch (YR::Exception &e) {
-        throw YR::Exception("collective group " + groupSpec.groupName + " already existed, please destroy it first");
+        throw YR::Exception(Libruntime::ErrorCode::ERR_PARAM_INVALID,
+                            "collective group " + groupSpec.groupName + " already existed, please destroy it first");
     }
 }
 

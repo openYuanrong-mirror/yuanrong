@@ -93,6 +93,15 @@ Python
    :hidden:
    :maxdepth: 1
 
+   yr.Group
+   yr.config.GroupOptions
+
+
+.. toctree::
+   :glob:
+   :hidden:
+   :maxdepth: 1
+
    yr.create_resource_group
    yr.remove_resource_group
    yr.ResourceGroup
@@ -314,6 +323,19 @@ Python
      - 用户 SSL/TLS 配置。
    * - :doc:`yr.config.DeploymentConfig`
      - 自动部署配置类。
+
+
+成组 API
+----------------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`yr.Group`
+     - 一个用于管理实例分组生命周期的类。
+   * - :doc:`yr.config.GroupOptions`
+     - 分组实例调度的配置选项。
 
 
 KV 缓存 API

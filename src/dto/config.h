@@ -67,6 +67,7 @@ Type Cast(const char *key, const std::string &value)
 class Config {
 public:
     static Config &Instance();
+    static void Reset();
 #define CONFIG_DECLARE(type, name, default)            \
 private:                                               \
     type name##_ = ParseFromEnv<type>(#name, default); \

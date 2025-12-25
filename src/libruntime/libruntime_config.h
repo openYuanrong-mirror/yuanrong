@@ -265,6 +265,7 @@ struct LibruntimeConfig {
     uint32_t maxConnSize = 10000;
     std::string nodeId;
     std::string nodeIp;
+    std::string envFile = "";  // Path to environment variable file (.env format: KEY=VALUE, one per line)
 private:
     ErrorInfo ValidateKeyParams();
 };

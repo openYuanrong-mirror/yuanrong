@@ -1310,6 +1310,7 @@ cdef class Fnruntime:
         config.ns = ConfigManager().ns
         config.logToDriver = ConfigManager().log_to_driver
         config.dedupLogs = ConfigManager().dedup_logs
+        config.envFile = ConfigManager().env_file
         for key, value in ConfigManager().custom_envs.items():
             config.customEnvs.insert(pair[string, string](key, value))
         with nogil:

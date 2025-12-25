@@ -60,6 +60,7 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     auto ins = YR::Instance(CollectiveActor::FactoryCreate).Invoke();
     std::string groupName1 = "test@group1";
     std::string groupName2 = "test/group1";
+    std::string groupName3 = "test-group1";
     auto res = ins.Function(&CollectiveActor::InitCollectiveGroup).Invoke(groupName1, 0, 1);
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(res), 2002, "groupName is invalid. It should match the regex");
 
@@ -79,6 +80,15 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     };
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec2, {ins.GetInstanceId()}, {0}), 1001,
                                    "groupName is invalid. It should match the regex");
+
+    YR::Collective::CollectiveGroupSpec spec3{
+        .worldSize = 1,
+        .groupName = groupName3,
+    };
+    YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0});
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0}), 1001,
+                                   "already existed, please destroy it first");
+    YR::Collective::DestroyCollectiveGroup(groupName3);
 }
 
 /**
@@ -192,6 +202,45 @@ TEST_F(CollectiveTest, CreateGroupInDriverTest)
         EXPECT_EQ(*YR::Get(res2[i]), 44);
     }
 
+    YR::Collective::DestroyCollectiveGroup(groupName);
+}
+
+/**
+ * @title: Reduce函数调用成功
+ * @step:  1.创建CollectiveActor实例
+ * @step:  2.调用CreateCollectiveGroup，在driver中创建对应group
+ * @step:  3.调用CollectiveActor::Reduce函数，传入{1, 2, 3, 4}
+ * @step:  5.调用DestroyCollectiveGroup，清理CollectiveGroup
+ *
+ * @expect: 预期无异常抛出，rank 0的实例返回值为各个actor中各项之和，40
+ */
+TEST_F(CollectiveTest, ReduceTest)
+{
+    std::vector<YR::NamedInstance<CollectiveActor>> instances;
+    std::vector<std::string> instanceIDs;
+    for (int i = 0; i < 4; ++i) {
+        auto ins = YR::Instance(CollectiveActor::FactoryCreate).Invoke();
+        instances.push_back(ins);
+        instanceIDs.push_back(ins.GetInstanceId());
+    }
+
+    std::string groupName = "test-group2";
+    YR::Collective::DestroyCollectiveGroup(groupName);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 4,
+        .groupName = groupName,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
+
+    std::vector<int> input = {1, 2, 3, 4};
+    std::vector<YR::ObjectRef<int>> res;
+    for (int i = 0; i < 4; ++i) {
+        res.push_back(instances[i]
+                          .Function(&CollectiveActor::Reduce)
+                          .Invoke(input, groupName, static_cast<uint8_t>(YR::ReduceOp::SUM)));
+    }
+
+    EXPECT_EQ(*YR::Get(res[0]), 40);
     YR::Collective::DestroyCollectiveGroup(groupName);
 }
 
@@ -358,12 +407,3 @@ TEST_F(CollectiveTest, ScatterTest)
 
     YR::Collective::DestroyCollectiveGroup(groupName);
 }
-
-/**
- * todo
- * 6. IBVERBS
- * 9. 重复创建报错？
- * 10. driver也作为一个rank，如何获取自己的instanceID
- * 11. 能否动态增删rank
- * 12. ds中的值会删不掉，现在一定要显式调destroy才行
- */

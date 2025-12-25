@@ -66,4 +66,11 @@ std::string GetEnvValue(const std::string &key);
 int32_t ToMs(int32_t timeoutS);
 bool WillSizeOverFlow(size_t a, size_t b);
 GroupPolicy ConvertStrategyToPolicy(const std::string &stategy);
+
+// Load environment variables from a .env format file
+// This must be called before any code reads from environment variables
+// The file should contain environment variables in KEY=VALUE format, one per line
+// Lines starting with # are treated as comments and ignored
+// Empty lines are ignored
+void LoadEnvFromFile(const std::string &envFile);
 }  // namespace YR

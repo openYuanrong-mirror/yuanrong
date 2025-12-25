@@ -334,6 +334,8 @@ public:
 
     int Compute(std::vector<int> in, std::string &groupName, uint8_t op);
 
+    int Reduce(std::vector<int> in, std::string &groupName, uint8_t op);
+
     double ComputeDouble(std::vector<double> in, std::string &groupName, uint8_t op);
 
     int Recv(std::string &groupName, int from, int tag, int count);

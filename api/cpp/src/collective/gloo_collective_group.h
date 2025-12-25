@@ -31,7 +31,7 @@ const int DS_STORE_CHECK_DEFAULT_TIMEOUT = 5 * 60 * 1000;  // ms
 
 struct DsStore : public gloo::rendezvous::Store {
 public:
-    DsStore() = default;
+    DsStore(const std::string &groupName) : groupName_(groupName) {};
     ~DsStore() override;
 
     void set(const std::string &key, const std::vector<char> &data) override;
@@ -45,7 +45,8 @@ public:
     void clear();
 
 private:
-    std::unordered_set<std::string> keys_;
+    std::string groupName_;
+    std::unordered_set<std::string> keys_{};
 };
 
 class GlooCollectiveGroup : public CollectiveGroup {
@@ -96,5 +97,5 @@ private:
     std::shared_ptr<DsStore> store_;
     std::recursive_mutex mtx_{};
 };
-#endif // ENABLE_GLOO
-}  // namespace YR::collective
+#endif  // ENABLE_GLOO
+}  // namespace YR::Collective

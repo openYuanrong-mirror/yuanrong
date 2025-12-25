@@ -108,6 +108,12 @@ LibruntimeManager::LibruntimeManager()
 
 ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::string &rtCtx)
 {
+    // Load environment variables from file BEFORE any code reads from environment variables
+    // This must be done first to ensure all subsequent getenv() calls can read the loaded variables
+    if (!config.envFile.empty()) {
+        YR::LoadEnvFromFile(config.envFile);
+    }
+
     auto err = config.Check();
     if (!err.OK()) {
         YRLOG_ERROR("config check failed, job id is {}, err code is {}, err msg is {}", config.jobId,

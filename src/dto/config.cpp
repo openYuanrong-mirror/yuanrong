@@ -23,5 +23,10 @@ Config &Config::Instance()
 {
     return Config::c;
 }
+
+void Config::Reset()
+{
+    Config::c = Config();  // Reconstruct to reload environment variables
+}
 }  // namespace Libruntime
 }  // namespace YR

@@ -338,7 +338,7 @@ def get(obj_refs: Union["ObjectRef", List, "RgObjectRef"], timeout: int = consta
 
 
 @check_initialized
-def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: int = 1,
+def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: Optional[int] = None,
          timeout: Optional[int] = None) -> Tuple[List[ObjectRef], List[ObjectRef]]:
     """
     Wait for the value of the object in the data system to be ready based on the object's key.
@@ -394,6 +394,9 @@ def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: int = 1,
     if len(obj_refs) != len(set(obj_refs)):
         raise ValueError(
             "obj_refs value error: duplicate obj_ref exists in the list")
+
+    if wait_num is None:
+        wait_num = len(obj_refs)
     if wait_num == 0 or timeout == 0:
         return [], obj_refs
 
@@ -875,7 +878,6 @@ def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
         >>> set_param.existence = yr.ExistenceOpt.NX
         >>> set_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
         >>> set_param.ttl_second = 10
-        >>> set_param.cache_type = yr.CacheType.DISK
         >>> yr.kv_write_with_param("kv-key", b"value1", set_param)
         >>>
         >>> yr.finalize()
@@ -907,13 +909,10 @@ def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam =
     Example:
         >>> import yr
         >>> yr.init()
-        >>> # The worker startup parameters need to be configured with shared_disk_directory and shared_disk_size_mb;
-        >>> # otherwise, this example will result in an error
         >>> mset_param = yr.MSetParam()
         >>> mset_param.existence = yr.ExistenceOpt.NX
         >>> mset_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
         >>> mset_param.ttl_second = 100
-        >>> mset_param.cache_type = yr.CacheType.DISK
         >>> yr.kv_m_write_tx(["key1", "key2"], [b"value1", b"value2"], mset_param)
         >>>
         >>> yr.finalize()
@@ -984,7 +983,6 @@ def kv_set(key: str, value: bytes, set_param: SetParam = SetParam()) -> None:
         >>> set_param.existence = yr.ExistenceOpt.NX
         >>> set_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
         >>> set_param.ttl_second = 10
-        >>> set_param.cache_type = yr.CacheType.DISK
         >>> yr.kv_set("kv-key", b"value1", set_param)
         >>>
         >>> yr.finalize()

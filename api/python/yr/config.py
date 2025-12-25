@@ -123,6 +123,13 @@ class Config:
     #: Log directory, specifies the path where log files will be stored.
     #: Default is the current working directory ("./").
     log_dir: str = "./"
+    #: Path to environment variable file (.env format) to load at startup.
+    #: The file should contain environment variables in KEY=VALUE format, one per line, e.g.:
+    #: "KEY1=VALUE1"
+    #: "KEY2=VALUE2"
+    #: Lines starting with # are treated as comments and ignored. Empty lines are ignored.
+    #: If specified, environment variables from this file will be loaded into os.environ.
+    env_file: str = ""
     #: Max size for log file, default is ``0`` (If the default value is ``0``, it will eventually be set to ``40``).
     log_file_size_max: int = 0
     #: Max number for log file, default is ``0`` (If the default value is ``0``, it will eventually be set to ``20``).
@@ -322,8 +329,32 @@ class FunctionGroupContext:
 
 @dataclass
 class GroupOptions:
+    """
+    Configuration options for grouped instance scheduling.
+
+    The `GroupOptions` structure defines parameters for the lifecycle management of grouped instances, including timeout
+    settings for rescheduling when kernel resources are insufficient.
+    """
+
+    #: Timeout for rescheduling when kernel resources are insufficient, in seconds.
+    #: If set to `-1`, the kernel will retry scheduling indefinitely.
+    #: If set to a value less than `0`, an exception will be thrown.
+    #: Default value: ``-1``.
     timeout: int = -1
+
+    #: Whether to enable the fate-sharing configuration for grouped instances.
+    #: `True` (default): Instances in the group will be created and destroyed together.
+    #: `False`: Instances can have independent lifecycles.
+    #: Default value: ``True``.
     same_lifecycle: bool = True
+
+    #: The strategy to create the group
+    #: None: No strategy.
+    #: SPREAD: Distribute multiple instances across different nodes as much as possible.
+    #: STRICT_PACK: All instances must be placed on the same node, otherwise creation fails.
+    #: PACK: Pack multiple instances into the same node as much as possible.
+    #: STRICT_SPREAD: All instances must be placed on different nodes, otherwise creation fails.
+    #: Default: ``None``.
     strategy: str = ""
 
 

@@ -106,7 +106,7 @@ int RemoteAdd(std::vector<YR::ObjectRef<int>> vec)
 }
 
 YR_INVOKE(AddOne, PlusOne, RaiseRuntimeError, Add, AddAfterSleep, AddAfterSleepTen, InvokeAndCancel_AddAfterSleepTen,
-    AddTwo, SumVec, RemoteAdd, AfterSleepSec, ExecBigArgsAndFailed, BigBox)
+          AddTwo, SumVec, RemoteAdd, AfterSleepSec, ExecBigArgsAndFailed, BigBox)
 
 int Counter::Add(int x)
 {
@@ -235,9 +235,9 @@ int Counter::GetRecoverFlag()
 int Counter::GetGroupRecoverFlag()
 {
     int results = 0;
-    for (auto &instances:ranges) {
+    for (auto &instances : ranges) {
         auto instanceList = instances.GetInstances();
-        for (auto &instance:instanceList) {
+        for (auto &instance : instanceList) {
             auto member = instance.Function(&CounterB::Add).Invoke(1);
             results += *YR::Get(member);
         }
@@ -286,7 +286,7 @@ int Counter::AddRange(int max, int min, int step, bool sameLifecycle, int timeou
 }
 
 YR_INVOKE(Counter::FactoryCreate, &Counter::Add, &Counter::AddRef, &Counter::Sleep, &Counter::SEGV, &Counter::Raise,
-    &Counter::AddTwo, &Counter::GetDir, &Counter::AddRange)
+          &Counter::AddTwo, &Counter::GetDir, &Counter::AddRange)
 YR_SHUTDOWN(&Counter::Shutdown);
 
 int CounterB::Add(int x)
@@ -313,8 +313,8 @@ int CounterB::ParallelFor()
     return 0;
 }
 
-YR_INVOKE(
-    CounterB::FactoryCreate, &CounterB::Add, &CounterB::GetCount, &CounterB::ParallelFor, &CounterB::GetCtxIdsSize);
+YR_INVOKE(CounterB::FactoryCreate, &CounterB::Add, &CounterB::GetCount, &CounterB::ParallelFor,
+          &CounterB::GetCtxIdsSize);
 
 int CounterA::Add(int x)
 {
@@ -371,7 +371,7 @@ int CounterC::TerminateA(int x)
     return 1;
 }
 YR_INVOKE(CounterC::FactoryCreate, &CounterC::Add, &CounterC::GetCountC, &CounterC::GetCountA, &CounterC::GetCountB,
-    &CounterC::ChainTerminate, &CounterC::TerminateA);
+          &CounterC::ChainTerminate, &CounterC::TerminateA);
 
 int ExcDivision()
 {
@@ -661,6 +661,17 @@ int CollectiveActor::Compute(std::vector<int> in, std::string &groupName, uint8_
     return result;
 }
 
+int CollectiveActor::Reduce(std::vector<int> in, std::string &groupName, uint8_t op)
+{
+    int *output = new int[in.size()];
+    YR::Collective::Reduce(in.data(), output, in.size(), YR::DataType::INT, YR::ReduceOp(op), 0, groupName);
+    int result = 0;
+    for (int i = 0; i < in.size(); ++i) {
+        result += *output++;
+    }
+    return result;
+}
+
 double CollectiveActor::ComputeDouble(std::vector<double> in, std::string &groupName, uint8_t op)
 {
     double *output = new double[in.size()];
@@ -751,6 +762,6 @@ int CollectiveActor::DestroyCollectiveGroup(std::string &groupName)
 }
 
 YR_INVOKE(CollectiveActor::FactoryCreate, &CollectiveActor::InitCollectiveGroup, &CollectiveActor::Barrier,
-          &CollectiveActor::Compute, &CollectiveActor::ComputeDouble, &CollectiveActor::AllGather,
+          &CollectiveActor::Compute, &CollectiveActor::ComputeDouble, &CollectiveActor::AllGather, &CollectiveActor::Reduce,
           &CollectiveActor::Broadcast, &CollectiveActor::Scatter, &CollectiveActor::DestroyCollectiveGroup,
           &CollectiveActor::Recv, &CollectiveActor::Send);
