@@ -4,7 +4,7 @@
 
 ### Traces
 
-- 元戎的 Traces（链路追踪） 功能基于 Opentelemetry[介绍](https://opentelemetry.io){target="_blank"}。
+- openYuanrong 的 Traces（链路追踪） 功能基于 Opentelemetry[介绍](https://opentelemetry.io){target="_blank"}。
 - Traces 提供了向应用程序发出请求时发生的情况的全景图。
 - 一条链路可以被认为是一个由多个跨度组成的有向无环图（DAG 图）， Span 与 Span 的关系被命名为 References。
 
@@ -69,13 +69,9 @@ LogfileExporter 初始化参数:
 | ---------- |--------------------------| ------------------- |
 | enable                 | 是否启用 LogfileExporter 导出器 | 必填 |
 
-### 配置样例
+### 配置示例
 
-配置前提: 已获取元戎包并解压到本地，解压后目录名为 yuanrong。
-
-#### 功能启用
-
-##### yr 命令行方式启用
+#### yr 命令行方式启用
 
 ```text
 
@@ -85,18 +81,20 @@ yr start --master --enable_trace true --runtime_trace_config "{\"otlpGrpcExporte
 
 说明：启用 OtlpGrpcExporter 导出器和 LogFileExporter 导出器。Trace 数据将导出到地址为 192.168.1.2:4317 的后端服务和日志文件中。
 
-##### 进程部署方式启用
+#### k8s 部署方式启用
 
-```text
+修改 helm 包中的 values.yaml 配置文件。
 
-CUR_DIR=$(dirname $(readlink -f "$0"))
+```yaml
 
-bash ${CUR_DIR}/yuanrong/deploy/process/yr_master.sh -c 5000 -m 6000 -s 2048 -d ${CUR_DIR}/log -l DEBUG \
---enable_trace=true --runtime_trace_config="{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"192.168.1.2:4317\"},\"logFileExporter\":{\"enable\":false}}"
+observer:
+  trace:
+    enable: true
+    runtimeTraceConfig: "{\"otlpGrpcExporter\":{\"enable\":false,\"endpoint\":\"192.168.1.2:4317\"},\"logFileExporter\":{\"enable\":true}}"
 
 ```
 
-说明：启用 OtlpGrpcExporter 导出器但不启用 LogFileExporter 导出器。Trace 数据将只导出到地址为 192.168.1.2:4317 的后端服务。
+说明：启用 LogFileExporter 导出器但不启用 OtlpGrpcExporter 导出器。Trace 数据将导出到日志文件中。
 
 #### 查看导出的 Trace 数据
 
@@ -113,7 +111,6 @@ bash ${CUR_DIR}/yuanrong/deploy/process/yr_master.sh -c 5000 -m 6000 -s 2048 -d 
 | 部署方式 | 日志路径 |
 |------| ------------------------- |
 | yr start 命令行 | 1. job-xxx-driver.log<br/>2. /tmp/yr_sessions/latest |
-| 进程部署 | 1. job-xxx-driver.log<br/>2. 部署参数 -d 指定的目录 |
 | k8s 部署 | 1. job-xxx-driver.log<br/>2. faasfrontend pod 、 faasscheduler pod 和调度函数实例的 agent pod 里 /home/snuser/log 目录下的 runtime 日志 |
 
 :::{Note}
@@ -131,7 +128,7 @@ export RUNTIME_TRACE_CONFIG="{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\"
 
 #### 使用样例
 
-无需额外增加代码，元戎将导出关键流程调用链，执行如下无状态函数，根据导出器配置获取调用链信息：
+无需额外增加代码，openYuanrong 将导出关键流程调用链，执行如下无状态函数，根据导出器配置获取调用链信息：
 
 ```python
 
@@ -150,3 +147,6 @@ print([yr.get(i) for i in results])
 yr.finalize()
 
 ```
+
+无状态函数执行完成后上报到 grafana 的数据图：
+![](../images/traces_grafana.png)
