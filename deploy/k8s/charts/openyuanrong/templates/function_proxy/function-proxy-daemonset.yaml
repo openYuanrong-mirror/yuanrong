@@ -330,6 +330,8 @@ spec:
               value: {{ quote .Values.global.runtime.dataSystem.encryptEnable }}
             - name: STS_CONFIG
               value: "{}"
+            - name: CACHE_STORAGE_INFO_PREFIX
+              value: {{ quote .Values.global.dataSystem.cacheStorageInfoPrefix }}
             - name: ENABLE_PRINT_PERF
               value: "false"
             - name: K8S_BASE_URL

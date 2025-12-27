@@ -574,3 +574,4 @@ global:
   etcd:
     etcdAddress: base-etcd.default.svc.cluster.local:2379
     enableComponentAuth: false
+  cacheStorageInfoPrefix: ""
