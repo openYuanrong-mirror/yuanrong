@@ -425,6 +425,8 @@ std::string InvokeSpec::BuildInvokeMetaData(const LibruntimeConfig &config)
     funcMeta->set_functionid(this->functionMeta.functionId);
     funcMeta->set_isgenerator(this->functionMeta.isGenerator);
     funcMeta->set_isasync(this->functionMeta.isAsync);
+    funcMeta->set_tensortransporttarget(this->functionMeta.tensorTransportTarget);
+    funcMeta->set_enabletensortransport(this->functionMeta.enableTensorTransport);
     funcMeta->set_code(this->functionMeta.code.data(), this->functionMeta.code.size());
     auto invocationMeta = meta.mutable_invocationmeta();
     if (config.runtimeId == "driver") {

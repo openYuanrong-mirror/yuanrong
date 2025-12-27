@@ -598,6 +598,8 @@ class InvokeOptions:
 
     group_name: str = ""
 
+    is_delete_remote_tensor: bool = False
+
     def check_options_valid(self):
         """
         Check whether the options are valid.
