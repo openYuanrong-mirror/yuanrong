@@ -108,8 +108,15 @@ def _get_from_env(conf):
         conf.is_driver = False
     if conf.rt_server_address == "":
         conf.rt_server_address = os.environ.get("POSIX_LISTEN_ADDR", "")
+    if conf.private_key_path == "":
+        conf.private_key_path = os.environ.get("YR_PRIVATE_KEY_FILE", "")
+    if conf.certificate_file_path == "":
+        conf.certificate_file_path = os.environ.get("YR_CERT_FILE", "")
+    if conf.verify_file_path == "":
+        conf.verify_file_path = os.environ.get("YR_VERIFY_FILE", "")
+    if conf.server_name == "":
+        conf.server_name = os.environ.get("YR_SERVER_NAME", "")
     return conf
-
 
 def _auto_get_cluster_access_info(conf):
     conf = _get_from_env(conf)

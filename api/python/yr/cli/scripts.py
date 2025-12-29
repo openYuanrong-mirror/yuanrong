@@ -21,6 +21,8 @@ import sys
 import subprocess
 import click
 
+import yr
+
 
 __server_address = None
 __ds_address = None

@@ -45,3 +45,15 @@ test/st/functions/**/*.xml
 ./thirdparty
 go/pkg/mod/
 cmake-build-debug
+api/python/build/
+api/python/dist/
+api/python/*.egg-info/
+build/
+datasystem/
+go/output/
+go/pkg/dashboard/client/dist/
+go/pkg/dashboard/client/node_modules/
+metrics/
+output/
+scripts/package/.build/
+thirdparty/runtime_deps/
