@@ -1,0 +1,7 @@
+export YR_SERVER_ADDRESS="127.0.0.1:24051"
+export YR_SERVER_NAME="test"
+export YR_ENABLE_FRONTEND_TLS="true"
+export YR_PRIVATE_KEY_FILE="/home/wyc/code/openyuanrong/cert/yr/module.key"
+export YR_CERT_FILE="/home/wyc/code/openyuanrong/cert/yr/module.crt"
+export YR_VERIFY_FILE="/home/wyc/code/openyuanrong/cert/yr/ca.crt"
+export YR_IN_CLUSTER="false"

@@ -57,3 +57,4 @@ metrics/
 output/
 scripts/package/.build/
 thirdparty/runtime_deps/
+api/python/yr/inner/

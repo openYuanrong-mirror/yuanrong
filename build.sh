@@ -350,7 +350,7 @@ fi
 if [ "$BAZEL_COMMAND" == "build" ]; then
     mkdir -p ${OUTPUT_DIR}
     tar -czf ${OUTPUT_DIR}/yr-runtime-${BUILD_VERSION}.tar.gz -C ${OUTPUT_BASE} runtime
-    tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
+    # tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then

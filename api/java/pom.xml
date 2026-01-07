@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.yuanrong</groupId>
     <artifactId>yr-api-java</artifactId>
-    <version>1.0.0</version>
+    <version>v0.0.1</version>
     <packaging>pom</packaging>
 
     <properties>

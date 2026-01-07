@@ -23,7 +23,7 @@
     <parent>
         <artifactId>yr-api-java</artifactId>
         <groupId>com.yuanrong</groupId>
-        <version>1.0.0</version>
+        <version>v0.0.1</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
