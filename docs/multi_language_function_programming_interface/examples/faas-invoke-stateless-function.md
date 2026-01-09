@@ -1,4 +1,4 @@
-# 在函数服务中运行分布式作业
+# 函数服务中运行分布式作业
 
 函数服务常用于开发服务类应用，无状态和有状态函数常用于开发作业类应用。实际业务场景中，一个复杂的服务请求可能需要通过执行多个分布式作业来完成，常见的方案是使用函数服务接收和解析外部请求，再调用无状态或有状态函数处理业务逻辑。我们通过蒙特卡洛方法计算 π 的示例介绍这类方案的实现。
 
@@ -47,7 +47,7 @@ curl -H "Content-type: application/json" -X POST -i ${META_SERVICE_ENDPOINT}/ser
 {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0-baas-task:$latest","createTime":"2025-04-28 11:31:20.986 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0-baas-task","name":"0-baas-task","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0-baas-task:$latest","revisionId":"20250428113120986","codeSize":0,"codeSha256":"","bucketId":"","objectId":"","handler":"","layers":null,"cpu":600,"memory":512,"runtime":"python3.9","timeout":60,"versionNumber":"$latest","versionDesc":"$latest","environment":{},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-04-28 11:31:20.986 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
 ```
 
-### 定义函数服务接收外部请求，自定义打点任务的数量
+### 定义函数服务接收外部请求
 
 在代码包目录下新建文件 `service_entry.py`，内容如下。在该函数服务的 `handler` 接口中会解析外部请求配置的 `tasksNumber` 参数，设置打点任务个数并调用无状态函数 `compute_pi` 运行打点任务。
 
