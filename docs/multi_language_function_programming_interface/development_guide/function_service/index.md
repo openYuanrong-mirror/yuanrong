@@ -147,4 +147,3 @@ openYuanrong 支持为函数配置不同的请求调度策略，包括 concurren
 
 - [配置函数](./function-configuration.md)
 - [版本管理](./version-management.md)
-- [流式响应](./response-stream.md)
