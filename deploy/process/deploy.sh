@@ -683,7 +683,7 @@ function restart_component() {
        restart_agent_runtime_accessor
      fi
     ;;
-  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler)
+  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service)
     restart_module "$1"
     ;;
   etcd)
@@ -703,6 +703,7 @@ function restart_component() {
     terminate_process ${pid_table["dashboard"]}
     terminate_process ${pid_table["faas_frontend"]}
     terminate_process ${pid_table["function_scheduler"]}
+    terminate_process ${pid_table["meta_service"]}
     start_control_plane
     ;;
   *)
