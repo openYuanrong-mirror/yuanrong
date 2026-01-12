@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
 

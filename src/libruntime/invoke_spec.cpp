@@ -43,6 +43,8 @@ InvokeSpec::InvokeSpec(const std::string &jobId, const FunctionMeta &functionMet
       requestInvoke(std::make_shared<InvokeMessageSpec>())
 {
     schedulerInstanceIdMtx_ = std::make_shared<absl::Mutex>();
+    createTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 void InvokeSpec::ConsumeRetryTime()

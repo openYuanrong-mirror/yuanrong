@@ -288,11 +288,11 @@ void FaasInsManager::AcquireInstanceAsync(std::shared_ptr<InvokeSpec> invokeSpec
     if (invokeSpec->opts.acquireTimeout == 0) {
         invokeSpec->opts.acquireTimeout = FAAS_DEFALUT_ACQUIRE_TIMEOUT;
     }
-    YRLOG_DEBUG("start acquire instance async, function: {}, timeout: {}, request: {}, trace: {}",
+    YRLOG_DEBUG("start acquire instance, function: {}, timeout: {}, request: {}, trace: {}",
                 invokeSpec->functionMeta.functionId, invokeSpec->opts.acquireTimeout, invokeSpec->requestId,
                 invokeSpec->traceId);
     auto acquireSpec = BuildAcquireRequest(invokeSpec);
-    YRLOG_INFO("acquire instance to {} for {}, trace: {}, acquire req id :{}, invoke req id : {}",
+    YRLOG_INFO("acquire instance to {} for {}, trace: {}, acquire req: {}, invoke req: {}",
                acquireSpec->invokeInstanceId, invokeSpec->functionMeta.functionId, invokeSpec->traceId,
                acquireSpec->requestId, invokeSpec->requestId);
     auto weak_this = weak_from_this();

@@ -150,7 +150,8 @@ func (pm *PoolManager) RecoverInstancePool() {
 }
 
 func (pm *PoolManager) recoverStateLeaser(stateInstance map[string]*types.Instance,
-	funcSpec *types.FunctionSpecification) {
+	funcSpec *types.FunctionSpecification,
+) {
 	for stateID, instance := range stateInstance {
 		pool := pm.instancePool[funcSpec.FuncKey]
 		if pool == nil {
@@ -175,12 +176,17 @@ func (pm *PoolManager) recoverStateLeaser(stateInstance map[string]*types.Instan
 
 // GetAndDeleteState delete state and return whether the state exists
 func (pm *PoolManager) GetAndDeleteState(stateID string, funcKey string, funcSpec *types.FunctionSpecification,
-	logger api.FormatLogger) bool {
+	logger api.FormatLogger,
+) bool {
 	pm.Lock()
 	pool, exist := pm.instancePool[funcKey]
 	if !exist {
 		var err error
-		pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+		if funcSpec.InstanceMetaData.ScalePolicy == types.InstanceScalePolicyOneshot {
+			pool, err = NewOneShotInstancePool(funcSpec, pm.faasManagerInfo)
+		} else {
+			pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+		}
 		if err != nil {
 			pm.Unlock()
 			return false
@@ -217,7 +223,8 @@ func (pm *PoolManager) DeleteInstance(instance *types.Instance) snerror.SNError 
 
 // AcquireInstanceThread will acquire a instance thread of a specific function
 func (pm *PoolManager) AcquireInstanceThread(insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation,
-	snerror.SNError) {
+	snerror.SNError,
+) {
 	pm.RLock()
 	pool, exist := pm.instancePool[insAcqReq.FuncSpec.FuncKey]
 	pm.RUnlock()
@@ -353,7 +360,11 @@ func (pm *PoolManager) processInstancePoolCreate(funcSpec *types.FunctionSpecifi
 	}
 	var pool InstancePool
 	var err error
-	pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+	if funcSpec.InstanceMetaData.ScalePolicy == types.InstanceScalePolicyOneshot {
+		pool, err = NewOneShotInstancePool(funcSpec, pm.faasManagerInfo)
+	} else {
+		pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+	}
 	if err != nil {
 		log.GetLogger().Errorf("failed to create instance pool of function %s error %s", funcSpec.FuncKey, err.Error())
 		return nil, err
@@ -427,7 +438,8 @@ func (pm *PoolManager) HandleInstanceEvent(eventType registry.EventType, insSpec
 }
 
 func (pm *PoolManager) updateStateLeaseMgrForHandleInstanceEvent(eventType registry.EventType,
-	instance *types.Instance) {
+	instance *types.Instance,
+) {
 	if eventType == registry.SubEventTypeDelete ||
 		(eventType == registry.SubEventTypeUpdate && instance.InstanceStatus.Code == 6) { // 6 FATAL
 		if stateLeaseManager, exist := pm.stateLeaseManager[instance.InstanceID]; exist {
@@ -441,7 +453,8 @@ func (pm *PoolManager) updateStateLeaseMgrForHandleInstanceEvent(eventType regis
 
 // HandleSchedulerManaged current scheduler now is supposed to manage the scheduler's instances
 func (pm *PoolManager) HandleSchedulerManaged(eventType registry.EventType,
-	insSpec *commonTypes.InstanceSpecification) {
+	insSpec *commonTypes.InstanceSpecification,
+) {
 	log.GetLogger().Infof("handling scheduler managed event type %s, schedulerID:%s",
 		eventType, insSpec.InstanceID)
 	pm.Lock()
@@ -464,7 +477,8 @@ func (pm *PoolManager) HandleRolloutRatioChange(ratio int) {
 
 // HandleInstanceConfigEvent handles instance config event
 func (pm *PoolManager) HandleInstanceConfigEvent(eventType registry.EventType,
-	insConfig *instanceconfig.Configuration) {
+	insConfig *instanceconfig.Configuration,
+) {
 	logger := log.GetLogger().With(zap.Any("FuncKey", insConfig.FuncKey)).
 		With(zap.Any("eventType", eventType)).
 		With(zap.Any("InstanceLabel", insConfig.InstanceLabel))
@@ -531,7 +545,8 @@ func (pm *PoolManager) HandleAliasEvent(eventType registry.EventType, aliasUrn s
 
 // ReportMetrics sends invoke metrics to instance pool of a specific function
 func (pm *PoolManager) ReportMetrics(funcKey string, resKey resspeckey.ResSpecKey,
-	insMetrics *types.InstanceThreadMetrics) {
+	insMetrics *types.InstanceThreadMetrics,
+) {
 	pm.RLock()
 	pool, exist := pm.instancePool[funcKey]
 	pm.RUnlock()

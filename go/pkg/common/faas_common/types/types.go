@@ -371,6 +371,7 @@ type FuncMetaData struct {
 	VPCTriggerImage     string            `json:"vpcTriggerImage" valid:",optional"`
 	StateConfig         StateConfig       `json:"stateConfig" valid:",optional"`
 	BusinessType        string            `json:"businessType" valid:"optional"`
+	AutoScaleConfig     AutoScaleConfig   `json:"autoScaleConfig" valid:"optional"`
 }
 
 // StateConfig ConsistentWithInstance- The lifecycle is consistent with that of the instance.
@@ -892,4 +893,11 @@ type LeaseEvent struct {
 	RemoteClientID string `json:"remoteClientId"`
 	Timestamp      int64  `json:"timestamp"`
 	TraceID        string `json:"traceId"`
+}
+
+// AutoScaleConfig -
+type AutoScaleConfig struct {
+	SLAQuota      int `json:"slaQuota" valid:"optional" default:"-1"`
+	ScaleDownTime int `json:"scaleDownTime" valid:"optional" default:"-1"`
+	BurstScaleNum int `json:"burstScaleNum" valid:"optional" default:"-1"`
 }

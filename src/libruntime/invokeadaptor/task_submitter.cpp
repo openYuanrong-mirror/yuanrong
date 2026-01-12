@@ -147,6 +147,9 @@ void TaskSubmitter::HandleInvokeNotify(const NotifyRequest &req, const ErrorInfo
     if (spec->IsStaleDuplicateNotify(seq)) {
         return;
     }
+    spec->endTimestamp =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
     insManagers[spec->functionMeta.apiType]->DecreaseUnfinishReqNum(spec, HandleFailInvokeIsDelayScaleDown(req, err));
     RequestResource resource = GetRequestResource(spec);
     if (req.code() != common::ERR_NONE) {
@@ -323,6 +326,11 @@ void TaskSubmitter::HandleSuccessInvokeNotify(const NotifyRequest &req, const st
         this->UpdateFaasInvokeLog(spec->requestId, ErrorInfo());
     }
     NotifyScheduler(resource);
+    if (spec->invokeTimestamp > 0 && spec->createTimestamp > 0) {
+        YRLOG_INFO("scheduler time: {} ms, invoke time: {} ms, req id: {}, trace id: {}",
+                   spec->invokeTimestamp - spec->createTimestamp, spec->endTimestamp - spec->invokeTimestamp,
+                   spec->requestId, spec->traceId);
+    }
 }
 
 void TaskSubmitter::AddFaasCancelTimer(std::shared_ptr<InvokeSpec> spec)
@@ -550,6 +558,9 @@ void TaskSubmitter::SendInvokeReq(const RequestResource &resource, std::shared_p
 {
     YRLOG_INFO("invoke function {}, instance: {}, lease: {}, req: {}, trace: {}", invokeSpec->functionMeta.funcName,
                invokeSpec->invokeInstanceId, invokeSpec->invokeLeaseId, invokeSpec->requestId, invokeSpec->traceId);
+    invokeSpec->invokeTimestamp =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
 
     if (!invokeSpec->opts.device.name.empty()) {
         absl::WriterMutexLock lock(&invokeCostMtx_);
@@ -585,7 +596,7 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
     }
     auto requestId = requestQueue->Top()->requestId;
     auto requestQueueSize = requestQueue->Size();
-    YRLOG_DEBUG("current size of request queue is {}, top request id is {}", requestQueueSize, requestId);
+    YRLOG_DEBUG("queue size: {}, top request: {}", requestQueueSize, requestId);
     auto invokeSpec = requestManager->GetRequest(requestId);
     if (invokeSpec == nullptr) {
         YRLOG_WARN("The request {} has been cancelled", requestId);
@@ -609,7 +620,7 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
     auto [instanceId, leaseId] = insManagers[invokeSpec->functionMeta.apiType]->GetAvailableIns(resource);
     if (instanceId.empty()) {
         atomicLock.unlock();
-        YRLOG_DEBUG("invoke request {} can not be scheduled, instanceId is empty", requestId);
+        YRLOG_DEBUG("invoke request {} can not be scheduled", requestId);
         bool needCreate = insManagers[invokeSpec->functionMeta.apiType]->ScaleUp(invokeSpec, requestQueueSize);
         return !needCreate;
     }
@@ -961,6 +972,9 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
             YRLOG_DEBUG("there is no invoke data of req: {}, no need update", reqId);
             return;
         }
+        if (!this->metricsAdaptor_ || !Config::Instance().ENABLE_METRICS() || this->metricsAdaptor_->IsInited()) {
+            return;
+        }
         it->second->endTime = GetCurrentTimestampNs();
         if (err.OK()) {
             it->second->code = "200";
@@ -977,13 +991,11 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
         data = it->second;
         faasInvokeDataMap_.erase(it);
     }
-    if (this->metricsAdaptor_ && Config::Instance().ENABLE_METRICS()) {
-        YRLOG_DEBUG("start report faas invoke data, req id is {}, function id is {}", reqId, data->aliAs);
-        auto reportErr = this->metricsAdaptor_->ReportMetrics(ConvertToGaugeData(data, reqId));
-        if (!reportErr.OK()) {
-            YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
-                       data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
-        }
+    YRLOG_DEBUG("start report faas invoke data, req id is {}, function id is {}", reqId, data->aliAs);
+    auto reportErr = this->metricsAdaptor_->ReportMetrics(ConvertToGaugeData(data, reqId));
+    if (!reportErr.OK()) {
+        YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
+                   data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
     }
 }
 }  // namespace Libruntime

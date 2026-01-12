@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
@@ -116,8 +116,10 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 
 	var instanceID string
 	schedulingOptions := prepareSchedulingOptions(request.funcSpec, resSpec)
-	funcMeta := api.FunctionMeta{FuncID: getExecutorFuncKey(request.funcSpec),
-		Api: commonUtils.GetAPIType(request.funcSpec.FuncMetaData.BusinessType)}
+	funcMeta := api.FunctionMeta{
+		FuncID: getExecutorFuncKey(request.funcSpec),
+		Api:    commonUtils.GetAPIType(request.funcSpec.FuncMetaData.BusinessType),
+	}
 	invokeOpts := createInvokeOptions(request.funcSpec, schedulingOptions, createOpt, request.poolLabel)
 	logger.Debugf("invoke opts cpu is %v, mem is %v\n", invokeOpts.Cpu, invokeOpts.Memory)
 	delete(invokeOpts.CustomResources, resourcesCPU)
@@ -135,7 +137,8 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 }
 
 func deleteInstanceForKernel(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-	instance *types.Instance) error {
+	instance *types.Instance,
+) error {
 	log.GetLogger().Debugf("start to delete instance %s for function %s", instance.InstanceID, funcSpec.FuncKey)
 	// maybe we should wait for delete response
 	var err error
@@ -144,8 +147,8 @@ func deleteInstanceForKernel(funcSpec *types.FunctionSpecification, faasManagerI
 		go deleteInstanceWithVPC(funcSpec, faasManagerInfo, instance)
 	}
 	if err != nil {
-		log.GetLogger().Errorf("failed to delete instance %s for function %s first, start retry",
-			instance.InstanceID, funcSpec.FuncKey)
+		log.GetLogger().Warnf("failed to delete instance %s for function %s first, err: %s, start retry",
+			instance.InstanceID, funcSpec.FuncKey, err.Error())
 		go deleteInstanceForKernelRetry(instance.InstanceID)
 		return err
 	}
@@ -223,7 +226,8 @@ func getExecutorFuncKey(funcSpec *types.FunctionSpecification) string {
 }
 
 func generateOptionAndArgsForCreate(request createInstanceRequest, resSpec *resspeckey.ResourceSpecification) (
-	map[string]string, []api.Arg, error) {
+	map[string]string, []api.Arg, error,
+) {
 	createOpt, err := prepareCreateOptions(request, resSpec)
 	if err != nil || createOpt == nil {
 		return nil, nil, err
@@ -237,7 +241,8 @@ func generateOptionAndArgsForCreate(request createInstanceRequest, resSpec *ress
 }
 
 func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification) *types.SchedulingOptions {
+	resSpec *resspeckey.ResourceSpecification,
+) *types.SchedulingOptions {
 	schedulingOptions := &types.SchedulingOptions{}
 	schedulingOptions.Resources = generateResources(resSpec)
 	if config.GlobalConfig.DeployMode == constant.DeployModeProcesses {
@@ -292,7 +297,8 @@ func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
 }
 
 func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOptions *types.SchedulingOptions,
-	createOpt map[string]string, poolLabel string) api.InvokeOptions {
+	createOpt map[string]string, poolLabel string,
+) api.InvokeOptions {
 	codeEntrys := []string{funcSpec.ExtendedMetaData.Initializer.Handler, funcSpec.FuncMetaData.Handler}
 	if funcSpec.ExtendedMetaData.PreStop.Handler != "" {
 		codeEntrys = append(codeEntrys, funcSpec.ExtendedMetaData.PreStop.Handler)
@@ -341,7 +347,8 @@ func generateScheduleAffinity(scheduleAffinity []api.Affinity, label string) []a
 }
 
 func createPATService(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig) (*types.NATConfigure, error) {
+	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig,
+) (*types.NATConfigure, error) {
 	createErr := errors.New("failed to create pat service")
 	faasManagerFuncKey := faasManagerInfo.funcKey
 	faasManagerInstanceID := faasManagerInfo.instanceID
@@ -404,7 +411,8 @@ func createPATService(funcSpec *types.FunctionSpecification, faasManagerInfo faa
 }
 
 func reportInstanceWithVPC(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-	instance *types.Instance, natConfig *types.NATConfigure) {
+	instance *types.Instance, natConfig *types.NATConfigure,
+) {
 	faasManagerFuncKey := faasManagerInfo.funcKey
 	faasManagerInstanceID := faasManagerInfo.instanceID
 	if len(faasManagerFuncKey) == 0 || len(faasManagerInstanceID) == 0 {
@@ -450,7 +458,8 @@ func reportInstanceWithVPC(funcSpec *types.FunctionSpecification, faasManagerInf
 }
 
 func deleteInstanceWithVPC(funcSpec *types.FunctionSpecification,
-	faasManagerInfo faasManagerInfo, instance *types.Instance) {
+	faasManagerInfo faasManagerInfo, instance *types.Instance,
+) {
 	faasManagerFuncKey := faasManagerInfo.funcKey
 	faasManagerInstanceID := faasManagerInfo.instanceID
 	if len(faasManagerFuncKey) == 0 || len(faasManagerInstanceID) == 0 {
@@ -532,14 +541,17 @@ func setCreateOptionForInvokeTimeout(funcSpec *types.FunctionSpecification, crea
 
 // CreateOption contains params for runtime not for user code
 func prepareCreateOptions(request createInstanceRequest, resSpec *resspeckey.ResourceSpecification) (map[string]string,
-	error) {
+	error,
+) {
 	createOpt := make(map[string]string, constant.DefaultMapSize)
 	setCreateOptionForFuncSpec(request.funcSpec, createOpt)
-	setFunctions := []func(*types.FunctionSpecification, map[string]string) error{setCreateOptionForDownloadData,
+	setFunctions := []func(*types.FunctionSpecification, map[string]string) error{
+		setCreateOptionForDownloadData,
 		setCreateOptionForDelegateMount, setCreateOptionForUserAgencyAndEnv, setCreateOptionForDelegateContainer,
 		setCreateOptionForFileBeat, setCreateOptionForHostAliases, setCreateOptionForRASP, setCustomPodSeccompProfile,
 		setFunctionAgentInitContainer, setCreateOptionForInitContainerEnv, setCreateOptionForLifeCycleDetached,
-		setCreateOptionForDelegateBootstrap, setCreateOptionForPostStartExec, setCreateOptionForInvokeTimeout}
+		setCreateOptionForDelegateBootstrap, setCreateOptionForPostStartExec, setCreateOptionForInvokeTimeout,
+	}
 	for _, f := range setFunctions {
 		if err := f(request.funcSpec, createOpt); err != nil {
 			return nil, err
@@ -564,7 +576,8 @@ func prepareCreateOptions(request createInstanceRequest, resSpec *resspeckey.Res
 }
 
 func setCreateOptionForPostStartExec(funcSpec *types.FunctionSpecification,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
@@ -679,7 +692,8 @@ func setCreateOptionForUserAgencyAndEnv(funcSpec *types.FunctionSpecification, c
 		return nil
 	}
 	userAgency := funcSpec.ExtendedMetaData.UserAgency
-	encryptMap := map[string]string{"secretKey": userAgency.SecretKey,
+	encryptMap := map[string]string{
+		"secretKey": userAgency.SecretKey,
 		"accessKey": userAgency.AccessKey, "authToken": userAgency.Token,
 		"securityAk": userAgency.SecurityAk, "securitySk": userAgency.SecuritySk,
 		"securityToken":       userAgency.SecurityToken,
@@ -714,9 +728,11 @@ func setCreateOptionForDelegateContainer(funcSpec *types.FunctionSpecification, 
 		CustomGracefulShutdown: funcSpec.ExtendedMetaData.CustomGracefulShutdown,
 		Env:                    initCustomContainerEnv(funcSpec),
 		Lifecycle: v1.Lifecycle{PreStop: &v1.LifecycleHandler{
-			Exec: &v1.ExecAction{Command: []string{"/bin/sh", "-c",
+			Exec: &v1.ExecAction{Command: []string{
+				"/bin/sh", "-c",
 				"while [ $(netstat -plnut | grep tcp | grep 21005 | wc -l | xargs) -ne 0 ];" +
-					"do echo 'worker still alive, sleep 1';sleep 1; done; echo 'worker exit' && exit 0"}},
+					"do echo 'worker still alive, sleep 1';sleep 1; done; echo 'worker exit' && exit 0",
+			}},
 		}},
 	}
 	vb := newVolumeBuilder()
@@ -740,8 +756,7 @@ func setCreateOptionForDelegateContainer(funcSpec *types.FunctionSpecification, 
 	}
 	createOpt[constant.DelegateContainerKey] = string(configData)
 	if funcSpec.ExtendedMetaData.CustomGracefulShutdown.MaxShutdownTimeout > 0 {
-		createOpt[types.GracefulShutdownTime] =
-			strconv.Itoa(funcSpec.ExtendedMetaData.CustomGracefulShutdown.MaxShutdownTimeout)
+		createOpt[types.GracefulShutdownTime] = strconv.Itoa(funcSpec.ExtendedMetaData.CustomGracefulShutdown.MaxShutdownTimeout)
 	} else {
 		createOpt[types.GracefulShutdownTime] = strconv.Itoa(types.MaxShutdownTimeout)
 	}
@@ -913,7 +928,8 @@ func setCreateOptionForInitContainerEnv(funcSpec *types.FunctionSpecification, c
 }
 
 func setCreateOptionForLabel(instanceType types.InstanceType, funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string) error {
+	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
@@ -940,7 +956,8 @@ func setCreateOptionForLabel(instanceType types.InstanceType, funcSpec *types.Fu
 }
 
 func getPodLabel(funcSpec *types.FunctionSpecification, resSpec *resspeckey.ResourceSpecification,
-	instanceType types.InstanceType) ([]byte, error) {
+	instanceType types.InstanceType,
+) ([]byte, error) {
 	version := funcSpec.FuncMetaData.Version
 	// $ is an illegal character in k8s label
 	if strings.HasPrefix(version, "$") {
@@ -969,7 +986,8 @@ func getPodLabel(funcSpec *types.FunctionSpecification, resSpec *resspeckey.Reso
 }
 
 func setCreateOptionForNote(instanceType types.InstanceType, funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string) error {
+	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return nil
 	}
@@ -996,18 +1014,22 @@ func setCreateOptionForNote(instanceType types.InstanceType, funcSpec *types.Fun
 func buildDelegateNodeAffinity(xpuNodeLabel types.XpuNodeLabel) *v1.NodeAffinity {
 	return &v1.NodeAffinity{
 		RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{NodeSelectorTerms: []v1.NodeSelectorTerm{
-			v1.NodeSelectorTerm{
+			{
 				MatchExpressions: []v1.NodeSelectorRequirement{
-					v1.NodeSelectorRequirement{
+					{
 						Key:      xpuNodeLabel.NodeLabelKey,
 						Operator: "In",
 						Values:   xpuNodeLabel.NodeLabelValues,
-					}}}}},
+					},
+				},
+			},
+		}},
 	}
 }
 
 func setCreateOptionForAscendNPU(funcSpec *types.FunctionSpecification, resSpec *resspeckey.ResourceSpecification,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if createOpt == nil || resSpec == nil {
 		return nil
 	}
@@ -1288,7 +1310,8 @@ func initCustomContainerEnv(funcSpec *types.FunctionSpecification) []v1.EnvVar {
 		funcSpec.ResourceMetaData.CustomResources, funcSpec.ResourceMetaData.CustomResourcesSpec)
 	if npuType != "" {
 		envs = append(envs, v1.EnvVar{
-			Name: types.SystemNodeInstanceType, Value: npuInstanceType})
+			Name: types.SystemNodeInstanceType, Value: npuInstanceType,
+		})
 	}
 	return envs
 }
@@ -1323,8 +1346,10 @@ func setEnvForDelegateContainer(funcSpec *types.FunctionSpecification, eb *envBu
 		configEnv(eb, funcSpec.StsMetaData.SensitiveConfigs)
 	}
 	if strings.Contains(funcSpec.ResourceMetaData.CustomResources, types.AscendResourcePrefix) {
-		eb.addEnvVar(containerDelegate, v1.EnvVar{Name: types.AscendRankTableFileEnvKey,
-			Value: types.AscendRankTableFileEnvValue})
+		eb.addEnvVar(containerDelegate, v1.EnvVar{
+			Name:  types.AscendRankTableFileEnvKey,
+			Value: types.AscendRankTableFileEnvValue,
+		})
 	}
 }
 
@@ -1388,7 +1413,8 @@ func setCreateOptionForVPC(createOption map[string]string, natConfig *types.NATC
 }
 
 func setCreateOptionForNuwaRuntimeInfo(nuwaRuntimeInfo *wisecloudTypes.NuwaRuntimeInfo,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if config.GlobalConfig.Scenario != types.ScenarioWiseCloud {
 		return nil
 	}
@@ -1408,7 +1434,8 @@ func setCreateOptionForNuwaRuntimeInfo(nuwaRuntimeInfo *wisecloudTypes.NuwaRunti
 }
 
 func prepareCreatePATServiceArguments(extMetaData commonTypes.ExtendedMetaData,
-	vpcConfig *commonTypes.VpcConfig) []api.Arg {
+	vpcConfig *commonTypes.VpcConfig,
+) []api.Arg {
 	patSvcReq := types.PATServiceRequest{
 		ID:         vpcConfig.ID,
 		DomainID:   vpcConfig.DomainID,

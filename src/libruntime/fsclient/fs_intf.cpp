@@ -280,7 +280,7 @@ void FSIntf::HandleSignalRequest(const SignalRequest &req, SignalCallBack callba
 {
     this->signalExecutor.Handle(
         [this, req, callback]() {
-            YRLOG_DEBUG("receive signal req, signal is {}, payload is {}", req.signal(), req.payload());
+            YRLOG_DEBUG("receive signal req, signal is {}", req.signal());
             auto resp = this->handlers.signal(req);
             callback(resp);
         },

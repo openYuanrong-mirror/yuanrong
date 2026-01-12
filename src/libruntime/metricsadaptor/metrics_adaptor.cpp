@@ -53,6 +53,11 @@ std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
 
 MetricsAdaptor::MetricsAdaptor() {}
 
+bool MetricsAdaptor::IsInited() const
+{
+    return Initialized_;
+}
+
 void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
 {
     userEnable_ = userEnable;

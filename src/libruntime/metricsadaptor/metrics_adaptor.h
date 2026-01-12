@@ -52,6 +52,7 @@ public:
         std::call_once(initFlag, []() { instance = std::make_shared<MetricsAdaptor>(); });
         return instance;
     }
+    bool IsInited() const;
     void Init(const nlohmann::json &json, bool userEnable);
     void SetContextAttr(const std::string &attr, const std::string &value);
     std::string GetContextValue(const std::string &attr) const;

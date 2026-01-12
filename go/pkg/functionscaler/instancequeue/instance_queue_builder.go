@@ -33,14 +33,13 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
 
-var (
-	// ErrUnsupportedInstanceType is the error of unsupported instance type
-	ErrUnsupportedInstanceType = errors.New("unsupported instance type")
-)
+// ErrUnsupportedInstanceType is the error of unsupported instance type
+var ErrUnsupportedInstanceType = errors.New("unsupported instance type")
 
 // BuildInstanceQueue builds an instanceQueue
 func BuildInstanceQueue(config *InsQueConfig, insAcqReqQue *requestqueue.InsAcqReqQueue,
-	metricsCollector metrics.Collector) (InstanceQueue, error) {
+	metricsCollector metrics.Collector,
+) (InstanceQueue, error) {
 	if config.InstanceType == types.InstanceTypeOnDemand {
 		return NewOnDemandInstanceQueue(config), nil
 	}
@@ -73,7 +72,8 @@ func BuildInstanceQueue(config *InsQueConfig, insAcqReqQue *requestqueue.InsAcqR
 
 // AssembleScheduler assemble scheduler to queue
 func AssembleScheduler(schedulePolicy string, instanceQueue *ScaledInstanceQueue,
-	insAcqReqQue *requestqueue.InsAcqReqQueue) error {
+	insAcqReqQue *requestqueue.InsAcqReqQueue,
+) error {
 	var err error
 	switch schedulePolicy {
 	case types.InstanceSchedulePolicyConcurrency:
@@ -92,7 +92,8 @@ func AssembleScheduler(schedulePolicy string, instanceQueue *ScaledInstanceQueue
 }
 
 func assembleSchedulerWithConcurrencyPolicy(instanceQueue *ScaledInstanceQueue,
-	insThdReqQueue *requestqueue.InsAcqReqQueue) error {
+	insThdReqQueue *requestqueue.InsAcqReqQueue,
+) error {
 	requestTimeout := utils.GetRequestTimeout(instanceQueue.funcSpec)
 	var instanceScheduler scheduler.InstanceScheduler
 	if instanceQueue.instanceType == types.InstanceTypeReserved {
@@ -114,7 +115,8 @@ func assembleSchedulerWithConcurrencyPolicy(instanceQueue *ScaledInstanceQueue,
 }
 
 func assembleSchedulerWithRoundRobinPolicy(instanceQueue *ScaledInstanceQueue,
-	insThdReqQueue *requestqueue.InsAcqReqQueue) error {
+	insThdReqQueue *requestqueue.InsAcqReqQueue,
+) error {
 	requestTimeout := utils.GetRequestTimeout(instanceQueue.funcSpec)
 	var instanceScheduler scheduler.InstanceScheduler
 	if instanceQueue.instanceType == types.InstanceTypeReserved {
@@ -131,7 +133,6 @@ func assembleSchedulerWithRoundRobinPolicy(instanceQueue *ScaledInstanceQueue,
 	}
 	instanceQueue.SetInstanceScheduler(instanceScheduler)
 	return nil
-
 }
 
 func assembleSchedulerWithMicroService(instanceQueue *ScaledInstanceQueue) error {
@@ -155,7 +156,8 @@ func assembleSchedulerWithMicroService(instanceQueue *ScaledInstanceQueue) error
 }
 
 func assembleScalerWithStaticPolicy(instanceQueue *ScaledInstanceQueue,
-	insAcqReqQue *requestqueue.InsAcqReqQueue) error {
+	insAcqReqQue *requestqueue.InsAcqReqQueue,
+) error {
 	if instanceQueue.instanceScheduler == nil {
 		return errors.New("missing instanceScheduler in instanceQueue")
 	}
@@ -189,14 +191,28 @@ func assembleScalerWithConcurrencyPolicy(instanceQueue *ScaledInstanceQueue) err
 		log.GetLogger().Infof("assemble with replica scaler for %s instance queue of function %s",
 			instanceQueue.instanceType, instanceQueue.funcKeyWithRes)
 	} else if instanceQueue.instanceType == types.InstanceTypeScaled {
+		autoScaleConfig := types.AutoScaleConfig{
+			SLAQuota:      config.GlobalConfig.AutoScaleConfig.SLAQuota,
+			ScaleDownTime: config.GlobalConfig.AutoScaleConfig.ScaleDownTime,
+			BurstScaleNum: config.GlobalConfig.AutoScaleConfig.BurstScaleNum,
+		}
+		if instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.SLAQuota != -1 {
+			autoScaleConfig.SLAQuota = instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.SLAQuota
+		}
+		if instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.ScaleDownTime != -1 {
+			autoScaleConfig.ScaleDownTime = instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.ScaleDownTime
+		}
+		if instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.BurstScaleNum != -1 {
+			autoScaleConfig.BurstScaleNum = instanceQueue.funcSpec.FuncMetaData.AutoScaleConfig.BurstScaleNum
+		}
 		instanceScheduler, ok := instanceQueue.instanceScheduler.(*concurrencyscheduler.ScaledConcurrencyScheduler)
 		if ok {
 			instanceScaler = scaler.NewAutoScaler(instanceQueue.funcKeyWithRes, instanceQueue.metricsCollector,
-				instanceScheduler.GetReqQueLen, instanceQueue.ScaleUpHandler, instanceQueue.ScaleDownHandler)
+				instanceScheduler.GetReqQueLen, instanceQueue.ScaleUpHandler, instanceQueue.ScaleDownHandler, autoScaleConfig)
 		} else {
 			log.GetLogger().Warnf("missing concurrencyScheduler when build concurrencyScaler for scaled instance")
 			instanceScaler = scaler.NewAutoScaler(instanceQueue.funcKeyWithRes, instanceQueue.metricsCollector,
-				func() int { return 0 }, instanceQueue.ScaleUpHandler, instanceQueue.ScaleDownHandler)
+				func() int { return 0 }, instanceQueue.ScaleUpHandler, instanceQueue.ScaleDownHandler, autoScaleConfig)
 		}
 		log.GetLogger().Infof("assemble with auto scaler for %s instance queue of function %s",
 			instanceQueue.instanceType, instanceQueue.funcKeyWithRes)

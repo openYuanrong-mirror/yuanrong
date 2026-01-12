@@ -753,7 +753,7 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
         }
         case libruntime::Signal::ErasePendingThread: {
             if (execMgr && execMgr->isMultipleConcurrency()) {
-                YRLOG_DEBUG("recive erase pending signal req, pay load is {}", req.payload());
+                YRLOG_DEBUG("recive erase pending signal req");
                 execMgr->ErasePendingThread(req.payload());
             }
             break;
@@ -1746,7 +1746,7 @@ ErrorInfo InvokeAdaptor::WaitAndCheckResp(std::shared_future<ResponseType> &futu
 
 void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::string &traceId, int value)
 {
-    if (!Config::Instance().ENABLE_METRICS()) {
+    if (!Config::Instance().ENABLE_METRICS() || !MetricsAdaptor::GetInstance()->IsInited()) {
         return;
     }
     YR::Libruntime::GaugeData data;

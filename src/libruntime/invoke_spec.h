@@ -73,6 +73,8 @@ struct InvokeSpec {
     InvokeSpec() : requestInvoke(std::make_shared<InvokeMessageSpec>())
     {
         schedulerInstanceIdMtx_ = std::make_shared<absl::Mutex>();
+        createTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
     }
     ~InvokeSpec() = default;
     std::string jobId;
@@ -96,6 +98,9 @@ struct InvokeSpec {
     uint8_t seq = 0;
     std::string instanceRoute = "";
     bool downgradeFlag_{false};
+    int64_t createTimestamp = 0;
+    int64_t invokeTimestamp = 0;
+    int64_t endTimestamp = 0;
     void ConsumeRetryTime(void);
     bool ExceedMaxRetryTime();
     void IncrementSeq();

@@ -120,6 +120,8 @@ const (
 	InstanceScalePolicyPredict = "qpsPredict"
 	// InstanceScalePolicyStaticFunction is the schedule policy for static function
 	InstanceScalePolicyStaticFunction = "staticFunction"
+	// InstanceScalePolicyOneshot is the schedule policy for one-shot function
+	InstanceScalePolicyOneshot = "oneshot"
 )
 
 const (
