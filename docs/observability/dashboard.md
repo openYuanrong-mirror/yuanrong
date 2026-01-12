@@ -1,17 +1,20 @@
 # Dashboard
 
-openYuanrong 提供了可视化的 `dashboard` ，用于查看 openYuanrong 集群和实例的状态和详细信息，以便于用户可以查看系统的性能并快速排查问题。目前 dashboard 支持上千条实例数据的稳定承载与展示。
+openYuanrong 提供了可视化的 `dashboard` ，用于查看集群和函数实例的状态等信息，便于监控和快速排查问题。目前 dashboard 支持上千条实例数据的稳定承载与展示。
 
 ## 启动 Dashboard
 
 要访问 `dashboard` ，需要在部署 openYuanrong 集群主节点时，加上 *`--enable_dashboard=true`* 参数以及依赖项参数。使用 dashboard 全量功能，主节点的部署命令如下：
 
 ```bash
-yr start --master --enable_dashboard=true --enable_collector=true --enable_separated_redirect_runtime_std=true --prometheus_address=prometheus_ip:prometheus_port --enable_metrics=true --metrics_config_file={file_name}.json --port_policy=FIX
+yr start --master --enable_dashboard=true --enable_collector=true --enable_separated_redirect_runtime_std=true --prometheus_address={prometheus_ip}:{prometheus_port} --enable_metrics=true --metrics_config_file={file_name}.json --port_policy=FIX
 ```
 
-* 您可参考[部署参数表](../deploy/deploy_processes/parameters.md)按需裁剪不需要的功能。其中 enable_collector、enable_separated_redirect_runtime_std 参数提供收集实例日志功能，影响日志页面内容的显示；prometheus_address、enable_metrics、metrics_config_file 参数提供收集 metrics 数据功能，影响 Cluster 页面表格中 CPU、Memory、NPU、Disk 项的显示；port_policy 参数可固定 dashboard 端口。
-* 如若开启收集 metrics 数据功能，则需先运行 prometheus 和 pushgateway 服务。pushgateway 的启动可参考[启动 pushgateway](observability-pushgateway)，prometheus 的配置和启动可参考[prometheus 配置和启动](observability-prometheus)。
+您可参考[部署参数表](../deploy/deploy_processes/parameters.md)按需裁剪不需要的功能。
+
+- enable_collector、enable_separated_redirect_runtime_std 参数提供收集函数实例日志功能，影响日志页面内容的显示。
+- prometheus_address、enable_metrics、metrics_config_file 参数提供收集指标数据功能，影响 Cluster 页面表格中 CPU、Memory、NPU、Disk 项的显示。开启功能需部署 prometheus 服务，请参考[部署 prometheus](observability-prometheus)。
+- port_policy 参数用于固定 dashboard 的服务端口。
 
 部署成功将打印包含 `local_ip` 和 `dashboard_port` 信息，如下所示：
 
@@ -23,16 +26,16 @@ Cluster master info:
 
 使用 `http://local_ip:dashboard_port` 作为 `dashboard` 的 URL (默认 URL 为 `http://localhost:9080`)。
 
-部署从节点：
+从节点的部署无需 `enable_dashboard` 和 `prometheus_address` 参数，其他参数按需配置，参考如下命令：
 
 ```bash
 # 使用前一步骤打印的主节点信息替换引号中的内容。
-yr start --enable_collector=true --enable_separated_redirect_runtime_std=true --master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashbaord_port:9080,"
+yr start --enable_collector=true --enable_separated_redirect_runtime_std=true --enable_metrics=true --metrics_config_file={file_name}.json --master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashbaord_port:9080,"
 ```
 
 ## 页面介绍
 
-`dashboard` 有多个页面，根据不同作用，请查看对应页面：
+`dashboard` 有多个页面，根据功能查看对应页面：
 
 * 查看总逻辑资源占用率：[Overview 页面](observability-dashboard-overview)，[Cluster 页面](observability-dashboard-cluster)
 * 概览所有组件和实例状态：[Overview 页面](observability-dashboard-overview)
@@ -116,11 +119,11 @@ Logs 页面可以查看所有日志内容和错误信息。页面示例：
 
 ![](../images/dashboard/log_content.png)
 
-(observability-pushgateway)=
+(observability-prometheus)=
 
-## 启动 pushgateway
+## 部署 Prometheus
 
-[下载 pushgateway](https://github.com/prometheus/pushgateway/releases){target="_blank"}，参考如下命令启动。
+openYuanrong 通过 Pushagteway 推送数据到 Prometheus，首先[下载 pushgateway](https://github.com/prometheus/pushgateway/releases){target="_blank"} 并参考如下命令部署。
 
 ```shell
 tar -xzvf pushgateway-x.xx.x.linux-amd64.tar.gz # tar 包名替换为您下载的文件名
@@ -128,13 +131,7 @@ cd pushgateway-x.xx.x.linux-amd64
 nohup ./pushgateway > ./pushgateway.log 2>&1 & # pushgateway 默认端口为 9091
 ```
 
-(observability-prometheus)=
-
-## prometheus 配置和启动
-
-[下载 prometheus](https://prometheus.io/download/){target="_blank"}，参考如下步骤启动。
-
-解压 tar 包：
+然后[下载 prometheus](https://prometheus.io/download/){target="_blank"} 并参考如下步骤部署。
 
 ```shell
 tar -xzvf prometheus-x.x.x.linux-amd64.tar.gz # tar 包名替换为您下载的文件名
