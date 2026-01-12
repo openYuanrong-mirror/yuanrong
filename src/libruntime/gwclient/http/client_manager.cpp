@@ -163,14 +163,14 @@ bool ClientManager::SubmitRequest(const http::verb &method, const std::string &t
         if (!this->clients[i]->SetUnavailable()) {
             continue;
         }
-        YRLOG_DEBUG("httpclient {} is available, will use this client", i);
+        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
         // while the connection idletime exceed setup timeout, the server may close the connection
         // in this situation, client should try to reconnect
         if (!this->clients[i]->IsConnActive()) {
-            YRLOG_DEBUG("httpclient {} is not active, reinit now", i);
-            auto err = this->clients[i]->ReInit();
+            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *requestId);
+            auto err = this->clients[i]->ReInit(requestId);
             if (!err.OK()) {
-                YRLOG_DEBUG("httpclient {} is reInit failed, err: {}", i, err.CodeAndMsg());
+                YRLOG_DEBUG("httpclient {} is reInit failed, requestId:{} err: {}", i, *requestId, err.CodeAndMsg());
                 receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
                          HTTP_CONNECTION_ERROR_CODE);
                 this->clients[i]->SetAvailable();

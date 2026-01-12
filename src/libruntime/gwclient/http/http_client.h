@@ -57,12 +57,14 @@ public:
                                      const std::string &body, const std::shared_ptr<std::string> requestId,
                                      const HttpCallbackFunction &receiver) = 0;
 
-    virtual ErrorInfo ReInit()
+    virtual ErrorInfo ReInit(const std::shared_ptr<std::string> requestId)
     {
         GracefulExit();
         const int totalRetryCount = YR::Libruntime::Config::Instance().MAX_HTTP_RETRY_TIME();
         const int maxTimeoutSec = YR::Libruntime::Config::Instance().MAX_HTTP_TIMEOUT_SEC();
         int timeoutSec = YR::Libruntime::Config::Instance().INITIAL_HTTP_CONNECT_SEC();
+        YRLOG_DEBUG("client start reinit. initTimeoutSec: {} maxTimeoutSec: {} totalRetryCount: {} requestId: {}",
+            timeoutSec, maxTimeoutSec, totalRetryCount, *requestId);
         int retryCount = 0;
         int backoffFactor = 2;
         ErrorInfo err;
@@ -70,7 +72,7 @@ public:
             connParam_.timeoutSec = timeoutSec;
             err = Init(connParam_);
             if (err.OK()) {
-                YRLOG_DEBUG("client reinit success");
+                YRLOG_DEBUG("client reinit success, requestId: {}", *requestId);
                 connParam_.timeoutSec = CONNECTION_NO_TIMEOUT;
                 return err;
             }
@@ -78,7 +80,7 @@ public:
             if (timeoutSec != CONNECTION_NO_TIMEOUT) {
                 timeoutSec = std::min(timeoutSec * backoffFactor, maxTimeoutSec);
             }
-            YRLOG_DEBUG("retry count {}, init err: {}", retryCount, err.Msg());
+            YRLOG_DEBUG("retry count {}, requestId: {} init err: {}", retryCount, *requestId, err.Msg());
         }
         connParam_.timeoutSec = CONNECTION_NO_TIMEOUT;
         return err;

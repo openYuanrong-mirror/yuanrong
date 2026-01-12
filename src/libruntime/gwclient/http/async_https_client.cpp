@@ -77,6 +77,8 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
             lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
         }
         (void)lowgest.connect(results);
+        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}",
+            param.ip, param.port, param.timeoutSec);
         if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
             lowgest.expires_never();
         }
@@ -113,7 +115,7 @@ void AsyncHttpsClient::OnWrite(const std::shared_ptr<std::string> requestId, con
     if (!retried_) {
         YRLOG_DEBUG("requestId {} start to retry once", *requestId);
         retried_ = true;
-        if (ReInit().OK()) {
+        if (ReInit(requestId).OK()) {
             http::async_write(*stream_, req_,
                               beast::bind_front_handler(&AsyncHttpsClient::OnWrite, shared_from_this(), requestId));
             return;
@@ -147,6 +149,7 @@ void AsyncHttpsClient::GracefulExit() noexcept
     SetConnInActive();
     boost::system::error_code ec = {};
     if (stream_) {
+        YRLOG_DEBUG("start shutdown ssl stream.");
         stream_->shutdown(ec);
         if (ec) {
             YRLOG_WARN("SSL shutdown failed: {}", ec.message().c_str());

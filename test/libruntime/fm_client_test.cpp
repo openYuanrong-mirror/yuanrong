@@ -56,7 +56,7 @@ public:
         }
     }
 
-    ErrorInfo ReInit() override
+    ErrorInfo ReInit(const std::shared_ptr<std::string> requestId) override
     {
         return ErrorInfo();
     }

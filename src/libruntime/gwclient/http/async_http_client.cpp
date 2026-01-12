@@ -125,7 +125,7 @@ void AsyncHttpClient::OnWrite(const std::shared_ptr<std::string> requestId, beas
     if (!retried_) {
         YRLOG_DEBUG("requestId {} start to retry once", *requestId);
         retried_ = true;
-        if (ReInit().OK()) {
+        if (ReInit(requestId).OK()) {
             http::async_write(stream_, req_,
                               beast::bind_front_handler(&AsyncHttpClient::OnWrite, shared_from_this(), requestId));
             return;
