@@ -340,6 +340,52 @@ def publish_function(function_name, publish_json, user=None):
         return False, resp
 
 
+def install_requirements(requirements_file, target_dir):
+    """
+    Install Python dependencies from requirements file to target directory.
+    
+    Args:
+        requirements_file: Path to requirements.txt file
+        target_dir: Target directory to install dependencies
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not os.path.exists(requirements_file):
+        print(f"Requirements file not found: {requirements_file}")
+        return False
+    
+    print(f"Installing dependencies from {requirements_file} to {target_dir}...")
+    
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                requirements_file,
+                "-t",
+                target_dir,
+                "--no-warn-script-location"
+            ],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            print(f"Failed to install dependencies: {result.stderr}")
+            return False
+        
+        print(f"Successfully installed dependencies to {target_dir}")
+        return True
+        
+    except Exception as e:
+        print(f"Error installing dependencies: {str(e)}")
+        return False
+
+
 def package(backend, code_path, format):
     real_code_path = os.path.realpath(code_path)
     file_name = f"code-{datetime.now().strftime('%Y%m%d%H%M')}"
@@ -488,10 +534,17 @@ def cli(
 @click.option("--function-json", required=False, type=str, default=None)
 @click.option("--skip-package", required=False, type=bool, default=False)
 @click.option("--update", required=False, is_flag=True, default=False)
-def deploy(backend, code_path, format, function_json, skip_package, update):
+@click.option("-r", "--requirements", required=False, type=str, default=None, help="Path to requirements.txt file for installing dependencies")
+def deploy(backend, code_path, format, function_json, skip_package, update, requirements):
     if function_json:
         with open(function_json, "r") as f:
-            function_json = json.load(f)
+            function_json = json.load(f)    
+    # Install dependencies if requirements file is provided
+    if requirements and not skip_package:
+        real_code_path = os.path.realpath(code_path)
+        if not install_requirements(requirements, real_code_path):
+            print("Failed to install dependencies. Deployment aborted.")
+            sys.exit(1)
     if not skip_package:
         real_code_path, package_key = package(backend, code_path, format)
         if function_json:
