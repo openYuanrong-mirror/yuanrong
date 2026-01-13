@@ -97,7 +97,7 @@ cd ${WorkSpace}/etcd
 openssl genrsa -out ca.key 2048
 
 # 证书 CN 可根据实际配置修改，默认 etcd-ca。days 为证书有效期（天数），证书过期后需要重新生成。
-openssl req -x509 -new -nodes -key ca.key -subj "/CN=etcd-ca" -days 20000 -out ca.crt
+openssl req -x509 -new -nodes -key ca.key -subj "/CN=etcd-ca" -days 10000 -out ca.crt
 ```
 
 ### 生成 etcd 服务端私钥及证书
@@ -333,7 +333,7 @@ cp ${WorkSpace}/cert/curve/client.key ${WorkSpace}/cert/curve/worker_authorized_
 ```shell
 mkdir -p ${WorkSpace}/cert/dashboard
 cd ${WorkSpace}/cert/dashboard
-openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -nodes -subj "/C=CN/ST=zhejiang/L=hangzhou/O=ha/OU=Personal/CN=dashboard"
+openssl req -x509 -newkey rsa:2048 -keyout server.key -out server.crt -days 10000 -nodes -subj "/C=CN/ST=zhejiang/L=hangzhou/O=ha/OU=Personal/CN=dashboard"
 ```
 
 ## 生成 prometheus 证书等文件
