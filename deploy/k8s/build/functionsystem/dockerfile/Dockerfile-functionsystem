@@ -9,8 +9,7 @@ ENV USER_UID=${SN_ID} \
 ENV GROUP_ID=${USER_UID} \
     GROUP_NAME=${USER_NAME} \
     HOME=/home/${USER_NAME} \
-    FUNCTIONSYSTEM_OUTPUT_DIR=openyuanrong \
-    LIB_PATH=${HOME}/lib
+    FUNCTIONSYSTEM_OUTPUT_DIR=openyuanrong 
 
 ENV HOME_FUNCTION_MASTER=${HOME}/function-master \
     HOME_IAM_ADAPTOR=${HOME}/iam-adaptor \
@@ -18,7 +17,8 @@ ENV HOME_FUNCTION_MASTER=${HOME}/function-master \
     HOME_SCHEDULER=${HOME}/scheduler \
     HOME_FRONTEND=${HOME}/frontend  \
     HOME_MANAGER=${HOME}/manager \
-    HOME_META_SERVICE=${HOME}/meta-service
+    HOME_META_SERVICE=${HOME}/meta-service \
+    LIB_PATH=${HOME}/lib
 
 ENV FUNCTION_PROXY=${HOME}/bin/function_proxy
 ENV FUNCTION_MASTER=${HOME_FUNCTION_MASTER}/bin/function_master
