@@ -110,7 +110,6 @@ bool IsLaterThan(const std::string &timestamp1, const std::string &timestamp2, d
 
 void SetCallResultWithStackTraceInfo(std::vector<YR::Libruntime::StackTraceInfo> &infos, CallResult &callResult)
 {
-    YRLOG_DEBUG("getenv ENABLE_DIS_CONV_CALL_STACK is false");
     for (size_t i = 0; i < infos.size(); i++) {
         auto setInfo = callResult.add_stacktraceinfos();
         auto eles = infos[i].StackTraceElements();

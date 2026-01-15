@@ -342,7 +342,8 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_Get(JNIEnv *env, jcla
     libRuntime->SetTenantIdWithPriority();
     // A special constraint: call wait first before call get
     auto [err, res] = libRuntime->Get(objIds, timeoutMsInt, allowPartialBool);
-    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK &&
+        err.Code() != YR::Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION) {
         YR::jni::JNILibruntimeException::Throw(
             env, err.Code(), err.MCode(),
             "get finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg());
