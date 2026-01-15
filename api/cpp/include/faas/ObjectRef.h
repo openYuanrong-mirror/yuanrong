@@ -19,7 +19,7 @@
 #include <string>
 
 namespace Function {
-/*! 
+/*!
  * @class ObjectRef ObjectRef.h "include/faas/ObjectRef.h"
  *  @brief The ObjectRef class.
  */

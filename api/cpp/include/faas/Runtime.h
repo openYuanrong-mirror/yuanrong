@@ -25,7 +25,7 @@
 
 namespace Function {
 
-/*! 
+/*!
  * @class Runtime Runtime.h "include/faas/Runtime.h"
  *  @brief The Runtime class.
  */

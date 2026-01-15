@@ -19,7 +19,7 @@
 #include <string>
 
 namespace Function {
-/*! 
+/*!
  * @class FunctionLogger FunctionLogger.h "include/faas/FunctionLogger.h"
  *  @brief The log class.
  */
@@ -32,7 +32,8 @@ public:
     }
 
     /*!
-     * @brief Set the log persistence level. The available levels are `DEBUG`, `INFO`, `WARN`, and `ERROR`, with `INFO` level as the default.
+     * @brief Set the log persistence level. The available levels are `DEBUG`, `INFO`, `WARN`, and `ERROR`, 
+     * with `INFO` level as the default.
      * @param level The log level parameter.
      * @snippet{trimleft} faas_example1.cpp logger_usage
      */

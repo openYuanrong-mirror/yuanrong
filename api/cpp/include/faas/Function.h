@@ -31,7 +31,6 @@ namespace Function {
  *  @brief The struct is used to provide parameters for configuring function calls.
  */
 struct InvokeOptions {
-
     /*!
      * @brief CPU size (unit: mi/millicores).
      */
@@ -67,7 +66,7 @@ public:
      */
     explicit Function(Context &context, const std::string &funcName);
 
-    // no exposed
+    // not exposed
     explicit Function(Context &context, const std::string &funcName, const std::string &instanceName);
 
     /*!
@@ -106,16 +105,16 @@ public:
      */
     const std::string GetObjectRef(ObjectRef &objectRef);
 
-    // no exposed
+    // not exposed
     void GetInstance(const std::string &functionName, const std::string &instanceName);
 
-    // no exposed
+    // not exposed
     void GetLocalInstance(const std::string &functionName, const std::string &instanceName);
 
-    // no exposed
+    // not exposed
     ObjectRef Terminate();
 
-    // no exposed
+    // not exposed
     void SaveState();
 
     /*!
@@ -125,7 +124,7 @@ public:
      */
     const std::shared_ptr<Context> GetContext() const;
 
-    // no exposed
+    // not exposed
     std::string GetInstanceId() const;
 
 private:

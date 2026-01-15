@@ -22,7 +22,8 @@
 namespace Function {
 
 /*! @class Context Context.h "include/faas/Context.h"
- *  @brief This is the class of context parameters passed when executing a function, and this object contains information such as the call, function and environment.
+ *  @brief This is the class of context parameters passed when executing a function, and this object contains 
+ *  information such as the call, function and environment.
  */
 class Context {
 public:
@@ -37,22 +38,22 @@ public:
      */
     virtual ~Context() = default;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetAccessKey() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetSecretKey() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetSecurityAccessKey() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetSecuritySecretKey() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetToken() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetAlias() const = 0;
 
     /*!
@@ -68,15 +69,16 @@ public:
     virtual const std::string GetInvokeId() const = 0;
 
     /*!
-     * @brief Get the reference of to the instance of the `FunctionLogger` class provided by the context, which can be used to print logs. For details, refer to the usage instructions of `FunctionLogger`.
+     * @brief Get the reference of to the instance of the `FunctionLogger` class provided by the context, which can 
+     * be used to print logs. For details, refer to the usage instructions of `FunctionLogger`.
      * @return An instance of FunctionLogger class.
      */
     virtual const FunctionLogger &GetLogger() = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetState() const = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetInstanceId() const = 0;
 
     /*!
@@ -85,10 +87,10 @@ public:
      */
     virtual const std::string GetInstanceLabel() const = 0;
 
-    // no exposed
+    // not exposed
     virtual void SetState(const std::string &state) = 0;
 
-    // no exposed
+    // not exposed
     virtual const std::string GetInvokeProperty() const = 0;
 
     /*!
@@ -110,10 +112,10 @@ public:
      */
     virtual const std::string GetFunctionName() const = 0;
 
-    // no exposed
+    // not exposed
     virtual int GetRemainingTimeInMilliSeconds() const = 0;
 
-    // no exposed
+    // not exposed
     virtual int GetRunningTimeInSeconds() const = 0;
 
     /*!

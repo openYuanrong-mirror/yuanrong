@@ -58,7 +58,8 @@ std::string HandleRequest(const std::string &request, Function::Context &context
             string result = ref.Get();
         } catch (Function::FunctionError e) {
             if (e.GetErrorCode() == Function::ErrorCode::FUNCTION_EXCEPTION) {  // need add #include "Constant.h"
-                logger.Error("err is FUNCTION_EXCEPTION, errCode is %d, errMsg is %s", e.GetErrorCode(), e.GetMessage());
+                logger.Error("err is FUNCTION_EXCEPTION, errCode is %d, errMsg is %s", 
+                    e.GetErrorCode(), e.GetMessage());
             } else {
                 logger.Error("errCode is %d, errMsg is %s", e.GetErrorCode(), e.GetMessage());
             }
