@@ -65,6 +65,15 @@ public:
     std::shared_ptr<DatasystemStreamStore> streamStore_;
 };
 
+TEST_F(StreamStoreTest, TestUpdateTokenAndAksk)
+{
+    ErrorInfo err = streamStore_->UpdateAkSk("ak", datasystem::SensitiveValue("sk"));
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    err = streamStore_->UpdateToken(datasystem::SensitiveValue("token"));
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    ASSERT_EQ(streamStore_->connectOpts.token, datasystem::SensitiveValue("token"));
+}
+
 TEST_F(StreamStoreTest, CreateStreamProducer)
 {
     std::string streamName = "streamName";
@@ -149,14 +158,6 @@ TEST_F(StreamStoreTest, TestConsumer)
     err = streamConsumer->Receive(999, 1, elements);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
     unsetenv("STREAM_RECEIVE_LIMIT");
-}
-
-TEST_F(StreamStoreTest, TestUpdateTokenAndAksk)
-{
-    ErrorInfo err = streamStore_->UpdateAkSk("ak", datasystem::SensitiveValue("sk"));
-    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    err = streamStore_->UpdateToken(datasystem::SensitiveValue("token"));
-    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
 }
 
 }  // namespace test

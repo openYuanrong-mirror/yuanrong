@@ -185,10 +185,13 @@ struct Config {
      */
     std::unordered_map<std::string, std::string> customEnvs;
     std::string httpVersion = "";
-    bool autodeploy = false;
+    bool autodeploy = false;    // not in use
+    /**
+     * @brief Tenant ID.
+     */
     std::string tenantId = "";
     bool isLowReliabilityTask = false;
     bool attach = false;
-    bool launchUserBinary = false;
+    bool launchUserBinary = false;  // internal use only, user do not set it.
 };
 }  // namespace YR

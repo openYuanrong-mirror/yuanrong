@@ -208,6 +208,10 @@ Config 结构体
 
        默认 ``false``。
 
+    .. cpp:member:: std::string tenantId = ""
+
+       租戶 ID。
+
 .. cpp:struct:: ClientInfo
 
     由 `Init` 返回的对象，包含运行时上下文的元数据。

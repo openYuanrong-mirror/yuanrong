@@ -212,6 +212,14 @@ void DatasystemStreamStore::Shutdown()
 ErrorInfo DatasystemStreamStore::UpdateToken(datasystem::SensitiveValue token)
 {
     ErrorInfo err;
+    YRLOG_DEBUG("UpdateToken, token {}", !token.Empty());
+    if (streamClient == nullptr) {
+        this->connectOpts.token = token;
+        return err;
+    }
+    Status status = streamClient->UpdateToken(token);
+    RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED,
+                      "stream client update token failed");
     return err;
 }
 
