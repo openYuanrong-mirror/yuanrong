@@ -19,6 +19,10 @@
 #include <string>
 
 namespace Function {
+/*! 
+ * @class FunctionLogger FunctionLogger.h "include/faas/FunctionLogger.h"
+ *  @brief The log class.
+ */
 class FunctionLogger {
 public:
     FunctionLogger(){};
@@ -27,18 +31,51 @@ public:
     {
     }
 
+    /*!
+     * @brief Set the log persistence level. The available levels are `DEBUG`, `INFO`, `WARN`, and `ERROR`, with `INFO` level as the default.
+     * @param level The log level parameter.
+     * @snippet{trimleft} faas_example1.cpp logger_usage
+     */
     void setLevel(const std::string &level);
 
+    /*!
+     * @brief Print logs at the `INFO` level.
+     * @param message Formatted string for the log.
+     * @param ... Variable argument list, which corresponds to the placeholders in the formatted string one by one.
+     */
     void Info(std::string message, ...);
 
+    /*!
+     * @brief Print logs at the `WARN` level.
+     * @param message Formatted string for the log.
+     * @param ... Variable argument list, which corresponds to the placeholders in the formatted string one by one.
+     */
     void Warn(std::string message, ...);
 
+    /*!
+     * @brief Print logs at the `DEBUG` level.
+     * @param message Formatted string for the log.
+     * @param ... Variable argument list, which corresponds to the placeholders in the formatted string one by one.
+     */
     void Debug(std::string message, ...);
 
+    /*!
+     * @brief Print logs at the `ERROR` level.
+     * @param message Formatted string for the log.
+     * @param ... Variable argument list, which corresponds to the placeholders in the formatted string one by one.
+     */
     void Error(std::string message, ...);
 
+    /*!
+     * @brief Set invoke ID to be displayed in log printing
+     * @param invokeID Unique invoke ID string for log output
+     */
     void SetInvokeID(std::string invokeID);
 
+    /*!
+     * @brief Set trace ID to be displayed in log printing
+     * @param invokeID Unique trace ID string for log output
+     */
     void SetTraceID(std::string traceID);
 
 private:

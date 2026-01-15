@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2024-2024. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,29 +13,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//! [faasHandler]
+//! [faasCallerHandler]
 #include <cstdlib>
 #include <string>
 #include "Runtime.h"
+#include "FunctionError.h"
 #include "Function.h"
 bool flags = false;
 std::string HandleRequest(const std::string &request, Function::Context &context)
 {
     Function::FunctionLogger logger = context.GetLogger();
-    logger.setLevel("INFO");
-    logger.Info("hello cpp %s ", "user info log");
-    logger.Error("hello cpp %s ", "user error log");
-    logger.Warn("hello cpp %s ", "user warn log");
-    logger.Debug("hello cpp %s ", "user debug log");
-    logger.Error("hello cpp %s ", context.GetFunctionName().c_str());
-    logger.Error("hello cpp %s ", context.GetUserData("b").c_str());
-    logger.Error("hello cpp %s ", context.GetUserData("key1").c_str());
-    return request;
-}
 
-void InitState(const std::string &request, Function::Context &context)
-{
-    context.SetState(request);
+    logger.Info("invoke test function begin");
+    std::string result = "";
+    try {
+        auto func = Function::Function(context, "test:latest");
+        Function::InvokeOptions invokeOptions; // use default option
+        func.Options(invokeOptions);
+        auto ref = func.Invoke("{\"hello\":\"world\"}");
+        result = ref.Get();
+    } catch (Function::FunctionError e) {
+        logger.Error("invoke test function failed, err: %s", e.GetJsonString());
+        return e.GetJsonString();
+    }
+    logger.Info("invoke test function end, result: %s", result);
+
+    return result;
 }
 
 void Initializer(Function::Context &context)
@@ -53,4 +56,4 @@ int main(int argc, char *argv[])
     rt.Start(argc, argv);
     return 0;
 }
-//! [faasHandler]
+//! [faasCallerHandler]

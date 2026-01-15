@@ -21,13 +21,47 @@
 #include "Constant.h"
 
 namespace Function {
+/*! @class FunctionError FunctionError.h "include/faas/FunctionError.h"
+ *  @brief The exception class.
+ */
 class FunctionError : public std::exception {
 public:
+    /*!
+    * @brief Constructor for FunctionError (initializes error code and message).
+    * @param code Integer error code (maps to `ErrorCode` enum).
+    * @param message Descriptive error message.
+    * @snippet{trimleft} faas_example1.cpp functionerror_usage
+    * @see Function::ErrorCode
+     */
+    
     FunctionError(int code, const std::string message) : errCode((ErrorCode)code), errMsg(message) {}
+    /*!
+    * @brief default destructor.
+     */
     virtual ~FunctionError() = default;
+
+    /*!
+     * @brief Get the char* type output of the exception's message.
+     * @return The exception message.
+     */
     const char *what() const noexcept override;
+
+    /*!
+     * @brief Get  the exception's Code.
+     * @return The exception code.
+     */
     ErrorCode GetErrorCode() const;
+
+    /*!
+     * @brief Get the exception's Message.
+     * @return The exception message.
+     */
     const std::string GetMessage() const;
+
+    /*!
+     * @brief Get the exception information and display it in JSON format.
+     * @return The exception info.
+     */
     const std::string GetJsonString() const;
 
 private:

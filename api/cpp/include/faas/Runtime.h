@@ -24,20 +24,50 @@
 #include "RuntimeHandler.h"
 
 namespace Function {
+
+/*! 
+ * @class Runtime Runtime.h "include/faas/Runtime.h"
+ *  @brief The Runtime class.
+ */
 class Runtime {
 public:
+    /*!
+     * @brief The default constructor.
+     */
     Runtime();
+
+    /*!
+     * @brief The default destructor.
+     */
     virtual ~Runtime();
 
+    /*!
+     * @brief Register a handler function to the yuanrong cpp runtime.
+     * @param handleRequestFunc The user-defined handler to be registered.
+     * @snippet{trimleft} faas_example.cpp faasHandler
+     */
     void RegisterHandler(
         std::function<std::string(const std::string &request, Function::Context &context)> handleRequestFunc);
 
+    /*!
+     * @brief Register an initial handler function to the yuanrong cpp runtime.
+     * @param handleRequestFunc The user-defined initial handler to be registered.
+     */
     void RegisterInitializerFunction(std::function<void(Function::Context &context)> initializerFunc);
 
+    /*!
+     * @brief Register a prestop handler function to the cpp yuanrong runtime.
+     * @param handleRequestFunc The user-defined prestop handler to be registered.
+     */
     void RegisterPreStopFunction(std::function<void(Function::Context &context)> preStopFunc);
 
     void InitState(std::function<void(const std::string &request, Function::Context &context)> initStateFunc);
 
+    /*!
+     * @brief Start a yuanrong cpp runtime.
+     * @param argc Count of command-line arguments.
+     * @param argv Array of command-line argument strings (argv[0] = executable name).
+     */
     void Start(int argc, char *argv[]);
 
 private:

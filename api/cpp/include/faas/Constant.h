@@ -19,20 +19,64 @@
 #include <string>
 
 namespace Function {
+/*! @enum ErrorCode Constant.h "include/faas/Constant.h"
+ *  @brief Error codes for runtime and user handler operations.
+ */
 enum ErrorCode {
+    /*!
+     * @brief Success. 
+     */
     OK = 0,
+    /*!
+     *  @brief Generic error. 
+     */
     ERROR = 1,
 
+    /*! 
+     * @brief Illegal access to runtime. 
+     */
     ILLEGAL_ACCESS = 4001,
+
+    /*! 
+     * @brief User function exception. 
+     */
     FUNCTION_EXCEPTION = 4002,
-    USER_STATE_LARGE_ERROR = 4003,
+
+    /*! 
+     * @brief Illegal return value from user handler. 
+     */
     ILLEGAL_RETURN = 4004,
+
     USER_STATE_UNDEFINED_ERROR = 4005,
+
+    /*! 
+     * @brief User Initializer() function exception. 
+     */
     USER_INITIALIZATION_FUNCTION_EXCEPTION = 4009,
+
+    /*! 
+     * @brief User load function exception. 
+     */
     USER_LOAD_FUNCTION_EXCEPTION = 4014,
+
+    /*! 
+     * @brief Instance name not found. 
+     */
     NO_SUCH_INSTANCE_NAME_ERROR_CODE = 4026,
+
+    /*! 
+     * @brief Invalid parameter. 
+     */
     INVALID_PARAMETER = 4040,
+
+    /*! 
+     * @brief Illegal access to runtime. 
+     */
     NO_SUCH_STATE_ERROR_CODE = 4041,
+
+    /*! 
+     * @brief Internal system error. 
+     */
     INTERNAL_ERROR = 110500,
 };
 // UserErrorMax is the maximum value of user errors

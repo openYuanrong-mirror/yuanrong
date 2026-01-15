@@ -19,6 +19,10 @@
 #include <string>
 
 namespace Function {
+/*! 
+ * @class ObjectRef ObjectRef.h "include/faas/ObjectRef.h"
+ *  @brief The ObjectRef class.
+ */
 class ObjectRef {
 public:
     ObjectRef(std::string &futureId, std::string &instanceId)
@@ -30,6 +34,11 @@ public:
 
     const std::string GetObjectRefId() const;
     const std::string GetResult() const;
+    
+    /*!
+     * @brief Get the result of the objectRef.
+     * @return The result of the objectRef.
+     */
     const std::string Get();
     bool GetResultFlag() const;
 

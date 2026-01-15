@@ -27,31 +27,82 @@
 
 namespace Function {
 
+/*! @struct InvokeOptions Function.h "include/faas/Function.h"
+ *  @brief The struct is used to provide parameters for configuring function calls.
+ */
 struct InvokeOptions {
-    // unit is ms
+
+    /*!
+     * @brief CPU size (unit: mi/millicores).
+     */
     int cpu = 0;
-    // unit is MB
+
+    /*!
+     * @brief Memory size (unit: MB/megabytes).
+     */
     int memory = 0;
 
+    /*!
+     * @brief Alias params.
+     */
     std::unordered_map<std::string, std::string> aliasParams;
 };
 
+/*! @class Function Function.h "include/faas/Function.h"
+ *  @brief The class provides the functionality for inter-function calls..
+ */
 class Function {
 public:
+    /*!
+     * @brief The constructor of the Function class, where the callee function is the function itself.
+     * @param context A parameter of the `Context` object.
+     */
     explicit Function(Context &context);
+
+    /*!
+     * @brief The constructor of the Function class.
+     * @param context A parameter of the `Context` object.
+     * @param funcName Then callee function name.
+     * @snippet{trimleft} faas_caller_example.cpp faasCallerHandler
+     */
     explicit Function(Context &context, const std::string &funcName);
+
     explicit Function(Context &context, const std::string &funcName, const std::string &instanceName);
 
+    /*!
+     * @brief Default destructor.
+     */
     virtual ~Function() = default;
 
+    /*!
+     * @brief Disable the copy constructor.
+     */
     Function(const Function &) = delete;
 
+    /*!
+     * @brief Disable the copy assignment operator.
+     */
     Function &operator=(const Function &) = delete;
 
+    /*!
+     * @brief Invoke the callee function.
+     * @param payload Request parameters, which are required to be in JSON string format.
+     * @return The response result of type ObjectRef.
+     * @throws FunctionError Exceptions thrown when executing the request.
+     */
     ObjectRef Invoke(const std::string &payload);
 
+    /*!
+     * @brief Set the invoke Options.
+     * @param opt The reference of the `InvokeOptions` type.
+     */
     Function &Options(const InvokeOptions &opt);
 
+    /*!
+     * @brief Get the invoke result.
+     * @param objectRef The reference of the `ObjectRef` type.
+     * @return The invoke result.
+     */
     const std::string GetObjectRef(ObjectRef &objectRef);
 
     void GetInstance(const std::string &functionName, const std::string &instanceName);
@@ -61,7 +112,12 @@ public:
     ObjectRef Terminate();
 
     void SaveState();
-
+    
+    /*!
+     * @brief Get the configured Context parameters.
+     * @return The Configured Context.
+     * @throws FunctionError Exceptions thrown when get the invoke result.
+     */
     const std::shared_ptr<Context> GetContext() const;
 
     std::string GetInstanceId() const;
