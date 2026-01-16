@@ -42,6 +42,19 @@ go env -w "GOFLAGS"="-mod=mod"
 # atomic: 类似于count, 但表示的是并行程序中的精确计数
 export GOCOVER_MODE="set"
 
+# download datasystem
+if [ ! -d "${YR_DATASYSTEM_DIR}"/output/sdk/go/stream ]; then
+    echo "start to download datasystem"
+    DS_OUT_DIR="${YR_DATASYSTEM_DIR}/output"
+    rm -rf "${DS_OUT_DIR}"
+    mkdir -p "${DS_OUT_DIR}"
+    pushd "${DS_OUT_DIR}"
+    wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
+    tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
+    popd
+fi
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+
 # protoc
 echo "generating fs proto pb objects"
 mkdir -p "${PROJECT_OUTPUT_DIR}"
@@ -61,17 +74,6 @@ cp "${CLIENT_CONFIG_DIR}/config.json.bak" "${CLIENT_CONFIG_DIR}/config.json"
 npm run coverage
 
 # collector test
-if [ ! -d "${YR_DATASYSTEM_DIR}"/output/sdk/go/stream ]; then
-    echo "start to download datasystem"
-    DS_OUT_DIR="${YR_DATASYSTEM_DIR}/output"
-    rm -rf "${DS_OUT_DIR}"
-    mkdir -p "${DS_OUT_DIR}"
-    pushd "${DS_OUT_DIR}"
-    wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
-    tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
-    popd
-fi
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
 sh "${CUR_DIR}/collector/test.sh"
 
 # common test
