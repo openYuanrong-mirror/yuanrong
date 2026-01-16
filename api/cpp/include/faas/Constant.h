@@ -43,6 +43,9 @@ enum ErrorCode {
      */
     FUNCTION_EXCEPTION = 4002,
 
+    // not exposed
+    USER_STATE_LARGE_ERROR = 4003,
+
     /*!
      * @brief Illegal return value from user handler.
      */
