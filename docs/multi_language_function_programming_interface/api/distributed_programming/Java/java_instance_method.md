@@ -1,6 +1,6 @@
 # JavaInstanceMethod
 
-package: `com.yuanrong.function`.
+package: `org.yuanrong.function`.
 
 ## public class JavaInstanceMethod&lt;R\>
 

@@ -2,7 +2,7 @@
 
 ## YR.function()
 
-包名: `com.yuanrong`.
+包名: `org.yuanrong`.
 
 云下 Java 函数调用云上 Java 函数，openYuanrong 当前支持 0 ~ 5 个入参，一个返回值的用户函数。
 

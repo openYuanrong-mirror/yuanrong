@@ -1,6 +1,6 @@
 # CppInstanceFunctionHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class CppInstanceFunctionHandler&lt;R>
 

@@ -19,9 +19,9 @@
 调用 openYuanrong 服务时流式返回基于 SSE(Server-Send Events) 协议实现。在函数服务中通过上下文接口中的 `context.getStream()` 关联流，发送流数据。一个流式返回的 Java 函数服务示例如下。
 
 ```java
-package com.yuanrong.demo;
+package org.yuanrong.demo;
 
-import com.services.runtime.Context;
+import org.yuanrong.services.runtime.Context;
 import com.google.gson.JsonObject;
 
 public class Demo {

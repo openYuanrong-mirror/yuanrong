@@ -6,17 +6,17 @@ Introduction to header files:
 
 Stream caching primarily involves the stream object operation interfaces and the `Producer` and `Consumer` interfaces. Import the following relevant header files as needed:
 
-import com.yuanrong.stream.Producer;
+import org.yuanrong.stream.Producer;
 
-import com.yuanrong.stream.ProducerConfig;
+import org.yuanrong.stream.ProducerConfig;
 
-import com.yuanrong.stream.Consumer;
+import org.yuanrong.stream.Consumer;
 
-import com.yuanrong.stream.SubscriptionConfig;
+import org.yuanrong.stream.SubscriptionConfig;
 
-import com.yuanrong.stream.SubscriptionType;
+import org.yuanrong.stream.SubscriptionType;
 
-import com.yuanrong.stream.Element;
+import org.yuanrong.stream.Element;
 
 :::
 

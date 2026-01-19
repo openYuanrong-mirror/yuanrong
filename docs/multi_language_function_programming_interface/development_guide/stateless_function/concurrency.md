@@ -80,11 +80,11 @@ int main(int argc, char *argv[])
 :::{tab-item} Java
 
 ```java
-import com.yuanrong.InvokeOptions;
-import com.yuanrong.Config;
-import com.yuanrong.api.YR;
-import com.yuanrong.runtime.client.ObjectRef;
-import com.yuanrong.storage.WaitResult;
+import org.yuanrong.InvokeOptions;
+import org.yuanrong.Config;
+import org.yuanrong.api.YR;
+import org.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.storage.WaitResult;
 
 import java.util.HashMap;
 import java.util.ArrayList;

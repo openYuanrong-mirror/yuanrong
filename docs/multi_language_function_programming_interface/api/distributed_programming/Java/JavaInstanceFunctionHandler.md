@@ -1,6 +1,6 @@
 # JavaInstanceFunctionHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class JavaInstanceFunctionHandler&lt;R>
 

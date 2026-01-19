@@ -1,6 +1,6 @@
 # Affinity
 
-package: `com.yuanrong.affinity`.
+package: `org.yuanrong.affinity`.
 
 :::{Note}
 

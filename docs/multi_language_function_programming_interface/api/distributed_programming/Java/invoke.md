@@ -2,7 +2,7 @@
 
 ## Introduction
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 When acting as a built-in method for the following instances, the specified instance will be created:
 

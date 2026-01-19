@@ -1,6 +1,6 @@
 # YR.kv().getWithParam()
 
-包名：`package com.yuanrong.runtime.client`。
+包名：`package org.yuanrong.runtime.client`。
 
 ## YR.kv().getWithParam()
 

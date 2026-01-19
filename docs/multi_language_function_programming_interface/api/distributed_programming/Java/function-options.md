@@ -2,7 +2,7 @@
 
 ## function.options()
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ### Interface description
 

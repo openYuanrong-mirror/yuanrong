@@ -1,6 +1,6 @@
 # InvokeOptions
 
-包名：`com.yuanrong`。
+包名：`org.yuanrong`。
 
 ## public class InvokeOptions
 

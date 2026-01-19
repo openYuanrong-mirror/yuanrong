@@ -1,6 +1,6 @@
 # wait
 
-package: `com.yuanrong.api`.
+package: `org.yuanrong.api`.
 
 ## Interface description
 

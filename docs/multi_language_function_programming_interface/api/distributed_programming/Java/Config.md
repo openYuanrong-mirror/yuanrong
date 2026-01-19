@@ -1,6 +1,6 @@
 # Config
 
-package: `com.yuanrong`.
+package: `org.yuanrong`.
 
 ## public class Config
 

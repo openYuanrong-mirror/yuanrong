@@ -1,6 +1,6 @@
 # CppInstanceHandler importHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## Interface description
 

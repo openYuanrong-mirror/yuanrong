@@ -2,7 +2,7 @@
 
 ## 介绍
 
-包名: `com.yuanrong.call`。
+包名: `org.yuanrong.call`。
 
 为以下实例的内置方法时，将创建所指定的实例：
 

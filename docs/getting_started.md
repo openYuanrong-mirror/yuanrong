@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
 
 ```java
 // Greeter.java
-package com.yuanrong.example;
+package org.yuanrong.example;
 
 public class Greeter {
     // 定义无状态函数
@@ -144,12 +144,12 @@ public class Greeter {
 
 ```java
 // Main.java
-package com.yuanrong.example;
+package org.yuanrong.example;
 
-import com.yuanrong.Config;
-import com.yuanrong.api.YR;
-import com.yuanrong.runtime.client.ObjectRef;
-import com.yuanrong.exception.YRException;
+import org.yuanrong.Config;
+import org.yuanrong.api.YR;
+import org.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.exception.YRException;
 
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -327,7 +327,7 @@ int main(int argc, char *argv[])
 
 ```java
 // Object.java
-package com.yuanrong.example;
+package org.yuanrong.example;
 
 // 定义有状态函数
 public class Object {
@@ -349,13 +349,13 @@ public class Object {
 
 ```java
 // Main.java
-package com.yuanrong.example;
+package org.yuanrong.example;
 
-import com.yuanrong.Config;
-import com.yuanrong.api.YR;
-import com.yuanrong.runtime.client.ObjectRef;
-import com.yuanrong.call.InstanceHandler;
-import com.yuanrong.exception.YRException;
+import org.yuanrong.Config;
+import org.yuanrong.api.YR;
+import org.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.call.InstanceHandler;
+import org.yuanrong.exception.YRException;
 
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -495,7 +495,7 @@ int main(int argc, char *argv[])
 ```java
 package com.myapp.demo;
 
-import com.services.runtime.Context;
+import org.yuanrong.services.runtime.Context;
 import com.google.gson.JsonObject;
 
 public class Demo {

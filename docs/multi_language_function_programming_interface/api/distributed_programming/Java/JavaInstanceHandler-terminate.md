@@ -1,6 +1,6 @@
 # JavaInstanceHandler terminate
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## Interface description
 

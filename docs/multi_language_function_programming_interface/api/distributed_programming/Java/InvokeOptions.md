@@ -1,6 +1,6 @@
 # InvokeOptions
 
-package: `com.yuanrong`。
+package: `org.yuanrong`。
 
 ## public class InvokeOptions
 

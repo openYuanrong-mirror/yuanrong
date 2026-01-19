@@ -1,6 +1,6 @@
 # loadState
 
-package: `package com.yuanrong.api`.
+package: `package org.yuanrong.api`.
 
 ## loadState()
 

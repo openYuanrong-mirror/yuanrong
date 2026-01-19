@@ -18,7 +18,7 @@ yr.java_function
 
     .. code-block:: java
 
-       package com.yuanrong.demo;
+       package org.yuanrong.demo;
 
            public class PlusOne{
                public static int PlusOne(int x) {
@@ -35,6 +35,6 @@ yr.java_function
        ...     "sn:cn:yrk:12345678901234561234567890123456:"
        ...     "function:0-yr-defaultservice-java:$latest"
        ... )
-       >>> java_add = yr.java_function("com.yuanrong.demo.PlusOne", "PlusOne", java_function_urn)
+       >>> java_add = yr.java_function("org.yuanrong.demo.PlusOne", "PlusOne", java_function_urn)
        >>> result = java_add.invoke(1)
        >>> print(yr.get(result))

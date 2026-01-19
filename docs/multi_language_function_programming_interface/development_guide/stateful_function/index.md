@@ -145,12 +145,12 @@ public class Counter {
 // Main.java
 package com.example;
 
-import com.yuanrong.Config;
-import com.yuanrong.InvokeOptions;
-import com.yuanrong.api.YR;
-import com.yuanrong.call.InstanceHandler;
-import com.yuanrong.exception.YRException;
-import com.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.Config;
+import org.yuanrong.InvokeOptions;
+import org.yuanrong.api.YR;
+import org.yuanrong.call.InstanceHandler;
+import org.yuanrong.exception.YRException;
+import org.yuanrong.runtime.client.ObjectRef;
 
 
 public class Main {
@@ -308,13 +308,13 @@ public class Counter {
 // Main.java
 package com.example;
 
-import com.yuanrong.Config;
-import com.yuanrong.InvokeOptions;
-import com.yuanrong.api.YR;
-import com.yuanrong.call.InstanceHandler;
-import com.yuanrong.call.InstanceCreator;
-import com.yuanrong.exception.YRException;
-import com.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.Config;
+import org.yuanrong.InvokeOptions;
+import org.yuanrong.api.YR;
+import org.yuanrong.call.InstanceHandler;
+import org.yuanrong.call.InstanceCreator;
+import org.yuanrong.exception.YRException;
+import org.yuanrong.runtime.client.ObjectRef;
 
 
 public class Main {

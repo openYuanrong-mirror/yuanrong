@@ -91,8 +91,8 @@ opts.AddAffinity(affinity1).AddAffinity(affinity2).AddAffinity({affinity3, affin
 
 ```java
 import java.util.ArrayList;
-import com.yuanrong.InvokeOptions;
-import com.yuanrong.affinity.*;
+import org.yuanrong.InvokeOptions;
+import org.yuanrong.affinity.*;
 
 // 弱资源亲和，匹配资源标签键为"key1"的资源
 LabelOperator labelOperator = new LabelOperator(OperatorType.LABEL_EXISTS, "key1");
@@ -160,8 +160,8 @@ opts.AddAffinity(affinity1).AddAffinity(affinity2);
 
 ```java
 import java.util.ArrayList;
-import com.yuanrong.InvokeOptions;
-import com.yuanrong.affinity.*;
+import org.yuanrong.InvokeOptions;
+import org.yuanrong.affinity.*;
 
 // 弱实例亲和，匹配包含实例标签键为"key1"的资源
 LabelOperator labelOperator = new LabelOperator(OperatorType.LABEL_EXISTS, "key1");

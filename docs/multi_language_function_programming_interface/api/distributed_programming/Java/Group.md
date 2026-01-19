@@ -1,6 +1,6 @@
 # Group
 
-package: `com.yuanrong`.
+package: `org.yuanrong`.
 
 ## public class Group
 

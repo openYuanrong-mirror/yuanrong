@@ -2,7 +2,7 @@
 
 ## YR.init()
 
-包名：`com.yuanrong.api`。
+包名：`org.yuanrong.api`。
 
 ### 接口说明
 
@@ -42,7 +42,7 @@ ClientInfo jobid = YR.init(conf);
 
 ## public class ClientInfo
 
-包名：`com.yuanrong.api`。
+包名：`org.yuanrong.api`。
 
 用于存储 openYuanrong 客户端信息。
 

@@ -1,6 +1,6 @@
 # CppInstanceMethod
 
-package: `com.yuanrong.function`.
+package: `org.yuanrong.function`.
 
 ## public class CppInstanceMethod&lt;R\>
 

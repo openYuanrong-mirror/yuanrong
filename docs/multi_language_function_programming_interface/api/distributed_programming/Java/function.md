@@ -2,7 +2,7 @@
 
 ## YR.function()
 
-package: `com.yuanrong`.
+package: `org.yuanrong`.
 
 Under the cloud, Java function calls Java functions on the cloud. openYuanrong currently supports user functions with 0 to 5 input parameters and one return value.
 

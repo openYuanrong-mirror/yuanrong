@@ -16,7 +16,7 @@ yr.java_instance_class
 
     .. code-block:: java
 
-       package com.yuanrong.demo;
+       package org.yuanrong.demo;
 
        public class Counter {
            private int count;
@@ -47,7 +47,7 @@ yr.java_instance_class
        ...     "function:0-yr-defaultservice-java:$latest"
        ... )
        >>>
-       >>> java_instance = yr.java_instance_class("com.yuanrong.demo.Counter", java_function_urn).invoke(1)
+       >>> java_instance = yr.java_instance_class("org.yuanrong.demo.Counter", java_function_urn).invoke(1)
        >>> res = java_instance.Add.invoke(5)
        >>> print(yr.get(res))
        >>>

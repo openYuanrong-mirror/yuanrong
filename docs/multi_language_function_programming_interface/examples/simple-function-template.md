@@ -215,7 +215,7 @@
             xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
         <modelVersion>4.0.0</modelVersion>
 
-        <groupId>com.yuanrong.example</groupId>
+        <groupId>org.yuanrong.example</groupId>
         <artifactId>example</artifactId>
         <version>1.0.0</version>
 
@@ -228,7 +228,7 @@
         <dependencies>
             <dependency>
                 <!-- 修改版本号为您实际使用版本 -->
-                <groupId>com.yuanrong</groupId>
+                <groupId>org.yuanrong</groupId>
                 <artifactId>yr-api-sdk</artifactId>
                 <version>1.0.0</version>
             </dependency>
@@ -250,7 +250,7 @@
                     <configuration>
                         <archive>
                             <manifest>
-                                <mainClass>com.yuanrong.example.Main</mainClass>
+                                <mainClass>org.yuanrong.example.Main</mainClass>
                             </manifest>
                         </archive>
                         <descriptorRefs>
@@ -270,7 +270,7 @@
     :icon: chevron-down
 
     ```java
-    package com.yuanrong.example;
+    package org.yuanrong.example;
 
     public class Greeter {
         // Define stateless function
@@ -287,12 +287,12 @@
     :icon: chevron-down
 
     ```java
-    package com.yuanrong.example;
+    package org.yuanrong.example;
 
-    import com.yuanrong.Config;
-    import com.yuanrong.api.YR;
-    import com.yuanrong.runtime.client.ObjectRef;
-    import com.yuanrong.exception.YRException;
+    import org.yuanrong.Config;
+    import org.yuanrong.api.YR;
+    import org.yuanrong.runtime.client.ObjectRef;
+    import org.yuanrong.exception.YRException;
 
     import java.util.HashMap;
     import java.util.ArrayList;
@@ -341,7 +341,7 @@
     在 `java-stateless-function` 目录下运行程序，输出如下：
 
     ```bash
-    java -Dyr.codePath=$(pwd)/target -cp target/example-1.0.0.jar com.yuanrong.example.Main
+    java -Dyr.codePath=$(pwd)/target -cp target/example-1.0.0.jar org.yuanrong.example.Main
     # hello, yuanrong
     # hello, yuanrong
     # hello, yuanrong
@@ -602,7 +602,7 @@
             xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
         <modelVersion>4.0.0</modelVersion>
 
-        <groupId>com.yuanrong.example</groupId>
+        <groupId>org.yuanrong.example</groupId>
         <artifactId>example</artifactId>
         <version>1.0.0</version>
 
@@ -615,7 +615,7 @@
         <dependencies>
             <dependency>
                 <!-- 修改版本号为您实际使用版本 -->
-                <groupId>com.yuanrong</groupId>
+                <groupId>org.yuanrong</groupId>
                 <artifactId>yr-api-sdk</artifactId>
                 <version>1.0.0</version>
             </dependency>
@@ -637,7 +637,7 @@
                     <configuration>
                         <archive>
                             <manifest>
-                                <mainClass>com.yuanrong.example.Main</mainClass>
+                                <mainClass>org.yuanrong.example.Main</mainClass>
                             </manifest>
                         </archive>
                         <descriptorRefs>
@@ -657,7 +657,7 @@
     :icon: chevron-down
 
     ```java
-    package com.yuanrong.example;
+    package org.yuanrong.example;
 
     // Define stateful function
     public class Object {
@@ -684,13 +684,13 @@
     :icon: chevron-down
 
     ```java
-    package com.yuanrong.example;
+    package org.yuanrong.example;
 
-    import com.yuanrong.Config;
-    import com.yuanrong.api.YR;
-    import com.yuanrong.runtime.client.ObjectRef;
-    import com.yuanrong.call.InstanceHandler;
-    import com.yuanrong.exception.YRException;
+    import org.yuanrong.Config;
+    import org.yuanrong.api.YR;
+    import org.yuanrong.runtime.client.ObjectRef;
+    import org.yuanrong.call.InstanceHandler;
+    import org.yuanrong.exception.YRException;
 
     import java.util.HashMap;
     import java.util.ArrayList;
@@ -752,7 +752,7 @@
     在 `java-stateful-function` 目录下运行程序，输出如下：
 
     ```bash
-    java -Dyr.codePath=$(pwd)/target -cp target/example-1.0.0.jar com.yuanrong.example.Main
+    java -Dyr.codePath=$(pwd)/target -cp target/example-1.0.0.jar org.yuanrong.example.Main
     # 9
     # 9
     # 9
@@ -1043,9 +1043,9 @@
     :icon: chevron-down
 
     ```java
-    package com.yuanrong.demo;
+    package org.yuanrong.demo;
 
-    import com.services.runtime.Context;
+    import org.yuanrong.services.runtime.Context;
     import com.google.gson.JsonObject;
     import java.time.LocalDate;
 
@@ -1090,7 +1090,7 @@
             xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
         <modelVersion>4.0.0</modelVersion>
 
-        <groupId>com.yuanrong.demo</groupId>
+        <groupId>org.yuanrong.demo</groupId>
         <artifactId>demo</artifactId>
         <version>1.0.0</version>
 
@@ -1106,7 +1106,7 @@
         <dependencies>
             <dependency>
                 <!-- 修改版本号为您实际使用版本 -->
-                <groupId>com.yuanrong</groupId>
+                <groupId>org.yuanrong</groupId>
                 <artifactId>faas-function-sdk</artifactId>
                 <version>1.0.0</version>
             </dependency>
@@ -1216,13 +1216,13 @@
     ```bash
     # 替换 /opt/mycode/service 为您的代码包目录
     META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 ip}:31182>
-    curl -H "Content-type: application/json" -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/functions -d '{"name":"0@myService@java-demo","runtime":"java8","handler":"com.yuanrong.demo.Demo::handler","environment":{"show_date":"true"},"extendedHandler":{"initializer":"com.yuanrong.demo.Demo::initializer"},"extendedTimeout":{"initializer":30},"kind":"faas","cpu":600,"memory":512,"timeout":60,"storageType":"local","codePath":"/opt/mycode/service"}'
+    curl -H "Content-type: application/json" -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/functions -d '{"name":"0@myService@java-demo","runtime":"java8","handler":"org.yuanrong.demo.Demo::handler","environment":{"show_date":"true"},"extendedHandler":{"initializer":"org.yuanrong.demo.Demo::initializer"},"extendedTimeout":{"initializer":30},"kind":"faas","cpu":600,"memory":512,"timeout":60,"storageType":"local","codePath":"/opt/mycode/service"}'
     ```
 
     结果返回格式如下，记录 `functionVersionUrn` 字段的值用于调用，这里对应 `sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest`
 
     ```bash
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"","objectId":"","handler":"com.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"","objectId":"","handler":"org.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：

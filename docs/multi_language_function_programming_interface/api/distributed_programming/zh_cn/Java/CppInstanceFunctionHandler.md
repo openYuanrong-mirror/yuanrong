@@ -1,6 +1,6 @@
 # CppInstanceFunctionHandler
 
-包名：`com.yuanrong.call`。
+包名：`org.yuanrong.call`。
 
 ## public class CppInstanceFunctionHandler&lt;R>
 

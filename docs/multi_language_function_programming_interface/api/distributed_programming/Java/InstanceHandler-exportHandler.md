@@ -1,6 +1,6 @@
 # InstanceHandler exportHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## Interface description
 

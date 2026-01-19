@@ -1,6 +1,6 @@
 # InstanceFunctionHandler
 
-包名：`com.yuanrong.call`。
+包名：`org.yuanrong.call`。
 
 ## public class InstanceFunctionHandler&lt;R&gt; extends Handler
 

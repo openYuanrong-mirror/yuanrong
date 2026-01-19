@@ -1,6 +1,6 @@
 # ObjectRef
 
-包名：`com.yuanrong.runtime.client`。
+包名：`org.yuanrong.runtime.client`。
 
 ## public class ObjectRef
 

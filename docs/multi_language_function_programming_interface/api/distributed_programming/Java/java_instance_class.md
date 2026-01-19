@@ -1,6 +1,6 @@
 # JavaInstanceClass
 
-package: `com.yuanrong.function`.
+package: `org.yuanrong.function`.
 
 ## public class JavaInstanceClass
 

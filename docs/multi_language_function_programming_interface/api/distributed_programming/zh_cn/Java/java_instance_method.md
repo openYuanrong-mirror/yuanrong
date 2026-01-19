@@ -1,6 +1,6 @@
 # JavaInstanceMethod
 
-包名：`com.yuanrong.function`。
+包名：`org.yuanrong.function`。
 
 ## public class JavaInstanceMethod&lt;R\>
 

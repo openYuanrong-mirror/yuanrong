@@ -1,6 +1,6 @@
 # JavaFunctionHandler
 
-包名：`com.yuanrong.call`。
+包名：`org.yuanrong.call`。
 
 ## public class JavaFunctionHandler&lt;R>
 

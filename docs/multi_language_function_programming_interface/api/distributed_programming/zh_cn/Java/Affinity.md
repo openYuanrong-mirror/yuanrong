@@ -1,6 +1,6 @@
 # Affinity
 
-包名：`com.yuanrong.affinity`。
+包名：`org.yuanrong.affinity`。
 
 :::{Note}
 

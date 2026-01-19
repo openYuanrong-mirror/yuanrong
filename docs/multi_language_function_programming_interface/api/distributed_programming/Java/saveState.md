@@ -1,6 +1,6 @@
 # saveState
 
-package: `package com.yuanrong.api`.
+package: `package org.yuanrong.api`.
 
 ## saveState()
 

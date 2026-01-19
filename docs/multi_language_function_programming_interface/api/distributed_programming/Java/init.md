@@ -2,7 +2,7 @@
 
 ## YR.init()
 
-package: `com.yuanrong.api`.
+package: `org.yuanrong.api`.
 
 ### public static ClientInfo init() throws YRException
 
@@ -42,7 +42,7 @@ ClientInfo jobid = YR.init(conf);
 
 ## public class ClientInfo
 
-package: `com.yuanrong.api`.
+package: `org.yuanrong.api`.
 
 Use to storage openYuanrong client info.
 

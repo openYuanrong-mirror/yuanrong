@@ -1,6 +1,6 @@
 # YR.kv().del
 
-package: `package com.yuanrong.runtime.client`.
+package: `package org.yuanrong.runtime.client`.
 
 :::{Warning}
 

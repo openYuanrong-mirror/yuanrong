@@ -1,6 +1,6 @@
 # wait
 
-包名：`com.yuanrong.api`。
+包名：`org.yuanrong.api`。
 
 ## 接口说明
 

@@ -1,6 +1,6 @@
 # FunctionHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class FunctionHandler<R> extends Handler
 

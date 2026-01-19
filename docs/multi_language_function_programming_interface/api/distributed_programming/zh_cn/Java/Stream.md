@@ -6,17 +6,17 @@
 
 流缓存主要涉及流对象操作接口及 `Producer`、`Consumer` 两个类，按需要导入下列相关的头文件：
 
-import com.yuanrong.stream.Producer;
+import org.yuanrong.stream.Producer;
 
-import com.yuanrong.stream.ProducerConfig;
+import org.yuanrong.stream.ProducerConfig;
 
-import com.yuanrong.stream.Consumer;
+import org.yuanrong.stream.Consumer;
 
-import com.yuanrong.stream.SubscriptionConfig;
+import org.yuanrong.stream.SubscriptionConfig;
 
-import com.yuanrong.stream.SubscriptionType;
+import org.yuanrong.stream.SubscriptionType;
 
-import com.yuanrong.stream.Element;
+import org.yuanrong.stream.Element;
 
 :::
 

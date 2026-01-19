@@ -75,11 +75,11 @@ yr-api-sdk-1.0.0.jar faas-function-sdk-1.0.0.jar pom.xml
 ```shell
 # 替换 yr-api-sdk-1.0.0.jar 为您实际的 SDK 版本包
 mvn install:install-file -Dfile=./yr-api-sdk-1.0.0.jar -DartifactId=yr-api-sdk \
-    -DgroupId=com.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
+    -DgroupId=org.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
 
 # 替换 faas-function-sdk-1.0.0.jar 为您实际的 SDK 版本包
 mvn install:install-file -Dfile=./faas-function-sdk-1.0.0.jar -DartifactId=faas-function-sdk \
-    -DgroupId=com.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
+    -DgroupId=org.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
 ```
 
 修改项目 `pom.xml` 文件，引入 openYuanrong 依赖。
@@ -87,12 +87,12 @@ mvn install:install-file -Dfile=./faas-function-sdk-1.0.0.jar -DartifactId=faas-
 ```xml
 <dependencies>
     <dependency>
-        <groupId>com.yuanrong</groupId>
+        <groupId>org.yuanrong</groupId>
         <artifactId>yr-api-sdk</artifactId>
         <version>1.0.0</version>
     </dependency>
     <dependency>
-        <groupId>com.yuanrong</groupId>
+        <groupId>org.yuanrong</groupId>
         <artifactId>faas-function-sdk</artifactId>
         <version>1.0.0</version>
     </dependency>

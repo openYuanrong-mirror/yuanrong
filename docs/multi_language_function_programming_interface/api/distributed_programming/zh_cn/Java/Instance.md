@@ -2,7 +2,7 @@
 
 ## YR.instance()
 
-包名: `com.yuanrong`。
+包名: `org.yuanrong`。
 
 云下 Java 函数创建云上 Java 类实例并调用成员函数，当前构造函数支持 0 ~ 5 个入参。若传入 name，或者同时传入 name 和 nameSpace，表示该实例为具名实例，实例名由用户指定，可以通过该实例名进行实例的复用。
 

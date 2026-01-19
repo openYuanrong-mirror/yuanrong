@@ -1,6 +1,6 @@
 # VoidFunctionHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class VoidFunctionHandler extends Handler
 

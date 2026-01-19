@@ -1,6 +1,6 @@
 # JavaFunctionHandler
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class JavaFunctionHandler&lt;R>
 

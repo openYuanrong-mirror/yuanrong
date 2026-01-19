@@ -146,10 +146,10 @@ yr.finalize()
 函数服务支持使用 openYuanrong 的日志记录器，您可以通过函数的上下文方法 `context.getLogger()` 打印日志，将获得和 openYuanrong 组件日志一样的输出格式，以 Java 函数服务为例，代码及日志输出如下。
 
 ```java
-package com.yuanrong.demo;
+package org.yuanrong.demo;
 
-import com.services.runtime.Context;
-import com.services.runtime.RuntimeLogger;
+import org.yuanrong.services.runtime.Context;
+import org.yuanrong.services.runtime.RuntimeLogger;
 import com.google.gson.JsonObject;
 
 public class Demo {
@@ -172,9 +172,9 @@ public class Demo {
 假如请求 body 设置为 {"name":"yuanrong"}，主机部署时在默认日志文件 `/tmp/yr_sessions/latest/log/runtime-{runtime_id}/user-log.log` 中可见如下日志内容。
 
 ```bash
-[16:41:35:820] | [INFO] | com.services.logger.UserFunctionLogger.info(UserFunctionLogger.java:68) | Thread-1 | userLog | function instance initialization completed
-[16:41:35:820] | [INFO] | com.yuanrong.executor.FaaSHandler.faasInitHandler(FaaSHandler.java:288) | Thread-1 | userLog | faas init handler complete.
-[16:41:35:827] | [INFO] | com.yuanrong.executor.FaaSHandler.execute(FaaSHandler.java:174) | Thread-2 | userLog | executing udf methods, current type: InvokeFunctionStateless
-[16:41:35:828] | [INFO] | com.yuanrong.executor.FaaSHandler.faasCallHandler(FaaSHandler.java:300) | Thread-2 | userLog | faas call handler called.
-[16:41:35:832] | [INFO] | com.services.logger.UserFunctionLogger.info(UserFunctionLogger.java:68) | Thread-2 | userLog | received request,event content:{"name":"yuanrong"}
+[16:41:35:820] | [INFO] | org.yuanrong.services.logger.UserFunctionLogger.info(UserFunctionLogger.java:68) | Thread-1 | userLog | function instance initialization completed
+[16:41:35:820] | [INFO] | org.yuanrong.executor.FaaSHandler.faasInitHandler(FaaSHandler.java:288) | Thread-1 | userLog | faas init handler complete.
+[16:41:35:827] | [INFO] | org.yuanrong.executor.FaaSHandler.execute(FaaSHandler.java:174) | Thread-2 | userLog | executing udf methods, current type: InvokeFunctionStateless
+[16:41:35:828] | [INFO] | org.yuanrong.executor.FaaSHandler.faasCallHandler(FaaSHandler.java:300) | Thread-2 | userLog | faas call handler called.
+[16:41:35:832] | [INFO] | org.yuanrong.services.logger.UserFunctionLogger.info(UserFunctionLogger.java:68) | Thread-2 | userLog | received request,event content:{"name":"yuanrong"}
 ```

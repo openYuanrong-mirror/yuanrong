@@ -1,6 +1,6 @@
 # InstanceCreator
 
-package: `com.yuanrong.call`.
+package: `org.yuanrong.call`.
 
 ## public class InstanceCreator<A> extends Handler
 

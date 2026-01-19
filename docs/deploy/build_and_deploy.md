@@ -110,7 +110,7 @@ pom.xml 文件参考：
     <dependencies>
         <dependency>
             <!-- 修改版本号为您实际使用版本 -->
-            <groupId>com.yuanrong</groupId>
+            <groupId>org.yuanrong</groupId>
             <artifactId>yr-api-sdk</artifactId>
             <version>1.0.0</version>
         </dependency>

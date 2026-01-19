@@ -2,7 +2,7 @@
 
 ## YR.instance()
 
-package: `com.yuanrong`.
+package: `org.yuanrong`.
 
 Under the cloud, a Java function creates a Java class instance on the cloud and calls member functions. The current constructor supports 0 to 5 parameters.
 If a name is passed, or both a name and a namespace are passed, it indicates that the instance is a named instance.

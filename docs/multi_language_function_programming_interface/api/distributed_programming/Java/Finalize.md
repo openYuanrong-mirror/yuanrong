@@ -2,7 +2,7 @@
 
 ## YR.Finalize()
 
-package: `com.yuanrong.api`.
+package: `org.yuanrong.api`.
 
 ### public class YR extends YRCall
 
