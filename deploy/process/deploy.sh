@@ -469,7 +469,7 @@ function dump_master_info() {
     master_pid_string="${master_pid_string}${key}:${pid_table["${key}"]},"
   done
   log_info "all pid for control plane:${master_pid_string}"
-  MASTER_INFO_STRING="local_ip:${IP_ADDRESS},master_ip:${IP_ADDRESS},"
+  MASTER_INFO_STRING="local_ip:${LOCAL_IP},host_ip:${IP_ADDRESS},master_ip:${IP_ADDRESS},"
   if [ "X${ETCD_MODE}" != "Xoutter" ]; then
     MASTER_INFO_STRING="${MASTER_INFO_STRING}etcd_ip:${ETCD_IP},"
   fi
@@ -482,7 +482,7 @@ function dump_master_info() {
 function dump_agent_info() {
   # right now the master ip is not really the master ip but the agent ip
   if [ "$MASTER_INFO_STRING"X = ""X ]; then
-    MASTER_INFO_STRING="local_ip:${IP_ADDRESS},"
+    MASTER_INFO_STRING="local_ip:${LOCAL_IP},host_ip:${IP_ADDRESS}"
   fi
 }
 
