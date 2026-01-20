@@ -62,10 +62,7 @@ public:
      */
     virtual const std::string GetTraceId() const = 0;
 
-    /*!
-     * @brief Get the invokeId of the current execution.
-     * @return The invokeId.
-     */
+    // not exposed
     virtual const std::string GetInvokeId() const = 0;
 
     /*!

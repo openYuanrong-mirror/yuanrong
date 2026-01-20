@@ -118,12 +118,7 @@ class Context:
         return self.__request_id
 
     def getProjectID(self):
-        """
-        Get project ID.
-
-        Returns:
-            project ID.
-        """
+        """Method getProjectID, not exposed"""
         return self.__project_id
 
     def getTenantID(self):
@@ -155,12 +150,7 @@ class Context:
         return self.__function_name
 
     def getAlias(self):
-        """
-        Get the alias of the function.
-
-        Returns:
-            the alias of the function.
-        """
+        """Method getAlias, not exposed"""
         return self.__alias
 
     # Get version of the function
@@ -200,15 +190,7 @@ class Context:
         return self.__cpu
 
     def getAccessKey(self):
-        """
-        Get the user's AccessKey (valid for 24 hours).
-        To use this method, you need to configure delegation permissions for the function.
-        The current function workflow has ceased maintenance of the getAccessKey interface in the Runtime SDK, 
-        and you will no longer be able to obtain the temporary AccessKey via this interface.
-
-        Returns:
-            user's delegated AccessKey.
-        """  
+        """Method getAccessKey, not exposed"""
         return self.__access_key
 
     def setAccessKey(self, access_key):
@@ -216,15 +198,7 @@ class Context:
         self.__access_key = access_key
 
     def getSecretKey(self):
-        """
-        Get the user's SecretKey (valid for 24 hours).
-        To use this method, you need to configure delegation permissions for the function.
-        The current function workflow has ceased maintenance of the getSecretKey interface in the Runtime SDK, 
-        and you will no longer be able to obtain the temporary SecretKey via this interface.
-
-        Returns:
-            user's delegated SecretKey.
-        """  
+        """Method getSecretKey, not exposed"""
         return self.__secret_key
 
     def setSecretKey(self, secret_key):
@@ -232,28 +206,15 @@ class Context:
         self.__secret_key = secret_key
 
     def getAuthToken(self):
-        """
-        Get the user's delegated token (valid for 24 hours).
-        To use this method, you need to configure delegation for the function.
-
-        Returns:
-            user's delegated token.
-        """  
+        """Method getAuthToken, not exposed"""
         return self.__auth_token
 
     def setAuthToken(self, auth_token):
-        """Method setToken, not exposed"""
+        """Method setAuthToken, not exposed"""
         self.__auth_token = auth_token
 
     def getSecurityAccessKey(self):
-        """
-        Get the user's delegated SecurityAccessKey (valid for 24 hours) with a cache duration of 10 minutes, 
-        meaning the same content is returned if retrieved again within 10 minutes. 
-        Using this method requires configuring delegation for the function.
-
-        Returns:
-            user's delegated SecurityAccessKey.
-        """  
+        """Method getSecurityAccessKey, not exposed"""
         return self.__security_access_key
 
     def setSecurityAccessKey(self, security_access_key):
@@ -261,14 +222,7 @@ class Context:
         self.__security_access_key = security_access_key
 
     def getSecuritySecretKey(self):
-        """
-        Get the user's delegated SecuritySecretKey (valid for 24 hours) with a cache duration of 10 minutes, 
-        meaning the same content is returned if retrieved again within 10 minutes. 
-        Using this method requires configuring delegation for the function.
-
-        Returns:
-            user's delegated SecuritySecretKey.
-        """        
+        """Method getSecuritySecretKey, not exposed"""      
         return self.__security_secret_key
 
     def setSecuritySecretKey(self, security_secret_key):
@@ -276,18 +230,11 @@ class Context:
         self.__security_secret_key = security_secret_key
 
     def getSecurityToken(self):
-        """
-        Get the user's delegated SecurityToken (valid for 24 hours), with a cache duration of 10 minutes, 
-        meaning the returned content is the same if retrieved again within 10 minutes. 
-        Using this method requires configuring delegation for the function.
-
-        Returns:
-            user's delegated SecurityToken.
-        """        
+        """Method getSecurityToken, not exposed"""      
         return self.__security_token
 
     def setSecurityToken(self, security_token):
-        """Method getSecurityToken, not exposed"""
+        """Method setSecurityToken, not exposed"""
         self.__security_token = security_token
 
     # Gets the user data,which saved in a map
@@ -307,23 +254,13 @@ class Context:
     # Gets the time distributed to the running of the function, when exceed
     # the specified time, the running of the function would be stopped by force
     def getRunningTimeInSeconds(self):
-        """
-        Get the function timeout period, in seconds.
-
-        Returns:
-            function timeout period.
-        """
+        """Method getRunningTimeInSeconds, not exposed"""
         return self.__timeout
 
     # Gets the time remaining for this execution in milliseconds
     # Returns time before task is killed
     def getRemainingTimeInMilliSeconds(self):
-        """
-        Get the remaining running time of the function, in milliseconds.
-
-        Returns:
-            remaining running time.
-        """
+        """Method getRemainingTimeInMilliSeconds, not exposed"""
         now = int(time.time() * 1000)
         return self.__timeout + self.__start_time - now
 

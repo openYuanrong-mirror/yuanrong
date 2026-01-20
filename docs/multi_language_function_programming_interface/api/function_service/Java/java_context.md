@@ -55,14 +55,6 @@ Get function name.
   
     functionName (Sring): The name of function self
 
-#### int getRunningTimeInSeconds()
-
-Get the time distributed to the running of the function, when exceed the specified time, the running of the function would be stopped by force.
-
-- Returns:
- 
-    runningTime (int): The time distributed to the running of the function.
-
 #### int getMemorySize()
 
 Get the memory size distributed the running function.
@@ -79,9 +71,21 @@ Get the cpu size distributed the running function.
  
     cpuNumber (int): Function CPU number, unit: m, 1C=1000m.
 
-#### String getAlias()
+#### String getRequestID()
 
-Get function alias.
+Get the requestID.
+
+- Returns:
+ 
+    requestID (String): The request id.
+
+#### String getInstanceLabel()
+
+Get the instance label.
+
+- Returns:
+ 
+    instanceLabel (String): The instance label.
 
 #### RuntimeLogger getLogger()
 
