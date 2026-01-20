@@ -33,6 +33,28 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
 
+type OneShotInstanceLease struct {
+	insAlloc *types.InstanceAllocation
+	interval time.Duration
+	callback func(insAlloc *types.InstanceAllocation)
+}
+
+// Extend will extend lease
+func (ol *OneShotInstanceLease) Extend() error {
+	return nil
+}
+
+// Release will release lease
+func (ol *OneShotInstanceLease) Release() error {
+	ol.callback(ol.insAlloc)
+	return nil
+}
+
+// GetInterval will return interval of lease
+func (ol *OneShotInstanceLease) GetInterval() time.Duration {
+	return ol.interval
+}
+
 // OneShotInstancePool implements one-shot instance pool strategy:
 // - Creates a new instance for each acquire request
 // - Automatically deletes instance after use
@@ -171,14 +193,21 @@ func (op *OneShotInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 
 	op.activeInstances[instance.InstanceID] = record
 	op.Unlock()
+	insAlloc := &types.InstanceAllocation{
+		AllocationID: instance.InstanceID,
+		Instance:     instance,
+	}
+
+	newLease := &OneShotInstanceLease{
+		insAlloc: insAlloc,
+		interval: cleanupTime,
+		callback: op.ReleaseInstance,
+	}
+	insAlloc.Lease = newLease
 
 	logger.Infof("successfully created one-shot instance %s for function %s",
 		instance.InstanceID, op.funcSpec.FuncKey)
-
-	return &types.InstanceAllocation{
-		AllocationID: instance.InstanceID,
-		Instance:     instance,
-	}, nil
+	return insAlloc, nil
 }
 
 // ReleaseInstance deletes the instance after use

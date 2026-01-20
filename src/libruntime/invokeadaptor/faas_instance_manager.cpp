@@ -343,8 +343,7 @@ void FaasInsManager::AcquireCallback(const std::shared_ptr<InvokeSpec> acquireSp
             (errInfo.Code() == YR::Libruntime::ERR_REQUEST_BETWEEN_RUNTIME_BUS && errInfo.IsAckTimeout()) ||
             errInfo.Code() == YR::Libruntime::ERR_FINALIZED) {
             UpdateSpecSchedulerIds(invokeSpec, acquireSpec->invokeInstanceId);
-            auto schedulerId =
-                csHash->NextRetry(invokeSpec->functionMeta.functionId, invokeSpec->schedulerInfos, true);
+            auto schedulerId = csHash->NextRetry(invokeSpec->functionMeta.functionId, invokeSpec->schedulerInfos, true);
             if (schedulerId == ALL_SCHEDULER_UNAVAILABLE || schedulerId.empty()) {
                 returnErr =
                     ErrorInfo(ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE, "all scheduler instance is unavailable");
@@ -449,7 +448,6 @@ void FaasInsManager::HandleFaasInsInfo(std::shared_ptr<InstanceInfo> &faasInsInf
 void FaasInsManager::ReleaseHandler(const RequestResource &resource, const std::string &leaseId)
 {
     std::shared_ptr<InstanceInfo> faasInfoDel;
-    bool needDel = false;
 
     auto info = GetRequestResourceInfo(resource);
     if (info == nullptr) {
@@ -477,7 +475,6 @@ void FaasInsManager::ReleaseHandler(const RequestResource &resource, const std::
         functionId = faasInfo->faasInfo.functionId;
     }
     faasInfoDel = faasInfo;
-    needDel = true;
     {
         absl::WriterMutexLock lock(&info->mtx);
         info->instanceInfos.erase(leaseId);
@@ -485,10 +482,8 @@ void FaasInsManager::ReleaseHandler(const RequestResource &resource, const std::
     DecreaseCreatedInstanceNum();
     EraseResourceInfoMap(resource, REQUEST_RESOURCE_USE_COUNT);
 
-    if (needDel) {
-        YRLOG_DEBUG("start send release instance req, function id {}, lease id {}", functionId, leaseId);
-        this->ReleaseInstanceAsync(faasInfoDel);
-    }
+    YRLOG_DEBUG("start send release instance req, function id {}, lease id {}", functionId, leaseId);
+    this->ReleaseInstanceAsync(faasInfoDel);
 }
 
 void FaasInsManager::StartReleaseTimer(const RequestResource &resource, const std::string &leaseId)
@@ -521,9 +516,6 @@ void FaasInsManager::ReleaseInstanceAsync(const std::shared_ptr<InstanceInfo> &i
     std::string leaseId;
     {
         absl::ReaderMutexLock lock(&ins->mtx);
-        if (ins->faasInfo.tLeaseInterval <= 0) {
-            return;
-        }
         leaseId = ins->leaseId;
         YRLOG_DEBUG("start aysnc release instance, leaseId id is {}", leaseId);
     }
