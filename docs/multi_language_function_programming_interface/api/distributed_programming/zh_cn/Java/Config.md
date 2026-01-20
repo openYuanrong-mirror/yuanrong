@@ -66,7 +66,7 @@ Config 的构造函数。
    - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
    - **dataSystemAddressPort** - 数据系统端口号。
    - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
-   - **isOnCloud** - 云上/云外。
+   - **isDriver** - 云上/云外。
 
 ### 私有成员
 
