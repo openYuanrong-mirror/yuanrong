@@ -147,6 +147,7 @@ ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::str
     } else {
         logParam.logLevel = Config::Instance().YR_LOG_LEVEL();
     }
+    logParam.onlyStdout = Config::Instance().YR_ONLY_STDOUT();
     logParam.logDir = config.logDir;
     logParam.logBufSecs = config.logFlushInterval;
     auto result = GetValidMaxLogSizeMb(config.logFileSizeMax);

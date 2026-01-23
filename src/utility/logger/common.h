@@ -47,6 +47,7 @@ struct LogParam {
     bool alsoLog2Stderr = false;
     bool isLogMerge = false;
     bool withLogPrefix = false;
+    bool onlyStdout = false;
     std::string loggerId;
 };
 }  // namespace utility

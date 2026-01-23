@@ -99,7 +99,6 @@ def insert_sys_path():
     for path in paths:
         if path != "":
             sys.path.insert(1, path)
-    log.get_logger().debug(f"Succeeded to set sys path: {code_dir}, {custom_handler}, {layer_paths}")
 
 
 def main():

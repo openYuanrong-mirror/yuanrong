@@ -21,6 +21,7 @@ import logging
 import os
 import socket
 import stat
+import sys
 import time
 from logging import Logger
 import logging.config
@@ -67,11 +68,15 @@ class RuntimeLogger:
         if self.__logger is not None:
             return
 
-        if not is_driver:
+        # Check if YR_ONLY_STDOUT is set to enable stdout-only logging
+        only_stdout = os.getenv("YR_ONLY_STDOUT", "false").lower() in ("true", "1")
+
+        if only_stdout or is_driver:
+            self.__runtime_id = runtime_id
+            self.__init_stream_logger(log_level)
+        else:
             self.__runtime_id = runtime_id
             self.__init_file_logger()
-        else:
-            self.__init_stream_logger(log_level)
 
     def get_logger(self) -> Logger:
         """get logger"""
@@ -101,7 +106,7 @@ class RuntimeLogger:
 
     def __init_stream_logger(self, log_level: str) -> None:
         self.__logger = logging.getLogger(_BASE_LOG_NAME)
-        handler = logging.StreamHandler()
+        handler = logging.StreamHandler(sys.stdout)
         fmt = logging.Formatter(
             fmt='[%(asctime)s.%(msecs)03d %(levelname)s %(funcName)s %(filename)s:%(lineno)d %(thread)d] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S')
