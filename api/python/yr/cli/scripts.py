@@ -204,8 +204,6 @@ class HTTPClient:
             )
 
         try:
-            response.raise_for_status()
-
             result = response.json() if response.content else {}
 
             logging.debug(f"response status: {response.status_code}")
