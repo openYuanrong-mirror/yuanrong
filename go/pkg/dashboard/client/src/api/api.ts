@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import request from './index';
+import { BASE_URL, instance} from './index';
 
 const apiV1Path = '/api/v1';
+const request = instance;
 
 export const GetRsrcSummAPI = (): Promise<GetRsrcSummAPIRes> =>
     request.get(apiV1Path + '/logical-resources/summary');
@@ -45,6 +46,9 @@ export const ListLogsAPI = (instanceID: string): Promise<ListLogsRes> =>
 
 export const GetLogByFilenameAPI = (filename: string, start: number, end: number): Promise<string> =>
     request.get('/api/logs?filename=' + filename + '&start_line=' + start + '&end_line=' + end);
+
+const urlSplit = BASE_URL.endsWith('/') ? '' : '/';
+export const DownloadLogPath = BASE_URL + urlSplit + 'api/logs/download?filename=';
 
 export const GetPromQueryAPI = (query: string): Promise<PromData> =>
     request.get('/api/v1/prometheus/query?query=' + query);

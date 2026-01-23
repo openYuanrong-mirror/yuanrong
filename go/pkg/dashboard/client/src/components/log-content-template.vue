@@ -17,9 +17,12 @@
 <template>
   <common-card>
     <template v-slot:card-title>
-      <div class="font-size20">
+      <div class="font-size20 no-block">
         Log: {{ filename }}
       </div>
+      <a :href="DownloadLogPath + filename">
+        <tiny-button class="no-border" :icon="IconDownload" />
+      </a>
     </template>
     <template v-slot:card-content>
       <div class="label">Start Line:</div>
@@ -27,7 +30,7 @@
       <div class="label margin-left20">End Line:</div>
       <tiny-input class="line-input" type="number" v-model="endLine" size="mini" :min="1"></tiny-input>
       <tiny-button class="margin-left20" :icon="IconSearch" circle size="mini" @click="initScrollerItem"></tiny-button>
-      <div class="label margin-left20 color-blue">[Tip]This log displays a maximum of 5000 lines.</div>
+      <div class="label margin-left20 color-blue" :style="tipStyle">[Tip]This log displays a maximum of 5000 lines.</div>
       <DynamicScroller
           :items="items"
           :min-item-size="1"
@@ -54,21 +57,25 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { TinyInput, TinyButton } from '@opentiny/vue';
-import { iconSearch } from '@opentiny/vue-icon';
-import { GetLogByFilenameAPI } from '@/api/api';
+import { iconDownload, iconSearch } from '@opentiny/vue-icon';
+import { DownloadLogPath, GetLogByFilenameAPI } from '@/api/api';
 import CommonCard from '@/components/common-card.vue';
 import { WarningNotify } from '@/components/warning-notify';
 import { LogSWR } from '@/utils/swr';
 
 const NUM_ERROR = 'The line should be greater than 0';
+const MAX_LINES = 5000;
 const IconSearch = iconSearch();
+const IconDownload = iconDownload();
 const startLine = ref(1);
-const endLine = ref(5000);
+const endLine = ref(MAX_LINES);
 const scrollerHeight = ref(300);
 const items = ref([{
   id: 1,
   line: '',
 }]);
+const redTipStyle = { color: 'red' };
+const tipStyle = ref({});
 const { filename, scrollerH } = defineProps(['filename', 'scrollerH']);
 
 onMounted(() => {
@@ -83,8 +90,14 @@ function initScrollerItem() {
     WarningNotify('line num', NUM_ERROR);
     return ;
   }
+  if (endLine.value - startLine.value > MAX_LINES) {
+    tipStyle.value = redTipStyle;
+    return ;
+  } else {
+    tipStyle.value = {};
+  }
   GetLogByFilenameAPI(filename, startLine.value - 1, endLine.value).then((res: string) => {
-    const content = res.toString().split('\n');
+    const content = res.toString().trimEnd().split('\n');
     if (content.length >= 1 && content[0] === '<!doctype html>') {
       throw '';
     }

@@ -16,19 +16,19 @@
 
 import axios from 'axios';
 
-const instance = axios.create({
-    baseURL: '/',
+export const BASE_URL = '/';
+
+export const instance = axios.create({
+    baseURL: BASE_URL,
     timeout: 3000,
-})
+});
 
 instance.interceptors.request.use(config => {
     return config
 }, err => {
     return Promise.reject(err)
-})
+});
 
 instance.interceptors.response.use(res => {
     return res.data
-})
-
-export default instance
+});
