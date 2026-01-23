@@ -26,7 +26,10 @@ def add(n):
 # 设置重试次数为 3
 opt = yr.InvokeOptions(retry_times=3)
 result = add.options(opt).invoke(1)
-print(yr.get(result))
+try:
+    print(yr.get(result))
+except Exception:
+    pass
 
 yr.finalize()
 ```
