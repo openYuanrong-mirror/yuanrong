@@ -71,7 +71,7 @@ func InitHandlerLibruntime(args []api.Arg, libruntimeAPI api.LibruntimeAPI) ([]b
 		go faasManager.WatchLeaseEvent()
 	}
 	if err = healthcheck.StartHealthCheck(errCh); err != nil {
-		return nil, err
+		return []byte(""), err
 	}
 	return []byte(""), nil
 }
@@ -117,6 +117,9 @@ func RecoverHandlerLibruntime(stateData []byte, libruntimeAPI api.LibruntimeAPI)
 	state.Update(&cfg)
 	if faasManager != nil {
 		go faasManager.WatchLeaseEvent()
+	}
+	if err = healthcheck.StartHealthCheck(errCh); err != nil {
+		return err
 	}
 	return nil
 }
