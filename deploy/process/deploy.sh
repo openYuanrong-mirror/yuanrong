@@ -489,7 +489,7 @@ function dump_master_info() {
 function dump_agent_info() {
   # right now the master ip is not really the master ip but the agent ip
   if [ "$MASTER_INFO_STRING"X = ""X ]; then
-    MASTER_INFO_STRING="local_ip:${LOCAL_IP},host_ip:${IP_ADDRESS}"
+    MASTER_INFO_STRING="local_ip:${LOCAL_IP},host_ip:${IP_ADDRESS},"
   fi
 }
 
