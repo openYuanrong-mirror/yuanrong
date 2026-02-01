@@ -39,7 +39,7 @@ static void TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LEN
     // cut trace id prefix job-xxxxxxxx-trace-
     (void)traceID.erase(std::remove(traceID.begin(), traceID.end(), '-'), traceID.end());
     if (traceID.size() < TRACE_ID_LENGTH) {
-        (void)traceID.insert(0, TRACE_ID_LENGTH - traceID.size(), '0');
+        (void)traceID.append(TRACE_ID_LENGTH - traceID.size(), '0');
     }
     traceID = traceID.substr(traceID.size() - TRACE_ID_LENGTH, TRACE_ID_LENGTH);
     if (!IsHexDecimal(traceID)) {
