@@ -1333,6 +1333,9 @@ void Libruntime::Finalize(bool isDriver)
     if (dsClients.dsStreamStore != nullptr) {
         dsClients.dsStreamStore.reset();
     }
+    if (invokeAdaptor != nullptr) {
+        invokeAdaptor->Finalize(isDriver);
+    }
     if (!config->inCluster) {
         auto err = clientsMgr->ReleaseHttpClient(config->functionSystemIpAddr, config->functionSystemPort);
         if (!err.OK()) {
@@ -1343,10 +1346,6 @@ void Libruntime::Finalize(bool isDriver)
         if (!err.OK()) {
             YRLOG_ERROR("failed to release data system client, message({})", err.Msg());
         }
-    }
-
-    if (invokeAdaptor != nullptr) {
-        invokeAdaptor->Finalize(isDriver);
     }
     // If there are service requirements, the plaintext authentication credential can be stored in the memory. However,
     // the plaintext authentication credential needs to be cleared when an abnormal branch or exit is complete.
