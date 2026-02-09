@@ -83,6 +83,7 @@ if os.getenv("SETUP_TYPE") == "sdk":
         "pyyaml==6.0.2",
         "click==8.1.8",
         "requests==2.32.5",
+        "websockets==15.0.1",
     ]
     setup_spec.entry_points = {
         "console_scripts": [

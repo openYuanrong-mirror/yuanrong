@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from datetime import datetime
 import os
 import uuid
@@ -28,6 +29,7 @@ from requests.exceptions import RequestException
 from typing import Any, Dict, Optional
 
 import yr
+from yr.cli.exec import run_client
 
 
 __server_address = None
@@ -739,7 +741,9 @@ def invoke(function_name, payload, timeout, header):
         payload_dict = json.loads(payload)
     else:
         payload_dict = {}
-    ret, resp = invoke_function(function_name, payload_dict, headers=headers, user=__user, timeout=timeout)
+    ret, resp = invoke_function(
+        function_name, payload_dict, headers=headers, user=__user, timeout=timeout
+    )
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
@@ -989,6 +993,59 @@ def run_spark(script, args):
     except Exception as e:
         print(f"Error executing Spark job: {str(e)}")
         sys.exit(1)
+
+
+@cli.command("exec")
+@click.option(
+    "-i",
+    "--stdin",
+    required=False,
+    type=bool,
+    is_flag=True,
+    default=False,
+    help="Whether to allocate stdin for the instance",
+)
+@click.option(
+    "-t",
+    "--tty",
+    required=False,
+    type=bool,
+    is_flag=True,
+    default=False,
+    help="Whether to allocate a TTY for the instance",
+)
+@click.option(
+    "--verify-server",
+    required=False,
+    type=bool,
+    is_flag=True,
+    default=True,
+    help="Verify server certificate (default: True)",
+)
+@click.argument("instance", type=str)
+@click.argument("command", type=str)
+def exec(stdin, tty, verify_server, instance, command):
+    use_ssl = __client_cert is not None and __client_key is not None
+    try:
+        host, port = __server_address.split(":")
+        asyncio.run(
+            run_client(
+                host,
+                port,
+                instance=instance,
+                command=command,
+                tty=tty,
+                stdin=stdin,
+                user=__user,
+                use_ssl=use_ssl,
+                cert_file=__client_cert,
+                key_file=__client_key,
+                ca_file=__ca_cert,
+                verify_server=verify_server,
+            )
+        )
+    except KeyboardInterrupt:
+        print("\nDisconnected", file=sys.stderr)
 
 
 def main():
