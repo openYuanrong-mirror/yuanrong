@@ -682,6 +682,8 @@ class InvokeOptions:
         {"portForwardings": [{"port": 8080, "protocol": "TCP"}, {"port": 9090, "protocol": "UDP"}]}
     """
 
+    get_if_exists: bool = False
+
     def check_options_valid(self):
         """
         Check whether the options are valid.

@@ -401,6 +401,16 @@ class InstanceCreator:
             # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it 
             invoke_options.custom_extensions["idle_timeout"] = str(invoke_options.idle_timeout)
         invoke_options.check_options_valid()
+        if invoke_options.get_if_exists:
+            if invoke_options.name is None or len(invoke_options.name) == 0:
+                raise ValueError("The actor name must be specified to use `get_if_exists`.")
+            try:
+                return get_instance_by_name(invoke_options.name,
+                                            "" if invoke_options.namespace is None else invoke_options.namespace, 60)
+            except Exception as e:
+                _logger.warning("can not get instance of id: %s, err is : %s",
+                             invoke_options.name, e)
+                pass
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         skip_serialize = getattr(invoke_options, "skip_serialize", False)
         code_missing = self._code_ref is None
@@ -467,6 +477,7 @@ class InstanceCreator:
         name = actor_options.get("name")
         namespace = actor_options.get("namespace")
         lifecycle = actor_options.get("lifetime")
+        get_if_exists = actor_options.get("get_if_exists")
         if name is not None:
             if not isinstance(name, str):
                 raise TypeError(
@@ -489,6 +500,7 @@ class InstanceCreator:
 
         self.__invoke_options__.name = name
         self.__invoke_options__.namespace = namespace
+        self.__invoke_options__.get_if_exists = False if get_if_exists is None else get_if_exists
 
         if "runtime_env" in actor_options:
             if "env_vars" in actor_options["runtime_env"]:
