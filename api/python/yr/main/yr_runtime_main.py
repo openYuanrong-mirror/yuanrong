@@ -16,12 +16,11 @@
 
 """yr runtime main"""
 
-import argparse
 import json
 import os
 import sys
 
-from yr import init, log
+from yr import init
 from yr.apis import receive_request_loop
 from yr.config import Config
 from yr.common.utils import load_env_from_file, try_install_uvloop
@@ -41,45 +40,28 @@ DEFAULT_RUNTIME_CONFIG = {
 }
 
 
-def parse_args() -> argparse.Namespace:
-    """Parses the command line arguments.
-
-    Returns:
-        argparse.Namespace: An object containing the parsed arguments.
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--rt_server_address", type=str, required=True, help="Runtime server address")
-    parser.add_argument("--deploy_dir", type=str, required=True, help="Deploy dir")
-    parser.add_argument("--runtime_id", type=str, required=True, help="Runtime ID")
-    parser.add_argument("--job_id", type=str, required=True, help="Job ID")
-    parser.add_argument("--log_level", type=str, required=True, help="Log level")
-    return parser.parse_args()
-
-
 def get_runtime_config():
     """
     get runtime configuration
     """
     config_path = "/home/snuser/config/runtime.json"
     if os.getenv("YR_BARE_MENTAL") is not None:
-        config_path = sys.path[0] + '/../config/runtime.json'
-    with open(config_path, 'r') as config_file:
+        config_path = sys.path[0] + "/../config/runtime.json"
+    with open(config_path, "r") as config_file:
         config_json = json.load(config_file)
 
     return config_json
 
 
-def configure(args: argparse.Namespace = None):
+def configure():
     """configure"""
-    if args is None:
-        args = parse_args()
     config = Config()
-    config.rt_server_address = os.environ.get("POSIX_LISTEN_ADDR", "127.0.0.1:22732")
-    config.runtime_id = os.environ.get("YR_RUNTIME_ID", "driver")
-    config.job_id = args.job_id
-    config.log_level = args.log_level
-    config.env_file = os.environ.get("YR_ENV_FILE", "")
-    config.ds_address = os.environ.get("DATASYSTEM_ADDR")
+    config.rt_server_address = os.getenv("POSIX_LISTEN_ADDR", "127.0.0.1:22732")
+    config.runtime_id = os.getenv("YR_RUNTIME_ID", "driver")
+    config.job_id = os.getenv("YR_JOB_ID", "job-ffffffff")
+    config.log_level = os.getenv("YR_LOG_LEVEL", "INFO")
+    config.env_file = os.getenv("YR_ENV_FILE", "")
+    config.ds_address = os.getenv("DATASYSTEM_ADDR")
     config.is_driver = False
     log_dir = os.getenv("GLOG_log_dir")
     if log_dir:
@@ -92,9 +74,9 @@ def configure(args: argparse.Namespace = None):
 
 def insert_sys_path():
     """insert sys path"""
-    code_dir = os.environ.get(_ENV_KEY_FUNCTION_LIB_PATH, "")
-    custom_handler = os.environ.get(_ENV_KEY_ENV_DELEGATE_DOWNLOAD, "")
-    layer_paths = os.environ.get(_ENV_KEY_LAYER_LIB_PATH, "").split(",")
+    code_dir = os.getenv(_ENV_KEY_FUNCTION_LIB_PATH, "")
+    custom_handler = os.getenv(_ENV_KEY_ENV_DELEGATE_DOWNLOAD, "")
+    layer_paths = os.getenv(_ENV_KEY_LAYER_LIB_PATH, "").split(",")
     paths = layer_paths + [code_dir, custom_handler]
     for path in paths:
         if path != "":
@@ -103,13 +85,10 @@ def insert_sys_path():
 
 def main():
     """main"""
-    # Parse arguments
-    args = parse_args()
-
     # If YR_SEED_FILE is set, read the specified file to block
     seed_file = os.environ.get("YR_SEED_FILE", "")
     if seed_file:
-        with open(seed_file, 'rb') as f:
+        with open(seed_file, "rb") as f:
             f.read()
 
     # Get env_file from environment variable
@@ -117,9 +96,8 @@ def main():
     # This must be done before insert_sys_path() and configure() which read env vars
     load_env_from_file(os.environ.get("YR_ENV_FILE", ""))
 
-    # If args are invalid, the script automatically exits when calling 'parser.parse_args()'.
     insert_sys_path()
-    init(configure(args))
+    init(configure())
     try_install_uvloop()
     receive_request_loop()
 

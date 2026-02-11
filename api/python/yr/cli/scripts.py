@@ -1048,6 +1048,16 @@ def exec(stdin, tty, verify_server, instance, command):
         print("\nDisconnected", file=sys.stderr)
 
 
+@cli.command("runtime_main", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+def runtime_main():
+    """Start the runtime main process
+    
+    All unknown options will be ignored, allowing the command to run without errors.
+    """    
+    from yr.main.yr_runtime_main import main as yr_runtime_main
+    yr_runtime_main()
+
+
 def main():
     return cli()
 
