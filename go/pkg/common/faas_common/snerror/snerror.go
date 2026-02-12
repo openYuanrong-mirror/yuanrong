@@ -19,6 +19,8 @@ package snerror
 
 const (
 	// UserErrorMax is maximum value of user error
+	UserUnRecoveredErrorMax = 4009
+	// UserErrorMax is maximum value of user error
 	UserErrorMax = 4999
 	// UserErrorMin is minimal value of user error
 	UserErrorMin = 4000
@@ -79,7 +81,7 @@ func (s *snError) Error() string {
 // IsUserError true if a user error occurs
 func IsUserError(s SNError) bool {
 	// The user error is a four-digit integer.
-	if UserErrorMin <= s.Code() && s.Code() <= UserErrorMax {
+	if UserErrorMin >= s.Code() && s.Code() <= UserUnRecoveredErrorMax {
 		return true
 	}
 	return false
