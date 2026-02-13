@@ -136,7 +136,7 @@ std::tuple<bool, std::string> functionVersionUrnToFunctionId(const std::string &
 {
     std::vector<std::string> result;
 
-    // example: sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest
+    // example: sn:cn:yrk:default:function:helloworld:$latest
     Split(functionVersionUrn, result, ':');
     if (result.size() != 7) {  //
         return {false, ""};

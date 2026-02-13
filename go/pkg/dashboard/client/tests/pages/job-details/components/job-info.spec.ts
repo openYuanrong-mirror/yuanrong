@@ -41,7 +41,7 @@ describe('JobInfo', () => {
 describe('JobInfo.initJobInfo', () => {
     vi.mock('@/api/api', () => ({
         GetJobInfoAPI: vi.fn().mockResolvedValue({
-            'key': '/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function' +
+            'key': '/sn/instance/business/yrk/tenant/default/function' +
                 '/0-system-faasExecutorPosixCustom/version/$latest/defaultaz/0ebe2d84ad28eed000/' +
                 'app-ab00977c-682e-4b5e-9cb3-f928c55a7d27',
             'type': 'SUBMISSION',

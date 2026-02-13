@@ -38,7 +38,7 @@ It supports synchronous or asynchronous termination.
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 javaInstanceHandler.terminate(true);
 ```
 
@@ -62,7 +62,7 @@ The member method of the JavaInstanceHandler class is used to recycle cloud Java
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 javaInstanceHandler.terminate();
 ```
 
@@ -90,7 +90,7 @@ When the tenant context is enabled, handle information can also be obtained thro
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 Map<String, String> out = javaInstanceHandler.exportHandler();
 // Serialize out and store in a database or other persistence tool.
 ```
@@ -130,7 +130,7 @@ The member method of the JavaInstanceHandler class is used to return the member 
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 JavaInstanceFunctionHandler javaInstFuncHandler = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class))
 ObjectRef ref = javaInstFuncHandler.invoke();
 String res = (String)YR.get(ref, 100);

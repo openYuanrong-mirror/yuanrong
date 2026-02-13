@@ -180,7 +180,7 @@ type FunctionInstanceKey struct {
 }
 
 // ParseFrom parse string to function instance key struct
-// /sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-defaultservice-py/version/$latest
+// /sn/instance/business/yrk/tenant/default/function/0-defaultservice-py/version/$latest
 // /defaultaz/8c9fa45600e5f44f00/10000000-0000-4000-b653-c11128589d17
 func (f *FunctionInstanceKey) ParseFrom(etcdKey string) error {
 	elements := strings.Split(etcdKey, keySeparator)

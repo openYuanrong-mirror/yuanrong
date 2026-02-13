@@ -13,7 +13,7 @@
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 Map<String, String> out = cppInstanceHandler.exportHandler();
 // 序列化后存储到数据库或其他持久化工具中。

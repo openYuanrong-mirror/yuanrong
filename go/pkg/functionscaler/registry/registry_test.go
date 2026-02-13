@@ -148,7 +148,7 @@ func TestGetFuncSpecFromEtcdValue(t *testing.T) {
 	}{
 		{"test1",
 			args{etcdValue: []byte("{\"funcMetaData\":{\"layers\":[],\"name\":\"0-system-hello\",\"description\"" +
-				":\"\",\"functionUrn\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-system-hello\",\"rever" +
+				":\"\",\"functionUrn\":\"sn:cn:yrk:default:function:0-system-hello\",\"rever" +
 				"sedConcurrency\":0,\"tags\":null,\"functionUpdateTime\":\"\",\"functionVersionUrn\":\"sn:cn:yrk:12345" +
 				"678901234561234567890123456:function:0-system-hello:$latest\",\"codeSize\":1619264,\"codeSha256\":\"c" +
 				"e9f7446a54331137c8386cedc38eec942f33bab0575c81d5f3b5633caff2596\",\"handler\":\"\",\"runtime\":\"go1" +
@@ -366,7 +366,7 @@ func TestInstanceRegistryWatcherHandler(t *testing.T) {
 
 	event := &etcd3.Event{
 		Type:      etcd3.PUT,
-		Key:       "/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasExecutorJava8/version/$latest/defaultaz/task-b23aa1c4-2084-42b8-99b2-8907fa5ae6f4/f71875b1-3c20-4827-8600-0000000005d5",
+		Key:       "/sn/instance/business/yrk/tenant/default/function/0-system-faasExecutorJava8/version/$latest/defaultaz/task-b23aa1c4-2084-42b8-99b2-8907fa5ae6f4/f71875b1-3c20-4827-8600-0000000005d5",
 		Value:     []byte("123"),
 		PrevValue: []byte("123"),
 		Rev:       1,
@@ -440,7 +440,7 @@ func TestInstanceRegistryWatcherHandler(t *testing.T) {
 	})
 	convey.Convey("etcd put invalid instanceID", t, func() {
 		event.Type = etcd3.PUT
-		event.Key = "/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasExecutorJava8/version/$latest/defaultaz//"
+		event.Key = "/sn/instance/business/yrk/tenant/default/function/0-system-faasExecutorJava8/version/$latest/defaultaz//"
 		ir.watcherHandler(event)
 		msg := SubEvent{}
 		select {
@@ -461,7 +461,7 @@ func TestInstanceRegistryWatcherHandler(t *testing.T) {
 	})
 	convey.Convey("etcd put invalid instanceID", t, func() {
 		event.Type = etcd3.PUT
-		event.Key = "/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasExecutorJava8/version/$latest/defaultaz//"
+		event.Key = "/sn/instance/business/yrk/tenant/default/function/0-system-faasExecutorJava8/version/$latest/defaultaz//"
 		ir.watcherHandler(event)
 		msg := SubEvent{}
 		select {
@@ -855,7 +855,7 @@ func TestFaaSManagerRegistryWatcherHandler(t *testing.T) {
 
 	event := &etcd3.Event{
 		Type:      etcd3.PUT,
-		Key:       "/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasExecutorJava8/version/$latest/defaultaz/task-b23aa1c4-2084-42b8-99b2-8907fa5ae6f4/f71875b1-3c20-4827-8600-0000000005d5",
+		Key:       "/sn/instance/business/yrk/tenant/default/function/0-system-faasExecutorJava8/version/$latest/defaultaz/task-b23aa1c4-2084-42b8-99b2-8907fa5ae6f4/f71875b1-3c20-4827-8600-0000000005d5",
 		Value:     []byte("123"),
 		PrevValue: []byte("123"),
 		Rev:       1,
@@ -1074,14 +1074,14 @@ func TestMiscellaneous(t *testing.T) {
 		convey.Convey("success", func() {
 			config.GlobalConfig = types.Configuration{ClusterID: "cluster001"}
 			res := instanceconfig.GetWatcherFilter("cluster001")(&etcd3.Event{
-				Key: "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@yrservice@test-faas-scheduler-reserved-exist/version/$latest",
+				Key: "/instances/business/yrk/cluster/cluster001/tenant/default/function/0@yrservice@test-faas-scheduler-reserved-exist/version/$latest",
 			})
 			convey.So(res, convey.ShouldBeFalse)
 		})
 		convey.Convey("failed1", func() {
 			config.GlobalConfig = types.Configuration{ClusterID: "cluster001"}
 			res := instanceconfig.GetWatcherFilter("cluster001")(&etcd3.Event{
-				Key: "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456",
+				Key: "/instances/business/yrk/cluster/cluster001/tenant/default",
 			})
 			convey.So(res, convey.ShouldBeTrue)
 		})
@@ -1106,7 +1106,7 @@ func TestInstancesInfoRegistryWatcherHandler(t *testing.T) {
 
 	event := &etcd3.Event{
 		Type:      etcd3.PUT,
-		Key:       "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@yrservice@test-faas-scheduler-reserved-exist/version/$latest",
+		Key:       "/instances/business/yrk/cluster/cluster001/tenant/default/function/0@yrservice@test-faas-scheduler-reserved-exist/version/$latest",
 		Value:     []byte("123"),
 		PrevValue: []byte("123"),
 		Rev:       1,
@@ -1139,7 +1139,7 @@ func TestInstancesInfoRegistryWatcherHandler(t *testing.T) {
 		}
 		convey.So(msg.EventType, convey.ShouldEqual, SubEventTypeUpdate)
 		convey.So(msg.EventMsg, convey.ShouldResemble, &instanceconfig.Configuration{
-			FuncKey: "12345678901234561234567890123456/0@yrservice@test-faas-scheduler-reserved-exist/$latest",
+			FuncKey: "default/0@yrservice@test-faas-scheduler-reserved-exist/$latest",
 		})
 	})
 	convey.Convey("etcd delete value success", t, func() {
@@ -1155,7 +1155,7 @@ func TestInstancesInfoRegistryWatcherHandler(t *testing.T) {
 
 		convey.So(msg.EventType, convey.ShouldEqual, SubEventTypeDelete)
 		convey.So(msg.EventMsg, convey.ShouldResemble, &instanceconfig.Configuration{
-			FuncKey: "12345678901234561234567890123456/0@yrservice@test-faas-scheduler-reserved-exist/$latest",
+			FuncKey: "default/0@yrservice@test-faas-scheduler-reserved-exist/$latest",
 		})
 	})
 	convey.Convey("IsFuncOwner does not allow", t, func() {
@@ -1171,7 +1171,7 @@ func TestInstancesInfoRegistryWatcherHandler(t *testing.T) {
 	})
 	convey.Convey("etcd put invalid funcKey", t, func() {
 		event.Type = etcd3.PUT
-		event.Key = "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456"
+		event.Key = "/instances/business/yrk/cluster/cluster001/tenant/default"
 		ifr.watcherHandler(event)
 		msg := SubEvent{}
 		select {

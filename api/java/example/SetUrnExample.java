@@ -28,26 +28,26 @@ public class SetUrnExample {
     public static void main(String[] args) throws Exception {
         //! [set urn of java invoke cpp stateless function]
         ObjectRef ref1 = YR.function(CppFunction.of("PlusOne", int.class))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke(5);
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke(5);
         int res = (int)YR.get(ref1, 100);
         //! [set urn of java invoke cpp stateless function]
 
         //! [set urn of java invoke cpp stateful function]
         CppInstanceHandler cppInstance = YR.instance(CppInstanceClass.of("Counter","FactoryCreate"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke(1);
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke(1);
         ObjectRef ref1 = cppInstance.function(CppInstanceMethod.of("Add", int.class)).invoke(5);
         int res = (int)YR.get(ref1, 100);
         //! [set urn of java invoke cpp stateful function]
 
         //! [set urn of java invoke java stateless function]
         ObjectRef ref1 = YR.function(JavaFunction.of("com.example.YrlibHandler$MyYRApp", "smallCall", String.class))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+            .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
         String res = (String)YR.get(ref1, 100);
         //! [set urn of java invoke java stateless function]
 
         //! [set urn of java invoke java stateful function]
         JavaInstanceHandler javaInstance = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+            .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
         ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
         String res = (String)YR.get(ref1, 100);
         //! [set urn of java invoke java stateful function]

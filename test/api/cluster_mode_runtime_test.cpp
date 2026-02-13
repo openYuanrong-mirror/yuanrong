@@ -85,9 +85,9 @@ TEST_F(ClusterModeRuntimeTest, InitClusterModeRuntimeTest)
     Config conf;
     conf.isDriver = true;
     conf.mode = Config::Mode::CLUSTER_MODE;
-    conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
-    conf.javaFunctionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
-    conf.pythonFunctionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    conf.functionUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
+    conf.javaFunctionUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
+    conf.pythonFunctionUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     conf.serverAddr = "127.0.0.1:1234";
     conf.threadPoolSize = 4;
     conf.loadPaths = std::vector<std::string>(1025, std::string(1, 'a'));
@@ -110,7 +110,7 @@ TEST_F(ClusterModeRuntimeTest, When_In_Cluster_With_Empty_DatasystemAddr_Should_
     conf.inCluster = true;
     conf.mode = Config::Mode::CLUSTER_MODE;
     conf.serverAddr = "127.0.0.1:1234";
-    conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    conf.functionUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     ConfigManager::Singleton().Init(conf, 0, nullptr);
     EXPECT_THROW(rt->Init(), YR::Exception);
 }
@@ -146,7 +146,7 @@ TEST_F(ClusterModeRuntimeTest, CreateInstanceFailedTest)
         ASSERT_EQ(e.Code(), YR::Libruntime::ErrorCode::ERR_PARAM_INVALID);
     }
 
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-f-a:latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-f-a:latest";
     YR::Libruntime::ErrorInfo err(YR::Libruntime::ErrorCode::ERR_DEPENDENCY_FAILED, YR::Libruntime::ModuleCode::RUNTIME,
                                   "dependency resolve failed");
     EXPECT_CALL(*lr.get(), CreateInstance(_, _, _)).WillOnce(Return(std::make_pair(err, "instanceID")));
@@ -234,7 +234,7 @@ TEST_F(ClusterModeRuntimeTest, TestCreateInstanceSuccessfully)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     funcMeta.name = "name";
@@ -274,7 +274,7 @@ TEST_F(ClusterModeRuntimeTest, TestCreateInstanceSuccessfullyWithAffinity)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     std::vector<YR::internal::InvokeArg> args;
@@ -300,7 +300,7 @@ TEST_F(ClusterModeRuntimeTest, TestInvokeInstanceSuccessfully)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     std::vector<YR::internal::InvokeArg> args;
@@ -322,7 +322,7 @@ TEST_F(ClusterModeRuntimeTest, TestInvokeInstanceFailed)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     YR::Libruntime::ErrorInfo err(YR::Libruntime::ErrorCode::ERR_DEPENDENCY_FAILED, YR::Libruntime::ModuleCode::RUNTIME,
@@ -337,7 +337,7 @@ TEST_F(ClusterModeRuntimeTest, TestInvokeByNameSuccessfully)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     std::vector<YR::internal::InvokeArg> args;
@@ -359,7 +359,7 @@ TEST_F(ClusterModeRuntimeTest, TestInvokeByNameFailed)
     funcMeta.appName = "appName";
     funcMeta.moduleName = "moduleName";
     funcMeta.funcName = "funcName";
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-test-test:$latest";
     funcMeta.className = "className";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_CPP;
     YR::Libruntime::ErrorInfo err(YR::Libruntime::ErrorCode::ERR_DEPENDENCY_FAILED, YR::Libruntime::ModuleCode::RUNTIME,
@@ -940,7 +940,7 @@ TEST_F(ClusterModeRuntimeTest, TestInvokeByName)
     funcMeta.funcName = "common";
     funcMeta.moduleName = "echo";
     funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_PYTHON;
-    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest";
+    funcMeta.funcUrn = "sn:cn:yrk:default:function:0-yr-stpython:$latest";
     InvokeOptions opts;
     std::string str = "success";
     YR::Buffer buf(str.data(), str.size());

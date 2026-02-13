@@ -488,7 +488,7 @@ TEST_F(ApiTest, TestInvokeByName)
             return objId;
         }));
     auto ret = YR::PyFunction<YR::Buffer>("common", "echo")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                    .Invoke(buf);
     ASSERT_EQ(ret.ID(), objId);
     // 校验mock函数入参

@@ -31,10 +31,10 @@ func TestCrNameByKey(t *testing.T) {
 		{"case1 succeed to get CrNameByKey", args{funcKey: "/sn/functions/business/yrk/tenant" +
 			"/172120022624850603/function/0@default@testurpccustomoom002/version/latest"},
 			"yyrk1721-0-default-testurpccustomoom002-latest-1257561201"},
-		{"case2 long funcName", args{funcKey: "/sn/functions/business/yrk/tenant/12345678901234561234567890123456/" +
+		{"case2 long funcName", args{funcKey: "/sn/functions/business/yrk/tenant/default/" +
 			"function/0-actordemo-test-actor-support-version-publish-delete-version/version/$latest"},
 			"yyrk1234-port-version-publish-delete-versio-$latest-4279038269"},
-		{"case3 long version", args{funcKey: "/sn/functions/business/yrk/tenant/12345678901234561234567890123456/function" +
+		{"case3 long version", args{funcKey: "/sn/functions/business/yrk/tenant/default/function" +
 			"/0-actordemo-test-actor-support-version-publish-delete-version/version/123456789123456789123456789123456789123456789123456789123456"},
 			"yyrk1234-lete-versio-123456789123456789123456789123-3816641367"},
 	}

@@ -24,13 +24,13 @@ import (
 
 func TestConvertFunctionUrn2Id(t *testing.T) {
 	// convert correct value
-	functionUrn := "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest"
-	if functionId, err := ConvertFunctionUrn2Id(functionUrn); functionId != "12345678901234561234567890123456/0-opc-opc/$latest" || err != nil {
+	functionUrn := "sn:cn:yrk:default:function:0-opc-opc:$latest"
+	if functionId, err := ConvertFunctionUrn2Id(functionUrn); functionId != "default/0-opc-opc/$latest" || err != nil {
 		t.Errorf("Convert %s failed.", functionUrn)
 	}
 
 	// convert invalid value
-	functionUrn = "sn:cn:yrk:12345678901234561234567890123456^function:0-opc-opc"
+	functionUrn = "sn:cn:yrk:default^function:0-opc-opc"
 	if functionId, err := ConvertFunctionUrn2Id(functionUrn); len(functionId) > 0 || err == nil {
 		t.Errorf("Convert %s failed.", functionUrn)
 	}
@@ -39,7 +39,7 @@ func TestConvertFunctionUrn2Id(t *testing.T) {
 func TestConfigManagerInit(t *testing.T) {
 	yrConfig := &Config{
 		Mode:                ClusterMode,
-		FunctionUrn:         "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest",
+		FunctionUrn:         "sn:cn:yrk:default:function:0-opc-opc:$latest",
 		ServerAddr:          "127.0.0.1:31220",
 		DataSystemAddr:      "127.0.0.1:31501",
 		DataSystemAgentAddr: "",
@@ -80,7 +80,7 @@ func TestConfigManagerInit(t *testing.T) {
 		t.Errorf("InCluster init failed")
 	}
 
-	if configManager.FunctionId != "12345678901234561234567890123456/0-opc-opc/$latest" {
+	if configManager.FunctionId != "default/0-opc-opc/$latest" {
 		t.Errorf("FunctionId init failed")
 	}
 

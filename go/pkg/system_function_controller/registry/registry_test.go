@@ -46,7 +46,7 @@ var (
 		"deployedNode":"dggphis36581",
 		"runtimeIP":"127.0.0.1",
 		"runtimePort":"32065",
-		"funcKey":"12345678901234561234567890123456/0-system-faasscheduler/$latest",
+		"funcKey":"default/0-system-faasscheduler/$latest",
 		"resource":{"cpu":"500","memory":"500","customresources":{}},
 		"concurrency":1,
 		"status":3,

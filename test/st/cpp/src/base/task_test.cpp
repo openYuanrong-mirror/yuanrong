@@ -638,7 +638,7 @@ TEST_F(TaskTest, Test_After_Retry_Args_Should_Not_DecreaseRef)
 TEST_F(TaskTest, InvokeCppFuncSuccessfully)
 {
     auto ret = YR::CppFunction<int>("AddOne")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                    .Invoke(1);
     EXPECT_EQ(*YR::Get(ret), 2);
 }
@@ -662,7 +662,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
     }
     try {
         auto ret = YR::CppFunction<std::string>("AddOne")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(1);
         YR::Get(ret);
     } catch (YR::Exception &e) {
@@ -674,7 +674,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
     }
     try {
         auto ret = YR::CppFunction<int>("AddTen")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(1);
         YR::Get(ret);
     } catch (YR::Exception &e) {
@@ -686,7 +686,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
     }
     try {
         auto ret = YR::CppFunction<int>("AddOne")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(std::string("one"));
         YR::Get(ret);
     } catch (YR::Exception &e) {
@@ -709,7 +709,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
 TEST_F(TaskTest, InvokePythonFuncSuccessfully)
 {
     auto ret = YR::PyFunction<int>("common", "add_one")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                    .Invoke(10);  // moduleName, functionName
     EXPECT_EQ(*YR::Get(ret), 11);
 }
@@ -725,7 +725,7 @@ TEST_F(TaskTest, InvokePythonFuncWithRefSuccessfully)
 {
     auto obj = YR::Put(10);
     auto ret = YR::PyFunction<int>("common", "add_one")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                    .Invoke(obj);  // moduleName, functionName
     EXPECT_EQ(*YR::Get(ret), 11);
 }
@@ -740,7 +740,7 @@ TEST_F(TaskTest, InvokePythonFuncWithRefSuccessfully)
 TEST_F(TaskTest, DISABLED_InvokeJavaFuncSuccessfully)
 {
     auto ret = YR::JavaFunction<int>("org.yuanrong.testutils.TestUtils", "returnInt")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                    .Invoke(1);
     EXPECT_EQ(*YR::Get(ret), 1);
 }
@@ -764,7 +764,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
     }
     try {
         auto ret = YR::JavaFunction<std::string>("org.yuanrong.testutils.TestUtils", "returnInt")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
         YR::Get(ret);
     } catch (YR::Exception &e) {
@@ -776,7 +776,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
     }
     try {
         auto ret = YR::JavaFunction<int>("TestUtils", "returnInt")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
         YR::Get(ret);
     } catch (YR::Exception &e) {
@@ -788,7 +788,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
     }
     try {
         auto ret = YR::JavaFunction<int>("org.yuanrong.testutils.TestUtils", "addOne")
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
         YR::Get(ret);
     } catch (YR::Exception &e) {

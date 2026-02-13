@@ -321,10 +321,10 @@ func TestInstanceManager_CreateExpectedInstanceCount(t *testing.T) {
 						response.Count = 2
 						response.Kvs = []*mvccpb.KeyValue{
 							{
-								Key: []byte("/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasmanager/version/$latest/defaultaz/task-66ccf050-50f6-4835-aa24-c1b15dddb00e/12996c08-0000-4000-8000-db6c3db0fcbf"),
+								Key: []byte("/sn/instance/business/yrk/tenant/default/function/0-system-faasmanager/version/$latest/defaultaz/task-66ccf050-50f6-4835-aa24-c1b15dddb00e/12996c08-0000-4000-8000-db6c3db0fcbf"),
 							},
 							{
-								Key: []byte("/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-faasmanager/version/$latest/defaultaz/task-66ccf050-50f6-4835-aa24-c1b15dddb00e/12996c08-0000-4000-8000-db6c3db0fcb2"),
+								Key: []byte("/sn/instance/business/yrk/tenant/default/function/0-system-faasmanager/version/$latest/defaultaz/task-66ccf050-50f6-4835-aa24-c1b15dddb00e/12996c08-0000-4000-8000-db6c3db0fcb2"),
 							},
 						}
 						return response, nil

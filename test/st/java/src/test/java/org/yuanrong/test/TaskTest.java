@@ -116,7 +116,7 @@ public class TaskTest {
         TestUtils.initYR(false);
         try {
             ObjectRef ref1 = YR.function(JavaFunction.of("org.yuanrong.testutils.TestUtils", "returnInt", int.class))
-                .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                 .invoke(1);
             int res = (int) YR.get(ref1, 10000);
             System.out.println("get val: " + res);
@@ -162,7 +162,7 @@ public class TaskTest {
             isException = false;
             try {
                 ObjectRef ref1 = YR.function(JavaFunction.of("TestUtils", "returnInt", int.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke(1);
                 YR.get(ref1, 10000);
             } catch (YRException e) {
@@ -175,7 +175,7 @@ public class TaskTest {
             try {
                 ObjectRef ref1 = YR
                     .function(JavaFunction.of("org.yuanrong.testutils.TestUtils", "addOne", int.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke(1);
                 YR.get(ref1, 10000);
             } catch (YRException e) {
@@ -189,7 +189,7 @@ public class TaskTest {
             try {
                 ObjectRef ref1 = YR
                     .function(JavaFunction.of("org.yuanrong.testutils.TestUtils", "returnInt", ArrayList.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke(1);
                 YR.get(ref1, 10000);
             } catch (YRException e) {
@@ -202,7 +202,7 @@ public class TaskTest {
             try {
                 ObjectRef ref1 = YR
                     .function(JavaFunction.of("org.yuanrong.testutils.TestUtils", "returnInt", int.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke("test");
                 YR.get(ref1, 10000);
             } catch (YRException e) {
@@ -239,7 +239,7 @@ public class TaskTest {
         TestUtils.initYR(false);
         try {
             ObjectRef ref1 = YR.function(CppFunction.of("AddTwo", int.class))
-                .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                .setUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                 .invoke(1);
             int res = (int) YR.get(ref1, 10000);
             System.out.println("get val: " + res);
@@ -281,7 +281,7 @@ public class TaskTest {
             isException = false;
             try {
                 ObjectRef ref1 = YR.function(CppFunction.of("PlusTwo", int.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                     .invoke(1);
                 YR.get(ref1, 10000);
             } catch (YRException e) {
@@ -294,7 +294,7 @@ public class TaskTest {
             isException = false;
             try {
                 ObjectRef ref1 = YR.function(CppFunction.of("AddTwo", int.class))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                     .invoke("test");
                 YR.get(ref1, 10000);
             } catch (YRException e) {

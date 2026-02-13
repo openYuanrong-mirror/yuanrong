@@ -107,7 +107,7 @@ func ServeGetHandler(ctx *gin.Context) {
 func getAllServeRunningInstances() ([]*types.InstanceSpecification, error) {
 	resp, err := etcd3.GetRouterEtcdClient().Get(
 		etcd3.CreateEtcdCtxInfoWithTimeout(context.Background(), defaultEtcdRequestTimeout),
-		"/sn/instance/business/yrk/tenant/12345678901234561234567890123456/function/0-system-serveExecutor",
+		"/sn/instance/business/yrk/tenant/default/function/0-system-serveExecutor",
 		clientv3.WithPrefix())
 	if err != nil {
 		return nil, fmt.Errorf("invalid serve params: %s", err.Error())

@@ -33,7 +33,7 @@ func TestGetConfig(t *testing.T) {
 	}{
 		{"case1 succedd to get config", args{funcSpec: &types.FuncSpec{
 			FuncMetaData: types.FuncMetaData{
-				FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:0@yrservice@test-image-env",
+				FunctionVersionURN: "sn:cn:yrk:default:function:0@yrservice@test-image-env",
 			},
 		}}, false},
 	}

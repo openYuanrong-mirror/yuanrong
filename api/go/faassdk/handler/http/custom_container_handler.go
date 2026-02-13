@@ -65,7 +65,7 @@ const (
 	// CustomGracefulShutdownPeriod -
 	CustomGracefulShutdownPeriod  = 5
 	maxInvokeRetries              = 5
-	customContainerSystemTenantID = "12345678901234561234567890123456" // same with systemTenantID in rpc pkg
+	customContainerSystemTenantID = "default" // same with systemTenantID in rpc pkg
 )
 
 const (

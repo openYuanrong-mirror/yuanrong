@@ -98,9 +98,9 @@ std::string contextMetaStr = R"(
 {"funcMetaData":
     {
         "layers":[],"name":"0@test@cpp","description":"this is my app",
-        "functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@test@cpp",
-        "tenantId":"12345678901234561234567890123456","tags":null,"functionUpdateTime":"",
-        "functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@test@cpp:latest",
+        "functionUrn":"sn:cn:yrk:default:function:0@test@cpp",
+        "tenantId":"default","tags":null,"functionUpdateTime":"",
+        "functionVersionUrn":"sn:cn:yrk:default:function:0@test@cpp:latest",
         "revisionId":"20241017135254074","codeSize":0,"codeSha512":"","handler":"bin/start.sh",
         "runtime":"posix-custom-runtime","timeout":600,"version":"latest","deadLetterConfig":"",
         "businessId":"yrk","functionType":"","func_id":"","func_name":"cpp","domain_id":"",
@@ -182,7 +182,7 @@ TEST_F(FaasExecutorTest, ExecuteFunctionSuccessFullyTest)
         EXPECT_EQ(context.GetVersion(), "latest");
         EXPECT_EQ(context.GetMemorySize(), 1024);
         EXPECT_EQ(context.GetCPUNumber(), 1000);
-        EXPECT_EQ(context.GetProjectID(), "12345678901234561234567890123456");
+        EXPECT_EQ(context.GetProjectID(), "default");
         EXPECT_EQ(context.GetPackage(), "test");
 
         return event;

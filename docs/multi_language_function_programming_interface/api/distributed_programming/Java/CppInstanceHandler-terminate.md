@@ -18,7 +18,7 @@ Since the kill request has a retry mechanism, users can choose not to handle or 
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 cppInstanceHandler.terminate();
 ```

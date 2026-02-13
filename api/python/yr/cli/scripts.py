@@ -990,7 +990,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
     overrides = ctx.args
 
     # Determine which user to use
-    current_user = "12345678901234561234567890123456"
+    current_user = "default"
 
     # If function_json is provided, load it as base configuration
     if function_json:

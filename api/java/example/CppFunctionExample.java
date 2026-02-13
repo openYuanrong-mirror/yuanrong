@@ -49,14 +49,14 @@ public class CppFunctionExample {
         InvokeOptions invokeOptions = new InvokeOptions();
         invokeOptions.setCpu(1500);
         invokeOptions.setMemory(1500);
-        CppInstanceCreator cppInstanceCreator = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").options(invokeOptions);
+        CppInstanceCreator cppInstanceCreator = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").options(invokeOptions);
         CppInstanceHandler cppInstanceHandler = cppInstanceCreator.invoke(1);
         ObjectRef ref = cppInstanceHandler.function(CppInstanceMethod.of("Add", int.class)).invoke(5);
         int res = (int)YR.get(ref, 100);
         //! [CppInstanceCreator options 样例代码]
 
         //! [CppInstanceFunctionHandler invoke 样例代码]
-        CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke(1);
+        CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke(1);
         CppInstanceFunctionHandler cppInsFuncHandler = cppInstanceHandler.function(CppInstanceMethod.of("Add", int.class));
         ObjectRef ref = cppInsFuncHandler.invoke(5);
         int res = (int)YR.get(ref, 100);
@@ -64,7 +64,7 @@ public class CppFunctionExample {
 
         //! [cpp exportHandler 样例代码]
         CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
             .invoke(1);
         Map<String, String> out = cppInstanceHandler.exportHandler();
         // Serialize out and store in a database or other persistence tool.
@@ -72,7 +72,7 @@ public class CppFunctionExample {
 
         //! [CppInstanceHandler function 样例代码]
         CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
             .invoke(1);
         CppInstanceFunctionHandler cppInstFuncHandler = cppInstanceHandler.function(
             CppInstanceMethod.of("Add", int.class));
@@ -88,14 +88,14 @@ public class CppFunctionExample {
 
         //! [CppInstanceHandler terminate 样例代码]
         CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
             .invoke(1);
         cppInstanceHandler.terminate();
         //! [CppInstanceHandler terminate 样例代码]
 
         //! [CppInstanceHandler terminate sync 样例代码]
         CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-            .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+            .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
             .invoke(1);
         cppInstanceHandler.terminate(true);
         //! [CppInstanceHandler terminate sync 样例代码]

@@ -74,8 +74,8 @@ const (
 	podLabelTenantID             = "tenantID"
 	podLabelVersion              = "version"
 	podLabelSecurityGroup        = "securityGroup"
-	executorFormat               = "12345678901234561234567890123456/0-system-faasExecutor%s/$latest"
-	serveExecutor                = "12345678901234561234567890123456/0-system-serveExecutor/$latest"
+	executorFormat               = "default/0-system-faasExecutor%s/$latest"
+	serveExecutor                = "default/0-system-serveExecutor/$latest"
 	resSpecLen                   = 4
 	faasExecutorStsCertPath      = "/opt/certs/%s/%s/%s.ini"
 	defaultDelegateDirectoryInfo = "/tmp"

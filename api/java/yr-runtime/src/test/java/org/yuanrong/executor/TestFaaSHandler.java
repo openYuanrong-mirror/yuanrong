@@ -247,7 +247,7 @@ public class TestFaaSHandler {
     }
 
     private String getSchedulerData() {
-        return "{\"schedulerFuncKey\":\"12345678901234561234567890123456/0-system-faasscheduler/$latest\"," +
+        return "{\"schedulerFuncKey\":\"default/0-system-faasscheduler/$latest\"," +
                 "\"schedulerIDList\":[\"2238fb12-0000-4000-8000-00abc0d9cc91\"]}";
     }
 
@@ -255,7 +255,7 @@ public class TestFaaSHandler {
         Gson gson = new Gson();
         List<String> args = new ArrayList<>();
         args.add("{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\"," +
-                "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"}," +
+                "\"python\":\"sn:cn:yrk:default:function:0-he-he:$latest\"}," +
                 "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2}," +
                 "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\"," +
                 "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}");
@@ -296,7 +296,7 @@ public class TestFaaSHandler {
         Gson gson = new Gson();
         List<String> args = new ArrayList<>();
         args.add("{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\"," +
-                "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"}," +
+                "\"python\":\"sn:cn:yrk:default:function:0-he-he:$latest\"}," +
                 "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2}," +
                 "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\"," +
                 "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}");
@@ -409,7 +409,7 @@ public class TestFaaSHandler {
         Gson gson = new Gson();
         List<String> args = new ArrayList<>();
         args.add("{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\"," +
-                "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"}," +
+                "\"python\":\"sn:cn:yrk:default:function:0-he-he:$latest\"}," +
                 "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2}," +
                 "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\"," +
                 "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}");
@@ -451,7 +451,7 @@ public class TestFaaSHandler {
         faaSHandler.faasInitHandler(initArgs);
 
         String arg1 = "{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\","
-            + "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"},"
+            + "\"python\":\"sn:cn:yrk:default:function:0-he-he:$latest\"},"
             + "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2},"
             + "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\","
             + "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}";
@@ -503,7 +503,7 @@ public class TestFaaSHandler {
         faaSHandler.faasInitHandler(initArgs);
 
         String arg1 = "{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\","
-            + "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"},"
+            + "\"python\":\"sn:cn:yrk:default:function:0-he-he:$latest\"},"
             + "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2},"
             + "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\","
             + "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}";

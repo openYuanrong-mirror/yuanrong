@@ -55,7 +55,7 @@ Java 调用 Java 有状态函数时，为函数设置 functionUrn。
 ```java
 
 JavaInstanceHandler javaInstance = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+    .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
 ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
 String res = (String)YR.get(ref1, 100);
 ```
@@ -77,7 +77,7 @@ JavaInstanceCreator 类的成员方法，用于动态修改 Java 函数实例创
 InvokeOptions invokeOptions = new InvokeOptions();
 invokeOptions.setCpu(1500);
 invokeOptions.setMemory(1500);
-JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").options(invokeOptions);
+JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").options(invokeOptions);
 JavaInstanceHandler javaInstanceHandler = javaInstanceCreator.invoke();
 ObjectRef ref = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
 String res = (String)YR.get(ref, 100);

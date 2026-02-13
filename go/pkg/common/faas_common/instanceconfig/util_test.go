@@ -38,10 +38,10 @@ func TestParseInstanceConfigFromEtcdEvent(t *testing.T) {
 		testConfigData, _ := json.Marshal(testConfig)
 
 		convey.Convey("should parse config with label successfully", func() {
-			etcdKey := "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@test111@yrfunc111/version/latest/label/aaa"
+			etcdKey := "/instances/business/yrk/cluster/cluster001/tenant/default/function/0@test111@yrfunc111/version/latest/label/aaa"
 			config, err := ParseInstanceConfigFromEtcdEvent(etcdKey, testConfigData)
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(config.FuncKey, convey.ShouldEqual, "12345678901234561234567890123456/0@test111@yrfunc111/latest")
+			convey.So(config.FuncKey, convey.ShouldEqual, "default/0@test111@yrfunc111/latest")
 			convey.So(config.InstanceLabel, convey.ShouldEqual, "aaa")
 		})
 
@@ -74,11 +74,11 @@ func TestGetWatcherFilter(t *testing.T) {
 }
 
 func TestGetLabelFromInstanceConfigEtcdKey(t *testing.T) {
-	etcdKey := "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@test111@yrfunc111/version/latest"
+	etcdKey := "/instances/business/yrk/cluster/cluster001/tenant/default/function/0@test111@yrfunc111/version/latest"
 	label := GetLabelFromInstanceConfigEtcdKey(etcdKey)
 	assert.Equal(t, "", label)
 
-	etcdKey = "/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@test111@yrfunc111/version/latest/label/aaa"
+	etcdKey = "/instances/business/yrk/cluster/cluster001/tenant/default/function/0@test111@yrfunc111/version/latest/label/aaa"
 	label = instance.GetInstanceIDFromEtcdKey(etcdKey)
 	assert.Equal(t, "aaa", label)
 }

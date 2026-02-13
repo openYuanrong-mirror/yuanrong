@@ -28,26 +28,26 @@ import (
 )
 
 const (
-	aliasURN = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasv1"
+	aliasURN = "sn:cn:yrk:default:function:helloworld:myaliasv1"
 )
 
 // TestCase init
 func GetFakeAliasEle() *AliasElement {
 	fakeAliasEle := &AliasElement{
 		AliasURN:           aliasURN,
-		FunctionURN:        "sn:cn:yrk:12345678901234561234567890123456:function:helloworld",
-		FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest",
+		FunctionURN:        "sn:cn:yrk:default:function:helloworld",
+		FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:$latest",
 		Name:               "myaliasv1",
 		FunctionVersion:    "$latest",
 		RevisionID:         "20210617023315921",
 		Description:        "",
 		RoutingConfigs: []*routingConfig{
 			{
-				FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest",
+				FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:$latest",
 				Weight:             60,
 			},
 			{
-				FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:v1",
+				FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:v1",
 				Weight:             40,
 			},
 		},
@@ -57,9 +57,9 @@ func GetFakeAliasEle() *AliasElement {
 
 func GetFakeRuleAliasEle() *AliasElement {
 	fakeAliasEle := &AliasElement{
-		AliasURN:           "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasrulev1",
-		FunctionURN:        "sn:cn:yrk:12345678901234561234567890123456:function:helloworld",
-		FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest",
+		AliasURN:           "sn:cn:yrk:default:function:helloworld:myaliasrulev1",
+		FunctionURN:        "sn:cn:yrk:default:function:helloworld",
+		FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:$latest",
 		Name:               "myaliasrulev1",
 		FunctionVersion:    "$latest",
 		RevisionID:         "20210617023315921",
@@ -76,8 +76,8 @@ func GetFakeRuleAliasEle() *AliasElement {
 
 func GetFakeWeightAliasEle() *AliasElement {
 	fakeAliasEle := &AliasElement{
-		AliasURN:           "sn:cn:yrk:12345678901234561234567890123456:function:0@default@aliasfunc:myaliasrulev1",
-		FunctionURN:        "sn:cn:yrk:12345678901234561234567890123456:function:0@default@aliasfunc",
+		AliasURN:           "sn:cn:yrk:default:function:0@default@aliasfunc:myaliasrulev1",
+		FunctionURN:        "sn:cn:yrk:default:function:0@default@aliasfunc",
 		FunctionVersionURN: "sn:cn:yrk:c53626012ba84727b938ca8bf03108ef:function:0@default@aliasfunc:latest",
 		Name:               "myaliasrulev1",
 		FunctionVersion:    "$latest",
@@ -114,11 +114,11 @@ func TestOptAlias(t *testing.T) {
 		fakeAliasEle := GetFakeAliasEle()
 		fakeAliasEle.RoutingConfigs = []*routingConfig{
 			{
-				FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest",
+				FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:$latest",
 				Weight:             50,
 			},
 			{
-				FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:v1",
+				FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:v1",
 				Weight:             50,
 			},
 		}
@@ -163,19 +163,19 @@ func TestGetFuncURNFromAlias(t *testing.T) {
 }
 
 func TestFetchInfoFromAliasKey(t *testing.T) {
-	path := "/sn/aliases/business/yrk/tenant/12345678901234561234567890123456/function/helloworld/myalias"
+	path := "/sn/aliases/business/yrk/tenant/default/function/helloworld/myalias"
 	aliasKey := FetchInfoFromAliasKey(path)
 
 	assert.Equal(t, aliasKey.FunctionID, "helloworld")
 	assert.Equal(t, aliasKey.AliasName, "myalias")
 
-	path = "/sn/aliases/business/yrk/tenant/12345678901234561234567890123456/function/helloworld"
+	path = "/sn/aliases/business/yrk/tenant/default/function/helloworld"
 	aliasKey = FetchInfoFromAliasKey(path)
 	assert.Empty(t, aliasKey)
 }
 
 func TestBuildURNFromAliasKey(t *testing.T) {
-	path := "/sn/aliases/business/yrk/tenant/12345678901234561234567890123456/function/helloworld/myalias"
+	path := "/sn/aliases/business/yrk/tenant/default/function/helloworld/myalias"
 	urn := BuildURNFromAliasKey(path)
 	assert.Contains(t, urn, "myalias")
 }
@@ -190,7 +190,7 @@ func TestGetFuncVersionURNWithParamsMatch(t *testing.T) {
 	params["age"] = "10"
 	params["devType"] = "P40"
 
-	aliasUrn := "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasrulev1"
+	aliasUrn := "sn:cn:yrk:default:function:helloworld:myaliasrulev1"
 	wantFuncVer := "sn:cn:yrk:172120022620195843:function:0@default@test_func:3"
 	got := GetAliases().GetFuncVersionURNWithParams(aliasUrn, params)
 	assert.Equal(t, wantFuncVer, got)
@@ -206,8 +206,8 @@ func TestGetFuncVersionURNWithParamsNotMatch(t *testing.T) {
 	params["age"] = "50"
 	params["devType"] = "P40"
 
-	aliasUrn := "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasrulev1"
-	wantFuncVer := "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest"
+	aliasUrn := "sn:cn:yrk:default:function:helloworld:myaliasrulev1"
+	wantFuncVer := "sn:cn:yrk:default:function:helloworld:$latest"
 	got := GetAliases().GetFuncVersionURNWithParams(aliasUrn, params)
 	assert.Equal(t, wantFuncVer, got)
 }
@@ -230,7 +230,7 @@ func TestMarshalTenantAliasList(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{"case1", args{tenantID: "12345678901234561234567890123456"}, false},
+		{"case1", args{tenantID: "default"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -247,7 +247,7 @@ func TestCheckUrnWithParamsMatchRules(t *testing.T) {
 	convey.Convey("CheckAliasRoutingChange", t, func() {
 		aliases.AddAlias(GetFakeRuleAliasEle())
 
-		aliasRuleURN := "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasrulev1"
+		aliasRuleURN := "sn:cn:yrk:default:function:helloworld:myaliasrulev1"
 		urnWithParam_old := "sn:cn:yrk:172120022620195843:function:0@default@test_func:latest"
 		convey.So(aliases.CheckAliasRoutingChange(aliasRuleURN, urnWithParam_old, make(map[string]string)),
 			convey.ShouldEqual, true)
@@ -256,7 +256,7 @@ func TestCheckUrnWithParamsMatchRules(t *testing.T) {
 			convey.ShouldEqual, true)
 
 		aliases.AddAlias(GetFakeWeightAliasEle())
-		aliasWeight := "sn:cn:yrk:12345678901234561234567890123456:function:0@default@aliasfunc:myaliasrulev1"
+		aliasWeight := "sn:cn:yrk:default:function:0@default@aliasfunc:myaliasrulev1"
 		aliasURN_old := "sn:cn:yrk:c53626012ba84727b938ca8bf03108ef:function:0@default@aliasfunc:1"
 		convey.So(aliases.CheckAliasRoutingChange(aliasWeight, aliasURN_old, make(map[string]string)),
 			convey.ShouldEqual, true)
@@ -270,19 +270,19 @@ func TestAliasWeightLoadBalancer(t *testing.T) {
 	convey.Convey("AliasWeightLoadBalancer", t, func() {
 		fakeAliasEle := &AliasElement{
 			AliasURN:           aliasURN,
-			FunctionURN:        "sn:cn:yrk:12345678901234561234567890123456:function:helloworld",
-			FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:1",
+			FunctionURN:        "sn:cn:yrk:default:function:helloworld",
+			FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:1",
 			Name:               "myaliasv1",
 			FunctionVersion:    "1",
 			RevisionID:         "20210617023315921",
 			Description:        "",
 			RoutingConfigs: []*routingConfig{
 				{
-					FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:2",
+					FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:2",
 					Weight:             80,
 				},
 				{
-					FunctionVersionURN: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:1",
+					FunctionVersionURN: "sn:cn:yrk:default:function:helloworld:1",
 					Weight:             20,
 				},
 			},
@@ -300,7 +300,7 @@ func TestAliasWeightLoadBalancer(t *testing.T) {
 		}
 		var count int
 		for index, urn := range urnMap1 {
-			if urn == "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:2" {
+			if urn == "sn:cn:yrk:default:function:helloworld:2" {
 				count++
 				urnMap2[index] = urn
 			}
@@ -318,7 +318,7 @@ func TestAliasWeightLoadBalancer(t *testing.T) {
 		}
 		count = 0
 		for _, urn := range urnMap2 {
-			if urn == "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:2" {
+			if urn == "sn:cn:yrk:default:function:helloworld:2" {
 				count++
 			}
 		}

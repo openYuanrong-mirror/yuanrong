@@ -79,7 +79,7 @@ TEST_F(ObjectRefTest, PutGetTest)
 {
     YR::Config conf;
     conf.inCluster = true;
-    conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-x-x:$latest";
+    conf.functionUrn = "sn:cn:yrk:default:function:0-x-x:$latest";
     conf.serverAddr = "10.1.1.1:12345";
     conf.dataSystemAddr = "10.1.1.1:12346";
     YR::Init(conf);

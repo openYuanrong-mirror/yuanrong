@@ -43,7 +43,7 @@ func TaskExample() {
 	flag.Parse()
 	config := &yr.Config{
 		Mode:           yr.ClusterMode,
-		FunctionUrn:    "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest",
+		FunctionUrn:    "sn:cn:yrk:default:function:0-opc-opc:$latest",
 		ServerAddr:     flag.Args()[0],
 		DataSystemAddr: flag.Args()[1],
 		InCluster:      true,

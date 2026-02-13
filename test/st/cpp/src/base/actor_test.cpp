@@ -658,7 +658,7 @@ TEST_F(ActorTest, CreateCppActorSuccessful)
 {
     auto cppCls = YR::CppInstanceClass::FactoryCreate("Counter::FactoryCreate");
     auto creator =
-        YR::Instance(cppCls).SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest").Invoke(1);
+        YR::Instance(cppCls).SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest").Invoke(1);
     auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
     EXPECT_EQ(*YR::Get(ret), 2);
 }
@@ -684,7 +684,7 @@ TEST_F(ActorTest, CreateCppActorFailed)
     try {
         auto cppCls = YR::CppInstanceClass::FactoryCreate("Counter");
         auto creator = YR::Instance(cppCls)
-                           .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                           .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                            .Invoke(1);
         auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
         YR::Get(ret);
@@ -698,7 +698,7 @@ TEST_F(ActorTest, CreateCppActorFailed)
     try {
         auto cppCls = YR::CppInstanceClass::FactoryCreate("Counter::FactoryCreate");
         auto creator = YR::Instance(cppCls)
-                           .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                           .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                            .Invoke(std::string("one"));
         auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
         YR::Get(ret);
@@ -722,7 +722,7 @@ TEST_F(ActorTest, CreatePythonActorSuccessful)
 {
     auto pyCls = YR::PyInstanceClass::FactoryCreate("common", "SimpleInstance");
     auto pyIns = YR::Instance(pyCls)
-                     .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                     .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                      .Invoke();
     auto ret = pyIns.PyFunction<int>("add_one").Invoke(1);
     EXPECT_EQ(*YR::Get(ret), 2);
@@ -739,7 +739,7 @@ TEST_F(ActorTest, CreatePythonWithRefActorSuccessful)
 {
     auto pyCls = YR::PyInstanceClass::FactoryCreate("common", "SimpleInstance");
     auto pyIns = YR::Instance(pyCls)
-                     .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                     .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                      .Invoke();
     auto obj = YR::Put(1);
     auto ret = pyIns.PyFunction<int>("add_one").Invoke(obj);
@@ -757,7 +757,7 @@ TEST_F(ActorTest, DISABLED_CreateJavaActorSuccessful)
 {
     auto javaCls = YR::JavaInstanceClass::FactoryCreate("org.yuanrong.testutils.TestUtils");
     auto creator = YR::Instance(javaCls)
-                       .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                       .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke();
     auto ret = creator.JavaFunction<int>("returnInt").Invoke(1);
     EXPECT_EQ(*YR::Get(ret), 1);
@@ -784,7 +784,7 @@ TEST_F(ActorTest, DISABLED_CreateJavaActorFailed)
     try {
         auto javaCls = YR::JavaInstanceClass::FactoryCreate("TestUtils");
         auto creator = YR::Instance(javaCls)
-                           .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                           .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                            .Invoke();
         auto ret = creator.JavaFunction<int>("returnInt").Invoke(1);
         YR::Get(ret);
@@ -1333,7 +1333,7 @@ TEST_F(ActorTest, DISABLED_TestTenantIdWithSetUrnSuccessfully)
 {
     auto cppCls = YR::CppInstanceClass::FactoryCreate("Counter::FactoryCreate");
     auto creator =
-        YR::Instance(cppCls).SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest").Invoke(1);
+        YR::Instance(cppCls).SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest").Invoke(1);
     auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
     std::vector<YR::ObjectRef<int>> objs;
     objs.push_back(ret);

@@ -35,7 +35,7 @@ const char *const ALIAS_PATTERN_STRING = "^[a-zA-Z]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$
 const char *const INSTANCE_NAME_PATTERN_STRING = "^[a-zA-Z0-9]+$";
 const char *const ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION";
 const char *const DEFAULT_VERSION = "latest";
-const char *const DEFAULT_TENANT_ID = "12345678901234561234567890123456";
+const char *const DEFAULT_TENANT_ID = "default";
 const char FUNCTION_URN_SEPERATOR = '@';
 const char FUNCTION_NAME_SEPERATOR = ':';
 const int FUNCTION_NAME_LENGTH = 3;
@@ -137,7 +137,7 @@ ObjectRef Function::Invoke(const std::string &payload)
         tenantId = DEFAULT_TENANT_ID;
     }
     std::stringstream ss;
-    // 12345678901234561234567890123456/0@faas@java:latest
+    // default/0@faas@java:latest
     ss << tenantId << "/"
        << "0@" << context_->GetPackage() << "@" << GetFunctionName(funcName_);
     YR::Libruntime::FunctionMeta libFunctionMeta;

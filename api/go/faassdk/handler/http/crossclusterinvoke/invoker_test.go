@@ -44,7 +44,7 @@ func Test_NewInvoker(t *testing.T) {
 			convey.So(invoker.initErr, convey.ShouldNotBeNil)
 		})
 		convey.Convey("init invoker ok", func() {
-			invoker := NewInvoker("sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest")
+			invoker := NewInvoker("sn:cn:yrk:default:function:helloworld:$latest")
 			convey.So(invoker, convey.ShouldNotBeNil)
 			convey.So(invoker.initErr, convey.ShouldBeNil)
 		})
@@ -52,7 +52,7 @@ func Test_NewInvoker(t *testing.T) {
 }
 
 func getMockInvoker() *Invoker {
-	funcInfo, err := urnutils.GetFunctionInfo("sn:cn:yrk:12345678901234561234567890123456:" +
+	funcInfo, err := urnutils.GetFunctionInfo("sn:cn:yrk:default:" +
 		"function:helloworld:$latest")
 	return &Invoker{
 		InvokeConfig: InvokeConfig{

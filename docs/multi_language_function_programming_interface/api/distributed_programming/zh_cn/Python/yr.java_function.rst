@@ -32,7 +32,7 @@ yr.java_function
        >>> import yr
        >>> yr.init()
        >>> java_function_urn = (
-       ...     "sn:cn:yrk:12345678901234561234567890123456:"
+       ...     "sn:cn:yrk:default:"
        ...     "function:0-yr-defaultservice-java:$latest"
        ... )
        >>> java_add = yr.java_function("org.yuanrong.demo.PlusOne", "PlusOne", java_function_urn)

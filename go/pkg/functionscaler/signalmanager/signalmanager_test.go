@@ -76,20 +76,20 @@ func TestSignalManager_SignalInstance(t *testing.T) {
 			lock.Unlock()
 		}).Reset()
 		convey.Convey("SignalInstance simple", func() {
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "12345678901234561234567890123456/hello/$latest"}, 0)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal1", FuncKey: "12345678901234561234567890123456/hello/$latest"}, 1)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "default/hello/$latest"}, 0)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal1", FuncKey: "default/hello/$latest"}, 1)
 			convey.So(len(GetSignalManager().instances) == 0, convey.ShouldBeTrue)
 		})
 		convey.Convey("SignalInstance complex", func() {
 			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2"}, constant.KillSignalAliasUpdate)
 			convey.So(len(GetSignalManager().instances), convey.ShouldEqual, 0)
 
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "default/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "default/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
 			time.Sleep(500 * time.Millisecond)
 			convey.So(len(GetSignalManager().instances), convey.ShouldEqual, 3)
 			processorStrArr := []string{"signal2_64", "signal2_72", "signal3_64", "signal3_72", "signal4_64"}
@@ -123,12 +123,12 @@ func TestSignalManager_RemoveInstance(t *testing.T) {
 			}
 		}).Reset()
 		convey.Convey("RemoveInstance complex", func() {
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
-			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal2", FuncKey: "default/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal3", FuncKey: "default/hello/$latest"}, constant.KillSignalFaaSSchedulerUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
+			GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal4", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
 
 			GetSignalManager().RemoveInstance("signal2")
 			convey.So(len(GetSignalManager().instances), convey.ShouldEqual, 2)
@@ -211,7 +211,7 @@ func TestSignalManager_killFunc_return_instanceNotExist(t *testing.T) {
 		GetSignalManager().SignalInstance(&types.Instance{
 			InstanceID:   "1111",
 			InstanceName: "1111",
-			FuncKey:      "12345678901234561234567890123456/hello/$latest",
+			FuncKey:      "default/hello/$latest",
 		}, constant.KillSignalAliasUpdate)
 		time.Sleep(100 * time.Millisecond)
 		_, ok := GetSignalManager().instances["1111"]
@@ -259,7 +259,7 @@ func TestSignalManager_complex(t *testing.T) {
 		killFuncExecuted.Store(false)
 
 		okFlag.Store(false)
-		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
+		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
 
 		convey.So(GetSignalManager().instances["signal0"], convey.ShouldNotBeNil)
 		sp := GetSignalManager().instances["signal0"].signalProcessors[constant.KillSignalAliasUpdate]
@@ -278,7 +278,7 @@ func TestSignalManager_complex(t *testing.T) {
 		blockFlag.Store(false)
 		sp.Unlock()
 
-		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
+		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
 		blockFlag.Store(true)
 		<-time.After(200 * time.Millisecond)
 		sp.Lock()
@@ -296,7 +296,7 @@ func TestSignalManager_complex(t *testing.T) {
 	convey.Convey("stop chan delete", t, func() {
 		okFlag.Store(false)
 		blockFlag.Store(false)
-		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "12345678901234561234567890123456/hello/$latest"}, constant.KillSignalAliasUpdate)
+		GetSignalManager().SignalInstance(&types.Instance{InstanceID: "signal0", FuncKey: "default/hello/$latest"}, constant.KillSignalAliasUpdate)
 
 		convey.So(GetSignalManager().instances["signal0"], convey.ShouldNotBeNil)
 		sp := GetSignalManager().instances["signal0"].signalProcessors[constant.KillSignalAliasUpdate]

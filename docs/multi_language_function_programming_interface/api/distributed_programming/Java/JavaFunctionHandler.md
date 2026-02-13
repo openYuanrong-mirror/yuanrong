@@ -47,7 +47,7 @@ When Java calls a stateless function in Java, set the functionUrn for the functi
 ```java
 
 ObjectRef ref1 = YR.function(JavaFunction.of("com.example.YrlibHandler$MyYRApp", "smallCall", String.class))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+    .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
 String res = (String)YR.get(ref1, 100);
 ```
 
@@ -69,7 +69,7 @@ InvokeOptions invokeOptions = new InvokeOptions();
 invokeOptions.setCpu(1500);
 invokeOptions.setMemory(1500);
 JavaFunctionHandler javaFuncHandler = YR.function(JavaFunction.of("com.example.YrlibHandler$MyYRApp", "smallCall", String.class))
-               .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest");
+               .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest");
 ObjectRef ref = javaFuncHandler.options(invokeOptions).invoke();
 String result = (String)YR.get(ref, 15);
 ```

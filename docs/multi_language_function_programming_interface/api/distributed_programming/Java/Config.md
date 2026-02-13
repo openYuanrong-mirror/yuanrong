@@ -10,7 +10,7 @@ The Config instance is the input parameter of the init interface. Except for fun
 
 ```java
 
- Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
+ Config conf = new Config("sn:cn:yrk:default:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
  conf.setRecycleTime(100);
 ```
 
@@ -88,14 +88,14 @@ private String functionURN = Utils.getEnvWithDefualtValue("YRFUNCID", DEFAULT_FU
 
 The functionURN returned by the deployment function.
 
-It can be set through the YRFUNCID environment variable. The current functionURN generation logic is ``sn:cn:yrk:12345678901234561234567890123456:function:0-{ServiceName}-{FunctionName}:$latest``.
+It can be set through the YRFUNCID environment variable. The current functionURN generation logic is ``sn:cn:yrk:default:function:0-{ServiceName}-{FunctionName}:$latest``.
 
 ``` java
 
 private String cppFunctionURN = DEFAULT_CPP_URN
 ```
 
-The functionID returned by the deployment cpp function. Default is ``sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$lates``.
+The functionID returned by the deployment cpp function. Default is ``sn:cn:yrk:default:function:0-defaultservice-cpp:$lates``.
 
 ``` java
 
@@ -324,7 +324,7 @@ The path of client private key for data system tls authentication, if enableDsEn
 
 ``` java
 
-Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
+Config conf = new Config("sn:cn:yrk:default:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
 conf.setRecycleTime(100);
 ```
 

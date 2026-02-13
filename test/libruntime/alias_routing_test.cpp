@@ -80,9 +80,9 @@ TEST_F(AliasRoutingTest, ParseAliasTest)
 
     std::vector<AliasElement> g_aes_rule1 = {
         {
-            .aliasUrn = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasv1",
-            .functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld",
-            .functionVersionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:$latest",
+            .aliasUrn = "sn:cn:yrk:default:function:helloworld:myaliasv1",
+            .functionUrn = "sn:cn:yrk:default:function:helloworld",
+            .functionVersionUrn = "sn:cn:yrk:default:function:helloworld:$latest",
             .name = "myaliasv1",
             .functionVersion = "$latest",
             .revisionId = "20210617023315921",
@@ -97,7 +97,7 @@ TEST_F(AliasRoutingTest, ParseAliasTest)
                             "age:<=:20",
                             "devType:in:P40,P50,MATE40",
                         },
-                    .grayVersion = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:1",
+                    .grayVersion = "sn:cn:yrk:default:function:helloworld:1",
                 },
         },
     };
@@ -108,13 +108,13 @@ TEST_F(AliasRoutingTest, ParseAliasTest)
     params["userType"] = "VIP";
     params["age"] = "10";
     params["devType"] = "MATE40";
-    functionId = ar.ParseAlias("12345678901234561234567890123456/helloworld/myaliasv1", params);
-    ASSERT_EQ(functionId, "12345678901234561234567890123456/helloworld/1");
+    functionId = ar.ParseAlias("default/helloworld/myaliasv1", params);
+    ASSERT_EQ(functionId, "default/helloworld/1");
 
-    g_aes_rule1[0].routingRules.grayVersion = "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:2";
+    g_aes_rule1[0].routingRules.grayVersion = "sn:cn:yrk:default:function:helloworld:2";
     ar.UpdateAliasInfo(g_aes_rule1);
-    functionId = ar.ParseAlias("12345678901234561234567890123456/helloworld/myaliasv1", params);
-    ASSERT_EQ(functionId, "12345678901234561234567890123456/helloworld/2");
+    functionId = ar.ParseAlias("default/helloworld/myaliasv1", params);
+    ASSERT_EQ(functionId, "default/helloworld/2");
 }
 
 TEST_F(AliasRoutingTest, UpdateAliasInfoTest)

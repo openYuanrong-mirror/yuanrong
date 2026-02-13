@@ -385,7 +385,7 @@ public:
         librtCfg->functionSystemIpAddr = "";
         librtCfg->functionSystemPort = 0;
         librtCfg->functionIds[libruntime::LanguageType::Cpp] =
-            "12345678901234561234567890123456/0-function-function/$latest";
+            "default/0-function-function/$latest";
         FSIntfHandlers handlers;
         auto httpClient = std::make_unique<MockHttpClient>();
         httpClient->Init(ConnectionParam{librtCfg->functionSystemIpAddr, std::to_string(librtCfg->functionSystemPort)});

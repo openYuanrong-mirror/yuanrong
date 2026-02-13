@@ -56,7 +56,7 @@ import (
 func TestCreateInstanceForKernel(t *testing.T) {
 	SetGlobalSdkClient(&mockUtils.FakeLibruntimeSdkClient{})
 	funcSpec := &types.FunctionSpecification{
-		FuncKey:          "12345678901234561234567890123456/0-system-faasExecutor/$latest",
+		FuncKey:          "default/0-system-faasExecutor/$latest",
 		FuncMetaData:     commonTypes.FuncMetaData{},
 		InstanceMetaData: commonTypes.InstanceMetaData{},
 	}
@@ -1497,13 +1497,9 @@ func Test_setCreateOptionForPodInitLabel(t *testing.T) {
 		{
 			"case2 succeeded to set createOption for label",
 			args{
-				funcSpec: &types.FunctionSpecification{
-					FuncMetaData: commonTypes.FuncMetaData{
-						FuncName: "test",
-						TenantID: "tenantID", Service: "serviceID", Version: "$latest",
-					},
-					FuncKey: "12345678901234561234567890123456/test/$latest",
-				},
+				funcSpec: &types.FunctionSpecification{FuncMetaData: commonTypes.FuncMetaData{FuncName: "test",
+					TenantID: "tenantID", Service: "serviceID", Version: "$latest"},
+					FuncKey: "default/test/$latest"},
 				resSpec:      &resspeckey.ResourceSpecification{CPU: 500, Memory: 500},
 				instanceType: types.InstanceTypeReserved,
 			},
@@ -1512,14 +1508,14 @@ func Test_setCreateOptionForPodInitLabel(t *testing.T) {
 				podLabelFuncName:     "test",
 				podLabelIsPoolPod:    "false",
 				podLabelServiceID:    "serviceID",
-				podLabelTenantID:     "12345678901234561234567890123456",
+				podLabelTenantID:     "default",
 				podLabelVersion:      "latest",
 				podLabelStandard:     "500-500-fusion",
 			},
 			map[string]string{
-				podLabelSecurityGroup: "12345678901234561234567890123456",
+				podLabelSecurityGroup: "default",
 			},
-			"12345678901234561234567890123456",
+			"default",
 		},
 	}
 	for _, tt := range tests {
@@ -1577,68 +1573,68 @@ func TestGetExecutorFuncKey(t *testing.T) {
 		gi.FuncSpec.FuncMetaData.Runtime = "python3.6"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPython3.6/$latest")
+			"default/0-system-faasExecutorPython3.6/$latest")
 	})
 	convey.Convey("python3.8", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "python3.8"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPython3.8/$latest")
+			"default/0-system-faasExecutorPython3.8/$latest")
 	})
 	convey.Convey("python3.9", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "python3.9"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPython3.9/$latest")
+			"default/0-system-faasExecutorPython3.9/$latest")
 	})
 	convey.Convey("python3.10", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "python3.10"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPython3.10/$latest")
+			"default/0-system-faasExecutorPython3.10/$latest")
 	})
 	convey.Convey("python3.11", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "python3.11"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPython3.11/$latest")
+			"default/0-system-faasExecutorPython3.11/$latest")
 	})
 	convey.Convey("go, http, custom", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "go"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorGo1.x/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorGo1.x/$latest")
 		gi.FuncSpec.FuncMetaData.Runtime = "http"
 		funcKey = getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorGo1.x/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorGo1.x/$latest")
 		gi.FuncSpec.FuncMetaData.Runtime = "custom image"
 		funcKey = getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorGo1.x/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorGo1.x/$latest")
 	})
 	convey.Convey("java8", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "java8"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorJava8/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorJava8/$latest")
 	})
 	convey.Convey("java11", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "java11"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorJava11/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorJava11/$latest")
 	})
 	convey.Convey("java17", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "java17"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorJava17/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorJava17/$latest")
 	})
 	convey.Convey("java21", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "java21"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
-		convey.So(funcKey, convey.ShouldEqual, "12345678901234561234567890123456/0-system-faasExecutorJava21/$latest")
+		convey.So(funcKey, convey.ShouldEqual, "default/0-system-faasExecutorJava21/$latest")
 	})
 	convey.Convey("posix-custom-runtime", t, func() {
 		gi.FuncSpec.FuncMetaData.Runtime = "posix-custom-runtime"
 		funcKey := getExecutorFuncKey(gi.FuncSpec)
 		convey.So(funcKey, convey.ShouldEqual,
-			"12345678901234561234567890123456/0-system-faasExecutorPosixCustom/$latest")
+			"default/0-system-faasExecutorPosixCustom/$latest")
 	})
 }
 

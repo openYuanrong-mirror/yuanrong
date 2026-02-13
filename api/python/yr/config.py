@@ -79,7 +79,7 @@ class Config:
     YR API config.
     """
     #: Function id which you deploy, get default by env `YRFUNCID`.
-    #: etc. ``sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest``.
+    #: etc. ``sn:cn:yrk:default:function:0-test-test:$latest``.
     function_id: str = ""
     #: Cpp function id which you deploy, get default by env `YR_CPP_FUNCID`.
     cpp_function_id: str = ""

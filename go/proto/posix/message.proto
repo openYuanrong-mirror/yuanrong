@@ -16,9 +16,12 @@
 
 syntax = "proto3";
 
-import "resource.proto";
 import "common.proto";
 import "core_service.proto";
+import "resource.proto";
+import ".vscode-server/data/User/History/74b5a6e7/XEvM.proto";
+import ".vscode-server/data/User/History/5cf4d271/zEa3.proto";
+import ".vscode-server/data/User/History/-6cd52dac/qYhn.proto";
 
 package messages;
 option go_package = "yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/message;message";

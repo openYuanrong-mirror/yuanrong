@@ -73,10 +73,10 @@ import java.util.Map;
 @PowerMockIgnore("javax.management.*")
 public class TestYR {
     Config conf = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             true);
 
     @Before
@@ -112,10 +112,10 @@ public class TestYR {
     @Test
     public void testInitAfterInitFailure() throws Exception {
         Config invalidConf = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             true);
         invalidConf.setDataSystemAddress("invalidaddress");
         boolean isException = false;
@@ -135,7 +135,7 @@ public class TestYR {
             isException = true;
         }
         Assert.assertFalse(isException);
-        Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-st-stjava:$latest",
+        Config conf = new Config("sn:cn:yrk:default:function:0-st-stjava:$latest",
                 "127.0.0.1", 304822, "127.0.0.1", 290811, "", true);
         try {
             YR.init(invalidConf);
@@ -206,7 +206,7 @@ public class TestYR {
     @Test
     public void testTenantContext() {
         Config ctxConf = Config.builder()
-                            .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
+                            .functionURN("sn:cn:yrk:default:function:0-j-a:$latest")
                             .serverAddress("127.0.0.1")
                             .serverAddressPort(31222)
                             .dataSystemAddress("127.0.0.1")
@@ -259,7 +259,7 @@ public class TestYR {
     @Test
     public void testTenantContextFailed() {
         Config ctxConf = Config.builder()
-                            .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
+                            .functionURN("sn:cn:yrk:default:function:0-j-a:$latest")
                             .serverAddress("127.0.0.1")
                             .serverAddressPort(31222)
                             .dataSystemAddress("127.0.0.1")

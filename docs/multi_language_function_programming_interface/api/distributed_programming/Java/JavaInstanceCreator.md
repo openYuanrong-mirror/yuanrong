@@ -58,7 +58,7 @@ When Java calls a Java stateful function, set the functionUrn for the function.
 ```java
 
 JavaInstanceHandler javaInstance = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+    .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
 ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
 String res = (String)YR.get(ref1, 100);
 ```
@@ -80,7 +80,7 @@ The member method of the JavaInstanceCreator class is used to dynamically modify
 InvokeOptions invokeOptions = new InvokeOptions();
 invokeOptions.setCpu(1500);
 invokeOptions.setMemory(1500);
-JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").options(invokeOptions);
+JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").options(invokeOptions);
 JavaInstanceHandler javaInstanceHandler = javaInstanceCreator.invoke();
 ObjectRef ref = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
 String res = (String)YR.get(ref, 100);

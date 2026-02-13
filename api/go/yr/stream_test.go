@@ -32,7 +32,7 @@ func TestProducer(t *testing.T) {
 				"Init success", func() {
 					yrConfig := &Config{
 						Mode:           ClusterMode,
-						FunctionUrn:    "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest",
+						FunctionUrn:    "sn:cn:yrk:default:function:0-opc-opc:$latest",
 						ServerAddr:     "127.0.0.1:12345",
 						DataSystemAddr: "127.0.0.1:12346",
 						InCluster:      true,

@@ -92,18 +92,18 @@ curl -X GET http://x.x.x.x:31182/serverless/v1/functions/0@faaspy@hello2/version
 {
     "functions": [
         {
-            "id": "sn:cn:yrk:12345678901234561234567890123456:function:0@faaspy@hello2:1",
+            "id": "sn:cn:yrk:default:function:0@faaspy@hello2:1",
             "createTime": "2024-03-02 08:31:12.724 UTC",
             "updateTime": "2024-03-02 08:47:50.473 UTC",
-            "functionUrn": "sn:cn:yrk:12345678901234561234567890123456:function:0@faaspy@hello2",
+            "functionUrn": "sn:cn:yrk:default:function:0@faaspy@hello2",
             "name": "0@faaspy@hello2",
-            "tenantId": "12345678901234561234567890123456",
+            "tenantId": "default",
             "businessId": "yrk",
             "productId": "",
             "reversedConcurrency": 0,
             "description": "this is a function",
             "tag": null,
-            "functionVersionUrn": "sn:cn:yrk:12345678901234561234567890123456:function:0@faaspy@hello2:1",
+            "functionVersionUrn": "sn:cn:yrk:default:function:0@faaspy@hello2:1",
             "revisionId": "20240302084750473",
             "codeSize": 0,
             "codeSha256": "",

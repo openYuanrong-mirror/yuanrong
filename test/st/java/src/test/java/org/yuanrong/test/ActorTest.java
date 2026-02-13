@@ -62,7 +62,7 @@ public class ActorTest {
         TestUtils.initYR(false);
         try {
             JavaInstanceHandler javaInstance = YR.instance(JavaInstanceClass.of("org.yuanrong.testutils.TestUtils"))
-                .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                 .invoke();
             ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("returnInt", int.class)).invoke(1);
             int res = (int) YR.get(ref1, 10000);
@@ -85,7 +85,7 @@ public class ActorTest {
             boolean isException = false;
             try {
                 JavaInstanceHandler javaInstance = YR.instance(JavaInstanceClass.of("TestUtils"))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke();
                 ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("returnInt", int.class)).invoke(1);
                 YR.get(ref1, 10000);
@@ -123,7 +123,7 @@ public class ActorTest {
             try {
                 JavaInstanceHandler javaInstance = YR.instance(
                         JavaInstanceClass.of("org.yuanrong.testutils.Counter"))
-                    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                    .setUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                     .invoke();
                 ObjectRef ref1 = javaInstance.function(JavaInstanceMethod.of("returnIntWithException", int.class))
                     .invoke(1);
@@ -149,7 +149,7 @@ public class ActorTest {
         TestUtils.initYR(false);
         try {
             CppInstanceHandler cppInstance = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-                .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                .setUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                 .invoke(1);
             ObjectRef ref1 = cppInstance.function(CppInstanceMethod.of("AddTwo", int.class)).invoke(2, 3);
             int res = (int) YR.get(ref1, 10000);
@@ -337,7 +337,7 @@ public class ActorTest {
         try {
             InvokeOptions opts = InvokeOptions.builder().recoverRetryTimes(1).build();
             CppInstanceHandler cppInstance = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-                .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+                .setUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                 .options(opts)
                 .invoke(1);
             ObjectRef ref1 = cppInstance.function(CppInstanceMethod.of("GetPid", long.class)).invoke();

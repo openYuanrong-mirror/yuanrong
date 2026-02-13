@@ -27,13 +27,13 @@ public class TestConfigManager {
     public void testInitConfigManager() {
 
         Config config = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             1,
             "127.0.0.0",
             1,
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             true);
 
         ConfigManager configManager = new ConfigManager();
@@ -48,15 +48,15 @@ public class TestConfigManager {
 
         ConfigManager testConfigManager = new ConfigManager();
         testConfigManager.setInitialized(expectedValue);
-        testConfigManager.setFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+        testConfigManager.setFunctionURN("sn:cn:yrk:default:function:0-test-hello:$latest");
         testConfigManager.setServerAddress("127.0.0.0");
         testConfigManager.setServerAddressPort(1);
         testConfigManager.setDataSystemAddress("127.0.0.0");
         testConfigManager.setDataSystemAddressPort(22);
         testConfigManager.setJobId("test-id");
         testConfigManager.setRuntimeId("test-runtime");
-        testConfigManager.setCppFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
-        testConfigManager.setGoFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+        testConfigManager.setCppFunctionURN("sn:cn:yrk:default:function:0-test-hello:$latest");
+        testConfigManager.setGoFunctionURN("sn:cn:yrk:default:function:0-test-hello:$latest");
         testConfigManager.setRecycleTime(1);
         testConfigManager.setInitialized(expectedValue);
         testConfigManager.setMaxTaskInstanceNum(10);

@@ -54,10 +54,10 @@ import java.util.List;
 @PowerMockIgnore("javax.management.*")
 public class TestKVManager {
     Config conf = new Config(
-        "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+        "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
         "127.0.0.0",
         "127.0.0.0",
-        "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+        "sn:cn:yrk:default:function:0-test-hello:$latest",
         true);
 
     @Before

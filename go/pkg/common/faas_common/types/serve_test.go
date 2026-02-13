@@ -32,19 +32,19 @@ func TestServeFunctionKeyTrans(t *testing.T) {
 		})
 		convey.Convey("When trans to a func meta key", func() {
 			convey.So(k.ToFuncMetaKey(), convey.ShouldEqual,
-				"/sn/functions/business/yrk/tenant/12345678901234561234567890123456/function/0@svc@func/version/latest")
+				"/sn/functions/business/yrk/tenant/default/function/0@svc@func/version/latest")
 		})
 		convey.Convey("When trans to a instance meta key", func() {
 			convey.So(k.ToInstancesMetaKey(), convey.ShouldEqual,
-				"/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@svc@func/version/latest")
+				"/instances/business/yrk/cluster/cluster001/tenant/default/function/0@svc@func/version/latest")
 		})
 		convey.Convey("When trans to a FaasFunctionUrn", func() {
 			convey.So(k.ToFaasFunctionUrn(), convey.ShouldEqual,
-				"sn:cn:yrk:12345678901234561234567890123456:function:0@svc@func")
+				"sn:cn:yrk:default:function:0@svc@func")
 		})
 		convey.Convey("When trans ToFaasFunctionVersionUrn", func() {
 			convey.So(k.ToFaasFunctionVersionUrn(), convey.ShouldEqual,
-				"sn:cn:yrk:12345678901234561234567890123456:function:0@svc@func:latest")
+				"sn:cn:yrk:default:function:0@svc@func:latest")
 		})
 	})
 }
@@ -86,17 +86,17 @@ func TestServeDeploySchema_ToFaaSFuncMetas(t *testing.T) {
 func TestServeFunctionKey(t *testing.T) {
 	convey.Convey("Test FromFaasFunctionKey", t, func() {
 		convey.Convey("It should return correct faas function metas", func() {
-			key := "12345678901234561234567890123456/0@svc@func/latest"
+			key := "default/0@svc@func/latest"
 			sfk := ServeFunctionKey{}
 			err := sfk.FromFaasFunctionKey(key)
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(sfk.Version, convey.ShouldEqual, "latest")
 			convey.So(sfk.AppName, convey.ShouldEqual, "svc")
 			convey.So(sfk.DeploymentName, convey.ShouldEqual, "func")
-			convey.So(sfk.TenantID, convey.ShouldEqual, "12345678901234561234567890123456")
+			convey.So(sfk.TenantID, convey.ShouldEqual, "default")
 		})
 		convey.Convey("It should return incorrect faas function metas", func() {
-			key := "12345678901234561234567890123456/0@svc@func"
+			key := "default/0@svc@func"
 			sfk := ServeFunctionKey{}
 			err := sfk.FromFaasFunctionKey(key)
 			convey.So(err, convey.ShouldNotBeNil)
@@ -120,16 +120,16 @@ func TestServeFunctionKey(t *testing.T) {
 				"0@svc@func")
 			convey.So(sfk.ToFuncMetaKey(),
 				convey.ShouldEqual,
-				"/sn/functions/business/yrk/tenant/12345678901234561234567890123456/function/0@svc@func/version/latest")
+				"/sn/functions/business/yrk/tenant/default/function/0@svc@func/version/latest")
 			convey.So(sfk.ToInstancesMetaKey(),
 				convey.ShouldEqual,
-				"/instances/business/yrk/cluster/cluster001/tenant/12345678901234561234567890123456/function/0@svc@func/version/latest")
+				"/instances/business/yrk/cluster/cluster001/tenant/default/function/0@svc@func/version/latest")
 			convey.So(sfk.ToFaasFunctionUrn(),
 				convey.ShouldEqual,
-				"sn:cn:yrk:12345678901234561234567890123456:function:0@svc@func")
+				"sn:cn:yrk:default:function:0@svc@func")
 			convey.So(sfk.ToFaasFunctionVersionUrn(),
 				convey.ShouldEqual,
-				"sn:cn:yrk:12345678901234561234567890123456:function:0@svc@func:latest")
+				"sn:cn:yrk:default:function:0@svc@func:latest")
 		})
 
 		convey.Convey("It should return incorrect faas function metas", func() {

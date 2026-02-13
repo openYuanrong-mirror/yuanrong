@@ -37,7 +37,7 @@ The member method of the CppInstanceHandler class is used to recycle the cloud-b
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 cppInstanceHandler.terminate();
 ```
@@ -61,7 +61,7 @@ It supports synchronous or asynchronous termination.
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 cppInstanceHandler.terminate();
 ```
@@ -89,7 +89,7 @@ CppInstanceHandler class member method. Users can obtain handle information thro
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 Map<String, String> out = cppInstanceHandler.exportHandler();
 // Serialize out and store in a database or other persistence tool.
@@ -110,7 +110,7 @@ The member method of the CppInstanceHandler class is used to return the handle o
 ```java
 
 CppInstanceHandler cppInstanceHandler = YR.instance(CppInstanceClass.of("Counter", "FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest")
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest")
     .invoke(1);
 CppInstanceFunctionHandler cppInstFuncHandler = cppInstanceHandler.function(
     CppInstanceMethod.of("Add", int.class));

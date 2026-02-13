@@ -244,9 +244,9 @@ function deploy_yr() {
         usage
         exit 1
     fi
-    export YRFUNCID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest'
-    export YR_PYTHON_FUNC_ID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest'
-    export YR_JAVA_FUNC_ID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest'
+    export YRFUNCID='sn:cn:yrk:default:function:0-yr-stcpp:$latest'
+    export YR_PYTHON_FUNC_ID='sn:cn:yrk:default:function:0-yr-stpython:$latest'
+    export YR_JAVA_FUNC_ID='sn:cn:yrk:default:function:0-yr-stjava:$latest'
     export YR_LOG_LEVEL=DEBUG
     export GLOG_log_dir="$DEPLOY_PATH/driver"
     export DEPLOY_PATH
@@ -256,9 +256,9 @@ function deploy_yr() {
     echo "export YR_DS_ADDRESS=$YR_DS_ADDRESS"
     echo "export YR_SERVER_ADDRESS=$YR_SERVER_ADDRESS"
     echo "export YR_FRONTEND_ADDRESS=$YR_FRONTEND_ADDRESS"
-    echo "export YRFUNCID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:\$latest'"
-    echo "export YR_PYTHON_FUNC_ID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:\$latest'"
-    echo "export YR_JAVA_FUNC_ID='sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:\$latest'"
+    echo "export YRFUNCID='sn:cn:yrk:default:function:0-yr-stcpp:\$latest'"
+    echo "export YR_PYTHON_FUNC_ID='sn:cn:yrk:default:function:0-yr-stpython:\$latest'"
+    echo "export YR_JAVA_FUNC_ID='sn:cn:yrk:default:function:0-yr-stjava:\$latest'"
     echo "export YR_IS_CLUSTER=$YR_IS_CLUSTER"
     echo "export YR_LOG_LEVEL=$YR_LOG_LEVEL"
     echo "export DEPLOY_PATH=$DEPLOY_PATH"

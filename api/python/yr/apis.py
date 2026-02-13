@@ -71,7 +71,7 @@ def get_python_tag():
     return f"py{ver.major}{ver.minor}"
 
 
-_DEFAULT_FUNC_ID = f"sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-{get_python_tag()}:$latest"
+_DEFAULT_FUNC_ID = f"sn:cn:yrk:default:function:0-defaultservice-{get_python_tag()}:$latest"
 
 
 def is_initialized():
@@ -1541,7 +1541,7 @@ class cpp_instance_class:
             class_name (str): cpp class name.
             factory_name (str): Name of the static factory function of the cpp class.
             function_urn (str): Function URN, Defaults to
-                sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest.
+                sn:cn:yrk:default:function:0-defaultservice-cpp:$latest.
 
         Examples:
             .. code-block:: cpp
@@ -1576,7 +1576,7 @@ class cpp_instance_class:
                 >>> import yr
                 >>> yr.init()
                 >>> cpp_function_urn = (
-                ...     "sn:cn:yrk:12345678901234561234567890123456:"
+                ...     "sn:cn:yrk:default:"
                 ...     "function:0-yr-defaultservice-cpp:$latest"
                 ... )
                 >>> counter_class = yr.cpp_instance_class("Counter", "Counter::FactoryCreate", cpp_function_urn)
@@ -1668,7 +1668,7 @@ def cpp_function(function_name: str, function_urn: str) -> "StatelessFunction":
             >>> import yr
             >>> yr.init()
             >>> cpp_function_urn = (
-            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "sn:cn:yrk:default:"
             ...     "function:0-yr-defaultservice-cpp:$latest"
             ... )
             >>> square_func = yr.cpp_function("Square", cpp_function_urn)
@@ -1720,7 +1720,7 @@ def java_function(class_name: str, function_name: str, function_urn: str) -> "St
             >>> import yr
             >>> yr.init()
             >>> java_function_urn = (
-            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "sn:cn:yrk:default:"
             ...     "function:0-yr-defaultservice-java:$latest"
             ... )
             >>> java_add = yr.java_function("org.yuanrong.demo.PlusOne", "PlusOne", java_function_urn)
@@ -1740,7 +1740,7 @@ def java_instance_class(class_name: str, function_urn: str) -> "StatefulInstance
     Args:
         class_name (str): The name of java.
         function_urn (str, optional): The urn of java,
-            default is sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-java:$latest.
+            default is sn:cn:yrk:default:function:0-defaultservice-java:$latest.
 
     Returns:
         The corresponding instance creator.
@@ -1777,7 +1777,7 @@ def java_instance_class(class_name: str, function_urn: str) -> "StatefulInstance
             >>> import yr
             >>> yr.init()
             >>> java_function_urn = (
-            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "sn:cn:yrk:default:"
             ...     "function:0-yr-defaultservice-java:$latest"
             ... )
             >>>

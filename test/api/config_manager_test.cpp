@@ -78,9 +78,9 @@ Config GetMockConf()
     Config conf;
     conf.isDriver = true;
     conf.mode = Config::Mode::CLUSTER_MODE;
-    conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest";
-    conf.javaFunctionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest";
-    conf.pythonFunctionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest";
+    conf.functionUrn = "sn:cn:yrk:default:function:0-opc-opc:$latest";
+    conf.javaFunctionUrn = "sn:cn:yrk:default:function:0-opc-opc:$latest";
+    conf.pythonFunctionUrn = "sn:cn:yrk:default:function:0-opc-opc:$latest";
     conf.serverAddr = "127.0.0.1:1234";
     conf.threadPoolSize = 4;
     return conf;

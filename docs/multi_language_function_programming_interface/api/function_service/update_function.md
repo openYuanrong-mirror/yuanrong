@@ -166,7 +166,7 @@ POST {[meta service endpoint](api-meta-service-endpoint)}/serverless/v1/function
     "code": 0,
     "message": "SUCCESS",
     "function": {
-        "id": "sn:cn:yrk:12345678901234561234567890123456:function:0@faaspy@hello2:latest",
+        "id": "sn:cn:yrk:default:function:0@faaspy@hello2:latest",
         "createTime": "",
         "updateTime": "",
         "functionUrn": "",
@@ -177,7 +177,7 @@ POST {[meta service endpoint](api-meta-service-endpoint)}/serverless/v1/function
         "reversedConcurrency": 0,
         "description": "",
         "tag": null,
-        "functionVersionUrn": "sn:cn:yrk:12345678901234561234567890123456:function:0@faaspy@hello2:latest",
+        "functionVersionUrn": "sn:cn:yrk:default:function:0@faaspy@hello2:latest",
         "revisionId": "20240302084750473",
         "codeSize": 0,
         "codeSha256": "",

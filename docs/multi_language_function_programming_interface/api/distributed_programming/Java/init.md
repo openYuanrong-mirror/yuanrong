@@ -24,7 +24,7 @@ For parameter descriptions, see the data structure [Config](Config.md).
 
 ```java
 
-Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN");
+Config conf = new Config("sn:cn:yrk:default:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN");
 ClientInfo jobid = YR.init(conf);
 ```
 

@@ -217,9 +217,9 @@ public class SdkUtils {
     /**
      * reformat functionurn to functionid
      *
-     * @param functionUrn string like this format "sn:cn:yrk:12345678901234561234567890123456:function:
+     * @param functionUrn string like this format "sn:cn:yrk:default:function:
      *                    0-perf-helloworld:$latest"
-     * @return functionid in this format "12345678901234561234567890123456/0-perf-helloworld/$latest"
+     * @return functionid in this format "default/0-perf-helloworld/$latest"
      * @throws YRException the YR exception
      */
     public static String reformatFunctionUrn(String functionUrn) throws YRException {

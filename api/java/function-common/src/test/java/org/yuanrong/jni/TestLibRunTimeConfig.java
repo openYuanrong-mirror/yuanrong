@@ -24,7 +24,7 @@ public class TestLibRunTimeConfig {
     public void testInitLibRunTimeConfig() {
         boolean expectedValue = true;
         LibRuntimeConfig libRuntimeConfig = new LibRuntimeConfig();
-        libRuntimeConfig.setFunctionUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+        libRuntimeConfig.setFunctionUrn("sn:cn:yrk:default:function:0-test-hello:$latest");
         libRuntimeConfig.setLogFlushInterval(1);
         libRuntimeConfig.setMetaConfig("test-meta");
         libRuntimeConfig.setEnableMTLS(expectedValue);

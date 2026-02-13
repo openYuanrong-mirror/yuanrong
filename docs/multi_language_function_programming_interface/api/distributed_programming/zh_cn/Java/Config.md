@@ -8,7 +8,7 @@
 
 ```java
 
- Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
+ Config conf = new Config("sn:cn:yrk:default:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
  conf.setRecycleTime(100);
 ```
 
@@ -82,14 +82,14 @@ private ArrayList<String> loadPaths = new ArrayList<>()
 private String functionURN = Utils.getEnvWithDefualtValue("YRFUNCID", DEFAULT_FUNC_URN, "config-")
 ```
 
-部署函数返回的 functionURN。可以通过 YRFUNCID 环境变量设置，当前 functionURN 生成逻辑为 ``sn:cn:yrk:12345678901234561234567890123456:function:0-{ServiceName}-{FunctionName}:$latest``。
+部署函数返回的 functionURN。可以通过 YRFUNCID 环境变量设置，当前 functionURN 生成逻辑为 ``sn:cn:yrk:default:function:0-{ServiceName}-{FunctionName}:$latest``。
 
 ``` java
 
 private String cppFunctionURN = DEFAULT_CPP_URN
 ```
 
-部署 cpp 函数返回的 functionID。默认 ``sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$lates``。
+部署 cpp 函数返回的 functionID。默认 ``sn:cn:yrk:default:function:0-defaultservice-cpp:$lates``。
 
 ``` java
 
@@ -302,7 +302,7 @@ private String runtimePrivateKeyContextPath = ""
 
 ``` java
 
-Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
+Config conf = new Config("sn:cn:yrk:default:function:0-${serviceName}-${}fun:$latest", "serverAddressIP", "dataSystemAddressIP", "cppFunctionURN", false);
 conf.setRecycleTime(100);
 ```
 

@@ -397,7 +397,7 @@ func TestCrNameByUrn(t *testing.T) {
 		args string
 	}
 	var a args
-	a.args = "sn:cn:yrk:12345678901234561234567890123456:function:0@yrservice@test_func:v1"
+	a.args = "sn:cn:yrk:default:function:0@yrservice@test_func:v1"
 	var b args
 	b.args = ""
 	tests := []struct {
@@ -460,10 +460,10 @@ func TestCheckAliasUrnTenant(t *testing.T) {
 		args args
 		want bool
 	}{
-		{"case1", args{tenantID: "12345678901234561234567890123456",
-			aliasUrn: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld:myaliasv1"}, true},
-		{"case2 error", args{tenantID: "12345678901234561234567890123456",
-			aliasUrn: "sn:cn:yrk:12345678901234561234567890123456:function:helloworld"}, false},
+		{"case1", args{tenantID: "default",
+			aliasUrn: "sn:cn:yrk:default:function:helloworld:myaliasv1"}, true},
+		{"case2 error", args{tenantID: "default",
+			aliasUrn: "sn:cn:yrk:default:function:helloworld"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -483,8 +483,8 @@ func TestGetTenantFormFuncKey(t *testing.T) {
 		args args
 		want string
 	}{
-		{"case1", args{funcKey: "12345678901234561234567890123456/0-system-faasscheduler/$latest"},
-			"12345678901234561234567890123456"},
+		{"case1", args{funcKey: "default/0-system-faasscheduler/$latest"},
+			"default"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

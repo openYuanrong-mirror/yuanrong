@@ -29,40 +29,40 @@ public class TestConfig {
     @Test
     public void testInitConfig() {
         Config testConf1 = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             true,
             false);
         Config testConf2 = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             1,
             "127.0.0.0",
             1,
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             true);
         Config testConf3 = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             "test-go-urn",
             true,
             false);
         Config testConf4 = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             1,
             "127.0.0.0",
             1,
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             false);
         Config testConf5 = new Config.Builder().iamAuthToken("test-token")
-            .cppFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest")
-            .goFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest")
+            .cppFunctionURN("sn:cn:yrk:default:function:0-test-hello:$latest")
+            .goFunctionURN("sn:cn:yrk:default:function:0-test-hello:$latest")
             .isDriver(true)
             .ns("test-ns")
             .logDir("/tmp")
@@ -94,9 +94,9 @@ public class TestConfig {
         Assert.assertEquals("", testConf6.getLogLevel());
         Assert.assertEquals("", testConf6.getIamAuthToken());
         Assert.assertEquals("", testConf6.getTenantId());
-        Assert.assertEquals("sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest",
+        Assert.assertEquals("sn:cn:yrk:default:function:0-defaultservice-cpp:$latest",
             testConf6.getCppFunctionURN());
-        Assert.assertEquals("sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-go:$latest",
+        Assert.assertEquals("sn:cn:yrk:default:function:0-defaultservice-go:$latest",
             testConf6.getGoFunctionURN());
         Assert.assertEquals(30 * 60, testConf6.getRpcTimeout());
         Assert.assertEquals(31222, testConf6.getServerAddressPort());
@@ -117,10 +117,10 @@ public class TestConfig {
     @Test
     public void testCheckParameter() {
         Config testConf = new Config(
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:default:function:0-test-hello:$latest",
             "test-go-urn",
             true,
             true);
@@ -132,7 +132,7 @@ public class TestConfig {
         } catch (YRException e) {
             Assert.assertTrue(e.getMessage().contains("cppFunctionURN is invalid"));
             testConf.setCppFunctionURN(
-                "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest");
+                "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest");
             isException = true;
         }
         Assert.assertTrue(isException);
@@ -144,7 +144,7 @@ public class TestConfig {
         } catch (YRException e) {
             Assert.assertTrue(e.getMessage().contains("goFunctionURN is invalid"));
             testConf.setGoFunctionURN(
-                "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest");
+                "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest");
             isException = true;
         }
         Assert.assertTrue(isException);
@@ -178,7 +178,7 @@ public class TestConfig {
         } catch (YRException e) {
             Assert.assertTrue(e.getMessage().contains("functionURN is invalid"));
             testConf.setFunctionURN(
-                "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest");
+                "sn:cn:yrk:default:function:0-crossyrlib-helloworld:$latest");
             isException = true;
         }
         Assert.assertTrue(isException);

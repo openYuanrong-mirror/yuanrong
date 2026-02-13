@@ -86,7 +86,7 @@ public class JobExecutor {
     private static final String DEFAULT_JAVA_HOME = "/opt/function/runtime/java8/rtsp/jre";
     private static final String DEFAULT_SPARK_HOME = "/dcache/layer/func/bucket-jobexecutor-test/spark_test.zip";
     private static final String DEFAULT_YR_SPARK_FUNC_URN =
-    "sn:cn:yrk:12345678901234561234567890123456:function:0-sparkonyr-core:$latest";
+    "sn:cn:yrk:default:function:0-sparkonyr-core:$latest";
     private static final int CODE_PATH_INDEX = 1;
     private static final int DEFAULT_GET_TIMEOUT_MS = 30000;
 

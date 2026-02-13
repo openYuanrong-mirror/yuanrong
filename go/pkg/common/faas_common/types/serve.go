@@ -164,7 +164,7 @@ func (s *ServeDeploymentSchema) ToFaaSFuncMeta(
 }
 
 const (
-	defaultTenantID    = "12345678901234561234567890123456"
+	defaultTenantID    = "default"
 	defaultFuncVersion = "latest"
 
 	faasMetaKey              = constant.MetaFuncKey
@@ -194,7 +194,7 @@ func (f *ServeFunctionKey) ToFuncNameTriplet() string {
 	return fmt.Sprintf("0@%s@%s", f.AppName, f.DeploymentName)
 }
 
-// ToFuncMetaKey - /sn/functions/business/yrk/tenant/12345678901234561234567890123456/function/0@svc@func/version/latest
+// ToFuncMetaKey - /sn/functions/business/yrk/tenant/default/function/0@svc@func/version/latest
 func (f *ServeFunctionKey) ToFuncMetaKey() string {
 	return fmt.Sprintf(faasMetaKey, f.TenantID, f.ToFuncNameTriplet(), f.Version)
 }
@@ -204,17 +204,17 @@ func (f *ServeFunctionKey) ToInstancesMetaKey() string {
 	return fmt.Sprintf(instanceMetaKey, f.TenantID, f.ToFuncNameTriplet(), f.Version)
 }
 
-// ToFaasFunctionUrn - sn:cn:yrk:12345678901234561234567890123456:function:0@service@function
+// ToFaasFunctionUrn - sn:cn:yrk:default:function:0@service@function
 func (f *ServeFunctionKey) ToFaasFunctionUrn() string {
 	return fmt.Sprintf(faasFuncURN6tuplePattern, f.TenantID, f.ToFuncNameTriplet())
 }
 
-// ToFaasFunctionVersionUrn - sn:cn:yrk:12345678901234561234567890123456:function:0@svc@func:latest
+// ToFaasFunctionVersionUrn - sn:cn:yrk:default:function:0@svc@func:latest
 func (f *ServeFunctionKey) ToFaasFunctionVersionUrn() string {
 	return fmt.Sprintf(faasFuncURN7tuplePattern, f.TenantID, f.ToFuncNameTriplet(), f.Version)
 }
 
-// FromFaasFunctionKey - 12345678901234561234567890123456/0@svc@func/latest
+// FromFaasFunctionKey - default/0@svc@func/latest
 func (f *ServeFunctionKey) FromFaasFunctionKey(funcKey string) error {
 	const (
 		serveFaasFuncKeyMatchesIdxTenantID = iota + 1

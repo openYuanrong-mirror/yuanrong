@@ -32,7 +32,7 @@ var initErr error
 
 func init() {
 	yrConfig := &Config{
-		FunctionUrn:    "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest",
+		FunctionUrn:    "sn:cn:yrk:default:function:0-opc-opc:$latest",
 		Mode:           ClusterMode,
 		AutoStart:      false,
 		ServerAddr:     "127.0.0.1:12345",
@@ -59,7 +59,7 @@ func TestInitWithFlags(t *testing.T) {
 	convey.Convey(
 		"Test InitWithFlags", t, func() {
 			yrConfig := &Config{
-				FunctionUrn:    "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest",
+				FunctionUrn:    "sn:cn:yrk:default:function:0-opc-opc:$latest",
 				Mode:           ClusterMode,
 				AutoStart:      false,
 				ServerAddr:     "127.0.0.1:12345",

@@ -609,7 +609,7 @@ def test_custom_envs_config(init_yr_config):
 @pytest.mark.smoke
 def test_invoke_cpp_task(init_yr):
     cppf = yr.cpp_function(
-        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+        "PlusOne", "sn:cn:yrk:default:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(10)
     cppres = yr.get(res)
@@ -620,7 +620,7 @@ def test_invoke_cpp_task(init_yr):
 def test_invoke_cpp_task_with_ref(init_yr):
     obj = yr.put(10)
     cppf = yr.cpp_function(
-        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+        "PlusOne", "sn:cn:yrk:default:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(obj)
     cppres = yr.get(res)
@@ -630,7 +630,7 @@ def test_invoke_cpp_task_with_ref(init_yr):
 @pytest.mark.smoke
 def test_invoke_cpp_actor(init_yr):
     opt = yr.InvokeOptions()
-    cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
+    cpp_function_id = "sn:cn:yrk:default:function:0-yr-stcpp:$latest"
     cpp_ins = yr.cpp_instance_class(
         "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(10)
@@ -641,7 +641,7 @@ def test_invoke_cpp_actor(init_yr):
 def test_invoke_cpp_actor_with_ref(init_yr):
     obj = yr.put(10)
     opt = yr.InvokeOptions()
-    cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
+    cpp_function_id = "sn:cn:yrk:default:function:0-yr-stcpp:$latest"
     cpp_ins = yr.cpp_instance_class(
         "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(obj)
@@ -652,7 +652,7 @@ def test_invoke_cpp_actor_with_ref(init_yr):
 @pytest.mark.skip(reason="tmp skip")
 def test_invoke_java_task(init_yr):
     javaf = yr.java_function("org.yuanrong.testutils.TestUtils", "returnInt",
-                             "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                             "sn:cn:yrk:default:function:0-yr-stjava:$latest")
     res = javaf.invoke(10)
     ret = yr.get(res)
     assert ret == 10
@@ -662,7 +662,7 @@ def test_invoke_java_task(init_yr):
 @pytest.mark.skip(reason="tmp skip")
 def test_invoke_java_actor(init_yr):
     java_cls = yr.java_instance_class("org.yuanrong.testutils.Counter",
-                                      "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
+                                      "sn:cn:yrk:default:function:0-yr-stjava:$latest")
     java_ins = java_cls.invoke()
     res = java_ins.addOne.invoke()
     ret = yr.get(res)

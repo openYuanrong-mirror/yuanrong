@@ -12,7 +12,7 @@ FunctionHandler::SetUrn
            YR::Init(conf);
 
            auto r1 =
-           YR::CppFunction<int>("PlusOne").SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").Invoke(2);
+           YR::CppFunction<int>("PlusOne").SetUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").Invoke(2);
            YR::Get(r1);
            return 0;
        }

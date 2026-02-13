@@ -12,7 +12,7 @@ When the tenant context is enabled, handle information can also be obtained thro
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 Map<String, String> out = javaInstanceHandler.exportHandler();
 // Serialize out and store in a database or other persistence tool.
 ```

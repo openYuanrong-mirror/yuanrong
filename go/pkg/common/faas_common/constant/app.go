@@ -26,7 +26,7 @@ const (
 	// AppFN -
 	FunctionNameApp = "app"
 	// AppFuncId -
-	AppFuncId = "12345678901234561234567890123456/0-system-faasExecutorPosixCustom/$latest"
+	AppFuncId = "default/0-system-faasExecutorPosixCustom/$latest"
 	// AppType type for invoking create-app
 	AppType = "SUBMISSION"
 	// AppStatusPending -

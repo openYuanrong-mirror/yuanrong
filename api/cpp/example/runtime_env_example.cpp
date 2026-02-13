@@ -19,7 +19,7 @@
 #include "yr/api/runtime_env.h"
 #include "yr/yr.h"
 int main(int argc, char **argv) {
-    std::string pyFunctionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-mypython:$latest";
+    std::string pyFunctionUrn = "sn:cn:yrk:default:function:0-yr-mypython:$latest";
 
     YR::Config conf;
     YR::Init(conf, argc, argv);

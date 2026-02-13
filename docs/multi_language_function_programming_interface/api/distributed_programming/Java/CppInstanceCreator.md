@@ -57,7 +57,7 @@ When Java calls a stateful function in C++, set the functionUrn for the function
 ```java
 
 CppInstanceHandler cppInstance = YR.instance(CppInstanceClass.of("Counter","FactoryCreate"))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke(1);
+    .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke(1);
 ObjectRef ref1 = cppInstance.function(CppInstanceMethod.of("Add", int.class)).invoke(5);
 int res = (int)YR.get(ref1, 100);
 ```
@@ -79,7 +79,7 @@ The member method of the CppInstanceCreator class is used to dynamically modify 
 InvokeOptions invokeOptions = new InvokeOptions();
 invokeOptions.setCpu(1500);
 invokeOptions.setMemory(1500);
-CppInstanceCreator cppInstanceCreator = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").options(invokeOptions);
+CppInstanceCreator cppInstanceCreator = YR.instance(CppInstanceClass.of("Counter","FactoryCreate")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").options(invokeOptions);
 CppInstanceHandler cppInstanceHandler = cppInstanceCreator.invoke(1);
 ObjectRef ref = cppInstanceHandler.function(CppInstanceMethod.of("Add", int.class)).invoke(5);
 int res = (int)YR.get(ref, 100);

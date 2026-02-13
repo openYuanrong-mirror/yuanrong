@@ -45,7 +45,7 @@ java 调用 java 无状态函数时，为函数设置 functionUrn。
 ```java
 
 ObjectRef ref1 = YR.function(JavaFunction.of("com.example.YrlibHandler$MyYRApp", "smallCall", String.class))
-    .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-perf-callee:$latest").invoke();
+    .setUrn("sn:cn:yrk:default:function:0-perf-callee:$latest").invoke();
 String res = (String)YR.get(ref1, 100);
 ```
 

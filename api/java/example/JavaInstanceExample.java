@@ -37,7 +37,7 @@ public class JavaInstanceExample {
         invokeOptions.setCpu(1500);
         invokeOptions.setMemory(1500);
         JavaFunctionHandler javaFuncHandler = YR.function(JavaFunction.of("com.example.YrlibHandler$MyYRApp", "smallCall", String.class))
-                        .setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest");
+                        .setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest");
         ObjectRef ref = javaFuncHandler.options(invokeOptions).invoke();
         String result = (String)YR.get(ref, 15);
         //! [JavaFunctionHandle options 样例代码]
@@ -46,7 +46,7 @@ public class JavaInstanceExample {
         InvokeOptions invokeOptions = new InvokeOptions();
         invokeOptions.setCpu(1500);
         invokeOptions.setMemory(1500);
-        JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").options(invokeOptions);
+        JavaInstanceCreator javaInstanceCreator = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").options(invokeOptions);
         JavaInstanceHandler javaInstanceHandler = javaInstanceCreator.invoke();
         ObjectRef ref = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class)).invoke();
         String res = (String)YR.get(ref, 100);
@@ -55,31 +55,31 @@ public class JavaInstanceExample {
         //! [JavaInstanceFunctionHandler options 样例代码]
         InvokeOptions invokeOptions = new InvokeOptions();
         invokeOptions.addCustomExtensions("app_name", "myApp");
-        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
         JavaInstanceFunctionHandler javaInstFuncHandler = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class)).options(invokeOptions);
         ObjectRef ref = javaInstFuncHandler.invoke();
         String res = (String)YR.get(ref, 100);
         //! [JavaInstanceFunctionHandler options 样例代码]
 
         //! [JavaInstanceHandler function example]
-        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
         JavaInstanceFunctionHandler javaInstFuncHandler = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class))
         ObjectRef ref = javaInstFuncHandler.invoke();
         String res = (String)YR.get(ref, 100);
         //! [JavaInstanceHandler function example]
 
         //! [JavaInstanceHandler terminate example]
-        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
         javaInstanceHandler.terminate();
         //! [JavaInstanceHandler terminate example]
 
         //! [JavaInstanceHandler terminate sync example]
-        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
         javaInstanceHandler.terminate(true);
         //! [JavaInstanceHandler terminate sync example]
 
         //! [JavaInstanceHandler exportHandler example]
-        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+        JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
         Map<String, String> out = javaInstanceHandler.exportHandler();
         // Serialize out and store in a database or other persistence tool.
         //! [JavaInstanceHandler exportHandler example]

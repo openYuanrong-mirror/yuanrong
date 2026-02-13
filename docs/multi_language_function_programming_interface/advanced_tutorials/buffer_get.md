@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
     YR::Buffer yrBuf(str.data(), str.length());
 
     auto ret = YR::PyFunction<YR::Buffer>("common", "echo")
-                   .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest")
+                   .SetUrn("sn:cn:yrk:default:function:0-yr-stpython:$latest")
                    .Invoke(yrBuf);
     auto value = YR::Get(ret);
     std::string result = std::string(static_cast<const char*>(value->ImmutableData()), value->GetSize());

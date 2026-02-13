@@ -1735,7 +1735,7 @@ func TestReacquireLease(t *testing.T) {
 		allocRecord: sync.Map{},
 		PoolManager: &instancepool.PoolManager{},
 	}
-	resp := fs.handleInstanceBatchRetain("e58bd817-1132-4b5b-8000-00000000009c-thread5f0d3377-59", []byte("{\"e58bd817-1132-4b5b-8000-00000000009c-thread5f0d3377-59\":{\"avgProcTime\":307,\"functionKey\":\"12345678901234561234567890123456/0@functest@functest/latest\",\"isAbnormal\":false,\"maxProcTime\":323,\"procReqNum\":217,\"reacquireData\":[123,34,114,101,115,111,117,114,99,101,115,68,97,116,97,34,58,91,49,50,51,44,51,52,44,54,55,44,56,48,44,56,53,44,51,52,44,53,56,44,53,52,44,52,56,44,52,56,44,52,52,44,51,52,44,55,55,44,49,48,49,44,49,48,57,44,49,49,49,44,49,49,52,44,49,50,49,44,51,52,44,53,56,44,53,51,44,52,57,44,53,48,44,49,50,53,93,125]}}"), "aaaaa")
+	resp := fs.handleInstanceBatchRetain("e58bd817-1132-4b5b-8000-00000000009c-thread5f0d3377-59", []byte("{\"e58bd817-1132-4b5b-8000-00000000009c-thread5f0d3377-59\":{\"avgProcTime\":307,\"functionKey\":\"default/0@functest@functest/latest\",\"isAbnormal\":false,\"maxProcTime\":323,\"procReqNum\":217,\"reacquireData\":[123,34,114,101,115,111,117,114,99,101,115,68,97,116,97,34,58,91,49,50,51,44,51,52,44,54,55,44,56,48,44,56,53,44,51,52,44,53,56,44,53,52,44,52,56,44,52,56,44,52,52,44,51,52,44,55,55,44,49,48,49,44,49,48,57,44,49,49,49,44,49,49,52,44,49,50,49,44,51,52,44,53,56,44,53,51,44,52,57,44,53,48,44,49,50,53,93,125]}}"), "aaaaa")
 	assert.Equal(t, len(resp.InstanceAllocSucceed), 1)
 }
 

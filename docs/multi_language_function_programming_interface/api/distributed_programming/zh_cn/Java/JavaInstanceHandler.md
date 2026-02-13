@@ -38,7 +38,7 @@ JavaInstanceHandler 类的成员方法，用于回收云上 Java 函数实例。
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 javaInstanceHandler.terminate(true);
 ```
 
@@ -62,7 +62,7 @@ JavaInstanceHandler 类的成员方法，用于回收云上 Java 函数实例。
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 javaInstanceHandler.terminate();
 ```
 
@@ -86,7 +86,7 @@ JavaInstanceHandler 类的成员方法，用户通过该方法可获取句柄信
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 Map<String, String> out = javaInstanceHandler.exportHandler();
 // 序列化后存储到数据库或其他持久化工具中。
 ```
@@ -124,7 +124,7 @@ JavaInstanceHandler 类的成员方法，用于返回云上 Java 类实例的成
 
 ```java
 
-JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest").invoke();
+JavaInstanceHandler javaInstanceHandler = YR.instance(JavaInstanceClass.of("com.example.YrlibHandler$MyYRApp")).setUrn("sn:cn:yrk:default:function:0-opc-opc:$latest").invoke();
 JavaInstanceFunctionHandler javaInstFuncHandler = javaInstanceHandler.function(JavaInstanceMethod.of("smallCall", String.class))
 ObjectRef ref = javaInstFuncHandler.invoke();
 String res = (String)YR.get(ref, 100);

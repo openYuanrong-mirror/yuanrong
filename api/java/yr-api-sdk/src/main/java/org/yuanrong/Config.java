@@ -48,11 +48,11 @@ public class Config {
     private static final int DEFAULT_TIMEOUT = 30 * 60;
     private static final String DEFAULT_LOG_DIR = System.getProperty("user.dir");
     private static final String DEFAULT_FUNC_URN
-        = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-java:$latest";
+        = "sn:cn:yrk:default:function:0-defaultservice-java:$latest";
     private static final String DEFAULT_CPP_URN
-        = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest";
+        = "sn:cn:yrk:default:function:0-defaultservice-cpp:$latest";
     private static final String DEFAULT_GO_URN
-        = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-go:$latest";
+        = "sn:cn:yrk:default:function:0-defaultservice-go:$latest";
 
     /**
      * Specify the so path. If not specified, it is specified by services.yaml.
@@ -62,7 +62,7 @@ public class Config {
     /**
      * The functionURN returned by the deployment function.
      * It can be set through the YRFUNCID environment variable. The current functionURN generation logic is
-     * ``sn:cn:yrk:12345678901234561234567890123456:function:0-{ServiceName}-{FunctionName}:$latest``.
+     * ``sn:cn:yrk:default:function:0-{ServiceName}-{FunctionName}:$latest``.
      */
     private String functionURN = Utils.getEnvWithDefualtValue("YRFUNCID", DEFAULT_FUNC_URN, "config-");
 

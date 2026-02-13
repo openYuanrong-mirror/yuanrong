@@ -7,7 +7,7 @@ yr.java_instance_class
 
     参数：
         - **class_name** (str) – java 类名。
-        - **function_urn** (str，可选) – 函数 urn，默认 ``sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-java:$latest``。
+        - **function_urn** (str，可选) – 函数 urn，默认 ``sn:cn:yrk:default:function:0-defaultservice-java:$latest``。
 
     返回：
         对应的实例创建器。
@@ -43,7 +43,7 @@ yr.java_instance_class
        >>> import yr
        >>> yr.init()
        >>> java_function_urn = (
-       ...     "sn:cn:yrk:12345678901234561234567890123456:"
+       ...     "sn:cn:yrk:default:"
        ...     "function:0-yr-defaultservice-java:$latest"
        ... )
        >>>

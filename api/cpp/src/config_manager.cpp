@@ -56,7 +56,7 @@ namespace YR {
 const int MIN_TASK_INS_NUM_LIMIT = 1;
 const int NO_TASK_INS_NUM_LIMIT = -1;
 const int MAX_LOAD_PATH_NUM_LIMIT = 1024;
-const std::string DEFAULT_CPP_URN = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest";
+const std::string DEFAULT_CPP_URN = "sn:cn:yrk:default:function:0-defaultservice-cpp:$latest";
 
 int GetValidMaxTaskInstanceNum(int maxTaskInstanceNum)
 {
