@@ -852,9 +852,12 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
         }
         case libruntime::Signal::GetInstance: {
             std::string serializedMeta;
-            if (!this->librtConfig->funcMeta.SerializeToString(&serializedMeta)) {
+            google::protobuf::util::JsonPrintOptions options;
+            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta, &serializedMeta, options);
+            if (!status.ok()) {
+                YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
                 resp.set_code(::common::ErrorCode::ERR_INNER_SYSTEM_ERROR);
-                resp.set_message("Failed to serialize FunctionMeta");
+                resp.set_message(fmt::format("Failed to serialize FunctionMeta: {}", status.message()));
             } else {
                 resp.set_code(::common::ErrorCode::ERR_NONE);
                 resp.set_message(serializedMeta);
@@ -2032,7 +2035,9 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
                 promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
             } else {
                 libruntime::FunctionMeta funcMeta;
-                funcMeta.ParseFromString(response.message());
+                if (auto status = google::protobuf::util::JsonStringToMessage(response.message(), &funcMeta); !status.ok()) {
+                    YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
+                }
                 promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
             }
         },
