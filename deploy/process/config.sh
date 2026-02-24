@@ -59,6 +59,7 @@ curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_co
 ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_storage_auth_enable:,\
 is_partial_watch_instances:,\
 ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,frontend_client_auth_type:,meta_service_ssl_enable:,\
+meta_service_client_auth_type:,\
 iam_ssl_enable:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
@@ -80,6 +81,7 @@ ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossl
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
+meta_service_address:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
@@ -324,6 +326,8 @@ SSL_ENABLE="false"
 FRONTEND_SSL_ENABLE="false"
 FRONTEND_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_SSL_ENABLE="false"
+META_SERVICE_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
+META_SERVICE_ADDRESS=""
 # iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
 # certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
 IAM_SSL_ENABLE="false"
@@ -580,6 +584,8 @@ function usage() {
   echo -e "     --frontend_ssl_enable                               frontend ssl enabled, options: true/false (default false)"
   echo -e "     --frontend_client_auth_type                         frontend client authentication type, options: RequireAndVerifyClientCert/NoClientCert (default RequireAndVerifyClientCert)"
   echo -e "     --meta_service_ssl_enable                           meta_service ssl enabled, options: true/false (default false)"
+  echo -e "     --meta_service_client_auth_type                     meta_service client authentication type, options: RequireAndVerifyClientCert/NoClientCert (default RequireAndVerifyClientCert)"
+  echo -e "     --meta_service_address                              meta_service address used by frontend forwarding, format ip:port (default empty, auto use ip:meta_service_port)"
   echo -e "     --iam_ssl_enable                                    iam_server mTLS enabled independently, options: true/false (default false). Note: iam_server mTLS is also enabled when global ssl_enable=true"
   echo -e "     --ssl_root_file                                     ssl root ca file name, default is ca.crt"
   echo -e "     --ssl_cert_file                                     ssl module cert file name, default is module.crt"
@@ -785,6 +791,8 @@ function parse_opt() {
     --frontend_ssl_enable) FRONTEND_SSL_ENABLE=$2 && shift 2 ;;
     --frontend_client_auth_type) FRONTEND_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
     --meta_service_ssl_enable) META_SERVICE_SSL_ENABLE=$2 && shift 2 ;;
+    --meta_service_client_auth_type) META_SERVICE_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
+    --meta_service_address) META_SERVICE_ADDRESS=$2 && shift 2 ;;
     --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
     --ssl_cert_file) SSL_CERT_FILE=$2 && shift 2 ;;
@@ -1554,7 +1562,7 @@ function export_config() {
   # collector
   export ENABLE_COLLECTOR COLLECTOR_PORT
   # meta_service
-  export ENABLE_META_SERVICE META_SERVICE_PORT
+  export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
   export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER ENABLE_FUNCTION_TOKEN_AUTH
   # uds

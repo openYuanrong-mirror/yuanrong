@@ -517,6 +517,10 @@ function start_faas_frontend() {
   if [ "X${ENABLE_FAAS_FRONTEND}" != "Xtrue" ] && [ "X${ENABLE_FAAS_FRONTEND}" != "XTRUE" ]; then
     return 0
   fi
+  if [ -z "${META_SERVICE_ADDRESS}" ]; then
+    META_SERVICE_ADDRESS="${IP_ADDRESS}:${META_SERVICE_PORT}"
+  fi
+  export META_SERVICE_ADDRESS
   update_data_plane_port "faas_frontend_http_port faas_frontend_grpc_port"
   FAAS_FRONTEND_HTTP_PORT=${data_port_table["faas_frontend_http_port"]}
   FAAS_FRONTEND_GRPC_PORT=${data_port_table["faas_frontend_grpc_port"]}

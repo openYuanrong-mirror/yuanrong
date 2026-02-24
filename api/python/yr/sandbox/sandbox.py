@@ -16,6 +16,7 @@
 
 """Sandbox implementation for isolated code execution."""
 
+import argparse
 import subprocess
 import tempfile
 import os

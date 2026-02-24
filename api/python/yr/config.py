@@ -145,7 +145,7 @@ class Config:
     #: The timeout used for RPC.
     rpc_timeout: int = _DEFAULT_RPC_TIMOUT
     #: Whether to enable client two-way authentication, default is ``False``.
-    enable_mtls: bool = False
+    enable_mtls: bool = None
     enable_tls: bool = None
     #: Client private key file path.
     private_key_path: str = ""

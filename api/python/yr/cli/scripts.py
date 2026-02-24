@@ -34,7 +34,6 @@ from yr.cli.exec import run_client
 
 __server_address = None
 __ds_address = None
-__metaservice_address = None
 __client_cert = None
 __client_key = None
 __ca_cert = None
@@ -224,7 +223,7 @@ class HTTPClient:
             except ValueError:
                 result =  response.content
 
-            logging.debug(f"response: {response.headers}\n{json.dumps(result, indent=2, ensure_ascii=False)}")
+            logging.debug("response: %s\n%s", response.headers, result)
 
             return {
                 "success": response.status_code == 200,
@@ -235,7 +234,7 @@ class HTTPClient:
             }
 
         except RequestException as e:
-            logging.debug(f"HTTP failed: {str(e)}")
+            logging.debug("HTTP failed: %s", str(e))
             traceback.print_exc()
             return {
                 "success": False,
@@ -290,7 +289,7 @@ def deploy_function(function_json, user):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions"
+    url = f"http://{__server_address}/admin/v1/functions"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -314,7 +313,7 @@ def update_function(function_json, user):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{name}"
+    url = f"http://{__server_address}/admin/v1/functions/{name}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -335,7 +334,7 @@ def delete_function(function_name, user):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+    url = f"http://{__server_address}/admin/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -357,9 +356,9 @@ def query_function(function_name, user=None):
         jwt_token=__jwt_token,
     )
     if function_name is None:
-        url = f"http://{__metaservice_address}/serverless/v1/functions"
+        url = f"http://{__server_address}/admin/v1/functions"
     else:
-        url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+        url = f"http://{__server_address}/admin/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -423,7 +422,7 @@ def publish_function(function_name, publish_json, user=None):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}/versions"
+    url = f"http://{__server_address}/admin/v1/functions/{function_name.full_name_no_version()}/versions"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -549,9 +548,6 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     help="YuanRong DataSystem address",
 )
 @click.option(
-    "--metaservice-address", required=False, type=str, envvar="YR_METASERVICE_ADDRESS"
-)
-@click.option(
     "--client-cert",
     required=False,
     type=str,
@@ -600,7 +596,6 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
 def cli(
     server_address,
     ds_address,
-    metaservice_address,
     client_cert,
     client_key,
     ca_cert,
@@ -619,9 +614,6 @@ def cli(
     if ds_address:
         global __ds_address
         __ds_address = ds_address
-    if metaservice_address:
-        global __metaservice_address
-        __metaservice_address = metaservice_address
     if client_cert:
         global __client_cert
         __client_cert = client_cert

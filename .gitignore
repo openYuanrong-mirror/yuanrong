@@ -42,7 +42,7 @@ test/st/functions/**/*.xml
 # build
 cmake-build-debug
 api/python/build/
-build/
+/build/
 go/output/bin/client/dist/
 go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
@@ -51,12 +51,11 @@ example/custom_runtime/worker/yuanrong
 outputapi/python/build/
 api/python/dist/
 api/python/*.egg-info/
-build/
 datasystem/
 go/output/
 go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
-metrics/
+/metrics/
 output/
 scripts/package/.build/
 thirdparty/runtime_deps/
@@ -66,6 +65,4 @@ scripts/package/.build/
 # thirdparty
 thirdparty/
 go/pkg/mod/
-functionsystem/
-datasystem/
-metrics/
+/functionsystem/
