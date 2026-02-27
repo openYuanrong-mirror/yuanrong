@@ -1,0 +1,14 @@
+entryPoints:
+  websecure:
+    address: ":8888"
+
+providers:
+  file:
+    filename: /openyuanrong/traefik/dynamic.yml
+    watch: true
+
+log:
+  level: INFO
+
+api:
+  dashboard: false

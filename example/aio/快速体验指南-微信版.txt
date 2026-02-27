@@ -1,0 +1,30 @@
+【元戎沙箱抢鲜体验版 · AI 编程快速体验】
+
+🔗 在线试用地址
+https://1.95.144.130:8888/terminal
+
+🔑 试用 Token（复制完整内容）
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIxNzAyNTcsInJvbGUiOiJkZXZlbG9wZXIiLCJzdWIiOiJkZWZhdWx0In0.YmNmM2M3NDYxZTUyMjdmYmMwMTZlMTEzM2RjZTc1YTJlMDUzYjNiZmRmNjUyMjgxNTEyYmE0MmEyODkyZDcyMg
+
+━━━━ 体验 Claude Code ━━━━
+
+打开终端后依次执行：
+
+export ANTHROPIC_AUTH_TOKEN=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
+export ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic
+claude
+
+━━━━ 体验 OpenClaw ━━━━
+
+export ZAI_API_KEY=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
+openclaw onboard --non-interactive --accept-risk --auth-choice zai-cn --skip-channels --skip-skills --skip-ui
+openclaw gateway >> openclaw.log 2>&1 &
+openclaw tui
+
+━━━━ 本地部署 ━━━━
+
+docker run -d -p 8888:8888 -v /var/run/docker.sock:/var/run/docker.sock swr.cn-southwest-2.myhuaweicloud.com/openyuanrong/openyuanrongaio:latest
+
+启动后访问 https://127.0.0.1:8888/terminal 即可使用。
+
+⚠️ 注意：ZAI_API_KEY / ANTHROPIC_AUTH_TOKEN 为私人订阅，请勿转发或公开传播，仅限本次受邀体验人员使用。

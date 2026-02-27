@@ -524,7 +524,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__server_address}/{user}/{str(function_name).replace('@', '/')}"
+    url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         return True, resp["data"]
@@ -858,6 +858,119 @@ def list(resource_type):
                 print(f"{function['name'][2:]}:{function['versionNumber']}")
         else:
             print(f"user {__user} has no function.")
+
+
+@cli.group("sandbox")
+def sandbox():
+    """Manage detached sandbox instances.
+
+    Examples:
+        yrcli sandbox list
+        yrcli sandbox create --namespace aaa --name bbb
+        yrcli sandbox query aaa-bbb
+        yrcli sandbox delete aaa-bbb
+    """
+
+
+@sandbox.command("create")
+@click.option(
+    "--namespace",
+    required=True,
+    type=str,
+    help="Namespace for sandbox instance",
+)
+@click.option(
+    "--name",
+    required=True,
+    type=str,
+    help="Name for sandbox instance",
+)
+def sandbox_create(namespace, name):
+    """Create a detached sandbox instance directly in YR runtime context."""
+    os.environ.pop("YR_WORKING_DIR", None)
+    try:
+        with YRContext(__server_address, __ds_address, __user):
+            opt = yr.InvokeOptions()
+            opt.custom_extensions["lifecycle"] = "detached"
+            opt.idle_timeout = 60 * 60 * 24 * 1
+            opt.cpu = 1000
+            opt.memory = 2048
+            opt.name = name
+            opt.namespace = namespace
+
+            sandbox = yr.sandbox.SandBoxInstance.options(opt).invoke()
+            instance_name = yr.get(sandbox.get_name.invoke())
+            if not instance_name:
+                instance_name = f"{namespace}-{name}"
+            print(f"sandbox created, instance_name={instance_name}")
+    except Exception as e:
+        print(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
+        sys.exit(1)
+
+
+@sandbox.command("list")
+@click.option(
+    "--namespace",
+    required=False,
+    type=str,
+    default=None,
+    help="Filter by namespace prefix",
+)
+def sandbox_list(namespace):
+    """List sandbox instances."""
+    ret, resp = query_instances(__user)
+    if not ret:
+        print(f"failed to list instances: {resp.get('error', resp)}")
+        sys.exit(1)
+
+    sandbox_ids = []
+    for instance in resp:
+        instance_id = instance.get("id", "")
+        if not instance_id:
+            continue
+        if instance_id.startswith("app-"):
+            continue
+        if "-" not in instance_id:
+            continue
+        if namespace and not instance_id.startswith(f"{namespace}-"):
+            continue
+        sandbox_ids.append(instance_id)
+
+    if not sandbox_ids:
+        print("no sandbox instance found")
+        return
+
+    for sandbox_id in sandbox_ids:
+        print(sandbox_id)
+
+
+@sandbox.command("query")
+@click.argument("sandbox_id", type=str)
+def sandbox_query(sandbox_id):
+    """Query sandbox instance detail by instance id."""
+    if not __server_address:
+        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        sys.exit(1)
+
+    ret, resp = query_instance(sandbox_id, __user)
+    if ret:
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+    else:
+        print(f"sandbox not found: {sandbox_id}")
+        sys.exit(1)
+
+
+@sandbox.command("delete")
+@click.argument("sandbox_id", type=str)
+def sandbox_delete(sandbox_id):
+    """Delete (terminate) a sandbox instance by instance id."""
+    try:
+        with YRContext(__server_address, __ds_address, __user):
+            yr.kill_instance(sandbox_id)
+        print(f"succeed to delete sandbox: {sandbox_id}")
+    except Exception as e:
+        print(f"failed to delete sandbox {sandbox_id}: {e}")
+        sys.exit(1)
 
 
 @cli.command()
