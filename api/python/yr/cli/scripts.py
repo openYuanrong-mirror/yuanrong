@@ -996,6 +996,210 @@ def delete(function_name, no_clear_package, version):
     else:
         print(f"succeed to delete function: {function_name}")
 
+    if not function_name and not instance_id:
+        print("Error: Must specify either --function-name or --instance-id")
+        sys.exit(1)
+
+    if function_name:
+        # Query function
+        function_name = FunctionName(function_name)
+        ret, resp = query_function(function_name, __user)
+        if ret:
+            print(json.dumps(resp, indent=2, ensure_ascii=False))
+        else:
+            print(f"function not found: {function_name}")
+
+    if instance_id:
+        # Query instance
+        ret, resp = query_instance(instance_id, __user)
+        if ret:
+            print(json.dumps(resp, indent=2, ensure_ascii=False))
+        else:
+            print(f"instance not found: {instance_id}")
+
+
+@cli.command()
+@click.argument(
+    "resource_type",
+    type=click.Choice(
+        [
+            "function",
+            "functions",
+            "func",
+            "fun",
+            "instance",
+            "instances",
+            "inst",
+            "ins",
+        ],
+        case_sensitive=False,
+    ),
+    default="function",
+    required=False,
+)
+def list(resource_type):
+    """List functions or instances
+
+    Examples:
+        yrcli list                  # List functions (default)
+        yrcli list function         # List functions
+        yrcli list instance         # List instances
+    """
+    if resource_type in ("instance", "instances", "inst", "ins"):
+        # List instances
+        ret, resp = query_instances(__user)
+        if ret and len(resp) > 0:
+            for instance in resp:
+                instance_id = instance.get("id", "N/A")
+                print(instance_id)
+        else:
+            print(f"user {__user} has no instance.")
+    elif resource_type in ("function", "functions", "func", "fun"):
+        # List functions (default)
+        ret, resp = query_function(None, __user)
+        if ret and len(resp) > 0:
+            for function in resp:
+                print(f"{function['name'][2:]}:{function['versionNumber']}")
+        else:
+            print(f"user {__user} has no function.")
+
+
+@cli.group("sandbox")
+def sandbox():
+    """Manage detached sandbox instances.
+
+    Examples:
+        yrcli sandbox list
+        yrcli sandbox create --namespace aaa --name bbb
+        yrcli sandbox query aaa-bbb
+        yrcli sandbox delete aaa-bbb
+    """
+
+
+@sandbox.command("create")
+@click.option(
+    "--namespace",
+    required=True,
+    type=str,
+    help="Namespace for sandbox instance",
+)
+@click.option(
+    "--name",
+    required=True,
+    type=str,
+    help="Name for sandbox instance",
+)
+def sandbox_create(namespace, name):
+    """Create a detached sandbox instance directly in YR runtime context."""
+    os.environ.pop("YR_WORKING_DIR", None)
+    try:
+        with YRContext(__server_address, __ds_address, __user):
+            opt = yr.InvokeOptions()
+            opt.custom_extensions["lifecycle"] = "detached"
+            opt.idle_timeout = 60 * 60 * 24 * 1
+            opt.cpu = 1000
+            opt.memory = 2048
+            opt.name = name
+            opt.namespace = namespace
+
+            sandbox = yr.sandbox.SandBoxInstance.options(opt).invoke()
+            instance_name = yr.get(sandbox.get_name.invoke())
+            if not instance_name:
+                instance_name = f"{namespace}-{name}"
+            print(f"sandbox created, instance_name={instance_name}")
+    except Exception as e:
+        print(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
+        sys.exit(1)
+
+
+@sandbox.command("list")
+@click.option(
+    "--namespace",
+    required=False,
+    type=str,
+    default=None,
+    help="Filter by namespace prefix",
+)
+def sandbox_list(namespace):
+    """List sandbox instances."""
+    ret, resp = query_instances(__user)
+    if not ret:
+        print(f"failed to list instances: {resp.get('error', resp)}")
+        sys.exit(1)
+
+    sandbox_ids = []
+    for instance in resp:
+        instance_id = instance.get("id", "")
+        if not instance_id:
+            continue
+        if instance_id.startswith("app-"):
+            continue
+        if "-" not in instance_id:
+            continue
+        if namespace and not instance_id.startswith(f"{namespace}-"):
+            continue
+        sandbox_ids.append(instance_id)
+
+    if not sandbox_ids:
+        print("no sandbox instance found")
+        return
+
+    for sandbox_id in sandbox_ids:
+        print(sandbox_id)
+
+
+@sandbox.command("query")
+@click.argument("sandbox_id", type=str)
+def sandbox_query(sandbox_id):
+    """Query sandbox instance detail by instance id."""
+    if not __server_address:
+        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        sys.exit(1)
+
+    ret, resp = query_instance(sandbox_id, __user)
+    if ret:
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+    else:
+        print(f"sandbox not found: {sandbox_id}")
+        sys.exit(1)
+
+
+@sandbox.command("delete")
+@click.argument("sandbox_id", type=str)
+def sandbox_delete(sandbox_id):
+    """Delete (terminate) a sandbox instance by instance id."""
+    try:
+        with YRContext(__server_address, __ds_address, __user):
+            yr.kill_instance(sandbox_id)
+        print(f"succeed to delete sandbox: {sandbox_id}")
+    except Exception as e:
+        print(f"failed to delete sandbox {sandbox_id}: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("-f", "--function-name", required=True, type=str, default=None)
+@click.option("--no-clear-package", is_flag=True, default=False)
+@click.option("-v", "--version", required=False, type=str, default="latest")
+def delete(function_name, no_clear_package, version):
+    function_name = FunctionName(function_name, version)
+    if not no_clear_package:
+        ret, function_info = query_function(function_name, __user)
+        if not ret:
+            print(f"function not found.")
+            return
+        code_path = function_info.get("codePath")
+        if code_path and code_path.startswith("ds://"):
+            key = code_path.strip("ds://").split(".")[0]
+            with YRContext(__server_address, __ds_address):
+                yr.kv_del(key)
+            print(f"succeed to del package {code_path}")
+    ret, _ = delete_function(function_name, __user)
+    if not ret:
+        print(f"function not found.")
+    else:
+        print(f"succeed to delete function: {function_name}")
+
 
 @cli.command
 @click.argument("package", type=str)
