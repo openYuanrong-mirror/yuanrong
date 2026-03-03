@@ -361,6 +361,18 @@ class GroupOptions:
 
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
+class PortForwarding:
+    """Defines a port to be forwarded into the sandbox.
+
+    Attributes:
+        port: The port number inside the sandbox. Range: [1, 65535].
+        protocol: The protocol type. Supported: "TCP", "UDP". Default: "TCP".
+    """
+    port: int = 0
+    protocol: str = "TCP"
+
+
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class InvokeOptions:
     """Use to set the invoke options.
 
@@ -606,6 +618,39 @@ class InvokeOptions:
     #: to avoid cross-version serialization issues.
     #: Default: ``False``.
     skip_serialize: bool = False
+
+    port_forwardings: List[PortForwarding] = field(default_factory=list)
+    """
+    Configure port forwarding rules for the sandbox. Each entry specifies a port to be forwarded
+    inside the sandbox environment.
+
+    When configured, the port forwarding rules are serialized to JSON and passed to the runtime
+    via ``createOptions["network"]``. Supports configuring multiple ports simultaneously.
+
+    * Constraints:
+       * ``port``: Must be an integer in the range [1, 65535].
+       * ``protocol``: Must be ``"TCP"`` or ``"UDP"``. Default is ``"TCP"``.
+    * Raises:
+       * ``TypeError``: If ``port`` is not an ``int`` or ``protocol`` is not a ``str``.
+       * ``ValueError``: If ``port`` is out of range or ``protocol`` is unsupported.
+
+    Example::
+
+        >>> import yr
+        >>> yr.init()
+        >>> opt = yr.InvokeOptions()
+        >>> opt.port_forwardings = [
+        ...     yr.PortForwarding(port=8080),
+        ...     yr.PortForwarding(port=9090, protocol="UDP"),
+        ... ]
+        >>> @yr.invoke(invoke_options=opt)
+        ... def serve():
+        ...     pass
+
+    The above configuration produces the following JSON in ``createOptions["network"]``::
+
+        {"portForwardings": [{"port": 8080, "protocol": "TCP"}, {"port": 9090, "protocol": "UDP"}]}
+    """
 
     def check_options_valid(self):
         """

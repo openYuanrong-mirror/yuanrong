@@ -49,6 +49,7 @@ from yr.device import DataType, DeviceBufferParam, DataInfo
 from yr.runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, SetParam, MSetParam, CreateParam,
                         GetParam, GetParams, AlarmInfo, AlarmSeverity)
 from yr import runtime_env
+from yr import port_forwarding
 from yr.exception import YRInvokeError
 from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
                        SubscriptionType)
@@ -957,6 +958,10 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     if runtime_env.WORKING_DIR_KEY in create_opt:
         opts.workingDir = create_opt.pop(runtime_env.WORKING_DIR_KEY)
     for key, value in create_opt.items():
+        opts.createOptions.insert(pair[string, string](key, value))
+    # port forwarding: serialize to createOptions["network"] JSON
+    pf_opt = port_forwarding.parse_port_forwardings(opt)
+    for key, value in pf_opt.items():
         opts.createOptions.insert(pair[string, string](key, value))
     opts.cpu = opt.cpu
     opts.memory = opt.memory

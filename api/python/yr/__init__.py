@@ -73,6 +73,7 @@ from yr.runtime import (  # noqa: E402
 from yr.config import (  # noqa: E402
     Config, InvokeOptions, UserTLSConfig, FunctionGroupOptions, SchedulingAffinityType,
     FunctionGroupContext, ServerInfo, DeviceInfo, ResourceGroupOptions, GroupOptions,
+    PortForwarding,
 )
 
 from yr.group import Group
@@ -91,7 +92,7 @@ from yr import sandbox  # noqa: E402
 __all__ = [
     "init", "finalize", "Config", "UserTLSConfig",
     "put", "get",
-    "wait", "cancel", "invoke", "instance", "method", "InvokeOptions", "exit",
+    "wait", "cancel", "invoke", "instance", "method", "InvokeOptions", "PortForwarding", "exit",
     "ProducerConfig", "SubscriptionConfig", "Element",
     "create_stream_producer", "create_stream_consumer", "delete_stream",
     "Context", "Function", "GetParam", "GetParams",
