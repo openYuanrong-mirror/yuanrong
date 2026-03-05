@@ -235,11 +235,38 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
         exit 0
         ;;
     r)
-        if curl --connect-timeout 3 --max-time 5 "${OPTARG}" &>/dev/null;then
-          log_info "use remote cache server: ${OPTARG}"
-          BAZEL_OPTIONS="$BAZEL_OPTIONS --remote_cache=${OPTARG}"
+        # Support both HTTP/HTTPS and gRPC addresses
+        # Extract host and port from various formats like:
+        #   http://host:port, https://host:port, grpc://host:port, host:port
+        host=$(echo "${OPTARG}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -d: -f1)
+        port=$(echo "${OPTARG}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -s -d: -f2)
+
+        # Set default port based on protocol
+        if [ -z "$port" ]; then
+            if echo "${OPTARG}" | grep -q "^https://"; then
+                port=443
+            elif echo "${OPTARG}" | grep -q "^grpc://"; then
+                port=443
+            else
+                port=80
+            fi
+        fi
+
+        # Check if port is reachable using multiple methods
+        port_reachable=false
+        if timeout 3 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null; then
+            port_reachable=true
+        elif command -v nc &>/dev/null && nc -z -w 3 "${host}" "${port}" 2>/dev/null; then
+            port_reachable=true
+        elif curl --connect-timeout 3 --max-time 5 "${OPTARG}" &>/dev/null; then
+            port_reachable=true
+        fi
+
+        if [ "$port_reachable" = true ]; then
+            log_info "use remote cache server: ${OPTARG} (host: ${host}, port: ${port})"
+            BAZEL_OPTIONS="$BAZEL_OPTIONS --remote_cache=${OPTARG}"
         else
-          log_warning "no remote cache server available"
+            log_warning "no remote cache server available at ${host}:${port}"
         fi
         ;;
     l)

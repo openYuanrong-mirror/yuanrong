@@ -254,6 +254,11 @@ class YRContext:
         self.__user = user
 
     def __enter__(self):
+        if os.environ.get("YR_RUNTIME_ID"):
+            os.environ.pop("YR_WORKING_DIR", None)
+            cfg = yr.Config()
+            cfg.in_cluster = True
+            return yr.init(cfg)
         cfg = yr.Config()
         cfg.log_dir = "/tmp/yr_sessions/driver"
         if self.__user:

@@ -5,6 +5,7 @@ entryPoints:
     address: ":4443"
 
 providers:
+  # File provider for static configuration
   file:
     filename: /openyuanrong/traefik/dynamic.yml
     watch: true

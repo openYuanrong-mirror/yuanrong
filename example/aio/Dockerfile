@@ -96,30 +96,34 @@ RUN apt-get update && apt-get install -y \
     liblzma5 \
     tini \
     curl \
+    wget \
     git \
     vim \
-    && rm -rf /var/lib/apt/lists/*
+    supervisor \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/supervisor/conf.d /var/log/supervisor
 
+# 复制进程管理脚本
+COPY --chown=root:root process-manager.sh /openyuanrong/process-manager.sh
+RUN chmod +x /openyuanrong/process-manager.sh
+
+# Install docker CLI (optional - if download fails, continue without it)
 RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && (curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
     $(. /etc/os-release && echo "$UBUNTU_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
     && apt-get update \
     && apt-get install -y --no-install-recommends docker-ce-cli \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*) || echo "Docker CLI installation failed - continuing without it"
 
-# 安装 Node.js LTS（用于 claude code / openclaw）
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+# 安装 Node.js LTS（可选 - 用于 claude code / openclaw）
+RUN (curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# 配置 npm 使用淘宝镜像源
-RUN npm config set registry https://registry.npmmirror.com
-
-# 安装 claude code 和 openclaw
-RUN npm install -g @anthropic-ai/claude-code openclaw
+    rm -rf /var/lib/apt/lists/* && \
+    npm config set registry https://registry.npmmirror.com && \
+    npm install -g @anthropic-ai/claude-code openclaw) || echo "Node.js installation failed - continuing without it"
 
 # 从构建阶段复制 Python
 COPY --from=python-builder /usr/local /usr/local
@@ -158,12 +162,22 @@ COPY --chown=root:root services.yaml /openyuanrong/
 COPY --chown=root:root cert /openyuanrong/cert/
 COPY --chown=root:root pkg/runtime-launcher /openyuanrong/
 COPY --chown=root:root traefik /openyuanrong/traefik/
+COPY --chown=root:root supervisord.conf /etc/supervisor/supervisord.conf
+COPY --chown=root:root supervisord-entrypoint.sh /usr/local/bin/supervisord-entrypoint.sh
+RUN chmod +x /usr/local/bin/supervisord-entrypoint.sh
 
+# 复制文档到镜像
+COPY --chown=root:root TRAEFIK_ETCD.md /openyuanrong/docs/
+
+# 安装 traefik - 从 GitHub 下载
 ARG TRAEFIK_VERSION=v3.1.2
-RUN wget -qO /tmp/traefik.tar.gz https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz && \
+RUN echo "Downloading traefik from GitHub..." && \
+    wget -qO /tmp/traefik.tar.gz https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz || \
+    curl -sL -o /tmp/traefik.tar.gz https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz && \
     tar -xzf /tmp/traefik.tar.gz -C /tmp traefik && \
     install -m 0755 /tmp/traefik /usr/local/bin/traefik && \
-    rm -f /tmp/traefik /tmp/traefik.tar.gz
+    rm -f /tmp/traefik /tmp/traefik.tar.gz && \
+    traefik version
 
 WORKDIR /root
 
@@ -180,6 +194,5 @@ ENV YR_VERIFY_FILE="/openyuanrong/cert/ca.crt"
 ENV YR_IN_CLUSTER="false"
 ENV ENABLE_TOKEN="false"
 
-ENTRYPOINT [ "/usr/bin/tini", "--" ]
-
-CMD [ "/openyuanrong/bootstrap" ]
+# 使用 supervisord 作为入口
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/supervisord-entrypoint.sh"]

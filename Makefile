@@ -1,13 +1,16 @@
-.PHONY: help frontend datasystem functionsystem yuanrong dashboard all
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg aio all
 
 help:
 	@echo "Available targets:"
-	@echo "  make frontend      - Build frontend (auto-fixes go.mod path)"
-	@echo "  make datasystem   - Build datasystem"
+	@echo "  make frontend        - Build frontend (auto-fixes go.mod path)"
+	@echo "  make datasystem     - Build datasystem"
 	@echo "  make functionsystem - Build functionsystem"
-	@echo "  make yuanrong     - Build runtime"
-	@echo "  make dashboard   - Build dashboard"
-	@echo "  make all          - Build all targets and copy outputs to output/"
+	@echo "  make runtime_launcher - Build runtime-launcher"
+	@echo "  make yuanrong       - Build runtime"
+	@echo "  make dashboard      - Build dashboard"
+	@echo "  make pkg           - Copy packages to example/aio/pkg/"
+	@echo "  make aio           - Build (cd example/aio && docker build)"
+	@echo "  make all           - Build all targets and copy outputs to output/"
 
 frontend:
 	if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
@@ -25,6 +28,27 @@ datasystem:
 	mkdir -p output
 	cp datasystem/output/yr-datasystem*.tar.gz output/
 
+runtime_launcher:
+	@echo "Building runtime-launcher..."
+	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
+	if ! command -v go >/dev/null 2>&1; then \
+		echo "Error: Go not found. Please install Go and add to PATH."; \
+		exit 1; \
+	fi
+	@mkdir -p functionsystem/runtime-launcher/bin
+	@echo "Generating protobuf files..."
+	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
+	cd functionsystem/runtime-launcher && \
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		api/proto/runtime/v1/runtime_launcher.proto
+	@echo "Compiling runtime-launcher..."
+	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
+	cd functionsystem/runtime-launcher && \
+	go build -buildvcs=false -o bin/runtime/runtime-launcher ./cmd/runtime-launcher/ && \
+	go build -buildvcs=false -o bin/rl-client ./cmd/rl-client/
+	@echo "Runtime-launcher built successfully!"
+
 functionsystem:
 	mkdir -p functionsystem/vendor/src
 	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
@@ -37,13 +61,36 @@ yuanrong:
 	cp -ar functionsystem/output/metrics ./
 	bash build.sh -l /tmp/bazelcache
 
+yuanrong-pkg:
+	cp -ar functionsystem/output/metrics ./
+	bash build.sh -P -r grpc://192.168.3.45:9092
+
 dashboard:
 	cd go && bash build.sh && cd -
 
-all: frontend datasystem functionsystem yuanrong dashboard
+aio:
+	@echo "Copying packages to example/aio/pkg/..."
+	@mkdir -p example/aio/pkg
+	@cp datasystem/output/sdk/openyuanrong_datasystem_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp datasystem/output/openyuanrong_datasystem-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp functionsystem/output/openyuanrong_functionsystem-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
+	@mkdir -p example/aio/docs
+	@cp example/aio/TRAEFIK_ETCD.md example/aio/docs/ 2>/dev/null || true
+	@echo "Packages copied successfully!"
+	@ls -la example/aio/pkg/
+	@echo "Building Docker image aio:latest..."
+	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
+
+all: frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg
 	@echo "Build completed!"
 	@echo "Copying outputs to output/..."
 	mkdir -p output
 	cp frontend/output/yr-frontend*.tar.gz output/
 	cp datasystem/output/yr-datasystem*.tar.gz output/
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
+	@echo "Copying runtime-launcher to example/aio/pkg/..."
+	@mkdir -p example/aio/pkg
+	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher
