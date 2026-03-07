@@ -36,13 +36,18 @@ bash build.sh -C
 ### Convenient Build (Makefile)
 
 ```bash
-make help           # Show available targets
-make all            # Build all components
-make frontend       # Build frontend
-make datasystem     # Build datasystem
-make functionsystem # Build functionsystem
-make yuanrong       # Build runtime
-make dashboard      # Build dashboard (Go)
+make help                   # Show available targets
+make all                    # Build all components
+make frontend               # Build frontend
+make datasystem             # Build datasystem
+make functionsystem         # Build functionsystem
+make yuanrong               # Build runtime (no remote cache)
+make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092  # Build with remote cache
+make dashboard              # Build dashboard (Go)
+
+# Parameters:
+#   REMOTE_CACHE - Remote cache server address (optional)
+#                  Example: grpc://192.168.3.45:9092
 ```
 
 ## Architecture
@@ -63,3 +68,10 @@ frontend/     - Gateway (HTTP API for function management)
 - The Makefile orchestrates building all components in correct dependency order
 - Build outputs are copied to `output/` directory
 - Development typically requires the datasystem output first (provides SDK)
+
+## Active Technologies
+- Go 1.21+ + gin, redis (go-redis), Prometheus client (001-async-invocation)
+- Redis (分布式场景), sync.Map (单机fallback) (001-async-invocation)
+
+## Recent Changes
+- 001-async-invocation: Added Go 1.21+ + gin, redis (go-redis), Prometheus client

@@ -97,6 +97,7 @@ class HTTPClient:
         server_name: Optional[str] = None,
         client_auth_type: str = "mutual",  # "mutual" or "one-way"
         jwt_token: Optional[str] = None,
+        accept_status: tuple = (200,),  # Status codes to consider as success
     ):
         self.timeout = timeout
         self.session = requests.Session()
@@ -107,6 +108,7 @@ class HTTPClient:
         self.server_name = server_name
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
+        self.accept_status = accept_status
 
     def request(
         self,
@@ -226,7 +228,7 @@ class HTTPClient:
             logging.debug("response: %s\n%s", response.headers, result)
 
             return {
-                "success": response.status_code == 200,
+                "success": response.status_code in self.accept_status,
                 "error": result,
                 "status_code": response.status_code,
                 "data": result,
@@ -528,6 +530,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
     )
     url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
@@ -1242,7 +1245,11 @@ def invoke(function_name, payload, timeout, header):
             headers[key.strip()] = value.strip()
     function_name = FunctionName(function_name)
     if payload:
-        payload_dict = json.loads(payload)
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON payload: {e}")
+            sys.exit(1)
     else:
         payload_dict = {}
     ret, resp = invoke_function(
@@ -1252,6 +1259,110 @@ def invoke(function_name, payload, timeout, header):
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
         print(f"failed to invoke function: {resp['error']}")
+
+
+@cli.command
+@click.option("-f", "--function-name", required=True, type=str, default=None)
+@click.option("--payload", required=False, type=str, default=None)
+@click.option("--timeout", required=False, type=int, default=30)
+@click.option("--header", required=False, type=str, multiple=True)
+@click.option("--webhook", required=False, type=str, default=None, help="Webhook URL for async callback")
+def async_invoke(function_name, payload, timeout, header, webhook):
+    """Asynchronously invoke a function and return immediately with a request ID"""
+    headers = {}
+    for i in range(len(header)):
+        if ":" in header[i]:
+            key, value = header[i].split(":", 1)
+            headers[key.strip()] = value.strip()
+    # Add async invoke header
+    headers["X-Invoke-Type"] = "async"
+    if webhook:
+        headers["X-Webhook-Url"] = webhook
+
+    function_name = FunctionName(function_name)
+    if payload:
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON payload: {e}")
+            sys.exit(1)
+    else:
+        payload_dict = {}
+
+    http_client = HTTPClient(
+        timeout=timeout,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
+    )
+    # Parse function name for short URL format
+    # Format: [tenant-id@]namespace@function-name[:version]
+    func_str = str(function_name)
+    parts = func_str.split('@')
+    
+    if len(parts) >= 3:
+        # Format: tenant-id@namespace@function-name[:version]
+        tenant_id = parts[0]
+        namespace = parts[1]
+        function_name_only = parts[2].split(':')[0]
+    elif len(parts) == 2:
+        # Format: namespace@function-name[:version]
+        tenant_id = __user  # Use the user as tenant
+        namespace = parts[0]
+        function_name_only = parts[1].split(':')[0]
+    else:
+        # Fallback to old format
+        tenant_id = __user
+        namespace = func_str.split(':')[0] if ':' in func_str else func_str
+        function_name_only = func_str.split(':')[0] if ':' in func_str else func_str
+    
+    # Build URL with trailing slash as required by the route
+    url = f"http://{__server_address}/invocations/{tenant_id}/{namespace}/{function_name_only}/"
+    resp = http_client.request(url, payload_dict, headers=headers, method="POST")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps({
+            "requestId": data.get("requestId", ""),
+            "status": "pending",
+            "message": "Async invocation started. Use 'async-result' command to get the result."
+        }, indent=2, ensure_ascii=False))
+    else:
+        print(f"failed to invoke function: {resp.get('error', resp)}")
+        sys.exit(1)
+
+
+@cli.command
+@click.option("-r", "--request-id", required=True, type=str, help="Request ID from async-invoke")
+@click.option("--timeout", required=False, type=int, default=30)
+def async_result(request_id, timeout):
+    """Get the result of an asynchronous function invocation"""
+    http_client = HTTPClient(
+        timeout=timeout,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/serverless/v1/functions/async-results/{request_id}"
+    resp = http_client.request(url, None, headers={}, method="GET")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        status_code = resp.get("status_code")
+        if status_code == 404:
+            print(f"Async result not found for request ID: {request_id}")
+            sys.exit(1)
+        else:
+            error_msg = resp.get("error", "Unknown error")
+            print(f"failed to get async result: {error_msg}")
+            sys.exit(1)
 
 
 @cli.command(

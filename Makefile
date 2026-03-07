@@ -11,22 +11,34 @@ help:
 	@echo "  make pkg           - Copy packages to example/aio/pkg/"
 	@echo "  make aio           - Build (cd example/aio && docker build)"
 	@echo "  make all           - Build all targets and copy outputs to output/"
+	@echo ""
+	@echo "Parameters (optional):"
+	@echo "  REMOTE_CACHE       - Remote cache server address"
+	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092"
+	@echo "                      If not provided, build will proceed without remote cache"
+	@echo "  JOBS               - Number of parallel jobs for compilation (default: auto/2)"
+	@echo "                      Example: make functionsystem JOBS=8"
+
+# Default values
+REMOTE_CACHE ?=
+NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+JOBS ?= $(shell echo $$(($(NPROCS) / 2)))
 
 frontend:
-	if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
+	@if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
 		sed -i 's|yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go|yuanrong.org/kernel/runtime => ../api/go|g' "frontend/go.mod"; \
 		echo "Updated frontend/go.mod: yuanrong.org/kernel/runtime => ../api/go"; \
 	else \
 		echo "frontend/go.mod already correct"; \
 	fi
 	bash frontend/build.sh
-	mkdir -p output
-	cp frontend/output/yr-frontend*.tar.gz output/
+	@mkdir -p output
+	@cp frontend/output/yr-frontend*.tar.gz output/
 
 datasystem:
 	bash datasystem/build.sh -X off -G on -i on
-	mkdir -p output
-	cp datasystem/output/yr-datasystem*.tar.gz output/
+	@mkdir -p output
+	@cp datasystem/output/yr-datasystem*.tar.gz output/
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
@@ -52,18 +64,20 @@ runtime_launcher:
 functionsystem:
 	mkdir -p functionsystem/vendor/src
 	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
-	cd functionsystem/ && bash run.sh build && bash run.sh pack && cd -
-	mkdir -p output
-	cp functionsystem/output/yr-functionsystem*.tar.gz output/
+	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
 
 yuanrong:
 	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output"
 	cp -ar functionsystem/output/metrics ./
-	bash build.sh -l /tmp/bazelcache
-
-yuanrong-pkg:
-	cp -ar functionsystem/output/metrics ./
-	bash build.sh -P -r grpc://192.168.3.45:9092
+	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
+	@echo "Building runtime..."
+	@if [ -n "$(REMOTE_CACHE)" ]; then \
+		echo "Using remote cache: $(REMOTE_CACHE)"; \
+		bash build.sh -P -r $(REMOTE_CACHE); \
+	else \
+		echo "Building without remote cache (REMOTE_CACHE not provided)"; \
+		bash build.sh -P; \
+	fi
 
 dashboard:
 	cd go && bash build.sh && cd -
@@ -84,7 +98,7 @@ aio:
 	@echo "Building Docker image aio:latest..."
 	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
 
-all: frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg
+all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
 	@echo "Build completed!"
 	@echo "Copying outputs to output/..."
 	mkdir -p output
