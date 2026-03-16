@@ -17,19 +17,11 @@ set -e
 
 function generate_pb() {
     # generate pb files
-    if [ -z "${GOPATH}" ] || [ ! -d "${GOPATH}" ]; then
-        log_error "GOPATH ${GOPATH} not exist!"
-        return 1
-    fi
     cd "${PROJECT_DIR}"/pkg
-    [ -d "${GOPATH}/src/faas" ] && rm -rf "${GOPATH}/src/faas"
-    mkdir -p "${GOPATH}"/src/
-    ln -s "${PROJECT_DIR}" "${GOPATH}"/src/faas
     if ! bash "${PROJECT_DIR}"/build/faas/gen_grpc_pb.sh; then
         log_error "Failed to generate pb files!"
         return 1
     fi
-    cp -afr ${GOPATH}/src/yuanrong.org/kernel/pkg/ ${GOPATH}/src/faas/
 }
 
 generate_pb

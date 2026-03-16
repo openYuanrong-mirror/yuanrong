@@ -29,7 +29,11 @@ function gen_code() {
     rm "${DST_DIR}/grpc" -rf
   fi
 
-  protoc --proto_path="${RPC_SERVICE_PROTO_PATH}" --go_out="${GOPATH}/src" --go-grpc_out="${GOPATH}/src" \
+  # Output directly to project directory using go_opt module prefix
+  local PROJECT_ROOT="${PROJECT_DIR}"/..
+  protoc --proto_path="${RPC_SERVICE_PROTO_PATH}" \
+    --go_out="${PROJECT_ROOT}" --go_opt=module=yuanrong.org/kernel \
+    --go-grpc_out="${PROJECT_ROOT}" --go-grpc_opt=module=yuanrong.org/kernel \
     "${RPC_SERVICE_PROTO_PATH}"*.proto
 
   echo "generate gRPC: Done!"
@@ -43,7 +47,11 @@ function gen_posix_code() {
     return
   fi
 
-  protoc --proto_path="${RPC_PROTO_PATH}" --go_out="${GOPATH}/src" --go-grpc_out="${GOPATH}/src" \
+  # Output directly to project directory using go_opt module prefix
+  local PROJECT_ROOT="${PROJECT_DIR}"/..
+  protoc --proto_path="${RPC_PROTO_PATH}" \
+    --go_out="${PROJECT_ROOT}" --go_opt=module=yuanrong.org/kernel \
+    --go-grpc_out="${PROJECT_ROOT}" --go-grpc_opt=module=yuanrong.org/kernel \
     "${RPC_PROTO_PATH}"*.proto
 
   echo "generate posix gRPC: Done!"

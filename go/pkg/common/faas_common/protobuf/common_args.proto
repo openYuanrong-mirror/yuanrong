@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package commonargs;
 
-option go_package = "faas/pkg/common/faas_common/grpc/pb/commonargs;commonargs";
+option go_package = "yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/commonargs;commonargs";
 
 message Arg {
   enum ArgType {
