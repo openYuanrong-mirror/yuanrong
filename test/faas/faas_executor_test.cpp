@@ -108,14 +108,17 @@ std::string contextMetaStr = R"(
         "enable_cloud_debug":"","isStatefulFunction":false,"isBridgeFunction":false,
         "isStreamEnable":false,"type":"","enable_auth_in_header":false,"dns_domain_cfg":null,"vpcTriggerImage":"",
         "stateConfig":{"lifeCycle":""}},
-        "s3MetaData":{"appId":"","bucketId":"","objectId":"","bucketUrl":"","code_type":"","code_url":"","code_filename":"",
+        "s3MetaData":{"appId":"","bucketId":"","objectId":"","bucketUrl":"","code_type":"","code_url":"",
+            "code_filename":"",
         "func_code":{"file":"","link":""}},
         "codeMetaData":{"sha512":"","storage_type":"s3","code_path":"",
         "appId":"","bucketId":"test","objectId":"cpp.zip","bucketUrl":"https://127.0.0,1:30110","code_type":"",
         "code_url":"","code_filename":"","func_code":{"file":"","link":""}},
         "envMetaData":{"environment":"fa3f8de0d7ac57ed34babf52:db67e7193a6d9ee35a15f92dc8de08f16a58d7810806921ad404bdccde",
+
         "encrypted_user_data":"",
         "envKey":"d79a80e56bd11a37c35ea5e7:d31ee89d52ab7f36094faa015a599149f1d27e295010bd328b319d3316c80bcfdeeefeffe1a3b622fb3c1ea8ffa86511dc7682086c711dc33bdb67d3c21dc93dbfdf487e90010b1905c1d168c1fe57c3",
+
         "cryptoAlgorithm":"GCM"},
         "stsMetaData":{"enableSts":false},
         "resourceMetaData":{"cpu":1000,"memory":1024,"gpu_memory":0,"enable_dynamic_memory":false,"customResources":"",
@@ -137,7 +140,8 @@ std::string contextMetaStr = R"(
         "version":"","imageAddress":""},"custom_health_check":{"timeoutSeconds":0,"periodSeconds":0,
         "failureThreshold":0},"dynamic_config":{"enabled":false,"update_time":"","config_content":null},
         "runtime_graceful_shutdown":{"maxShutdownTimeout":0},"pre_stop":{"pre_stop_handler":"",
-        "pre_stop_timeout":0},"rasp_config":{"init-image":"","rasp-image":"","rasp-server-ip":"","rasp-server-port":""}}}
+        "pre_stop_timeout":0},"rasp_config":{"init-image":"","rasp-image":"","rasp-server-ip":"",
+            "rasp-server-port":""}}}
 )";
 
 std::string createParamStr = R"(

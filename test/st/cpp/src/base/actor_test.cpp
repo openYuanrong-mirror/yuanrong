@@ -392,7 +392,7 @@ TEST_F(ActorTest, InvalidResource)
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
-        std::string errorMsg = "Required memory resource size 127 MB is invalid. Valid value range is [128,1073741824] MB";
+        std::string errorMsg = "Required memory resource size 127 MB is invalid. Valid value range is [128, 1073741824] MB";
         std::string excepMsg = e.what();
         ErrorMsgCheck(errorCode, errorMsg, excepMsg);
     }

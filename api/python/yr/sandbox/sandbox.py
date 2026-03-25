@@ -89,9 +89,9 @@ def _print_gateway_urls(instance_id: str, port_forwardings: List["PortForwarding
 
 
 @yr.instance
-class SandBoxInstance:
+class SandboxInstance:
     """
-    SandBoxInstance class provides isolated environment for code execution.
+    SandboxInstance class provides isolated environment for code execution.
 
     This class creates a sandboxed environment where code can be executed
     with limited permissions and resource constraints.
@@ -257,7 +257,7 @@ class SandBox:
     """
     SandBox wrapper class for convenient sandbox operations.
 
-    This class wraps the SandBoxInstance to provide a simpler interface
+    This class wraps the SandboxInstance to provide a simpler interface
     for sandbox operations.
 
     Examples:
@@ -294,7 +294,7 @@ class SandBox:
         opt.skip_serialize = True
         if port_forwardings:
             opt.port_forwardings = port_forwardings
-        self._instance = SandBoxInstance.options(opt).invoke(working_dir, env)
+        self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
         if port_forwardings:
             instance_id = yr.get(self._instance.get_name.invoke())
             _print_gateway_urls(instance_id, port_forwardings)
@@ -396,7 +396,7 @@ def main():
             import uuid
             opt.name = str(uuid.uuid4())
 
-        sandbox = SandBoxInstance.options(opt).invoke()
+        sandbox = SandboxInstance.options(opt).invoke()
         try:
             name = yr.get(sandbox.get_name.invoke())
             print(f"sandbox created, instance_name={name}")

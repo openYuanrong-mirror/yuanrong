@@ -56,6 +56,7 @@ common_sdk::ExportResult LogFileExporter::Export(
             << "span_id: " << SpanIdToString(span->GetSpanId()) << ", "
             << "start_time: " << span->GetStartTime().time_since_epoch().count() << " ns" << ", "
             << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(span->GetDuration()).count() << " ms" << ", ";
+
         auto attributes = span->GetAttributes();
         oss << "attributes: {";
         for (const auto& [key, value] : attributes) {

@@ -462,7 +462,8 @@ TEST_F(FaasInstanceManagerTest, GetFaasInstanceRspTest)
     object->set_id("123");
 
     std::string json_str =
-        R"({"funcKey":"","funcSig":"","instanceID":"","threadID":"","leaseInterval":0,"errorCode":150428,"errorMessage":"","schedulerTime":30})";
+        R"({"funcKey":"","funcSig":"","instanceID":"","threadID":"","leaseInterval":0,"errorCode":150428,
+            "errorMessage":"","schedulerTime":30})";
     std::string value = "0000000000000000" + json_str;
     object->set_value(value);
     auto [resp, errorInfo] = GetFaasInstanceRsp(notifyReq);
@@ -498,6 +499,7 @@ TEST_F(FaasInstanceManagerTest, GetFaasBatchInstanceRsp)
 
     std::string json_str =
         R"({"instanceAllocSucceed":{"f1a00e58-f2a1-4000-8000-000000f8e9e3-thread26":{"funcKey":"default/0@functest@functest/latest","funcSig":"4243308021","instanceID":"f1a00e58-f2a1-4000-8000-000000f8e9e3","threadID":"f1a00e58-f2a1-4000-8000-000000f8e9e3-thread26","instanceIP":"127.0.0.1","instancePort":"22771","nodeIP":"","nodePort":"","leaseInterval":0,"cpu":600,"memory":512}},"instanceAllocFailed":{},"leaseInterval":1000,"schedulerTime":0.000118108})";
+
     std::string value = "0000000000000000" + json_str;
     object->set_value(value);
     auto [resp, errorInfo] = GetFaasBatchInstanceRsp(notifyReq);
@@ -528,7 +530,8 @@ TEST_F(FaasInstanceManagerTest, AcquireCallbackTest)
 
     ErrorInfo err(YR::Libruntime::ErrorCode::ERR_INSTANCE_EXITED, "err msg");
     ErrorInfo outputErr;
-    insManager->scheduleInsCb = [&outputErr](const RequestResource &resource, const ErrorInfo &err, bool isRemainIs) -> void {
+    insManager->scheduleInsCb = [&outputErr](const RequestResource &resource, const ErrorInfo &err,
+        bool isRemainIs) -> void {
         outputErr = err;
     };
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);

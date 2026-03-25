@@ -325,7 +325,8 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto traceId = std::make_shared<std::string>(req.traceid());
     auto designatedInstanceID = req.designatedinstanceid();
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Create", *reqId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+        "Create", *reqId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID",
+            designatedInstanceID}});
     auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
