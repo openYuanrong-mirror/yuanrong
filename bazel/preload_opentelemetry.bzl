@@ -5,7 +5,7 @@ def preload_opentelemetry():
         name = "com_github_opentelemetry_proto",
         sha256 = "df491a05f3fcbf86cc5ba5c9de81f6a624d74d4773d7009d573e37d6e2b6af64",
         strip_prefix = "opentelemetry-proto-1.1.0",
-        urls = ["https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v1.1.0.tar.gz"],
+        urls = ["https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/open-telemetry/opentelemetry-proto/v1.1.0.tar.gz"],
         build_file = "@opentelemetry_cpp//bazel:opentelemetry_proto.BUILD",
     )
 

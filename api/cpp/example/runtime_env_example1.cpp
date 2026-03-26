@@ -29,7 +29,8 @@ int main(int argc, char **argv)
     {
         //! [set env_vars]
         YR::RuntimeEnv runtimeEnv;
-        runtimeEnv.Set<std::map<std::string, std::string>>("env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}});
+        runtimeEnv.Set<std::map<std::string, std::string>>("env_vars",
+                                                           {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}});
         //! [set env_vars]
     }
     {
@@ -53,8 +54,14 @@ int main(int argc, char **argv)
     {
         //! [set conda environ with dependency]
         // If name is not specified, the name will start with 'virtual_env-' followed by a randomly generated suffix.
-        runtimeEnv.Set<nlohmann::json>("conda", {{"name", "pytorch_p39"},{"channels", {"conda-forge"}}, {"dependencies", {"python=3.9", "matplotlib", "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "numpy", "pandas", "cloudpickle=2.0.0", "cython=3.0.10", "pyyaml=6.0.2"}}});
-        runtimeEnv.Set<std::map<std::string, std::string>>("env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
+        runtimeEnv.Set<nlohmann::json>(
+            "conda", {{"name", "pytorch_p39"},
+                      {"channels", {"conda-forge"}},
+                      {"dependencies",
+                       {"python=3.9", "matplotlib", "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "numpy", "pandas",
+                        "cloudpickle=2.0.0", "cython=3.0.10", "pyyaml=6.0.2"}}});
+        runtimeEnv.Set<std::map<std::string, std::string>>(
+            "env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
         //! [set conda environ with dependency]
     }
     {
@@ -78,7 +85,8 @@ int main(int argc, char **argv)
         runtimeEnv.Set<std::string>("conda", "/opt/conda/env-xpf.yaml");
         //! [set conda environ with yaml file]
     }
-    runtimeEnv.Set<std::map<std::string, std::string>>("env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
+    runtimeEnv.Set<std::map<std::string, std::string>>(
+        "env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
     opts.runtimeEnv = runtimeEnv;
     auto resFutureSquare = YR::PyFunction<int>("calculator", "square").SetUrn(pyFunctionUrn).Options(opts).Invoke(2);
     auto resSquare = *YR::Get(resFutureSquare);

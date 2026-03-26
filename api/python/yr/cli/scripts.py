@@ -857,7 +857,7 @@ def sandbox_create(namespace, name):
             opt.name = name
             opt.namespace = namespace
 
-            sandbox = yr.sandbox.SandBoxInstance.options(opt).invoke()
+            sandbox = yr.sandbox.SandboxInstance.options(opt).invoke()
             instance_name = yr.get(sandbox.get_name.invoke())
             if not instance_name:
                 instance_name = f"{namespace}-{name}"
@@ -984,12 +984,15 @@ def download(package):
 @click.option("--payload", required=False, type=str, default=None)
 @click.option("--timeout", required=False, type=int, default=30)
 @click.option("--header", required=False, type=str, multiple=True)
-def invoke(function_name, payload, timeout, header):
+@click.option("--async", "async_mode", is_flag=True, default=False, help="Invoke function asynchronously")
+def invoke(function_name, payload, timeout, header, async_mode):
     headers = {}
     for i in range(len(header)):
         if ":" in header[i]:
             key, value = header[i].split(":", 1)
             headers[key.strip()] = value.strip()
+    if async_mode:
+        headers["X-Invoke-Type"] = "async"
     function_name = FunctionName(function_name)
     if payload:
         payload_dict = json.loads(payload)
@@ -1000,8 +1003,35 @@ def invoke(function_name, payload, timeout, header):
     )
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
+        if async_mode and "requestId" in resp:
+            print(f"\nAsync invocation started. Use 'yrcli result {resp['requestId']}' to check status.")
     else:
         print(f"failed to invoke function: {resp['error']}")
+
+
+@cli.command
+@click.argument("request_id", required=True, type=str)
+def result(request_id):
+    """Query async invocation result by request ID.
+
+    Example:
+        yrcli result req-abc-123
+    """
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/serverless/v1/functions/async-results/{request_id}"
+    resp = http_client.request(url, {}, method="GET")
+    if resp["success"]:
+        print(json.dumps(resp["data"], indent=2, ensure_ascii=False))
+    else:
+        print(f"failed to query result: {resp.get('error', 'unknown error')}")
 
 
 @cli.command(

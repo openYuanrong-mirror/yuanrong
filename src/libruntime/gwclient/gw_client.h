@@ -99,7 +99,8 @@ public:
         STDERR_AND_THROW_EXCEPTION(ERR_INNER_SYSTEM_ERROR, RUNTIME,
                                    "CreateRGroupAsync method not implemented when inCluster is false");
     }
-    ErrorInfo Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout, const std::string &authToken = "");
+    ErrorInfo Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout,
+        const std::string &authToken = "");
     void Init(std::shared_ptr<HttpClient> httpClient);
     ErrorInfo Init(const std::string &ip, int port) override;
     ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout);

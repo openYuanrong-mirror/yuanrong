@@ -1,7 +1,8 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg aio all
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg aio all clean
 
 help:
 	@echo "Available targets:"
+	@echo "  make clean          - Clean build outputs"
 	@echo "  make frontend        - Build frontend (auto-fixes go.mod path)"
 	@echo "  make datasystem     - Build datasystem"
 	@echo "  make functionsystem - Build functionsystem"
@@ -18,6 +19,17 @@ help:
 	@echo "                      If not provided, build will proceed without remote cache"
 	@echo "  JOBS               - Number of parallel jobs for compilation (default: auto/2)"
 	@echo "                      Example: make functionsystem JOBS=8"
+
+clean:
+	@echo "Cleaning build outputs..."
+	@cd frontend && bash build.sh clean 2>/dev/null || true && cd ..
+	@cd datasystem && bash build.sh clean 2>/dev/null || true && cd ..
+	@rm -rf functionsystem/output/
+	@rm -rf go/output/
+	@bash build.sh -C clean 2>/dev/null || true
+	@rm -rf output/
+	@rm -f functionsystem/vendor/src/yr-datasystem.tar.gz
+	@echo "Clean completed!"
 
 # Default values
 REMOTE_CACHE ?=

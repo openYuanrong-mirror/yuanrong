@@ -18,7 +18,8 @@
 #include <iostream>
 #include "yr/api/runtime_env.h"
 #include "yr/yr.h"
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     std::string pyFunctionUrn = "sn:cn:yrk:default:function:0-yr-mypython:$latest";
 
     YR::Config conf;
@@ -26,7 +27,8 @@ int main(int argc, char **argv) {
     YR::InvokeOptions opts;
     YR::RuntimeEnv runtimeEnv;
     runtimeEnv.Set<std::string>("conda", "pytorch_p39");
-    runtimeEnv.Set<std::map<std::string, std::string>>("env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
+    runtimeEnv.Set<std::map<std::string, std::string>>(
+        "env_vars", {{"OMP_NUM_THREADS", "32"}, {"TF_WARNINGS", "none"}, {"YR_CONDA_HOME", "/home/snuser/.conda"}});
     opts.runtimeEnv = runtimeEnv;
     auto resFutureSquare = YR::PyFunction<int>("calculator", "square").SetUrn(pyFunctionUrn).Options(opts).Invoke(2);
     auto resSquare = *YR::Get(resFutureSquare);

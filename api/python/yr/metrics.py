@@ -461,6 +461,104 @@ class DoubleCounter(Metrics):
         return global_runtime.get_runtime().get_value_double_counter(data)
 
 
+class Histogram(Metrics):
+    """
+    A histogram metric for observing distributions of values.
+
+    Histograms are used to observe distributions of values like request durations
+    or response sizes. They automatically calculate count, sum, and configurable
+    quantile buckets.
+
+    Args:
+        name (str): The name of the histogram.
+        description (str): Description of the histogram.
+        unit (str): Unit of measurement.
+        labels (Dict[str, str], optional): Labels for the histogram.
+        buckets (list, optional): Explicit bucket boundaries. Defaults to common latency buckets.
+
+    Example:
+        >>> import yr
+        >>>
+        >>> config = yr.Config(enable_metrics=True)
+        >>> yr.init(config)
+        >>>
+        >>> @yr.instance
+        >>> class MyActor:
+        >>>     def __init__(self):
+        >>>         self.latency = yr.Histogram(
+        >>>             name="request_latency_ms",
+        >>>             description="Request latency in milliseconds",
+        >>>             unit="ms",
+        >>>             labels={"service": "api"}
+        >>>         )
+        >>>
+        >>>     def handle_request(self):
+        >>>         import time
+        >>>         start = time.time()
+        >>>         # Process request
+        >>>         duration_ms = (time.time() - start) * 1000
+        >>>         self.latency.record(duration_ms)
+        >>>         return "done"
+    """
+
+    DEFAULT_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+
+    def __init__(self,
+                 name: str,
+                 description: str,
+                 unit: str = '',
+                 labels: Dict[str, str] = field(default_factory=dict),
+                 buckets: Optional[list] = None,
+                 ):
+        self.__name = name
+        self.__description = description
+        self.__unit = unit
+        self.__labels = labels
+        self.__buckets = buckets if buckets is not None else self.DEFAULT_BUCKETS
+        self._check_name(name)
+        self._check_label(labels)
+
+    def add_labels(self, labels: Dict[str, str]) -> None:
+        """
+        Add labels to the histogram.
+
+        Args:
+            labels (Dict[str, str]): Labels to add.
+
+        Raises:
+            ValueError: If labels are empty or invalid.
+
+        Example:
+            >>> histogram.add_labels({"endpoint": "/api/users"})
+        """
+        self._check_label(labels)
+        if len(labels) == 0:
+            raise ValueError("invalid metrics labels, should not be empty")
+        old = self.__labels
+        self.__labels = {**old, **labels}
+
+    def record(self, value: float) -> None:
+        """
+        Record a value in the histogram.
+
+        Args:
+            value (float): The value to record.
+
+        Raises:
+            ValueError: Invoked in the driver.
+
+        Example:
+            >>> histogram.record(123.45)
+            >>> histogram.record(67.89)
+        """
+        fvalue = float(value)
+        if ConfigManager().is_driver:
+            raise ValueError("histogram metrics record not support in driver")
+        data = GaugeData(name=self.__name, description=self.__description,
+                        unit=self.__unit, labels=self.__labels, value=fvalue)
+        global_runtime.get_runtime().report_gauge(data)
+
+
 class Alarm(Metrics):
     """
     Used to set and manage alarm information.

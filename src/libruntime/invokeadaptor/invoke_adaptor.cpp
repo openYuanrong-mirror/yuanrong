@@ -858,7 +858,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
         case libruntime::Signal::GetInstance: {
             std::string serializedMeta;
             google::protobuf::util::JsonPrintOptions options;
-            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta, &serializedMeta, options);
+            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta,
+                &serializedMeta, options);
             if (!status.ok()) {
                 YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
                 resp.set_code(::common::ErrorCode::ERR_INNER_SYSTEM_ERROR);

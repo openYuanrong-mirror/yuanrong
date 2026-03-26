@@ -105,7 +105,7 @@ http_archive(
     name = "opentelemetry_cpp",
     sha256 = "7735cc56507149686e6019e06f588317099d4522480be5f38a2a09ec69af1706",
     strip_prefix = "opentelemetry-cpp-1.13.0",
-    urls = ["https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.13.0.tar.gz"],
+    urls = ["https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/open-telemetry/opentelemetry-cpp/v1.13.0.tar.gz"],
 )
 
 load("@opentelemetry_cpp//bazel:repository.bzl", "opentelemetry_cpp_deps")

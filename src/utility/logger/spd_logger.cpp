@@ -172,6 +172,7 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
             auto rotatingSink = std::make_shared<yr_spdlog::sinks::rotating_file_sink_mt>(
                 logFile, logParam.maxSize * SIZE_MEGA_BYTES, logParam.maxFiles);
             auto dupFilter = std::make_shared<yr_spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(DUP_FILTER_TIME));
+
             sinks = {rotatingSink, dupFilter};
             if (logParam.alsoLog2Stderr) {
                 auto consoleSink = std::make_shared<yr_spdlog::sinks::stdout_color_sink_mt>();
