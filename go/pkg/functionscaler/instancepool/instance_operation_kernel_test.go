@@ -1687,6 +1687,28 @@ func TestCreateInvokeOptions(t *testing.T) {
 	assert.Equal(t, "trace-parent", opt.CustomExtensions["traceparent"])
 }
 
+func TestCreateInvokeOptionsDoesNotMutateSchedulingExtensions(t *testing.T) {
+	funcSpec := &types.FunctionSpecification{
+		FuncKey: "testVpcFuncKey",
+		FuncMetaData: commonTypes.FuncMetaData{
+			VPCTriggerImage: "vpc trigger image url",
+		},
+		ExtendedMetaData: commonTypes.ExtendedMetaData{},
+	}
+	schedulingOptions := &types.SchedulingOptions{
+		Extension: map[string]string{
+			"existing": "value",
+		},
+	}
+	opt := createInvokeOptions(funcSpec, schedulingOptions, nil, "", "trace-id", "trace-parent")
+
+	assert.Equal(t, "value", schedulingOptions.Extension["existing"])
+	_, exists := schedulingOptions.Extension["traceparent"]
+	assert.False(t, exists)
+	assert.Equal(t, "trace-parent", opt.CustomExtensions["traceparent"])
+	assert.Equal(t, "value", opt.CustomExtensions["existing"])
+}
+
 func TestCreatePATService(t *testing.T) {
 	convey.Convey("TestCreatePATService", t, func() {
 		funcSpec := &types.FunctionSpecification{}

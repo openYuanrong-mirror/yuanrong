@@ -295,9 +295,9 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 	if funcSpec.ExtendedMetaData.PreStop.Handler != "" {
 		codeEntrys = append(codeEntrys, funcSpec.ExtendedMetaData.PreStop.Handler)
 	}
-	customExtensions := schedulingOptions.Extension
-	if customExtensions == nil {
-		customExtensions = make(map[string]string)
+	customExtensions := make(map[string]string, len(schedulingOptions.Extension)+1)
+	for key, value := range schedulingOptions.Extension {
+		customExtensions[key] = value
 	}
 	if traceParent != "" {
 		customExtensions["traceparent"] = traceParent

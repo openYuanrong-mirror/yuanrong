@@ -947,6 +947,24 @@ func Test_basicConcurrencyScheduler_ReassignInstance(t *testing.T) {
 	})
 }
 
+func TestColdStartTraceQueueIsBoundedAndFIFO(t *testing.T) {
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 1},
+	}, resspeckey.ResSpecKey{}, "", nil, nil)
+
+	for idx := 0; idx < maxColdStartTraceQueue+1; idx++ {
+		bcs.recordColdStartTrace(fmt.Sprintf("trace-%d", idx), "")
+	}
+
+	assert.Len(t, bcs.coldStartTraceQueue, maxColdStartTraceQueue)
+
+	traceCtx := bcs.PopColdStartTrace()
+	if assert.NotNil(t, traceCtx) {
+		assert.Equal(t, "trace-1", traceCtx.TraceID)
+	}
+}
+
 func Test_basicConcurrencyScheduler_scheduleRequest(t *testing.T) {
 	convey.Convey("test scheduleRequest", t, func() {
 		convey.Convey("baseline", func() {

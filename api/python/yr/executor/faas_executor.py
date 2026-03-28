@@ -120,6 +120,7 @@ def faas_call_handler(posix_args: List[Any]) -> str:
     event = parse_faas_param(posix_args[_INDEX_CALL_USER_EVENT])
     trace_id = get_trace_id_from_params(posix_args[_INDEX_META_DATA])
     header = {}
+    header_trace_id = ""
     if isinstance(event, dict):
         header = event.get("header", {})
         if not isinstance(header, dict):

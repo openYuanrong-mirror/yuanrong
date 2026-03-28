@@ -55,7 +55,8 @@ const (
 
 	randomThreadIDLength = 8
 
-	recordTriggerChanLen = 10
+	recordTriggerChanLen   = 10
+	maxColdStartTraceQueue = 1024
 )
 
 var (
@@ -542,6 +543,9 @@ func (bcs *basicConcurrencyScheduler) recordColdStartTrace(traceID, traceParent 
 		return
 	}
 	bcs.Lock()
+	if len(bcs.coldStartTraceQueue) >= maxColdStartTraceQueue {
+		bcs.popColdStartTraceLocked()
+	}
 	bcs.coldStartTraceQueue = append(bcs.coldStartTraceQueue, &coldStartTraceContext{
 		traceContext: &types.TraceContext{
 			TraceID:     traceID,
@@ -552,14 +556,25 @@ func (bcs *basicConcurrencyScheduler) recordColdStartTrace(traceID, traceParent 
 	bcs.Unlock()
 }
 
+func (bcs *basicConcurrencyScheduler) popColdStartTraceLocked() *coldStartTraceContext {
+	if len(bcs.coldStartTraceQueue) == 0 {
+		return nil
+	}
+	traceCtx := bcs.coldStartTraceQueue[0]
+	last := len(bcs.coldStartTraceQueue) - 1
+	copy(bcs.coldStartTraceQueue, bcs.coldStartTraceQueue[1:])
+	bcs.coldStartTraceQueue[last] = nil
+	bcs.coldStartTraceQueue = bcs.coldStartTraceQueue[:last]
+	return traceCtx
+}
+
 // PopColdStartTrace returns the oldest non-expired request trace for the next cold start.
 func (bcs *basicConcurrencyScheduler) PopColdStartTrace() *types.TraceContext {
 	bcs.Lock()
 	defer bcs.Unlock()
 	expireBefore := time.Now().Add(-bcs.leaseInterval)
 	for len(bcs.coldStartTraceQueue) > 0 {
-		traceCtx := bcs.coldStartTraceQueue[0]
-		bcs.coldStartTraceQueue = bcs.coldStartTraceQueue[1:]
+		traceCtx := bcs.popColdStartTraceLocked()
 		if traceCtx == nil || traceCtx.traceContext == nil {
 			continue
 		}
