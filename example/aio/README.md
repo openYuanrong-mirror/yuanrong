@@ -1,123 +1,142 @@
-# 元戎沙箱能力使用指南 - OpenClaw & Claude Code
+# aio-yr 使用说明
 
-## 一、环境信息
+`example/aio` 现在拆成两个镜像：
 
-### 1.1 元戎沙箱试用环境
-```
-https://1.95.144.130:8888/terminal
-```
+- `aio-yr:latest`
+  - 主控制面镜像
+  - 包含 web terminal、Traefik、`yr`、`runtime-launcher`、`dockerd`
+- `aio-yr-runtime:latest`
+  - Python 3.9 runtime rootfs 镜像
+  - 只包含 Python 和 `openyuanrong_sdk`
 
-### 1.2 试用Token
+本示例使用真实 Docker in Docker。外层只启动一个 `aio-yr` 主容器，主容器内会先启动 `dockerd`，再由 `runtime-launcher` 拉起 `aio-yr-runtime:latest` 容器。
 
-```
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIxNzAyNTcsInJvbGUiOiJkZXZlbG9wZXIiLCJzdWIiOiJkZWZhdWx0In0.YmNmM2M3NDYxZTUyMjdmYmMwMTZlMTEzM2RjZTc1YTJlMDUzYjNiZmRmNjUyMjgxNTEyYmE0MmEyODkyZDcyMg
-```
----
-## 二、Claude Code 使用方法
+## 准备构建产物
 
-### 2.1 环境变量配置
+先在仓库根目录执行：
 
 ```bash
-# 设置 智谱 认证 Token
-export ANTHROPIC_AUTH_TOKEN=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
-
-# 设置 智谱 API 基础地址
-export ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic
+make all
 ```
 
-### 2.2 启动 Claude Code
+这一步会：
+
+- 编译各模块
+- 产出 wheel 和二进制
+- 将 AIO 需要的构建输入拷贝到 `example/aio/pkg/`
+
+然后执行：
 
 ```bash
-# 直接启动
-claude
-
-# 或带参数启动
-claude [项目目录]
+make image
 ```
 
----
+`make image` 会调用 `example/aio/build-images.sh`，由脚本完成当前 AIO 镜像流程。
 
-## 三、OpenClaw 使用方法
+`build-images.sh` 不再负责打包或拷贝产物，只负责：
 
-### 3.1 环境变量配置
+1. 校验 `example/aio/pkg/` 中的必需产物是否已存在
+2. 构建 `Dockerfile.runtime`
+3. 导出 runtime tar
+4. 构建 `Dockerfile.aio-yr`
+
+## 手动构建
+
+如果你要手工执行底层脚本：
 
 ```bash
-# 设置 智谱 API Key
-export ZAI_API_KEY=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
+make all
+example/aio/build-images.sh
 ```
 
-### 3.2 初始化配置
+## 启动 aio-yr
+
+推荐顺序：
 
 ```bash
-# 非交互式初始化，自动接受风险并选择 zai-cn 认证
-openclaw onboard \
-    --non-interactive \
-    --accept-risk \
-    --auth-choice zai-cn \
-    --skip-channels \
-    --skip-skills \
-    --skip-ui
+make all && make image && bash example/aio/run.sh
 ```
 
-### 3.3 启动 Gateway 服务
+`run.sh` 只负责启动，不负责构建。脚本会删除已有 `aio-yr` 容器，并以 `--privileged --cgroupns=host` 启动新的 `aio-yr:latest`。
+
+也支持环境变量覆盖：
 
 ```bash
-# 后台启动 gateway 服务，并将日志输出到文件
-openclaw gateway >> openclaw.log 2>&1 &
+AIO_CONTAINER_NAME=my-aio AIO_PORT=9443 bash example/aio/run.sh
 ```
 
-### 3.4 启动 TUI 界面
+旧的 [`Dockerfile`](/home/wyc/code/sandbox/example/aio/Dockerfile) 保留为兼容入口，内容与 `Dockerfile.aio-yr` 一致；推荐显式使用 `Dockerfile.aio-yr` 和 `Dockerfile.runtime`。
+
+启动后访问：
+
+```text
+https://127.0.0.1:38888/
+https://127.0.0.1:38888/terminal
+```
+
+## 宿主机用 SDK 创建 sandbox
+
+如果要绕过 frontend 的 job 提交链，直接在宿主机用 SDK 创建 sandbox，先确保：
+
+- `aio-yr` 已启动
+- 宿主机有 conda 环境 `yr`
+- 该环境使用 Python 3.9
+
+然后执行：
 
 ```bash
-# 启动 OpenClaw 终端用户界面
-openclaw tui
+example/aio/create-sandbox-host.sh
 ```
 
----
-
-## 四、本地部署快速启动
-
-### 4.1 启动容器
+也可以显式传名字和 namespace：
 
 ```bash
-docker run -d \
-  -p 8888:8888 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  swr.cn-southwest-2.myhuaweicloud.com/openyuanrong/openyuanrongaio:latest
+example/aio/create-sandbox-host.sh my-sandbox sandbox
 ```
 
-启动后访问 Web 终端：`https://127.0.0.1:8888/terminal`
+这个脚本会：
 
-### 4.2 生成访问 Token
+1. 把 `output/openyuanrong_sdk-*.whl` 安装到宿主 conda `yr` 环境
+2. 用 `server_address=127.0.0.1:38888`
+3. 显式设置 `in_cluster=false`
+4. 通过 SDK 调用 `yr.sandbox.SandBox()` 创建实例
 
-**方式一：使用私钥生成（需知道私钥）**
+## 宿主机验证端口转发
+
+如果要直接验证 Traefik 端口转发链路，可以执行：
 
 ```bash
-# 生成 Token 私钥（LITEBUS_DATA_KEY 的明文值）
-python3 -c "print('openyuanrong.org'.encode().hex().upper())"
+example/aio/verify-port-forward-host.sh
 ```
 
-**方式二：在容器内直接获取 Token**
+这个脚本会：
 
-```bash
-# 进入容器后执行，iam-address 替换为实际 IAM 服务地址
-yrcli token-require --tenant-id default --role developer --iam-address 172.17.0.3:31112
-```
+1. 在宿主 conda `yr` 环境安装当前 `openyuanrong_sdk` wheel
+2. 用 `in_cluster=false` 创建一个 `detached` sandbox
+3. 为 sandbox 配置 `port_forwardings=[8080]`
+4. 在 sandbox 内启动 `python3 -m http.server 8080`
+5. 从宿主访问 `https://127.0.0.1:38888/<instance_id>/8080`
+6. 验证完成后自动销毁实例
 
-### 4.3 容器内使用 Claude Code / OpenClaw
+## 运行方式说明
 
-进入 Web 终端后，参照第二节和第三节配置环境变量并启动即可：
+- `supervisord-entrypoint.sh` 先启动容器内 `dockerd`
+- 如果内层 daemon 还没有 `aio-yr-runtime:latest`，会自动从 `/opt/runtime-images/aio-yr-runtime.tar` 执行 `docker load`
+- 然后再启动 Traefik、`runtime-launcher` 和 Yuanrong master
+- [`services.yaml`](/home/wyc/code/sandbox/example/aio/services.yaml) 中 `py39` runtime 会使用 `aio-yr-runtime:latest`
 
-```bash
-# Claude Code
-export ANTHROPIC_AUTH_TOKEN=<your-token>
-export ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic
-claude
+## 当前范围
 
-# OpenClaw
-export ZAI_API_KEY=<your-api-key>
-openclaw onboard --non-interactive --accept-risk --auth-choice zai-cn \
-    --skip-channels --skip-skills --skip-ui
-openclaw gateway >> openclaw.log 2>&1 &
-openclaw tui
-```
+这轮只保留 AIO 控制面和 Python runtime：
+
+- 保留 web terminal、Traefik、Yuanrong master
+- 使用真实 dind，不再依赖宿主 Docker socket 挂载
+- 暂时不内置 `claude-code`
+- 暂时不内置 `openclaw`
+
+## 后续扩展
+
+低优先级规划项：
+
+- `aio-yr` 支持 1 到 3 个 master 容器
+- 支持 N 个 slave 容器组建集群

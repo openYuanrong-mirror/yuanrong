@@ -1,4 +1,4 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg aio all clean
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg image all clean
 
 help:
 	@echo "Available targets:"
@@ -10,8 +10,8 @@ help:
 	@echo "  make yuanrong       - Build runtime"
 	@echo "  make dashboard      - Build dashboard"
 	@echo "  make pkg           - Copy packages to example/aio/pkg/"
-	@echo "  make aio           - Build (cd example/aio && docker build)"
-	@echo "  make all           - Build all targets and copy outputs to output/"
+	@echo "  make image         - Build aio images after make all"
+	@echo "  make all           - Build all targets and prepare example/aio/pkg/"
 	@echo ""
 	@echo "Parameters (optional):"
 	@echo "  REMOTE_CACHE       - Remote cache server address"
@@ -96,7 +96,7 @@ yuanrong:
 		bash build.sh -P; \
 	fi
 
-aio:
+pkg:
 	@echo "Copying packages to example/aio/pkg/..."
 	@mkdir -p example/aio/pkg
 	@cp datasystem/output/sdk/openyuanrong_datasystem_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
@@ -106,14 +106,13 @@ aio:
 	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
 	@mkdir -p example/aio/docs
-	@cp example/aio/TRAEFIK_ETCD.md example/aio/docs/ 2>/dev/null || true
 	@echo "Packages copied successfully!"
 	@ls -la example/aio/pkg/
-	@echo "Building Docker image aio:latest..."
-	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
+image:
+	@echo "Building aio images via example/aio/build-images.sh..."
+	@./example/aio/build-images.sh
+
+all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong pkg
 	@echo "Build completed!"
-	@echo "Copying outputs to output/..."
-	@mkdir -p example/aio/pkg
-	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher
+	@echo "Artifacts and example/aio/pkg are ready."

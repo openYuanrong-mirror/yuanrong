@@ -1,5 +1,5 @@
 entryPoints:
-  websecure:
+  web:
     address: ":8888"
   tcp:
     address: ":4443"
@@ -11,7 +11,7 @@ providers:
     watch: true
   etcd:
     endpoints:
-      - "{etcd_address}:2379"
+      - "__AIO_NODE_IP__:32379"
     rootKey: "traefik"
 
 log:

@@ -21,7 +21,7 @@
       rootfs:
         runtime: runc
         type: image
-        imageurl: "swr.cn-southwest-2.myhuaweicloud.com/openyuanrong/openyuanrongaio:latest"
+        imageurl: "aio-yr-runtime:latest"
         readonly: true
         mountpoint: /mnt
       bootstrap:
