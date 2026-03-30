@@ -69,10 +69,23 @@ func (r *ClusterModeRuntime) InvokeByInstanceId(
 
 // Kill send kill instance request
 func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
-	_ = invokeOpt
-	// TODO: Retrieve routeAddress and proxyID from cache/instance metadata
-	// For now, pass empty strings - the C++ runtime will try to get routing info from MemoryStore
-	return clibruntime.Kill(instanceID, signal, payload, "", "")
+	// Extract routing information from InvokeOptions if provided by caller
+	// Priority: caller-provided > empty string (let C++ runtime auto-enrich from MemoryStore)
+	var routeAddress, proxyID string
+
+	if invokeOpt.CreateOpt != nil {
+		// Check for YR_ROUTE (litebus address)
+		if r, ok := invokeOpt.CreateOpt["YR_ROUTE"]; ok && r != "" {
+			routeAddress = r
+		}
+		// Check for YR_PROXY_ID (function proxy ID)
+		if p, ok := invokeOpt.CreateOpt["YR_PROXY_ID"]; ok && p != "" {
+			proxyID = p
+		}
+	}
+
+	// Pass routing info to C++ runtime; if empty, runtime will auto-enrich from MemoryStore
+	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
 
 // CreateInstanceRaw not support raw interface
