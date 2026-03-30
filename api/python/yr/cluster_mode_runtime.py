@@ -362,6 +362,8 @@ class ClusterModeRuntime(Runtime):
         :return: None
         """
         self.libruntime.reinit()
+        # Disable current runtime object temporarily; outer runtime main loop will call init(configure())
+        # and construct a fresh runtime instance with enable_flag set back to True.
         self.__enable_flag = False
 
     def finalize(self) -> None:

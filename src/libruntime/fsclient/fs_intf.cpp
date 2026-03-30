@@ -280,11 +280,13 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
                 std::ifstream file(checkpointFile);
                 if (!file.is_open()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
                     YRLOG_ERROR("failed to open checkpoint seed file: {}", checkpointFile);
                     return;
                 }
                 file.peek();  // Trigger actual read() syscall
                 if (file.fail() && !file.eof()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
                     YRLOG_ERROR("failed to read checkpoint seed file: {}", checkpointFile);
                     return;
                 }
