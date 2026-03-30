@@ -273,12 +273,21 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 resp.set_message("PrepareSnap handler not registered");
                 callback(resp);
             }
-            // Read checkpoint file to verify snapshot readiness
+            // Read seed file to verify snapshot restore barrier readiness.
+            // YR_SEED_FILE is the synchronization seed file used by runtimes to block until restore is ready.
             std::string checkpointFile = YR::Libruntime::Config::Instance().YR_SEED_FILE();
             if (!checkpointFile.empty()) {
                 YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
                 std::ifstream file(checkpointFile);
+                if (!file.is_open()) {
+                    YRLOG_ERROR("failed to open checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 file.peek();  // Trigger actual read() syscall
+                if (file.fail() && !file.eof()) {
+                    YRLOG_ERROR("failed to read checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
             }
 
