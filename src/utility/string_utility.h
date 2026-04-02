@@ -77,9 +77,9 @@ inline std::pair<int, std::string> CompareIntFromString(const std::string &l, co
 inline std::string DecodedToString(const std::string &inStr)
 {
     auto len = boost::beast::detail::base64::decoded_size(inStr.size());
-    uint8_t data[len + 1] = {0};
-    boost::beast::detail::base64::decode(data, inStr.data(), inStr.size());
-    return reinterpret_cast<const char *>(data);
+    std::vector<uint8_t> data(len + 1, 0);
+    boost::beast::detail::base64::decode(data.data(), inStr.data(), inStr.size());
+    return reinterpret_cast<const char *>(data.data());
 }
 
 inline std::vector<std::string> SplitToStr(const std::string &info, const std::string &pattern)

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#ifdef ENABLE_DATASYSTEM
+
 #include "object_store_impl.h"
 
 #include "src/libruntime/utils/datasystem_utils.h"
@@ -55,3 +57,5 @@ ErrorInfo DecreaseRefReturnCheck(const ds::Status &status, const std::vector<std
 }
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

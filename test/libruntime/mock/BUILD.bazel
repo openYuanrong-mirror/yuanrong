@@ -2,10 +2,18 @@ cc_library(
     name = "mock_datasystem",
     hdrs = ["mock_datasystem.h", "mock_datasystem_client.h", "mock_fs_intf.h", "mock_fs_intf_with_callback.h", "mock_datasystem_client_wrapper.h", "fake_function_proxy_server.h", "mock_security.h", "mock_fs_client_and_server.h", "mock_task_submitter.h", "mock_invoke_adaptor.h", "mock_fs_intf_rw.h", "mock_fs_intf_manager.h"],
     srcs = ["mock_datasystem_client.cpp", "mock_fs_client_and_server.cpp"],
+    # With source-built datasystem SDK, mock redefines some datasystem internal
+    # classes (SensitiveValue, KVClient, etc.) that now also exist in lib_datasystem_sdk.
+    # Allow multiple definitions so the mock's stubs take precedence (replicates
+    # the pre-built SDK behavior where .so symbols were loaded at runtime).
+    linkopts = ["-Wl,--allow-multiple-definition"],
     visibility = ["//visibility:public"],
     deps = [
         "@msgpack",
         "//:runtime_lib",
         "@gtest//:gtest_main",
-    ]
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["@datasystem_sdk//:public_hdrs"],
+    })
 )

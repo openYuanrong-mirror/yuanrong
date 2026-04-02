@@ -19,8 +19,12 @@
 #include <set>
 
 #include <memory>
+#include <string>
 #include <vector>
+#ifdef ENABLE_DATASYSTEM
+#include "datasystem/context/context.h"
 #include "datasystem/utils/status.h"
+#endif
 #include "src/dto/buffer.h"
 #include "src/dto/tensor.h"
 #include "src/libruntime/err_type.h"
@@ -28,13 +32,36 @@
 
 namespace YR {
 namespace Libruntime {
+
+struct DsConnectOptions {
+    std::string host;
+    int32_t port;
+    int32_t connectTimeoutMs = 60 * 1000;  // 60s
+    std::string token = "";
+    std::string clientPublicKey = "";
+    std::string clientPrivateKey = "";
+    std::string serverPublicKey = "";
+    std::string accessKey = "";
+    std::string secretKey = "";
+    std::string oAuthClientId = "";
+    std::string oAuthClientSecret = "";
+    std::string oAuthUrl = "";
+    std::string tenantId = "";
+    bool enableCrossNodeConnection = false;
+};
+ErrorInfo ProcessKeyPartialResult(const std::vector<std::string> &keys,
+                                  const std::vector<std::shared_ptr<Buffer>> &result, const ErrorInfo &errInfo,
+                                  int timeoutMs);
+
+#ifdef ENABLE_DATASYSTEM
+
 #define RETURN_ERR_NOT_OK(flag, code, defaultCode, msg)                                       \
     do {                                                                                      \
         if (!(flag)) {                                                                        \
             ErrorInfo errInfo;                                                                \
             auto tmp = YR::Libruntime::ConvertDatasystemErrorToCore(code, defaultCode);       \
             errInfo.SetErrCodeAndMsg(tmp, YR::Libruntime::ModuleCode::DATASYSTEM, msg, code); \
-            YRLOG_ERROR("occurs error, code is {}", static_cast<int>(code));                                    \
+            YRLOG_ERROR("occurs error, code is {}", static_cast<int>(code));                  \
             return errInfo;                                                                   \
         }                                                                                     \
     } while (0)
@@ -58,8 +85,11 @@ ErrorCode ConvertDatasystemErrorToCore(const datasystem::StatusCode &datasystemC
 ErrorInfo GenerateErrorInfo(const int &successCount, const datasystem::Status &status, const int &timeoutMS,
                             const std::vector<std::string> &remainIds, const std::vector<std::string> &ids);
 ErrorInfo GenerateSetErrorInfo(const datasystem::Status &status);
-ErrorInfo ProcessKeyPartialResult(const std::vector<std::string> &keys,
-                                  const std::vector<std::shared_ptr<Buffer>> &result, const ErrorInfo &errInfo,
-                                  int timeoutMs);
+ErrorInfo SetTraceId(const std::string &traceId);
+#endif  // ENABLE_DATASYSTEM
+
+#ifndef ENABLE_DATASYSTEM
+ErrorInfo SetTraceId(const std::string &traceId);
+#endif  // !ENABLE_DATASYSTEM
 }  // namespace Libruntime
 }  // namespace YR

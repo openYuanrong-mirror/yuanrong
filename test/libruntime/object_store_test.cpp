@@ -198,5 +198,38 @@ TEST_F(ObjectStoreTest, DatasystemObjectClientWrapperTest)
     wrapper.SetTenantId("tenantId");
 }
 
+TEST(ObjectStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
+{
+    DSCacheObjectStore objectStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.9";
+    options.port = 32002;
+    options.connectTimeoutMs = 5678;
+    options.token = "token-value";
+    options.clientPublicKey = "client-public";
+    options.clientPrivateKey = "client-private";
+    options.serverPublicKey = "server-public";
+    options.accessKey = "access-key";
+    options.secretKey = "secret-key";
+    options.tenantId = "tenant-b";
+    options.enableCrossNodeConnection = true;
+
+    ErrorInfo err = objectStore.Init(options);
+
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    EXPECT_EQ(objectStore.connectOpts.host, options.host);
+    EXPECT_EQ(objectStore.connectOpts.port, options.port);
+    EXPECT_EQ(objectStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(objectStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(objectStore.connectOpts.token.GetValue(), options.token);
+    EXPECT_EQ(objectStore.connectOpts.clientPublicKey, options.clientPublicKey);
+    EXPECT_EQ(objectStore.connectOpts.clientPrivateKey.GetValue(), options.clientPrivateKey);
+    EXPECT_EQ(objectStore.connectOpts.serverPublicKey, options.serverPublicKey);
+    EXPECT_EQ(objectStore.connectOpts.accessKey, options.accessKey);
+    EXPECT_EQ(objectStore.connectOpts.secretKey.GetValue(), options.secretKey);
+    EXPECT_EQ(objectStore.connectOpts.tenantId, options.tenantId);
+    EXPECT_TRUE(objectStore.connectOpts.enableCrossNodeConnection);
+}
+
 }  // namespace test
 }  // namespace YR

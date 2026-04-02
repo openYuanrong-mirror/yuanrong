@@ -21,10 +21,23 @@
 namespace YR {
 namespace internal {
 
+// Static member definitions for pointer-based singleton
+std::unique_ptr<RuntimeManager> RuntimeManager::instance_ = nullptr;
+std::mutex RuntimeManager::instanceMutex_;
+
 RuntimeManager &RuntimeManager::GetInstance()
 {
-    static RuntimeManager instance;
-    return instance;
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    if (!instance_) {
+        instance_ = std::make_unique<RuntimeManager>();
+    }
+    return *instance_;
+}
+
+void RuntimeManager::Cleanup()
+{
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    instance_.reset();
 }
 
 void RuntimeManager::Initialize(Config::Mode mode)

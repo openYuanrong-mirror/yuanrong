@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#include "src/libruntime/gwclient/gw_client.h"
-#include "datasystem/object_client.h"
 #include "json.hpp"
+
+#include "src/libruntime/gwclient/gw_client.h"
 #include "src/libruntime/gwclient/gw_datasystem_client_wrapper.h"
 #include "src/libruntime/utils/http_utils.h"
 #include "src/utility/logger/logger.h"
@@ -63,7 +63,7 @@ ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t co
 
 ErrorInfo GwClient::Init(const std::string &ip, int port)
 {
-    return Init(ip, port, DS_CONNECT_TIMEOUT);
+    return Init(ip, port, 5);
 }
 
 void GwClient::Init(std::shared_ptr<HttpClient> httpClient)
@@ -77,14 +77,14 @@ void GwClient::Init(std::shared_ptr<HttpClient> httpClient)
 
 ErrorInfo GwClient::Init(const std::string &addr, int port, std::int32_t connectTimeout)
 {
-    return Init(addr, port, false, false, "", datasystem::SensitiveValue{}, "", datasystem::SensitiveValue{}, "",
-                datasystem::SensitiveValue{}, connectTimeout);
+    return Init(addr, port, false, false, "", SensitiveValue{}, "", SensitiveValue{}, "",
+                SensitiveValue{}, connectTimeout);
 }
 
 ErrorInfo GwClient::Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                         const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                         const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                         const datasystem::SensitiveValue &sk, std::int32_t connectTimeout)
+                         const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                         const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                         const SensitiveValue &sk, std::int32_t connectTimeout)
 {
     std::shared_ptr<DatasystemClientWrapper> dsClientWrapper =
         std::make_shared<GwDatasystemClientWrapper>(shared_from_this());
@@ -378,12 +378,12 @@ MultipleResult GwClient::Get(const std::vector<std::string> &ids, int timeoutMS)
     return std::make_pair(err, *result);
 }
 
-ErrorInfo GwClient::UpdateToken(datasystem::SensitiveValue token)
+ErrorInfo GwClient::UpdateToken(SensitiveValue token)
 {
     return ErrorInfo();
 };
 
-ErrorInfo GwClient::UpdateAkSk(std::string ak, datasystem::SensitiveValue sk)
+ErrorInfo GwClient::UpdateAkSk(std::string ak, SensitiveValue sk)
 {
     return ErrorInfo();
 };
@@ -1024,7 +1024,7 @@ std::pair<std::unordered_map<std::string, std::string>, std::string> GwClient::B
     headers.emplace(INSTANCE_CPU_KEY, std::to_string(spec->opts.cpu));
     headers.emplace(INSTANCE_MEMORY_KEY, std::to_string(spec->opts.memory));
     std::string ak;
-    datasystem::SensitiveValue sk;
+    SensitiveValue sk;
     security_->GetAKSK(ak, sk);
     if (ak.empty() || sk.Empty()) {
         YRLOG_WARN("ak or sk is empty");

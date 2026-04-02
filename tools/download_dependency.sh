@@ -37,7 +37,7 @@ YR_FUNCTIONSYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/functionsystem"
 YR_FRONTEND_SRC_DIR="${RUNTIME_SRC_DIR}/../frontend"
 YR_DASHBOARD_SRC_DIR="${RUNTIME_SRC_DIR}/go"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
-THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
+THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/thirdparty/"
 RUNTIME_OUTPUT_DIR="${RUNTIME_SRC_DIR}/output"
 MODULES="runtime"
 bash ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
@@ -164,6 +164,13 @@ function download_cache() {
     popd
 }
 
+# Detect macOS
+IS_MACOS=false
+if [[ "$(uname)" == "Darwin" ]]; then
+    IS_MACOS=true
+    echo "Detected macOS - skipping datasystem and metrics download"
+fi
+
 if [ "$BUILD_ALL" == "true" ]; then
   cd $RUNTIME_SRC_DIR
   if [ ! -d ${YR_FUNCTIONSYSTEM_BIN_DIR} ]; then
@@ -181,10 +188,16 @@ if [ "$BUILD_ALL" == "true" ]; then
   compile_frontend
   compile_dashboard
 else
-  download_datasystem
-  download_metrics
+  # Skip datasystem and metrics on macOS
+  if [ "$IS_MACOS" != "true" ]; then
+    download_datasystem
+    download_metrics
+  fi
 fi
 download_cache
-check_datasystem
-check_metrics
+# Skip datasystem and metrics check on macOS
+if [ "$IS_MACOS" != "true" ]; then
+  check_datasystem
+  check_metrics
+fi
 compile_all

@@ -17,7 +17,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -31,7 +31,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -46,7 +46,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -69,7 +69,7 @@ cc_test(
   copts = [
           "-fno-access-control",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -91,7 +91,7 @@ cc_test(
   copts = [
           "-fno-access-control",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -117,7 +117,7 @@ cc_test(
   copts = [
           "-fno-access-control",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -152,7 +152,7 @@ cc_test(
   copts = [
           "-fno-access-control",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -169,7 +169,7 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -185,7 +185,7 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -204,7 +204,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   data = [
     "data/cert/ca.crt",
     "data/cert/client.crt",
@@ -222,7 +222,7 @@ cc_test(
     "libruntime/faas_instance_manager_test.cpp",
     "libruntime/normal_instance_manager_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -239,7 +239,7 @@ cc_test(
     "libruntime/alias_routing_test.cpp",
     "libruntime/limiter_consistant_hash_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -259,7 +259,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )
 
@@ -269,7 +269,7 @@ cc_test(
   srcs = [
     "libruntime/object_id_pool_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -285,7 +285,7 @@ cc_test(
   srcs = [
     "libruntime/invoke_order_manager_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -301,7 +301,7 @@ cc_test(
     "libruntime/fs_client_test.cpp",
     "libruntime/rt_direct_call_test.cpp"
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   copts = ["-fno-access-control"],
   deps = [
     "@gtest//:gtest_main",
@@ -320,7 +320,7 @@ cc_test(
     "dto/dataobject_test.cpp",
     "dto/affinity_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -350,7 +350,7 @@ cc_test(
     "common/mock_libruntime.h",
   ],
   includes = ["."],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -369,7 +369,7 @@ cc_test(
     "faas/function_test.cpp",
     "common/mock_libruntime.h",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -385,7 +385,7 @@ cc_test(
   srcs = [
     "api/parallel_for_local_test.cpp"
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -403,7 +403,7 @@ cc_test(
     "clibruntime/clibruntime_test.cpp",
     "common/mock_libruntime.h",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -419,7 +419,7 @@ cc_test(
   srcs = [
     "libruntime/generator_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -435,7 +435,7 @@ cc_test(
   srcs = [
     "libruntime/driverlog_test.cpp",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -456,6 +456,6 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
-  dynamic_deps = ["//:grpc_dynamic"],
+
   linkstatic = True,
 )

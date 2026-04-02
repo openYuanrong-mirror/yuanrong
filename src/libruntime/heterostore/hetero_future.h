@@ -15,10 +15,15 @@
  */
 
 #pragma once
+
+
 #include "future"
 
-#include "datasystem/hetero_client.h"
 #include "device_util.h"
+
+#ifdef ENABLE_DATASYSTEM
+#include "datasystem/hetero_client.h"
+#endif
 
 namespace YR {
 namespace Libruntime {
@@ -26,15 +31,19 @@ class HeteroFuture {
 public:
     HeteroFuture() = default;
     ~HeteroFuture() = default;
+    #ifdef ENABLE_DATASYSTEM
     explicit HeteroFuture(std::shared_ptr<std::shared_future<datasystem::AsyncResult>> dsFuture);
     explicit HeteroFuture(std::shared_ptr<datasystem::Future> dsFuture);
+    #endif
     YR::Libruntime::AsyncResult Get();
     bool IsDsFuture();
 
 private:
+    #ifdef ENABLE_DATASYSTEM
     std::shared_ptr<std::shared_future<datasystem::AsyncResult>> sharedFuture_;
     std::shared_ptr<datasystem::Future> dsFuture_;
     bool isDsFuture_ = false;
+    #endif
 };
 
 }  // namespace Libruntime

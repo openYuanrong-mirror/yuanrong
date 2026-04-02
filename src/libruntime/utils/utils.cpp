@@ -19,6 +19,8 @@
 #include <chrono>
 #include <fstream>
 #include <sstream>
+#include "src/dto/config.h"
+#include "src/utility/logger/logger.h"
 
 #include "src/utility/logger/logger.h"
 
@@ -26,11 +28,13 @@ namespace YR {
 const int IP_INDEX = 0;
 const int PORT_INDEX = 1;
 const int HEX_OFFSET = 10;
+#ifdef ENABLE_DATASYSTEM
 const int HEX_BIT_OFFSET = 4;
 const size_t FUNCNAME = 1;
 const size_t FUNCVERSION = 2;
 const size_t UID_INDEX = 0;
 const size_t SERVICE_INDEX = 0;
+#endif  // ENABLE_DATASYSTEM
 void Split(const std::string &source, std::vector<std::string> &result, const char sep)
 {
     result.clear();
@@ -185,8 +189,9 @@ std::shared_ptr<grpc::ChannelCredentials> GetChannelCreds(std::shared_ptr<YR::Li
     return grpc::SslCredentials(credsOpts);
 }
 
-void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const datasystem::SensitiveValue &sk,
-                        const datasystem::SensitiveValue &token)
+#ifdef ENABLE_DATASYSTEM
+void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const Libruntime::SensitiveValue &sk,
+                        const Libruntime::SensitiveValue &token)
 {
     if (!ak.empty() && !sk.Empty()) {
         // ak、sk used for auth of system function instance
@@ -197,6 +202,7 @@ void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, con
         // token used for auth of normal function instance
     }
 }
+#endif
 
 std::shared_ptr<grpc::ServerCredentials> GetServerCreds(std::shared_ptr<YR::Libruntime::Security> security)
 {

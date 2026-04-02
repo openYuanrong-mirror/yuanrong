@@ -6,7 +6,11 @@ genrule(
     outs = ["src/utils/version.h"],
     cmd = """
             cat $(location :src/utils/version.h.in) > $@
-            sed -i "s/@BUILD_VERSION@/$$BUILD_VERSION/g" $@
+            if [[ "$$(uname)" == "Darwin" ]]; then
+                sed -i '' "s/@BUILD_VERSION@/$$BUILD_VERSION/g" $@
+            else
+                sed -i "s/@BUILD_VERSION@/$$BUILD_VERSION/g" $@
+            fi
           """,
 )
 
@@ -36,8 +40,14 @@ cc_library(
     copts = select({
         "//conditions:default": COPTS_WITH_GLOO,
         "//:disable_gloo": COPTS,
+    }) + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
     }),
-    linkopts = ["-lstdc++fs"],
+    linkopts = select({
+        "//:is_macos": [],  # filesystem is part of libc++ on macOS
+        "//conditions:default": ["-lstdc++fs"],
+    }),
     linkstatic = True,
     strip_include_prefix = "include",
     visibility = ["//visibility:public"],
@@ -59,7 +69,7 @@ cc_library(
 cc_binary(
     name = "libyr-api.so",
     copts = COPTS,
-    dynamic_deps = ["//:grpc_dynamic"],
+
     linkopts = LOPTS,
     linkshared = True,
     linkstatic = True,
@@ -99,7 +109,10 @@ cc_library(
         "include/faas/*.h",
     ]),
     copts = COPTS,
-    linkopts = ["-lstdc++fs"],
+    linkopts = select({
+        "//:is_macos": [],  # filesystem is part of libc++ on macOS
+        "//conditions:default": ["-lstdc++fs"],
+    }),
     linkstatic = True,
     strip_include_prefix = "include/faas",
     visibility = ["//visibility:public"],
@@ -115,7 +128,7 @@ cc_library(
 cc_binary(
     name = "libfunctionsdk.so",
     copts = COPTS,
-    dynamic_deps = ["//:grpc_dynamic"],
+
     linkopts = LOPTS,
     linkshared = True,
     linkstatic = True,
@@ -168,10 +181,13 @@ genrule(
     name = "yr_cpp_pkg",
     srcs = [
         ":cpp_strip",
-        "//:grpc_strip",
-        "@boringssl//:shared",
         ":cpp_include",
-    ],
+    ] + select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            "//src/utility/metrics:shared_exporters",
+        ],
+    }),
     outs = ["yr_cpp_pkg.out"],
     cmd = """
         BASE_DIR="$$(pwd)"
@@ -184,7 +200,7 @@ genrule(
             cp -rf $$BASE_DIR/external/boost/boost/any $$CPP_SDK_DIR/include/boost
             cp -rf $$BASE_DIR/external/boost/boost/assert $$CPP_SDK_DIR/include/boost
         fi
-        cp -rf $$BASE_DIR/external/boringssl/install/include/openssl $$CPP_SDK_DIR/include
+        cp -rf $$BASE_DIR/external/boringssl/src/include/openssl $$CPP_SDK_DIR/include || true
         cp -rf $$BASE_DIR/external/boost/boost/asio $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/boost/boost/align $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/boost/boost/bind $$CPP_SDK_DIR/include/boost
@@ -220,18 +236,42 @@ genrule(
         cp -rf $$BASE_DIR/external/boost/boost/*.hpp $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/boost/boost/*.h $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/nlohmann_json/single_include/nlohmann/json.hpp $$CPP_SDK_DIR/include
-        chmod +w $(locations :cpp_strip) $(locations //:grpc_strip) &&
-        chrpath -d $(locations :cpp_strip) $(locations //:grpc_strip) &&
-        cp -rf $(locations :cpp_strip) $(locations //:grpc_strip) $$CPP_SDK_DIR/lib/ &&
+        cp -rf $$BASE_DIR/external/boringssl/*.so* $$CPP_SDK_DIR/lib 2>/dev/null || true
+        cp -rf $$BASE_DIR/external/boringssl/*.dylib* $$CPP_SDK_DIR/lib 2>/dev/null || true
+        chmod +w $(locations :cpp_strip) &&
+        if [[ "$$(uname)" != "Darwin" ]]; then chrpath -d $(locations :cpp_strip) 2>/dev/null || true; fi &&
+        cp -rf $(locations :cpp_strip) $$CPP_SDK_DIR/lib/ &&
         cp -rf $(locations :cpp_strip) $$CPP_SDK_DIR/bin/ &&
-        rm -rf $$CPP_SDK_DIR/bin/libyr-api.so $$CPP_SDK_DIR/bin/libfunctionsdk.so
+        rm -rf $$CPP_SDK_DIR/bin/libyr-api.so $$CPP_SDK_DIR/bin/libfunctionsdk.so &&
+        if [[ "$$(uname)" == "Darwin" ]]; then
+            for f in $$CPP_SDK_DIR/bin/* $$CPP_SDK_DIR/lib/*.so $$CPP_SDK_DIR/lib/*.dylib; do
+                if [ -f "$$f" ]; then
+                    install_name_tool -change @loader_path/../../_solib_darwin_arm64/_U_S_Sapi_Scpp_Cyr_Ucpp_Ulib___Uapi_Scpp/libyr-api.so @loader_path/../lib/libyr-api.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../_solib_darwin_arm64/_U_S_Sapi_Scpp_Cfunctionsdk_Ulib___Uapi_Scpp/libfunctionsdk.so @loader_path/../lib/libfunctionsdk.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../../_solib_darwin_arm64/_U_S_Sapi_Scpp_Cyr_Ucpp_Ulib___Uapi_Scpp/libyr-api.so @loader_path/../../lib/libyr-api.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../../_solib_darwin_arm64/_U_S_Sapi_Scpp_Cfunctionsdk_Ulib___Uapi_Scpp/libfunctionsdk.so @loader_path/../../lib/libfunctionsdk.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../_solib_darwin_x86_64/_U_S_Sapi_Scpp_Cyr_Ucpp_Ulib___Uapi_Scpp/libyr-api.so @loader_path/../lib/libyr-api.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../_solib_darwin_x86_64/_U_S_Sapi_Scpp_Cfunctionsdk_Ulib___Uapi_Scpp/libfunctionsdk.so @loader_path/../lib/libfunctionsdk.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../../_solib_darwin_x86_64/_U_S_Sapi_Scpp_Cyr_Ucpp_Ulib___Uapi_Scpp/libyr-api.so @loader_path/../../lib/libyr-api.so "$$f" 2>/dev/null || true
+                    install_name_tool -change @loader_path/../../../_solib_darwin_x86_64/_U_S_Sapi_Scpp_Cfunctionsdk_Ulib___Uapi_Scpp/libfunctionsdk.so @loader_path/../../lib/libfunctionsdk.so "$$f" 2>/dev/null || true
+                fi
+            done
+        fi &&
         cp -rf $$BASE_DIR/api/cpp/include $$CPP_SDK_DIR/ &&
         DATASYSTEM_DIR=$$BASE_DIR/external/datasystem_sdk &&
-        cp -rf $$DATASYSTEM_DIR/include/* $$CPP_SDK_DIR/include/ &&
-        cp -rf $$DATASYSTEM_DIR/lib/* $$CPP_SDK_DIR/lib/ &&
-        METRICS_DIR=$$BASE_DIR/external/metrics_sdk &&
-        cp -rf $$METRICS_DIR/include/* $$CPP_SDK_DIR/include &&
-        cp -rf $$METRICS_DIR/lib/* $$CPP_SDK_DIR/lib &&
+        if [ -d "$$DATASYSTEM_DIR/include" ]; then
+            cp -rf $$DATASYSTEM_DIR/include/* $$CPP_SDK_DIR/include/ || true
+        fi &&
+        if [ -d "$$DATASYSTEM_DIR/lib" ]; then
+            cp -rf $$DATASYSTEM_DIR/lib/* $$CPP_SDK_DIR/lib/ || true
+        fi &&
+        for f in $(SRCS); do
+            case "$$(basename "$$f")" in
+                libobservability-*.so|libobservability-*.dylib)
+                    [ -f "$$f" ] && cp -rf "$$f" $$CPP_SDK_DIR/lib || true
+                    ;;
+            esac
+        done &&
         EXAMPLE_3RD_DIR=$$BASE_DIR/api/cpp/example/3rd &&
         rm -rf $$EXAMPLE_3RD_DIR &&
         mkdir $$EXAMPLE_3RD_DIR &&

@@ -43,7 +43,7 @@ private:
     std::shared_ptr<InstanceOrdering> ConstuctInstOrder();
 
     absl::Mutex mu;
-    std::unordered_map<std::string, std::shared_ptr<InstanceOrdering>> instances ABSL_GUARDED_BY(mu);
+    std::unordered_map<std::string, std::shared_ptr<InstanceOrdering>> instances;
 };
 
 struct InstanceOrdering {

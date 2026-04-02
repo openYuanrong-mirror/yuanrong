@@ -99,5 +99,38 @@ TEST_F(KVStateStoreTest, KVWriteReadDelExist)
     MultipleDelResult mdResult = stateStore_->Del({key, key2});
     ASSERT_EQ(mdResult.second.Code(), ErrorCode::ERR_OK);
 }
+
+TEST(KVStateStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
+{
+    DSCacheStateStore stateStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.8";
+    options.port = 32001;
+    options.connectTimeoutMs = 4321;
+    options.token = "token-value";
+    options.clientPublicKey = "client-public";
+    options.clientPrivateKey = "client-private";
+    options.serverPublicKey = "server-public";
+    options.accessKey = "access-key";
+    options.secretKey = "secret-key";
+    options.tenantId = "tenant-a";
+    options.enableCrossNodeConnection = true;
+
+    ErrorInfo err = stateStore.Init(options);
+
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    EXPECT_EQ(stateStore.connectOpts.host, options.host);
+    EXPECT_EQ(stateStore.connectOpts.port, options.port);
+    EXPECT_EQ(stateStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(stateStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(stateStore.connectOpts.token.GetValue(), options.token);
+    EXPECT_EQ(stateStore.connectOpts.clientPublicKey, options.clientPublicKey);
+    EXPECT_EQ(stateStore.connectOpts.clientPrivateKey.GetValue(), options.clientPrivateKey);
+    EXPECT_EQ(stateStore.connectOpts.serverPublicKey, options.serverPublicKey);
+    EXPECT_EQ(stateStore.connectOpts.accessKey, options.accessKey);
+    EXPECT_EQ(stateStore.connectOpts.secretKey.GetValue(), options.secretKey);
+    EXPECT_EQ(stateStore.connectOpts.tenantId, options.tenantId);
+    EXPECT_TRUE(stateStore.connectOpts.enableCrossNodeConnection);
+}
 }  // namespace test
 }  // namespace YR

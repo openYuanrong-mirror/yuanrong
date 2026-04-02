@@ -22,15 +22,14 @@
 #include "boost/iostreams/stream.hpp"
 
 #include "certs_utils.h"
-#include "datasystem/utils/sensitive_value.h"
 #include "sensitive_data.h"
+#include "sensitive_value.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/utility/notification_utility.h"
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 using SensitiveData = YR::Libruntime::SensitiveData;
 const size_t DEFAULT_STDIN_PIPE_TIMEOUT_MS = 30000;
 class Security {

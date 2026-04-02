@@ -31,14 +31,14 @@ public:
 
     void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr, std::string reqId = "") override;
     ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) override;
-    void Clear();
+    void Clear() override;
 private:
     std::shared_ptr<InvokeReq> ConstructInokeReq(std::function<void()> &&hdlr, std::string reqId);
     std::shared_ptr<Invoker> ConstructInvoker();
     absl::Mutex mu;
-    std::unordered_map<std::string, std::shared_ptr<Invoker>> invokers ABSL_GUARDED_BY(mu);
+    std::unordered_map<std::string, std::shared_ptr<Invoker>> invokers;
     absl::Mutex cancelMu;
-    std::map<std::string, bool> cancelReqs ABSL_GUARDED_BY(cancelMu);
+    std::map<std::string, bool> cancelReqs;
 };
 
 struct InvokeReq {

@@ -484,6 +484,10 @@ function dump_master_info() {
     MASTER_INFO_STRING="${MASTER_INFO_STRING}${key}:${control_port_table["${key}"]},"
   done
   write_master_pid_port_temp_file "${master_pid_string}\n${MASTER_INFO_STRING}"
+  # Write master info file for agent to read
+  if [ "X${MASTER_INFO_OUT_FILE}" != "X" ]; then
+    echo "${MASTER_INFO_STRING}" > "${MASTER_INFO_OUT_FILE}"
+  fi
 }
 
 function dump_agent_info() {

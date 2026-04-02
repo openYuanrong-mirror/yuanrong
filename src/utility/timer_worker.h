@@ -60,11 +60,11 @@ private:
                         const boost::system::error_code &ec);
     absl::Mutex mu;
     absl::Mutex timerMu;
-    bool isRunning ABSL_GUARDED_BY(mu);
+    bool isRunning;
     std::thread th;
-    boost::asio::io_context io ABSL_GUARDED_BY(mu);
+    boost::asio::io_context io;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
-    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> timerStore_ ABSL_GUARDED_BY(timerMu);
+    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> timerStore_;
 };
 
 void InitGlobalTimer(void);

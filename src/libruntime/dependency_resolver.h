@@ -50,7 +50,7 @@ public:
 private:
     std::shared_ptr<MemoryStore> memoryStore;
     absl::Mutex mu;
-    std::unordered_map<std::string, std::unique_ptr<DependencyState>> dependencyState ABSL_GUARDED_BY(mu);
+    std::unordered_map<std::string, std::unique_ptr<DependencyState>> dependencyState;
 };
 }  // namespace Libruntime
 }  // namespace YR

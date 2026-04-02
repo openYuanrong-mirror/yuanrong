@@ -24,23 +24,27 @@
 
 #include "metrics_context.h"
 
+#ifdef ENABLE_OBSERVABILITY
 #include "metrics/api/alarm.h"
 #include "metrics/api/counter.h"
 #include "metrics/api/gauge.h"
-#include "metrics/exporters/exporter.h"
+#include "metrics/sdk/metric_exporter.h"
 #include "metrics/plugin/dynamic_library_handle_unix.h"
 #include "metrics/sdk/meter_provider.h"
 #include "metrics/sdk/metric_processor.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/dto/invoke_options.h"
 #include "src/libruntime/err_type.h"
 #include "src/utility/singleton.h"
 
 namespace YR {
 namespace Libruntime {
+#ifdef ENABLE_OBSERVABILITY
 namespace MetricsSdk = observability::sdk::metrics;
 namespace MetricsApi = observability::api::metrics;
 namespace MetricsExporters = observability::exporters::metrics;
 namespace MetricsPlugin = observability::plugin::metrics;
+#endif  // ENABLE_OBSERVABILITY
 
 class MetricsAdaptor {
 public:
@@ -72,6 +76,7 @@ public:
                        const YR::Libruntime::AlarmInfo &alarmInfo);
 
 private:
+#ifdef ENABLE_OBSERVABILITY
     std::shared_ptr<MetricsExporters::Exporter> InitHttpExporter(const std::string &httpExporterType,
                                                                  const std::string &backendKey,
                                                                  const std::string &backendName,
@@ -105,15 +110,20 @@ private:
     ErrorInfo InitAlarm(const std::string &name, const std::string &description);
     ErrorInfo ReportAlarm(const std::string &name, const std::string &description,
                           const YR::Libruntime::AlarmInfo &alarmInfo);
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Counter<double>>> doubleCounterMap_{};
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Counter<uint64_t>>> uInt64CounterMap_{};
     std::map<std::string, std::unique_ptr<MetricsApi::Gauge<double>>> doubleGaugeMap_{};
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Alarm>> alarmMap_{};
+#endif  // ENABLE_OBSERVABILITY
     std::unordered_set<std::string> enabledBackends_;
     MetricsContext metricsContext_;
+#ifdef ENABLE_OBSERVABILITY
     bool Initialized_ = false;
     bool userEnable_ = false;
+#endif  // ENABLE_OBSERVABILITY
     std::mutex gauge_mutex_{};
     std::mutex alarm_mutex_{};
     std::mutex uint64_counter_mutex_{};

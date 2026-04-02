@@ -37,7 +37,7 @@ public:
                                      const std::unordered_map<std::string, std::string> &headers,
                                      const std::string &body, const std::shared_ptr<std::string> requestId,
                                      const HttpCallbackFunction &receiver) override;
-    void Stop();
+    void Stop() override;
 private:
     bool SubmitRequest(const http::verb &method, const std::string &target,
                        const std::unordered_map<std::string, std::string> &headers, const std::string &body,
@@ -49,7 +49,7 @@ private:
 
     ConnectionParam connParam;
     std::vector<std::shared_ptr<HttpClient>> clients;
-    uint32_t connectedClientsCnt_ ABSL_GUARDED_BY(connCntMu);
+    uint32_t connectedClientsCnt_;
     mutable absl::Mutex connCntMu_;
     std::shared_ptr<LibruntimeConfig> librtCfg;
     uint32_t maxIocThread;

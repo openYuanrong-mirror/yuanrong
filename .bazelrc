@@ -1,16 +1,44 @@
+build --enable_platform_specific_config
 build --action_env=BAZEL_CXXOPTS=-std=c++17
+build --action_env=GOPROXY=https://goproxy.cn,direct
+build --repo_env=GOPROXY=https://goproxy.cn,direct
 build --action_env=GO111MODULE="on"
 build --action_env=GONOSUMDB="*"
-build --action_env=GOPROXY="https://mirrors.huaweicloud.com/repository/goproxy/"
 build --define=grpc_no_xds=true
 build --define=grpc_no_binder=true
 build --define=grpc_no_ares=true
 # Disable Gloo collective operations by default (enable with --define ENABLE_GLOO=true)
 build --define ENABLE_GLOO=false
+# build --define=ENABLE_DATASYSTEM=true
+build --@opentelemetry_cpp//api:with_abseil=true
 build --nojava_header_compilation
 build --per_file_copt=+com_google_protobuf@-fvisibility=hidden
 build --per_file_copt="\\.cc$@-w"
 build --platforms=@local_config_platform//:host
+build --action_env=BOOST_VERSION=1.87.0
+build --action_env=BUILD_VERSION=v0.7.0
+build --action_env=PYTHON3_BIN_PATH=python3
+build:linux --define=ENABLE_OBSERVABILITY=true
+build:linux --define=ENABLE_DATASYSTEM=true
+# macOS specific build configuration (automatically applied on macOS via --enable_platform_specific_config)
+build:macos --copt=-Wno-missing-template-arg-list-after-template-kw
+build:macos --host_copt=-Wno-missing-template-arg-list-after-template-kw
+build:macos --copt=-Wno-error=constant-logical-operand
+build:macos --host_copt=-Wno-error=constant-logical-operand
+build:macos --per_file_copt=external/com_google_protobuf@-Wno-error
+build:macos --host_per_file_copt=external/com_google_protobuf@-Wno-error
+build:macos --host_cxxopt=-std=c++17
+build:macos --define=ENABLE_OBSERVABILITY=false
+build:macos --define=ENABLE_DATASYSTEM=false
+build:darwin --copt=-Wno-missing-template-arg-list-after-template-kw
+build:darwin --host_copt=-Wno-missing-template-arg-list-after-template-kw
+build:darwin --copt=-Wno-error=constant-logical-operand
+build:darwin --host_copt=-Wno-error=constant-logical-operand
+build:darwin --per_file_copt=external/com_google_protobuf@-Wno-error
+build:darwin --host_per_file_copt=external/com_google_protobuf@-Wno-error
+build:darwin --host_cxxopt=-std=c++17
+build:darwin --define=ENABLE_OBSERVABILITY=false
+build:darwin --define=ENABLE_DATASYSTEM=false
 # asan build
 build:sanitize_address --define sanitize=address
 build:sanitize_address --copt=-fsanitize=address # Enable ASan in Compile Phase
@@ -30,8 +58,7 @@ build:sanitize_thread --copt=-g
 build:sanitize_thread --copt=-Wno-error=maybe-uninitialized
 build:sanitize_thread --strip=never
 # Replace external dependencies with huaweicloud mirror.
-build --experimental_downloader_config=.bazel_redirect.cfg
-#default build with optimization enabled
+# default build with optimization enabled
 build -c opt
 build:release --copt '-fPIC'
 build:release --copt "-U_FORTIFY_SOURCE"

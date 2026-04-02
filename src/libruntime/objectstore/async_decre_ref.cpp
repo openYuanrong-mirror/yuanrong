@@ -15,6 +15,8 @@
  */
 
 #include "async_decre_ref.h"
+#include "src/utility/logger/logger.h"
+#include "src/utility/macro.h"
 
 namespace YR {
 namespace Libruntime {
@@ -28,7 +30,6 @@ void AsyncDecreRef::Init(std::shared_ptr<DatasystemClientWrapper> clientWrapper)
     running = true;
     nonEmpty = false;
     bgThread = std::thread(&AsyncDecreRef::Process, this);
-    pthread_setname_np(bgThread.native_handle(), "async_decrease_reference");
 }
 
 void AsyncDecreRef::Stop() noexcept
@@ -103,7 +104,7 @@ bool AsyncDecreRef::PopBatch(std::vector<std::string> &objs, std::string &tenant
 
 void AsyncDecreRef::Process()
 {
-    int limitedRetryTime = 0;
+    SetCurrentThreadName("async_decre_ref");
     while (running || !IsEmpty()) {
         {
             std::unique_lock<std::mutex> lk(mu);
@@ -120,27 +121,14 @@ void AsyncDecreRef::Process()
         }
         client->SetTenantId(tenantId);
         std::vector<std::string> failedIds;
-        datasystem::Status status = client->GDecreaseRef(objs, failedIds);
-        auto err = DecreaseRefReturnCheck(status, failedIds);
-        if (failedIds.empty()) {
+        ErrorInfo err = client->GDecreaseRef(objs, failedIds);
+        if (failedIds.empty() && err.OK()) {
             continue;
         }
-        YRLOG_ERROR(err.Msg());
-        // Error cannot retry. Just skip these ids.
-        if (!IsRetryableStatus(status)) {
-            YRLOG_WARN(
-                "the StatusCode of GDecreaseRef returned is not Retryable, so skip all ids in objQueue. reason: {}",
-                status.ToString());
-            std::lock_guard<std::mutex> lk(mu);
-            objQueue.clear();
-        } else if (IsLimitedRetryEnd(status, limitedRetryTime)) {
-            // Error retried for limited times. If limitedRetryTime>LIMITED_RETRY_TIME AND these retry are failed,
-            // just skip these ids.
-            YRLOG_WARN("GDecreaseRef has failed for {} times so skip all ids in objQueue, reason: {}",
-                       LIMITED_RETRY_TIME, status.ToString());
-            std::lock_guard<std::mutex> lk(mu);
-            objQueue.clear();
-        } else {
+        if (!err.OK()) {
+            YRLOG_ERROR("GDecreaseRef failed: {}", err.Msg());
+        }
+        if (!failedIds.empty()) {
             std::lock_guard<std::mutex> lk(mu);
             objQueue[tenantId].reserve(objQueue[tenantId].size() + failedIds.size());
             std::move(std::begin(failedIds), std::end(failedIds), std::back_inserter(objQueue[tenantId]));  // append

@@ -52,6 +52,7 @@ cc_library(
     cc_binary(
         name = example + ".so",
         srcs = [example + ".cpp"],
+        copts = ["-fPIC"],
         linkopts = ["-shared"],
         linkstatic = True,
         deps = [":yr_api"],

@@ -167,8 +167,8 @@ struct InvokeSpec {
                 pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
             } else {
                 *pbArg->mutable_value() =
-                    std::move(std::string(reinterpret_cast<const char *>(arg.get().dataObj->buffer->ImmutableData()),
-                                          arg.get().dataObj->buffer->GetSize()));
+                    std::string(reinterpret_cast<const char *>(arg.get().dataObj->buffer->ImmutableData()),
+                                arg.get().dataObj->buffer->GetSize());
                 pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
             }
             for (auto &id : arg.get().nestedObjects) {
@@ -217,25 +217,25 @@ struct FaasInfoForBatchRenewFn {
 };
 
 struct InstanceInfo {
-    std::string instanceId = "" ABSL_GUARDED_BY(mtx);
-    std::string leaseId = "" ABSL_GUARDED_BY(mtx);
-    int idleTime = 0 ABSL_GUARDED_BY(mtx);
-    int unfinishReqNum = 0 ABSL_GUARDED_BY(mtx);  // or avaliable
-    bool available = true ABSL_GUARDED_BY(mtx);
-    std::string traceId = "" ABSL_GUARDED_BY(mtx);
-    FaasAllocationInfo faasInfo ABSL_GUARDED_BY(mtx);
-    std::shared_ptr<ReportRecord> reporter ABSL_GUARDED_BY(mtx);
-    std::string stateId = "" ABSL_GUARDED_BY(mtx);
-    std::shared_ptr<YR::utility::Timer> scaleDownTimer ABSL_GUARDED_BY(mtx);
-    int64_t claimTime = 0 ABSL_GUARDED_BY(mtx);
-    bool needReacquire = false ABSL_GUARDED_BY(mtx);
-    bool forceInvoke = false ABSL_GUARDED_BY(mtx);
+    std::string instanceId = "";
+    std::string leaseId = "";
+    int idleTime = 0;
+    int unfinishReqNum = 0;  // or avaliable
+    bool available = true;
+    std::string traceId = "";
+    FaasAllocationInfo faasInfo;
+    std::shared_ptr<ReportRecord> reporter;
+    std::string stateId = "";
+    std::shared_ptr<YR::utility::Timer> scaleDownTimer;
+    int64_t claimTime = 0;
+    bool needReacquire = false;
+    bool forceInvoke = false;
     mutable absl::Mutex mtx;
 };
 
 struct CreatingInsInfo {
-    std::string instanceId ABSL_GUARDED_BY(mtx);
-    int64_t startTime ABSL_GUARDED_BY(mtx);
+    std::string instanceId;
+    int64_t startTime;
     mutable absl::Mutex mtx;
     CreatingInsInfo(const std::string &id = "", int64_t time = 0) : instanceId(id), startTime(time) {}
 };
@@ -259,14 +259,14 @@ struct HashFn {
 };
 
 struct RequestResourceInfo {
-    std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> instanceInfos ABSL_GUARDED_BY(mtx);
-    std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> avaliableInstanceInfos ABSL_GUARDED_BY(mtx);
-    std::vector<std::shared_ptr<CreatingInsInfo>> creatingIns ABSL_GUARDED_BY(mtx);
-    int createFailInstanceNum ABSL_GUARDED_BY(mtx);
+    std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> instanceInfos;
+    std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> avaliableInstanceInfos;
+    std::vector<std::shared_ptr<CreatingInsInfo>> creatingIns;
+    int createFailInstanceNum;
     // The time to create an instance. when cancle a creating instance
     // the waiting time should not be less than the createTime.
-    int createTime ABSL_GUARDED_BY(mtx);
-    int tLeaseInterval ABSL_GUARDED_BY(mtx);
+    int createTime;
+    int tLeaseInterval;
     mutable absl::Mutex mtx;
 };
 

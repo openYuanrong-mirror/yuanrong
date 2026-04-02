@@ -13,6 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#pragma once
 
 #define YR_LIKELY(x) __builtin_expect(!!(x), 1)
 #define YR_UNLIKELY(x) __builtin_expect(!!(x), 0)
+
+// Helper function to set current thread name in a platform-independent way
+static inline void SetCurrentThreadName(const char* name) {
+#ifdef __APPLE__
+    pthread_setname_np(name);
+#else
+    pthread_setname_np(pthread_self(), name);
+#endif
+}

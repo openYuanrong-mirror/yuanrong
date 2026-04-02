@@ -1,27 +1,34 @@
 load("//bazel:yr.bzl", "COPTS", "cc_strip")
 
+exports_files(["WORKSPACE"])
+
+# Config setting for Linux platform
+config_setting(
+    name = "is_linux",
+    constraint_values = ["@platforms//os:linux"],
+)
+
+# Config setting for macOS platform
+config_setting(
+    name = "is_macos",
+    constraint_values = ["@platforms//os:macos"],
+)
+
 # Config setting for disabling Gloo
 config_setting(
     name = "disable_gloo",
     values = {"define": "ENABLE_GLOO=false"},
 )
 
-cc_shared_library(
-    name = "grpc_dynamic",
-    shared_lib_name = "libgrpc_dynamic.so.1.65.4",
-    visibility = ["//visibility:public"],
-    deps = [
-        "@com_github_grpc_grpc//:grpc++",
-        "@com_google_protobuf//upb/wire",
-    ],
+# Config setting for disabling DataSystem
+config_setting(
+    name = "disable_datasystem",
+    values = {"define": "ENABLE_DATASYSTEM=false"},
 )
 
-cc_strip(
-    name = "grpc_strip",
-    srcs = [
-        "//:grpc_dynamic",
-    ],
-    visibility = ["//visibility:public"],
+config_setting(
+    name = "disable_observability",
+    values = {"define": "ENABLE_OBSERVABILITY=false"},
 )
 
 cc_library(
@@ -90,27 +97,19 @@ cc_library(
     ] + glob([
         "src/dto/*.h",
     ]),
-    copts = COPTS,
-    linkopts = [
-        "-L./external/boost/lib",
-        "-lboost_atomic",
-        "-lboost_fiber",
-        "-lboost_context",
-        "-lboost_filesystem",
-    ],
-    linkstatic = True,
-    visibility = ["//visibility:public"],
+    copts = COPTS + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+    }),
+    linkopts = [],
     deps = [
         "//src/libruntime/fsclient/protobuf:posix_cc_grpc",
         "//src/proto:libruntime_cc_proto",
         "//src/proto:socket_cc_proto",
         "//src/utility:yr_utils",
         "@boost",
-        "@boringssl//:boringssl_sdk",
-        "@com_github_grpc_grpc//:grpc++_public_hdrs",
-        "@com_github_grpc_grpc//:grpc_core_credentials_header",
-        "@datasystem_sdk//:lib_datasystem_sdk",
-        "@metrics_sdk//:lib_metrics_sdk",
+        "@boringssl//:ssl",
+        "@com_github_grpc_grpc//:grpc++",
         "@msgpack",
         "@nlohmann_json",
         "@securec",
@@ -120,7 +119,21 @@ cc_library(
         "@opentelemetry_cpp//exporters/ostream:ostream_log_record_exporter",
         "@opentelemetry_cpp//sdk/src/trace",
         "@opentelemetry_cpp//sdk/src/resource",
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": [
+            "@datasystem_sdk//:lib_datasystem_sdk",
+        ],
+    }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            "//src/utility/metrics:metrics",
+        ],
+    }) + [
+        "@boost_libs//:boost_libs",
     ],
+    linkstatic = True,
+    visibility = ["//visibility:public"],
     alwayslink = True,
 )
 
@@ -170,10 +183,17 @@ cc_library(
         "//src/proto:libruntime_cc_proto_hdrs",
         "//src/proto:socket_cc_proto_hdrs",
         "//src/utility:yr_utils_hdrs",
-        "@com_github_grpc_grpc//:grpc++_public_hdrs",
-        "@com_github_grpc_grpc//:grpc_core_credentials_header",
-        "@datasystem_sdk//:lib_datasystem_sdk",
-        "@metrics_sdk//:lib_metrics_sdk",
+        "@com_github_grpc_grpc//:grpc++",
         "@securec",
-    ],
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": [
+            "@datasystem_sdk//:lib_datasystem_sdk",
+        ],
+    }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            "//src/utility/metrics:metrics",
+        ],
+    }),
 )

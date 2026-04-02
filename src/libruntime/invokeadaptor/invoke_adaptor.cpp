@@ -1254,7 +1254,7 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const 
         return;
     }
     auto messageSpec = std::make_shared<InvokeMessageSpec>(std::move(req));
-    this->fsClient->InvokeAsync(messageSpec, [this, cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
+    this->fsClient->InvokeAsync(messageSpec, [cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve invoke raw notify, code is {}, req id is {}, msg is {}", fmt::underlying(req.code()),
                     req.requestid(), req.message());
         size_t size = req.ByteSizeLong();
@@ -1276,7 +1276,7 @@ void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &t
     req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
     EraseFsIntf(req.instanceid());
-    this->fsClient->KillAsync(req, [this, cb](const KillResponse &resp, const ErrorInfo &err) -> void {
+    this->fsClient->KillAsync(req, [cb](const KillResponse &resp, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve kill raw response, code is {}", fmt::underlying(resp.code()));
         size_t size = resp.ByteSizeLong();
         auto respRaw = std::make_shared<NativeBuffer>(size);

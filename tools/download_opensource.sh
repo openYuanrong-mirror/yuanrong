@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CUR_DIR=$(dirname $(readlink -f "$0"))
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    CUR_DIR=$(cd "$(dirname "$0")"; pwd)
+else
+    CUR_DIR=$(dirname $(readlink -f "$0"))
+fi
 set -e
 
 THIRD_PARTY_DIR="${CUR_DIR}/../../vendor/"
@@ -21,7 +25,13 @@ OPENSOURCE="${CUR_DIR}/openSource.txt"
 MODULES="all"
 DOWNLOAD_TEST_THIRDPARTY="ON"
 
-LOCAL_OS=$(head -1 /etc/os-release | tail -1 | awk -F "\"" '{print $2}')_$(uname -m)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    LOCAL_OS="$(sw_vers -productName)_$(uname -m)"
+elif [ -f /etc/os-release ]; then
+    LOCAL_OS=$(head -1 /etc/os-release | tail -1 | awk -F "\"" '{print $2}')_$(uname -m)
+else
+    LOCAL_OS="Unknown_$(uname -m)"
+fi
 THIRD_PARTY_CACHE=${THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/deps/"}
 echo -e "local os is $LOCAL_OS"
 
@@ -29,7 +39,11 @@ echo -e "local os is $LOCAL_OS"
 while getopts 'T:M:F:r' opt; do
     case "$opt" in
     T)
-        THIRD_PARTY_DIR=$(readlink -f "${OPTARG}")
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            THIRD_PARTY_DIR=$(cd "${OPTARG}" 2>/dev/null && pwd || echo "${OPTARG}")
+        else
+            THIRD_PARTY_DIR=$(readlink -f "${OPTARG}")
+        fi
         ;;
     M)
         MODULES="${OPTARG}"

@@ -238,7 +238,9 @@ void CommandRunner::RunCommandUntil(std::vector<std::string> &args)
             perror("freopen failed");
             return;
         }
+#ifdef __linux__
         prctl(PR_SET_PDEATHSIG, SIGTERM);  // Send SIGTERM to child if parent dies
+#endif
 
         std::vector<std::string> argv = {"yr", "start", "--master", "--block", "true"};
         argv.reserve(argv.size() + args.size());

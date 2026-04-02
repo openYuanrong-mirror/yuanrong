@@ -26,7 +26,6 @@
 #include <string>
 #include <thread>
 
-namespace nostd = opentelemetry::nostd;
 namespace trace_sdk = opentelemetry::sdk::trace;
 namespace common_sdk = opentelemetry::sdk::common;
 
@@ -38,7 +37,7 @@ std::string SpanIdToString(const opentelemetry::trace::SpanId& spanId);
 class LogFileExporter final : public trace_sdk::SpanExporter {
 public:
     common_sdk::ExportResult Export(
-        const nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept override;
+        const opentelemetry::nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept override;
 
     std::unique_ptr<trace_sdk::Recordable> MakeRecordable() noexcept override;
 

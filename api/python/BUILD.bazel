@@ -46,8 +46,11 @@ pyx_library(
         "yr/includes/*.pxi",
     ]),
     cc_kwargs = dict(
-        copts = COPTS,
-        dynamic_deps = ["//:grpc_dynamic"],
+        copts = COPTS + select({
+            "//:disable_datasystem": [],
+            "//conditions:default": ["-DENABLE_DATASYSTEM"],
+        }),
+    
     ),
     visibility = ["__subpackages__"],
     deps = [
@@ -59,25 +62,6 @@ copy_file(
     name = "cp_server_py",
     srcs = ["server.py"],
     dstdir = "build/output/runtime/service/python/fnruntime",
-)
-
-copy_file(
-    name = "cp_yr_so",
-    srcs = [
-        "//src/proto:libruntime_py_proto",
-        "@boringssl//:shared",
-        "@datasystem_sdk//:shared",
-        "@metrics_sdk//:shared",
-    ],
-    dstdir = "api/python/yr",
-)
-
-copy_file(
-    name = "cp_yr_proto",
-    srcs = [
-        "//src/proto:libruntime_py_proto",
-    ],
-    dstdir = "api/python/yr",
 )
 
 filegroup(
@@ -96,10 +80,10 @@ genrule(
     name = "yr_python_pkg",
     srcs = [
         "py_strip",
-        "//:grpc_strip",
-        "//api/python:cp_yr_so",
         "//api/python:cp_server_py",
         ":python_sources",
+        ":libruntime_proto_py",
+        ":sync_libruntime_proto_workspace",
     ],
     outs = ["yr_python_pkg.out"],
     cmd = """
@@ -109,42 +93,19 @@ genrule(
         PYTHON_CODE_DIR=$$BASE_DIR/api/python
         mkdir -p $$PYTHON_SERVICE_DIR/fnruntime
         mkdir -p $$PYTHON_SDK_DIR/
-        chmod +w $(location py_strip) $(location //:grpc_strip) &&
-        chrpath -d $(location //:grpc_strip) &&
+        chmod +w $(location py_strip) &&
         chmod +w $$PYTHON_CODE_DIR/yr &&
         chmod +w $$PYTHON_SERVICE_DIR/ &&
-        chrpath -r '$$ORIGIN' $(location py_strip) &&
+        if [[ "$$(uname)" != "Darwin" ]]; then chrpath -r '$$ORIGIN' $(location py_strip) 2>/dev/null || true; fi &&
+        PYTHON3_BIN_PATH=$${PYTHON3_BIN_PATH:-python3}
         PYTHON_VERSION=$$($$PYTHON3_BIN_PATH --version 2>&1) &&
         echo $$PYTHON_VERSION > $@
-        ARCH=$$(uname -m) &&
-        if [[ "$$PYTHON_VERSION" =~ "3.6" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-36m-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.7" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-37m-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.8" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-38-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.9" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-39-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.10" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-310-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.11" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-311-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.12" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-312-$$ARCH-linux-gnu.so
-        elif [[ $$PYTHON_VERSION =~ "3.13" ]]; then
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-313-$$ARCH-linux-gnu.so
-        else
-            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/
-        fi
-        cp -ar $(location //:grpc_strip) $$PYTHON_CODE_DIR/yr/
-        ln -f -s libssl.so.1.1 $$PYTHON_CODE_DIR/yr/libssl.so
-        ln -f -s libcrypto.so.1.1 $$PYTHON_CODE_DIR/yr/libcrypto.so
-        ln -f -s liblitebus.so.0.0.1 $$PYTHON_CODE_DIR/yr/liblitebus.so
-
-        ln -f -s libspdlog.so.1.12.0 $$PYTHON_CODE_DIR/yr/libspdlog.so.1
-        ln -f -s libspdlog.so.1 $$PYTHON_CODE_DIR/yr/libspdlog.so
-        ln -f -s libspdlog.so.1 $$PYTHON_CODE_DIR/yr/libspdlog.so
-
+        EXT_SUFFIX=$$($$PYTHON3_BIN_PATH - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("EXT_SUFFIX") or ".so")
+PY
+        ) &&
+        cp -R $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime$$EXT_SUFFIX &&
         cd $$BASE_DIR
         echo "$$BASE_DIR" >> $@
     """,
@@ -152,15 +113,42 @@ genrule(
 )
 
 genrule(
-    name = "libruntime_proto_for_test",
+    name = "libruntime_proto_py",
     srcs = [
         "//src/proto:libruntime_py_proto",
     ],
     outs = ["yr/libruntime_pb2.py"],
     cmd = """
-        cat "$(location //src/proto:libruntime_py_proto)" >$@
+        mkdir -p "$(@D)"
+        cp "$(location //src/proto:libruntime_py_proto)" "$@"
     """,
     local = 1,
+    tags = ["no-cache"],
+)
+
+genrule(
+    name = "sync_libruntime_proto_workspace",
+    srcs = [
+        ":libruntime_proto_py",
+        "//:WORKSPACE",
+    ],
+    outs = ["libruntime_proto_workspace_sync.out"],
+    cmd = """
+        PYTHON3_BIN_PATH=$${PYTHON3_BIN_PATH:-python3}
+        WORKSPACE_DIR=$$($$PYTHON3_BIN_PATH -c 'import os,sys; print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$(location //:WORKSPACE)")
+        mkdir -p "$$WORKSPACE_DIR/api/python/yr"
+        rm -f "$$WORKSPACE_DIR/api/python/yr/libruntime_pb2.py"
+        install -m 0644 "$(location :libruntime_proto_py)" "$$WORKSPACE_DIR/api/python/yr/libruntime_pb2.py"
+        date > "$@"
+    """,
+    local = 1,
+    stamp = 1,
+    tags = [
+        "local",
+        "no-cache",
+        "no-sandbox",
+        "no-remote",
+    ],
 )
 
 py_library(
@@ -171,7 +159,7 @@ py_library(
     ),
     data = [
         "yr/fnruntime.so",
-        "yr/libruntime_pb2.py",
+        ":libruntime_proto_py",
     ],
     visibility = ["__subpackages__"],
 )

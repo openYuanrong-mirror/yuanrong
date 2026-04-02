@@ -2,10 +2,17 @@ load("//bazel:yr.bzl", "COPTS", "LOPTS")
 
 cc_library(
     name = "cpplibruntime_lib",
+    copts = COPTS + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+    }),
     deps = [
         "//:runtime_lib",
         "@securec//:securec",
-    ],
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["@datasystem_sdk//:datasystem_client_lib"],
+    }),
     hdrs = [
         "clibruntime.h",
     ],
@@ -18,14 +25,16 @@ cc_library(
 
 cc_binary(
     name = "libcpplibruntime.so",
-    dynamic_deps = ["//:grpc_dynamic"],
     deps = select(
         {
             "test_mode": [":mockcpplibruntime_lib"],
             "//conditions:default": [":cpplibruntime_lib"],
         }
     ),
-    copts = COPTS,
+    copts = COPTS + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+    }),
     linkopts = LOPTS,
     linkshared = True,
     linkstatic = True,

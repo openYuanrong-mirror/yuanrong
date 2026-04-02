@@ -1,0 +1,12 @@
+# Patches for external dependencies
+
+exports_files([
+    "absl_failure_signal_handler.patch",
+    "gloo-fix-sign-compare.patch",
+    "grpc_1.65.patch",
+    "grpc_1_65_4_gcc_7_3.patch",
+    "protobuf_gcc_7_3.patch",
+    "remote_java_tools.patch",
+    "spdlog-change-namespace-and-library-name-with-yr.patch",
+    "tbb-macos-arm64.patch",
+])

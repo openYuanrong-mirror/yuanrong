@@ -22,9 +22,16 @@
 #include "reference_count_map.h"
 #include "src/dto/buffer.h"
 #include "src/libruntime/objectstore/object_store.h"
+#include "src/libruntime/utils/constants.h"
+#include "src/libruntime/utils/datasystem_utils.h"
 #include "src/utility/logger/logger.h"
+#ifdef ENABLE_DATASYSTEM
+#include "datasystem/object_client.h"
+#endif
 namespace YR {
 namespace Libruntime {
+
+#ifdef ENABLE_DATASYSTEM
 class DSCacheObjectStore : public ObjectStore {
 public:
     DSCacheObjectStore() = default;
@@ -34,11 +41,11 @@ public:
     ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout = DS_CONNECT_TIMEOUT) override;
 
     ErrorInfo Init(const std::string &addr, int port, bool enableDsAuth, bool encryptEnable,
-                   const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                   const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                   const datasystem::SensitiveValue &sk, std::int32_t connectTimeout) override;
+                   const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                   const SensitiveValue &sk, std::int32_t connectTimeout) override;
 
-    ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) override;
+    ErrorInfo Init(DsConnectOptions &inputConnOpt) override;
 
     void InitOnce(void);
 
@@ -46,7 +53,7 @@ public:
                            const CreateParam &createParam) override;
 
     std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> GetBuffers(const std::vector<std::string> &ids,
-                                                                          int timeoutMS);
+                                                                          int timeoutMS) override;
 
     std::pair<RetryInfo, std::vector<std::shared_ptr<Buffer>>> GetBuffersWithoutRetry(
         const std::vector<std::string> &ids, int timeoutMS) override;
@@ -60,8 +67,8 @@ public:
 
     // Get a list of objects from the datasystem.
     MultipleResult Get(const std::vector<std::string> &ids, int timeoutMS) override;
-    ErrorInfo UpdateToken(datasystem::SensitiveValue token) override;
-    ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) override;
+    ErrorInfo UpdateToken(SensitiveValue token) override;
+    ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) override;
 
     ErrorInfo IncreGlobalReference(const std::vector<std::string> &objectIds) override;
 
@@ -81,7 +88,7 @@ public:
 
     void SetTenantId(const std::string &tenantId) override;
 
-    void Clear();
+    void Clear() override;
     void Shutdown() override;
 
 private:
@@ -92,16 +99,19 @@ private:
                              std::vector<std::shared_ptr<Buffer>> &bufferList);
     RetryInfo GetBuffersWithoutRetryImpl(const std::vector<std::string> &ids, int timeoutMS,
                                          std::vector<std::shared_ptr<Buffer>> &bufferList);
-    std::shared_ptr<datasystem::ObjectClient> dsClient;
     AsyncDecreRef asyncDecreRef;
-    bool isInit = false;
     RefCountMap refCountMap;
     std::once_flag initFlag;
     ErrorInfo initErr;
     std::string tenantId;
-    datasystem::SensitiveValue tokenUpdated;
-    ds::ConnectOptions connectOpts;
+    SensitiveValue tokenUpdated;
+    datasystem::ConnectOptions connectOpts;
+#ifdef ENABLE_DATASYSTEM
+    bool isInit = false;
+    std::shared_ptr<datasystem::ObjectClient> dsClient;
+#endif  // ENABLE_DATASYSTEM
 };
+#endif  // ENABLE_DATASYSTEM - DSCacheObjectStore class
 
 #define OBJ_STORE_INIT_ONCE_THROW()                                          \
     do {                                                                     \
@@ -135,6 +145,7 @@ private:
         }                                 \
     } while (0)
 
+#ifdef ENABLE_DATASYSTEM
 class DataSystemBuffer : public SharedBuffer {
 public:
     DataSystemBuffer(std::shared_ptr<datasystem::Buffer> buf)
@@ -207,5 +218,46 @@ public:
 private:
     std::shared_ptr<datasystem::Buffer> buffer;
 };
+#else   // !ENABLE_DATASYSTEM
+class DataSystemBuffer : public SharedBuffer {
+public:
+    DataSystemBuffer() : SharedBuffer(nullptr, 0) {}
+
+    virtual ErrorInfo MemoryCopy(const void *data, uint64_t length) override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo Seal(const std::unordered_set<std::string> &nestedIds) override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo WriterLatch() override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo WriterUnlatch() override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo ReaderLatch() override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo ReaderUnlatch() override
+    {
+        return ErrorInfo();
+    }
+
+    virtual ErrorInfo Publish() override
+    {
+        return ErrorInfo();
+    }
+};
+#endif  // ENABLE_DATASYSTEM
 }  // namespace Libruntime
 }  // namespace YR

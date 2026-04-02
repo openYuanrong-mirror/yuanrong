@@ -18,8 +18,8 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include "datasystem/utils/sensitive_value.h"
 #include "src/libruntime/utils/hash_utils.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "src/libruntime/utils/utils.h"
 namespace YR {
 namespace Libruntime {
@@ -30,7 +30,6 @@ const std::string INSTANCE_CPU_KEY = "X-Instance-Cpu";
 const std::string INSTANCE_MEMORY_KEY = "X-Instance-Memory";
 const std::string TIMESTAMP_KEY = "X-Timestamp";
 const std::string ACCESS_KEY = "X-Access-Key";
-using SensitiveValue = datasystem::SensitiveValue;
 
 std::string HashToHex(const std::string &message);
 

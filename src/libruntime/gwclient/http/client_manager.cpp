@@ -23,10 +23,11 @@
 #include "src/libruntime/gwclient/http/client_manager.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/notification_utility.h"
+#include "src/utility/platform_compat.h"
 
 namespace {
-const int RETRY_TIME = 3;
-const int INTERVAL_TIME = 2;
+[[maybe_unused]] const int RETRY_TIME = 3;
+[[maybe_unused]] const int INTERVAL_TIME = 2;
 }  // namespace
 
 namespace ssl = boost::asio::ssl;
@@ -118,7 +119,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                 }
             }
 
-            for (uint32_t i = 0; i < maxConnSize_; i++) {
+            for (uint32_t _ = 0; _ < maxConnSize_; _++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
             }
         } catch (const std::exception &e) {
@@ -151,7 +152,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                 }
             }
 
-            for (uint32_t i = 0; i < maxConnSize_; i++) {
+            for (uint32_t _ = 0; _ < maxConnSize_; _++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
             }
         } catch (const std::exception &e) {
@@ -166,15 +167,17 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
         }
     } else {
         // No TLS: Create plain HTTP clients without encryption
-        for (uint32_t i = 0; i < maxConnSize_; i++) {
+        for (uint32_t _ = 0; _ < maxConnSize_; _++) {
             this->clients.emplace_back(std::make_shared<AsyncHttpClient>(this->ioc));
         }
     }
 
     for (uint32_t i = 0; i < maxIocThread; i++) {
-        asyncRunners.push_back(std::make_unique<std::thread>([&] { this->ioc->run(); }));
         std::string name = "yr_client_io_" + std::to_string(i);
-        pthread_setname_np(this->asyncRunners[i]->native_handle(), name.c_str());
+        asyncRunners.push_back(std::make_unique<std::thread>([this, name] {
+            YR_SET_THREAD_NAME_CURRENT(name.c_str());
+            this->ioc->run();
+        }));
     }
     return err;
 }
@@ -189,7 +192,7 @@ ErrorInfo ClientManager::Init(const ConnectionParam &param)
     connectedClientsCnt_ = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
     YRLOG_INFO("http initial connection num {}", connectedClientsCnt_);
     for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
-        for (int j = 0; j < RETRY_TIME; j++) {
+        for (int _ = 0; _ < RETRY_TIME; _++) {
             error = clients[i]->Init(param);
             clients[i]->SetAvailable();
             if (error.OK()) {

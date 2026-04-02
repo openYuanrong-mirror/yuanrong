@@ -49,7 +49,7 @@ static inline void AddPythonPlaceholder(YR::internal::FunctionLanguage language,
         return;
     }
     InvokeArg invokeArg{};
-    invokeArg.buf = std::move(Serialize(PY_PLACEHOLDER));
+    invokeArg.buf = Serialize(PY_PLACEHOLDER);
     invokeArg.isRef = false;
     invokeArgs.emplace_back(std::move(invokeArg));
 }

@@ -26,6 +26,7 @@ Options:
 PROJECT_DIR=$(cd "$(dirname "$0")"; pwd)
 OUTPUT_DIR="${PROJECT_DIR}/output"
 RUNTIME_OUTPUT_DIR="${PROJECT_DIR}/../output"
+YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
 POSIX_DIR="${PROJECT_DIR}/proto/posix"
 YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
 DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
@@ -73,7 +74,12 @@ if [ ! -d "${YR_DATASYSTEM_DIR}"/output/sdk/go/stream ]; then
         popd
     fi
 fi
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}:${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+else
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+fi
 
 echo "generating fs proto pb objects"
 mkdir -p "${OUTPUT_DIR}"
@@ -85,7 +91,7 @@ echo "start to compile dashboard -s ${SCC_BUILD_ENABLED}"
 mkdir -p "${OUTPUT_DIR}/bin/"
 rm -rf "${OUTPUT_DIR}/bin/dashboard"
 DASHBOARD_FLAGS="${FLAGS} -X 'yuanrong.org/kernel/pkg/dashboard/flags.version=${VERSION}'"
-CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -tags="${BUILD_TAGS}" -buildmode=pie -ldflags "${DASHBOARD_FLAGS}"  -o \
+CC="${CC:-cc} -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2" go build -tags="${BUILD_TAGS}" -buildmode=pie -ldflags "${DASHBOARD_FLAGS}"  -o \
 "${OUTPUT_DIR}"/bin/dashboard "${PROJECT_DIR}"/cmd/dashboard/main.go
 strip "${OUTPUT_DIR}"/bin/dashboard
 mkdir -p "${OUTPUT_DIR}/config/"
@@ -100,7 +106,11 @@ cd "${PROJECT_DIR}/pkg/dashboard/client"
 CLIENT_CONFIG_DIR="${PROJECT_DIR}/pkg/dashboard/client/src/config"
 rm -f "${CLIENT_CONFIG_DIR}/config.json"
 cp "${CLIENT_CONFIG_DIR}/config.json.bak" "${CLIENT_CONFIG_DIR}/config.json"
-sed -i "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+else
+    sed -i "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+fi
 npm install || die "dashboard client install failed"
 npm run build || die "dashboard client build failed"
 mkdir -p "${OUTPUT_DIR}/bin/client"
@@ -112,7 +122,7 @@ mkdir -p "${OUTPUT_DIR}/bin/"
 rm -rf "${OUTPUT_DIR}/bin/collector"
 echo LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 COLLECTOR_FLAGS="${FLAGS} -X 'yuanrong.org/kernel/pkg/collector/common.version=${VERSION}'"
-CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -tags="${BUILD_TAGS}" -buildmode=pie -ldflags "${COLLECTOR_FLAGS}"  -o \
+CC="${CC:-cc} -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2" go build -tags="${BUILD_TAGS}" -buildmode=pie -ldflags "${COLLECTOR_FLAGS}"  -o \
 "${OUTPUT_DIR}"/bin/collector "${PROJECT_DIR}"/cmd/collector/main.go
 strip "${OUTPUT_DIR}"/bin/collector
 

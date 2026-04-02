@@ -33,6 +33,25 @@ using YR::utility::LOGGER_NAME;
 using YR::utility::LogParam;
 using YR::utility::LogRollingCompress;
 using YR::utility::SetGetLoggerNameFunc;
+
+// Static member definitions for pointer-based singleton
+std::unique_ptr<LibruntimeManager> LibruntimeManager::instance_ = nullptr;
+std::mutex LibruntimeManager::instanceMutex_;
+
+LibruntimeManager& LibruntimeManager::Instance()
+{
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    if (!instance_) {
+        instance_ = std::unique_ptr<LibruntimeManager>(new LibruntimeManager());
+    }
+    return *instance_;
+}
+
+void LibruntimeManager::Cleanup()
+{
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    instance_.reset();
+}
 std::pair<uint32_t, ErrorInfo> GetValidMaxLogFileNum(uint32_t maxLogFileNum)
 {
     ErrorInfo err;
@@ -265,13 +284,29 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
     auto finalizeHandler = [this, rtCtx(librtConfig->rtCtx)]() { this->Finalize(rtCtx); };
     librt = std::make_shared<Libruntime>(librtConfig, clientsMgr, metricsAdaptor, security, socketClient_);
     if (librtConfig->inCluster) {
+#ifdef ENABLE_DATASYSTEM
         auto [datasystemClients, err] =
             clientsMgr->GetOrNewDsClient(librtConfig, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
         if (!err.OK()) {
             YRLOG_ERROR("get or new ds client failed, code is {}, msg is {}", fmt::underlying(err.Code()), err.Msg());
             return err;
         }
-        security->WhenTokenUpdated([datasystemClients](const datasystem::SensitiveValue &token) -> void {
+        if (datasystemClients.dsObjectStore == nullptr || datasystemClients.dsStateStore == nullptr ||
+            datasystemClients.dsStreamStore == nullptr || datasystemClients.dsHeteroStore == nullptr) {
+            YRLOG_ERROR("datasystem client init succeeded but some clients are nullptr, object {}, state {}, stream {}, "
+                        "hetero {}, ip {}, port {}", datasystemClients.dsObjectStore != nullptr,
+                        datasystemClients.dsStateStore != nullptr, datasystemClients.dsStreamStore != nullptr,
+                        datasystemClients.dsHeteroStore != nullptr, librtConfig->dataSystemIpAddr,
+                        librtConfig->dataSystemPort);
+            auto releaseErr = clientsMgr->ReleaseDsClient(librtConfig->dataSystemIpAddr, librtConfig->dataSystemPort);
+            if (!releaseErr.OK()) {
+                YRLOG_WARN("release ds client failed after invalid init result, code {}, msg {}",
+                           fmt::underlying(releaseErr.Code()), releaseErr.Msg());
+            }
+            return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                             "GetOrNewDsClient returned nullptr datasystem client");
+        }
+        security->WhenTokenUpdated([datasystemClients](const SensitiveValue &token) -> void {
             auto errInfo = datasystemClients.dsObjectStore->UpdateToken(token);
             if (!errInfo.OK()) {
                 YRLOG_ERROR("update token failed, code is {}", fmt::underlying(errInfo.Code()));
@@ -286,7 +321,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             }
         });
         security->WhenAkSkUpdated(
-            [datasystemClients](const std::string &ak, const datasystem::SensitiveValue &sk) -> void {
+            [datasystemClients](const std::string &ak, const SensitiveValue &sk) -> void {
                 auto errInfo = datasystemClients.dsObjectStore->UpdateAkSk(ak, sk);
                 if (!errInfo.OK()) {
                     YRLOG_ERROR("update aksk failed, code is {}", fmt::underlying(errInfo.Code()));
@@ -302,6 +337,10 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             });
         auto fsClient = std::make_shared<FSClient>();
         return librt->Init(fsClient, datasystemClients, finalizeHandler);
+#else
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "inCluster runtime requires ENABLE_DATASYSTEM to be enabled");
+#endif
     } else {
         FSIntfHandlers handlers;
         auto [httpClient, err] = clientsMgr->GetOrNewHttpClient(librtConfig->functionSystemIpAddr,

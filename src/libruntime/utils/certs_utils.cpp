@@ -69,7 +69,7 @@ std::string GetCa(const stack_st_X509 *ca)
     }
 
     std::string result = "";
-    for (int i = 0; i < sk_X509_num(ca); i++) {
+    for (size_t i = 0; i < sk_X509_num(ca); i++) {
         X509 *x = sk_X509_value(ca, i);
         BIO *mem = BIO_new(BIO_s_mem());
         (void)PEM_write_bio_X509(mem, x);
@@ -141,7 +141,7 @@ STACK_OF(X509) * GetCAFromFile(const std::string &caFile)
     }
 
     STACK_OF(X509) *caCertStack = sk_X509_new_null();
-    for (int i = 0; i < sk_X509_INFO_num(caCertInfoStack); i++) {
+    for (size_t i = 0; i < sk_X509_INFO_num(caCertInfoStack); i++) {
         X509_INFO *certInfo = sk_X509_INFO_value(caCertInfoStack, i);
         if (certInfo->x509) {
             sk_X509_push(caCertStack, X509_dup(certInfo->x509));

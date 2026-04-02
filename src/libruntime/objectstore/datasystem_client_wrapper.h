@@ -21,14 +21,16 @@
 #include <string>
 #include <vector>
 
-#include "datasystem/utils/status.h"
+#include "src/libruntime/err_type.h"
 
 namespace YR {
 namespace Libruntime {
 class DatasystemClientWrapper {
 public:
-    virtual datasystem::Status GDecreaseRef(const std::vector<std::string> &objectIds,
-                                            std::vector<std::string> &failedObjectIds) = 0;
+    virtual ~DatasystemClientWrapper() = default;
+
+    virtual ErrorInfo GDecreaseRef(const std::vector<std::string> &objectIds,
+                                   std::vector<std::string> &failedObjectIds) = 0;
 
     virtual void SetTenantId(const std::string &tenantId) = 0;
 };

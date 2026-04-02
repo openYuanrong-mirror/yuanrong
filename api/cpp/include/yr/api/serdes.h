@@ -31,7 +31,7 @@ static msgpack::sbuffer Serialize(const T &value)
     return buffer;
 }
 
-static bool referenceFunc(msgpack::type::object_type type, std::size_t length, void* user_data)
+static inline bool referenceFunc(msgpack::type::object_type type, std::size_t length, void* user_data)
 {
     return true;
 }

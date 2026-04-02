@@ -37,9 +37,10 @@ function main() {
     [ -f "${MASTER_INFO_OUT_FILE}" ] && rm -f ${MASTER_INFO_OUT_FILE}
   else
     # if master info parent dir is not exist, need create first
-    rm -rf ${MASTER_INFO_OUT_FILE}
-    mkdir -p ${MASTER_INFO_OUT_FILE}
-    rm -rf ${MASTER_INFO_OUT_FILE}
+    local master_info_dir
+    master_info_dir=$(dirname "${MASTER_INFO_OUT_FILE}")
+    rm -rf "${MASTER_INFO_OUT_FILE}"
+    mkdir -p "${master_info_dir}"
   fi
   if [ "$BLOCK" == "true" ]; then
     bash ${BASE_DIR}/deploy.sh "$@" --master --master_info_output ${MASTER_INFO_OUT_FILE} -g TRUE -a ${IP_ADDRESS}

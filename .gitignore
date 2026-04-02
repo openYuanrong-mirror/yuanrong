@@ -59,9 +59,7 @@ example/casdoor/token_jwt_key.pem
 example/keycloak/data/
 outputapi/python/build/
 api/python/dist/
-api/python/*.egg-info/
 go/output/
-go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
 /metrics/
 output/
@@ -73,3 +71,6 @@ scripts/package/.build/
 # thirdparty
 thirdparty/
 go/pkg/mod/
+
+# AI assistant configs (local only)
+.specify/

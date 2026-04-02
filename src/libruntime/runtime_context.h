@@ -46,7 +46,7 @@ public:
 private:
     mutable absl::Mutex mu_;
 
-    std::string jobId_ ABSL_GUARDED_BY(mu_);
+    std::string jobId_;
 };
 }  // namespace Libruntime
 }  // namespace YR

@@ -17,6 +17,7 @@
 import errno
 import logging
 import os
+import platform
 import random
 import socket
 import string
@@ -107,6 +108,9 @@ def read_int(path: Path) -> int:
 def get_cgroup_paths() -> tuple[str, str]:
     mem_v1 = ""
     unified = ""
+    if platform.system() == "Darwin":
+        # macOS doesn't have /proc/cgroup - return empty values
+        return "", ""
     try:
         with Path("/proc/self/cgroup").open() as f:
             for line in f:
@@ -157,6 +161,17 @@ def get_cgroup_limit_bytes() -> int:
 
 
 def get_memtotal_mb_from_proc() -> int:
+    if platform.system() == "Darwin":
+        # macOS doesn't have /proc/meminfo - use psutil instead
+        try:
+            import psutil
+            total_bytes = psutil.virtual_memory().total
+            total_mb = total_bytes // 1024 // 1024
+            logger.debug(f"MemTotal from psutil on macOS: {total_mb} MB")
+            return total_mb
+        except ImportError:
+            logger.warning("psutil not available on macOS, cannot determine memory")
+            return 0
     with Path("/proc/meminfo").open() as f:
         meminfo = f.read()
     total_kb = 0

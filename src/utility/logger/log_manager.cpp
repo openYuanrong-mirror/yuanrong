@@ -16,7 +16,9 @@
 
 #include "log_manager.h"
 
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 #include <string>
 #include <thread>
 
@@ -76,7 +78,9 @@ void LogManager::StopRollingCompress() noexcept
 
 void LogManager::CronTask(const std::function<void(LogParam &)> &func)
 {
+#ifdef __linux__
     (void)prctl(PR_SET_NAME, LOG_ROLLING_COMPRESS.c_str());
+#endif
     std::unique_lock<std::mutex> l(mtx_);
     while (state_ == RUNNING) {
         std::cv_status cs = rcCond_.wait_for(l, std::chrono::seconds(interval_));

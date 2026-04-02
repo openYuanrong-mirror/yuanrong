@@ -21,7 +21,7 @@ BASE_DIR=$(
     pwd
 )
 . "${BASE_DIR}/../utils.sh"
-YUANRONG_DIR="${BASE_DIR}/../../../output/yuanrong"
+YUANRONG_DIR="${BASE_DIR}/../../../output/openyuanrong"
 BUILD_DIR="${BASE_DIR}/build"
 readonly USAGE="
 Usage: bash build.sh [-h] [-y path-to-yuanrong] [-S thread/address/off]

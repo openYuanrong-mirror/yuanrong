@@ -20,11 +20,12 @@
 #include <string>
 
 #include <msgpack.hpp>
-#include "datasystem/object_client.h"
 #include "src/dto/buffer.h"
 #include "src/dto/tensor.h"
 #include "src/dto/types.h"
 #include "src/libruntime/err_type.h"
+#include "src/libruntime/utils/sensitive_value.h"
+#include "src/libruntime/utils/datasystem_utils.h"
 
 namespace YR {
 namespace Libruntime {
@@ -58,11 +59,11 @@ public:
     virtual ~ObjectStore() = default;
     virtual ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout) = 0;
     virtual ErrorInfo Init(const std::string &addr, int port, bool enableDsAuth, bool encryptEnable,
-                           const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                           const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
-                           const std::string &ak, const datasystem::SensitiveValue &sk,
+                           const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                           const std::string &dsPublicKey, const SensitiveValue &token,
+                           const std::string &ak, const SensitiveValue &sk,
                            std::int32_t connectTimeout) = 0;
-    virtual ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) = 0;
+    virtual ErrorInfo Init(DsConnectOptions &inputConnOpt) = 0;
     virtual ErrorInfo CreateBuffer(const std::string &objectId, size_t dataSize, std::shared_ptr<Buffer> &dataBuf,
                                    const CreateParam &createParam) = 0;
     virtual std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> GetBuffers(const std::vector<std::string> &ids,
@@ -92,8 +93,8 @@ public:
     virtual void SetTenantId(const std::string &tenantId) = 0;
     virtual void Clear() = 0;
     virtual void Shutdown() = 0;
-    virtual ErrorInfo UpdateToken(datasystem::SensitiveValue token) = 0;
-    virtual ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) = 0;
+    virtual ErrorInfo UpdateToken(SensitiveValue token) = 0;
+    virtual ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) = 0;
 };
 
 class MsgpackBuffer : public NativeBuffer {

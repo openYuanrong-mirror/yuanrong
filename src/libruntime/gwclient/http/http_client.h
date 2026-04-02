@@ -158,9 +158,9 @@ protected:
     beast::flat_buffer buf_;
     std::shared_ptr<http::response_parser<http::string_body>> resParser_;
     http::request<http::string_body> req_;
-    bool isUsed_{true} ABSL_GUARDED_BY(mu_);
-    bool isConnectionAlive_{false} ABSL_GUARDED_BY(mu_);
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_ ABSL_GUARDED_BY(mu_);
+    bool isUsed_{true};
+    bool isConnectionAlive_{false};
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_;
     bool retried_{false};
     int idleTime_{120};
     mutable absl::Mutex mu_;

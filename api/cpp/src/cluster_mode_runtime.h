@@ -30,64 +30,65 @@ YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts);
 class ClusterModeRuntime : public Runtime {
 public:
     ClusterModeRuntime() = default;
+    ~ClusterModeRuntime() override = default;
 
     void Init() override;
 
     std::string GetServerVersion() override;
 
     // return objid
-    std::string Put(std::shared_ptr<msgpack::sbuffer> data, const std::unordered_set<std::string> &nestedId);
+    std::string Put(std::shared_ptr<msgpack::sbuffer> data, const std::unordered_set<std::string> &nestedId) override;
 
-    std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId);
+    std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId) override;
 
     std::string Put(std::shared_ptr<msgpack::sbuffer> data, const std::unordered_set<std::string> &nestedId,
-                    const CreateParam &createParam);
+                    const CreateParam &createParam) override;
 
     std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId,
-                    const CreateParam &createParam);
+                    const CreateParam &createParam) override;
 
     void Put(const std::string &objId, std::shared_ptr<msgpack::sbuffer> data,
-             const std::unordered_set<std::string> &nestedId);
+             const std::unordered_set<std::string> &nestedId) override;
 
     // KV
-    void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParam setParam);
+    void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParam setParam) override;
 
-    void KVWrite(const std::string &key, const char *value, SetParam setParam);
+    void KVWrite(const std::string &key, const char *value, SetParam setParam) override;
 
-    void KVWrite(const std::string &key, const char *value, size_t len, SetParam setParam);
+    void KVWrite(const std::string &key, const char *value, size_t len, SetParam setParam) override;
 
-    void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParamV2 setParam);
-
-    void KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<msgpack::sbuffer>> &vals,
-                  ExistenceOpt existence);
+    void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParamV2 setParam) override;
 
     void KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<msgpack::sbuffer>> &vals,
-                  const MSetParam &mSetParam);
+                  ExistenceOpt existence) override;
 
-    std::shared_ptr<Buffer> KVRead(const std::string &key, int timeoutMs);
+    void KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<msgpack::sbuffer>> &vals,
+                  const MSetParam &mSetParam) override;
+
+    std::shared_ptr<Buffer> KVRead(const std::string &key, int timeoutMs) override;
 
     std::vector<std::shared_ptr<Buffer>> KVRead(const std::vector<std::string> &keys, int timeoutMs,
-                                                bool allowPartial = false);
+                                                bool allowPartial = false) override;
 
-    void KVDel(const std::string &key, const DelParam &delParam = {});
+    void KVDel(const std::string &key, const DelParam &delParam = {}) override;
 
     std::vector<std::shared_ptr<Buffer>> KVGetWithParam(const std::vector<std::string> &keys,
-                                                        const YR::GetParams &params, int timeoutMs);
+                                                        const YR::GetParams &params, int timeoutMs) override;
 
-    std::vector<std::string> KVDel(const std::vector<std::string> &keys, const DelParam &delParam = {});
+    std::vector<std::string> KVDel(const std::vector<std::string> &keys, const DelParam &delParam = {}) override;
 
-    std::vector<bool> KVExist(const std::vector<std::string> &keys);
+    std::vector<bool> KVExist(const std::vector<std::string> &keys) override;
 
-    std::shared_ptr<Producer> CreateStreamProducer(const std::string &streamName, ProducerConf producerConf);
+    std::shared_ptr<Producer> CreateStreamProducer(const std::string &streamName, ProducerConf producerConf) override;
 
     std::shared_ptr<Consumer> CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
-                                                   bool autoAck = false);
+                                                   bool autoAck = false) override;
 
-    void DeleteStream(const std::string &streamName);
+    void DeleteStream(const std::string &streamName) override;
 
-    void QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum);
+    void QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum) override;
 
-    void QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum);
+    void QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum) override;
 
     std::string InvokeByName(const internal::FuncMeta &funcMeta, std::vector<YR::internal::InvokeArg> &args,
                              const InvokeOptions &opt) override;
@@ -98,11 +99,12 @@ public:
     std::string CreateInstance(const internal::FuncMeta &funcMeta, std::vector<YR::internal::InvokeArg> &args,
                                YR::InvokeOptions &opt) override;
 
-    std::string GetRealInstanceId(const std::string &objectId);
+    std::string GetRealInstanceId(const std::string &objectId) override;
 
-    void SaveRealInstanceId(const std::string &objectId, const std::string &instanceId, const InvokeOptions &opts);
+    void SaveRealInstanceId(const std::string &objectId, const std::string &instanceId,
+                            const InvokeOptions &opts) override;
 
-    void Cancel(const std::vector<std::string> &objs, bool isForce, bool isRecursive);
+    void Cancel(const std::vector<std::string> &objs, bool isForce, bool isRecursive) override;
 
     std::pair<internal::RetryInfo, std::vector<std::shared_ptr<Buffer>>> Get(const std::vector<std::string> &ids,
                                                                              int timeoutMS,
@@ -117,27 +119,27 @@ public:
     std::string GenerateGroupName() override;
 
     // throw YR::Libruntime::Exception
-    void IncreGlobalReference(const std::vector<std::string> &objids, bool toDatasystem = true);
+    void IncreGlobalReference(const std::vector<std::string> &objids, bool toDatasystem = true) override;
 
-    void DecreGlobalReference(const std::vector<std::string> &objids);
+    void DecreGlobalReference(const std::vector<std::string> &objids) override;
 
-    void TerminateInstance(const std::string &instanceId);
+    void TerminateInstance(const std::string &instanceId) override;
 
-    void Exit(void);
+    void Exit(void) override;
 
     static void StopRuntime(void);
 
-    bool IsOnCloud();
+    bool IsOnCloud() override;
 
-    void GroupCreate(const std::string &name, GroupOptions &opts);
+    void GroupCreate(const std::string &name, GroupOptions &opts) override;
 
-    void GroupTerminate(const std::string &name);
+    void GroupTerminate(const std::string &name) override;
 
-    void GroupWait(const std::string &name);
+    void GroupWait(const std::string &name) override;
 
-    void SaveState(const int &timeout);
+    void SaveState(const int &timeout) override;
 
-    void LoadState(const int &timeout);
+    void LoadState(const int &timeout) override;
 
     void DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
 
@@ -157,17 +159,18 @@ public:
 
     internal::FuncMeta GetInstance(const std::string &name, const std::string &nameSpace, int timeoutSec) override;
 
-    std::string GetGroupInstanceIds(const std::string &objectId);
+    std::string GetGroupInstanceIds(const std::string &objectId) override;
 
-    void SaveGroupInstanceIds(const std::string &objectId, const std::string &groupInsIds, const InvokeOptions &opts);
+    void SaveGroupInstanceIds(const std::string &objectId, const std::string &groupInsIds,
+                              const InvokeOptions &opts) override;
 
-    std::string GetInstanceRoute(const std::string &objectId);
+    std::string GetInstanceRoute(const std::string &objectId) override;
 
-    void SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute);
+    void SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute) override;
 
-    void TerminateInstanceSync(const std::string &instanceId);
+    void TerminateInstanceSync(const std::string &instanceId) override;
 
-    std::vector<Node> Nodes();
+    std::vector<Node> Nodes() override;
 
     std::shared_ptr<MutableBuffer> CreateMutableBuffer(uint64_t size) override;
 

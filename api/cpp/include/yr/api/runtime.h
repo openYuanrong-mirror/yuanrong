@@ -311,6 +311,7 @@ struct AsyncResult {
 
 class Runtime {
 public:
+    virtual ~Runtime() = default;
     virtual void Init() = 0;
 
     virtual std::string GetServerVersion() = 0;

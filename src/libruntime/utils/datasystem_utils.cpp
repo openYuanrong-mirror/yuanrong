@@ -14,15 +14,37 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include "datasystem_utils.h"
 
 #include <sstream>
 
 #include "src/libruntime/utils/constants.h"
 
-namespace ds = datasystem;
 namespace YR {
 namespace Libruntime {
+ErrorInfo ProcessKeyPartialResult(const std::vector<std::string> &keys,
+                                  const std::vector<std::shared_ptr<Buffer>> &result, const ErrorInfo &errInfo,
+                                  int timeoutMs)
+{
+    ErrorInfo err;
+    std::vector<std::string> failKeys;
+    bool isPartialResult = false;
+    for (unsigned int i = 0; i < result.size(); i++) {
+        if (!(result[i])) {  // result[i] is nullptr
+            isPartialResult = true;
+            failKeys.push_back(keys[i]);
+        }
+    }
+    if (isPartialResult) {
+        err.SetErrCodeAndMsg(YR::Libruntime::ErrorCode::ERR_GET_OPERATION_FAILED,
+                             YR::Libruntime::ModuleCode::DATASYSTEM, errInfo.GetExceptionMsg(failKeys, timeoutMs),
+                             errInfo.GetDsStatusCode());
+    }
+    return err;
+}
+#ifdef ENABLE_DATASYSTEM
+namespace ds = datasystem;
 bool IsRetryableStatus(const ds::Status &status)
 {
     static std::set<ds::StatusCode> retryableStatus(
@@ -105,25 +127,24 @@ ErrorInfo GenerateSetErrorInfo(const ds::Status &status)
     return err;
 }
 
-ErrorInfo ProcessKeyPartialResult(const std::vector<std::string> &keys,
-                                  const std::vector<std::shared_ptr<Buffer>> &result, const ErrorInfo &errInfo,
-                                  int timeoutMs)
+ErrorInfo SetTraceId(const std::string &traceId)
 {
-    ErrorInfo err;
-    std::vector<std::string> failKeys;
-    bool isPartialResult = false;
-    for (unsigned int i = 0; i < result.size(); i++) {
-        if (!(result[i])) {  // result[i] is nullptr
-            isPartialResult = true;
-            failKeys.push_back(keys[i]);
-        }
+    if (traceId.empty()) {
+        return ErrorInfo();
     }
-    if (isPartialResult) {
-        err.SetErrCodeAndMsg(YR::Libruntime::ErrorCode::ERR_GET_OPERATION_FAILED,
-                             YR::Libruntime::ModuleCode::DATASYSTEM, errInfo.GetExceptionMsg(failKeys, timeoutMs),
-                             errInfo.GetDsStatusCode());
+    ds::Status rc = ds::Context::SetTraceId(traceId);
+    if (rc.IsError()) {
+        return ErrorInfo(ConvertDatasystemErrorToCore(rc.GetCode()), YR::Libruntime::ModuleCode::DATASYSTEM,
+                         rc.ToString());
     }
-    return err;
+    return ErrorInfo();
 }
+#else   // !ENABLE_DATASYSTEM
+ErrorInfo SetTraceId(const std::string &traceId)
+{
+    (void)traceId;
+    return ErrorInfo();
+}
+#endif  // ENABLE_DATASYSTEM
 }  // namespace Libruntime
 }  // namespace YR

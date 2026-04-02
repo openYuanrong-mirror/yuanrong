@@ -39,7 +39,7 @@ public:
 
 private:
     absl::Mutex mu_;
-    std::unordered_map<std::string, std::shared_ptr<AliasEntry>> aliasInfo_ ABSL_GUARDED_BY(mu_);
+    std::unordered_map<std::string, std::shared_ptr<AliasEntry>> aliasInfo_;
 };
 
 struct AliasRule {

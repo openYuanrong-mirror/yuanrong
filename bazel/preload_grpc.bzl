@@ -1,25 +1,26 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("//bazel:grpc_upb_repository.bzl", "grpc_upb_repository")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
-load("//bazel:local_patched_repository.bzl", "local_patched_repository")
 
 def preload_grpc():
     http_archive(
         name = "com_google_absl",
-        sha256 = "104dead3edd7b67ddeb70c37578245130d6118efad5dad4b618d7e26a5331f55",
+        sha256 = "95e90be7c3643e658670e0dd3c1b27092349c34b632c6e795686355f67eca89f",
         strip_prefix = "abseil-cpp-20240722.0",
         urls = [
-            "https://gitee.com/mirrors/abseil-cpp/repository/archive/20240722.0.zip",
+            "https://github.com/abseil/abseil-cpp/archive/20240722.0.zip",
         ],
         patches = ["@yuanrong_multi_language_runtime//patch:absl_failure_signal_handler.patch"],
     )
 
     http_archive(
         name = "com_google_protobuf",
-        strip_prefix = "protobuf_source-v3.25.5",
-        sha256 = "4640cb69abb679e2a4b061dfeb7debb3170b592e4ac6e3f16dbaaa4aac0710bd",
-        urls = ["https://gitee.com/mirrors/protobuf_source/repository/archive/v3.25.5.zip"],
-        patches = ["@yuanrong_multi_language_runtime//patch:protobuf_gcc_7_3.patch"],
+        strip_prefix = "protobuf-3.25.5",
+        sha256 = "747e7477cd959878998145626b49d6f1b9d46065f2fe805622ff5702334f7cb7",
+        urls = [
+            "https://github.com/protocolbuffers/protobuf/archive/v3.25.5.zip",
+            "https://github.com/protocolbuffers/protobuf/archive/v3.25.5.zip",
+        ],
     )
 
     http_archive(
@@ -31,44 +32,64 @@ def preload_grpc():
 
     http_archive(
         name = "cython",
-        url = "https://gitee.com/mirrors/cython/repository/archive/3.0.10.zip",
-        sha256 = "e7fd54afdfef123be52a63e17e46eec2942f6a8012c97030dc68e6e10ed16f13",
+        urls = [
+            "https://github.com/cython/cython/archive/refs/tags/3.0.10.zip",
+        ],
+        sha256 = "339cf9cc18a8706dd68b24d8930ef0578e47e7d8d1468f8e17b2aeb0d7f81346",
         strip_prefix = "cython-3.0.10",
         build_file = "@com_github_grpc_grpc//third_party:cython.BUILD",
     )
 
     http_archive(
         name = "zlib",
-        strip_prefix = "zlib-v1.3.1",
-        urls = ["https://gitee.com/mirrors/zlib/repository/archive/v1.3.1.zip"],
-        sha256 = "7c31009abc4e76ddc32e1448b6051bafe5f606aac158bb36166100a21ec170c6",
+        strip_prefix = "zlib-1.3.1",
+        urls = [
+            "https://github.com/madler/zlib/archive/v1.3.1.zip",
+        ],
+        sha256 = "50b24b47bf19e1f35d2a21ff36d2a366638cdf958219a66f30ce0861201760e6",
         build_file = "@com_google_protobuf//:third_party/zlib.BUILD",
     )
-    
-    local_patched_repository(
+
+    http_archive(
         name = "com_github_grpc_grpc",
-        path = "../thirdparty/grpc",
-        patch_files = [
-         "@yuanrong_multi_language_runtime//patch:grpc_1.65.patch",
-         "@yuanrong_multi_language_runtime//patch:grpc_1_65_4_gcc_7_3.patch"
+        sha256 = "853b4ff0e1c3e1c4e19f8cc77bbab402981920997716003cea6db9970657f8c9",
+        strip_prefix = "grpc-1.65.4",
+        urls = ["https://github.com/grpc/grpc/archive/refs/tags/v1.65.4.tar.gz"],
+        patches = [
+            "@//patch:grpc_1.65.patch",
+            "@//patch:grpc_1_65_4_gcc_7_3.patch"
         ]
-     )
+    )
 
     grpc_upb_repository(
         name = "upb",
         path = Label("@com_github_grpc_grpc//:WORKSPACE")
     )
 
-    native.new_local_repository(
+    http_archive(
         name = "boringssl",
-        build_file = "//bazel:openssl.bazel",
-        path = "../thirdparty/openssl/"
+        sha256 = "7a35bebd0e1eecbc5bf5bbf5eec03e86686c356802b5540872119bd26f84ecc7",
+        strip_prefix = "boringssl-16c8d3db1af20fcc04b5190b25242aadcb1fbb30",
+        urls = [
+            "https://storage.googleapis.com/grpc-bazel-mirror/github.com/google/boringssl/archive/16c8d3db1af20fcc04b5190b25242aadcb1fbb30.tar.gz",
+            "https://github.com/google/boringssl/archive/16c8d3db1af20fcc04b5190b25242aadcb1fbb30.tar.gz",
+        ],
+        patch_cmds = [
+            """echo '
+filegroup(
+    name = "shared",
+    srcs = [":ssl", ":crypto"],
+    visibility = ["//visibility:public"],
+)' >> BUILD""",
+        ],
     )
 
     http_archive(
         name = "com_googlesource_code_re2",
-        url = "https://gitee.com/mirrors/re2/repository/archive/2024-02-01.zip",
-        sha256 = "54bff0e995b101e1865dcea5d052ec10b3aadb6f8c57b5c03c9eeccddb00a08a",
+        urls = [
+            "https://github.com/google/re2/archive/2024-02-01.zip",
+        ],
+        sha256 = "7e9ddb9096c92568e7d9bb4a912d7eee74fefdc49112daa57bad3f24e6b18b4f",
         strip_prefix = "re2-2024-02-01",
     )
 
@@ -81,7 +102,10 @@ def preload_grpc():
 
     http_archive(
         name = "com_github_cares_cares",
-        url = "https://gitee.com/mirrors/c-ares/repository/archive/cares-1_19_1.zip",
+        urls = [
+            "https://github.com/c-ares/c-ares/archive/cares-1_19_1.zip",
+            "https://github.com/c-ares/c-ares/archive/cares-1_19_1.zip",
+        ],
         sha256 = "edcaac184aff0e6b6eb7b9ede7a55f36c7fc04085d67fecff2434779155dd8ce",
         strip_prefix = "c-ares-cares-1_19_1",
     )

@@ -161,7 +161,7 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
                 YRLOG_INFO("OtelGrpcExporter is enable, endpoint is {}", config.endpoint);
                 processors.push_back(
                     std::unique_ptr<trace_sdk::SpanProcessor>(trace_sdk::BatchSpanProcessorFactory::Create(
-                        std::move(InitOtlpGrpcExporter(config)), batchSpanProcessorOptions)));
+                        InitOtlpGrpcExporter(config), batchSpanProcessorOptions)));
             } else if (element.key() == LOG_FILE_EXPORTER) {
                 if (!element.value().contains("enable")
                     || !element.value().at("enable").get<bool>()) {
@@ -172,7 +172,7 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
                 YRLOG_INFO("logFileExporter is enable");
                 processors.push_back(
                     std::unique_ptr<trace_sdk::SpanProcessor>(trace_sdk::BatchSpanProcessorFactory::Create(
-                        std::move(InitLogFileExporter()), batchSpanProcessorOptions)));
+                        InitLogFileExporter(), batchSpanProcessorOptions)));
             }
         }
     } catch (nlohmann::detail::parse_error &e) {
@@ -195,9 +195,9 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
         { opentelemetry::sdk::resource::SemanticConventions::kTelemetrySdkVersion, "" },
         { opentelemetry::sdk::resource::SemanticConventions::kServiceName, serviceName },
     };
-    auto provider = std::shared_ptr<trace_api::TracerProvider>(std::make_shared<trace_sdk::TracerProvider>(
+    auto provider = opentelemetry::nostd::shared_ptr<trace_api::TracerProvider>(new trace_sdk::TracerProvider(
         std::move(processors), opentelemetry::sdk::resource::Resource::Create(attributes)));
-    trace_api::Provider::SetTracerProvider(provider);
+    trace_api::Provider::SetTracerProvider(std::move(provider));
 }
 
 void TraceAdapter::ShutDown()
@@ -212,7 +212,7 @@ void TraceAdapter::ShutDown()
     if (traceProvider != nullptr && !traceProvider->ForceFlush()) {
         YRLOG_WARN("traceProvider shutDown failed");
     }
-    std::shared_ptr<trace_api::TracerProvider> none;
+    opentelemetry::nostd::shared_ptr<trace_api::TracerProvider> none;
     trace_api::Provider::SetTracerProvider(none);
 }
 

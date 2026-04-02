@@ -63,6 +63,8 @@ const char *const RGROUP_BUNDLE_SUFFIX = "_bundle";
 typedef void *StateStorePtr;
 class Libruntime {
 public:
+    virtual ~Libruntime() = default;
+
     /*!
         @brief Libruntime 构造函数
         @param config Libruntime的参数配置，详细参考：@ref LibruntimeConfig

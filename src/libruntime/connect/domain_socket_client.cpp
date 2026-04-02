@@ -17,6 +17,7 @@
 #include "domain_socket_client.h"
 
 #include "src/utility/logger/logger.h"
+#include "src/utility/platform_compat.h"
 
 namespace YR {
 namespace Libruntime {
@@ -53,8 +54,10 @@ ErrorInfo DomainSocketClient::DoInitOnce()
     if (connect(sockfd_, (struct sockaddr *)&serverAddr, sizeof(struct sockaddr_un)) == -1) {
         return ErrorInfo(ErrorCode::ERR_INCORRECT_INIT_USAGE, "failed to connect socket.");
     }
-    writeThread_ = std::thread(&DomainSocketClient::HandleWrite, this);
-    pthread_setname_np(writeThread_.native_handle(), "yr.uds.write");
+    writeThread_ = std::thread([this] {
+        YR_SET_THREAD_NAME_CURRENT("yr.uds.write");
+        HandleWrite();
+    });
     return ErrorInfo();
 }
 

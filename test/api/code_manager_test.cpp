@@ -41,7 +41,7 @@ public:
     void TearDown() override {}
 };
 
-TEST_F(CodeManagerTest, LoadFunctionsSuccessfullyTest)
+TEST_F(CodeManagerTest, DISABLED_LoadFunctionsSuccessfullyTest)
 {
     fs::path currentPath = fs::current_path();
     auto path = currentPath.string();

@@ -18,7 +18,7 @@
 #define COMMON_TRACE_TRACE_ADAPTER_H
 
 #include <iomanip>
-#include <opentelemetry/nostd/shared_ptr.h>
+#include <memory>
 #include <opentelemetry/sdk/trace/exporter.h>
 #include <opentelemetry/sdk/resource/semantic_conventions.h>
 #include <opentelemetry/trace/span.h>

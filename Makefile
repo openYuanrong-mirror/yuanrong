@@ -1,5 +1,11 @@
 .PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg image all clean
 
+# Bazel remote cache server (optional, can be set via environment variable)
+# Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
+REMOTE_CACHE ?=
+NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+FUNCTIONSYSTEM_JOBS ?= $(shell jobs=$$(($(NPROCS) / 2)); if [ $$jobs -lt 1 ]; then jobs=1; fi; echo $$jobs)
+
 help:
 	@echo "Available targets:"
 	@echo "  make clean          - Clean build outputs"
@@ -17,8 +23,8 @@ help:
 	@echo "  REMOTE_CACHE       - Remote cache server address"
 	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092"
 	@echo "                      If not provided, build will proceed without remote cache"
-	@echo "  JOBS               - Number of parallel jobs for compilation (default: auto/2)"
-	@echo "                      Example: make functionsystem JOBS=8"
+	@echo "  FUNCTIONSYSTEM_JOBS - Functionsystem jobs (default: auto/2)"
+	@echo "                      Example: make functionsystem FUNCTIONSYSTEM_JOBS=8"
 
 clean:
 	@echo "Cleaning build outputs..."
@@ -30,11 +36,6 @@ clean:
 	@rm -rf output/
 	@rm -f functionsystem/vendor/src/yr-datasystem.tar.gz
 	@echo "Clean completed!"
-
-# Default values
-REMOTE_CACHE ?=
-NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-JOBS ?= $(shell echo $$(($(NPROCS) / 2)))
 
 frontend:
 	@if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
@@ -77,7 +78,7 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
+	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) && bash run.sh pack && cd -
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
 
@@ -87,14 +88,12 @@ dashboard:
 	cp go/output/yr-faas*.tar.gz output/
 
 yuanrong:
-	@echo "Building runtime..."
-	@if [ -n "$(REMOTE_CACHE)" ]; then \
-		echo "Using remote cache: $(REMOTE_CACHE)"; \
-		bash build.sh -P -r $(REMOTE_CACHE); \
-	else \
-		echo "Building without remote cache (REMOTE_CACHE not provided)"; \
-		bash build.sh -P; \
-	fi
+	@echo "Building yuanrong runtime..."
+ifeq ($(strip $(REMOTE_CACHE)),)
+	bash build.sh -P
+else
+	bash build.sh -P -r $(REMOTE_CACHE)
+endif
 
 pkg:
 	@echo "Copying packages to example/aio/pkg/..."

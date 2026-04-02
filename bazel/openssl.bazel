@@ -42,10 +42,16 @@ configure_make(
     configure_options = CONFIGURE_OPTIONS,
     lib_name = LIB_NAME,
     lib_source = ":all_srcs",
-    out_shared_libs = [
-        "libssl.so.1.1",
-        "libcrypto.so.1.1",
-    ],
+    out_shared_libs = select({
+        "@platforms//os:macos": [
+            "libssl.1.1.dylib",
+            "libcrypto.1.1.dylib",
+        ],
+        "//conditions:default": [
+            "libssl.so.1.1",
+            "libcrypto.so.1.1",
+        ],
+    }),
     targets = MAKE_TARGETS,
     args = ["-j"],
 )
@@ -61,17 +67,23 @@ cc_library(
     name = "boringssl_sdk",
     hdrs = glob(["install/include/**/*.h"]),
     strip_include_prefix = "install/include",
-    srcs = [
-        "install/lib/libssl.so.1.1",
-        "install/lib/libcrypto.so.1.1",
-    ],
+    srcs = select({
+        "@platforms//os:macos": [
+            "install/lib/libssl.1.1.dylib",
+            "install/lib/libcrypto.1.1.dylib",
+        ],
+        "//conditions:default": [
+            "install/lib/libssl.so.1.1",
+            "install/lib/libcrypto.so.1.1",
+        ],
+    }),
     visibility = ["//visibility:public"],
     alwayslink = True,
 )
 
 filter_files_with_suffix(
     name = "shared",
-    srcs = glob(["install/lib/lib*.so*"]),
+    srcs = glob(["install/lib/lib*.so*", "install/lib/lib*.dylib*"]),
     suffix = ".so",
     visibility = ["//visibility:public"],
 )

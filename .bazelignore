@@ -1,1 +1,4 @@
 test/st
+build
+node_modules
+datasystem_src

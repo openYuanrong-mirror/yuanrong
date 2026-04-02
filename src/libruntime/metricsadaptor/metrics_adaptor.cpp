@@ -20,17 +20,20 @@
 #include "metrics_adaptor.h"
 
 
+#ifdef ENABLE_OBSERVABILITY
 #include "metrics/api/metric_data.h"
 #include "metrics/api/null.h"
 #include "metrics/api/provider.h"
 #include "metrics/sdk/immediately_export_processor.h"
 #include "metrics/sdk/meter_provider.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/logger/fileutils.h"
 
 namespace YR {
 namespace Libruntime {
+#ifdef ENABLE_OBSERVABILITY
 const char *const IMMEDIATELY_EXPORT = "immediatelyExport";
 const char *const FILE_EXPORTER = "fileExporter";
 const char *const PROMETHEUS_PUSH_EXPORTER = "prometheusPushExporter";
@@ -56,16 +59,22 @@ static std::string GetLibraryPath(const std::string &exporterType)
 {
     auto path = GetSelfSoPath();
     std::string filePath = "";
+#ifdef __APPLE__
+    const char* lib_ext = ".dylib";
+#else
+    const char* lib_ext = ".so";
+#endif
     if (exporterType == FILE_EXPORTER) {
-        filePath = path + "/libobservability-metrics-file-exporter.so";
+        filePath = path + "/libobservability-metrics-file-exporter" + lib_ext;
     } else if (exporterType == PROMETHEUS_PUSH_EXPORTER) {
-        filePath = path + "/libobservability-prometheus-push-exporter.so";
+        filePath = path + "/libobservability-prometheus-push-exporter" + lib_ext;
     } else if (exporterType == AOM_ALARM_EXPORTER) {
-        filePath = path + "/libobservability-aom-alarm-exporter.so";
+        filePath = path + "/libobservability-aom-alarm-exporter" + lib_ext;
     }
     YRLOG_INFO("exporter {} get library path: {}", exporterType, filePath);
     return filePath;
 }
+#endif  // ENABLE_OBSERVABILITY
 
 std::once_flag MetricsAdaptor::initFlag;
 std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
@@ -74,19 +83,23 @@ MetricsAdaptor::MetricsAdaptor() {}
 
 bool MetricsAdaptor::IsInited() const
 {
+#ifdef ENABLE_OBSERVABILITY
     return Initialized_;
+#else
+    return false;
+#endif
 }
 
 void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
 {
+#ifdef ENABLE_OBSERVABILITY
     userEnable_ = userEnable;
     YRLOG_DEBUG("start to init metrics adaptor, userEnable {}", userEnable);
     if (json.find("backends") == json.end()) {
         YRLOG_WARN("metrics backends is none");
         return;
     }
-    observability::sdk::metrics::LiteBusParams liteBusParam;
-    auto mp = std::make_shared<MetricsSdk::MeterProvider>(liteBusParam);
+    auto mp = std::make_shared<MetricsSdk::MeterProvider>();
     auto backends = json.at("backends");
     for (auto &[index, backend] : backends.items()) {
         YRLOG_DEBUG("metrics add backend index({})", index);
@@ -100,6 +113,11 @@ void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
         }
     }
     MetricsApi::Provider::SetMeterProvider(mp);
+#else
+    (void)json;
+    (void)userEnable;
+    YRLOG_DEBUG("metrics adaptor Init called but observability is disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 void MetricsAdaptor::SetContextAttr(const std::string &attr, const std::string &value)
@@ -112,6 +130,7 @@ std::string MetricsAdaptor::GetContextValue(const std::string &attr) const
     return metricsContext_.GetAttr(attr);
 }
 
+#ifdef ENABLE_OBSERVABILITY
 void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::MeterProvider> &mp,
                                            const nlohmann::json &backendValue,
                                            const std::function<std::string(std::string)> &getFileName)
@@ -145,7 +164,9 @@ void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::Met
         }
     }
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability::sdk::metrics::MeterProvider> &mp,
                                              const std::string &backendName, const nlohmann::json &exporters,
                                              const std::function<std::string(std::string)> &getFileName)
@@ -184,7 +205,9 @@ void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability
         }
     }
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(const std::string &httpExporterType,
                                                                              const std::string &backendKey,
                                                                              const std::string &backendName,
@@ -238,7 +261,9 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(con
     std::string error;
     return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(httpExporterType), initConfig, error);
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohmann::json &exporterValue)
 {
     try {
@@ -270,50 +295,82 @@ const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohman
     }
     return exportConfigs;
 }
+#endif  // ENABLE_OBSERVABILITY
 
 void MetricsAdaptor::CleanMetrics() noexcept
 {
+#ifdef ENABLE_OBSERVABILITY
     std::shared_ptr<MetricsApi::NullMeterProvider> null = nullptr;
     MetricsApi::Provider::SetMeterProvider(null);
+#else
+    YRLOG_DEBUG("metrics adaptor CleanMetrics called but observability is disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::SetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return ReportUInt64Counter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ResetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoResetUInt64Counter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::IncreaseUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoIncreaseUInt64Counter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 std::pair<ErrorInfo, uint64_t> MetricsAdaptor::GetValueUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoGetValueUInt64Counter(data);
     }
     return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
                                     YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
                           0);
+#else
+    (void)data;
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME,
+                                    "metrics not supported: observability disabled"),
+                          0);
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
     std::lock_guard<std::mutex> l(uint64_counter_mutex_);
@@ -390,44 +447,72 @@ ErrorInfo MetricsAdaptor::InitUInt64Counter(const YR::Libruntime::UInt64CounterD
     uInt64CounterMap_[data.name] = std::move(uInt64Counter);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::SetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return ReportDoubleCounter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ResetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoResetDoubleCounter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::IncreaseDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoIncreaseDoubleCounter(data);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 std::pair<ErrorInfo, double> MetricsAdaptor::GetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return DoGetValueDoubleCounter(data);
     }
     return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
                                     YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
                           0);
+#else
+    (void)data;
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME,
+                                    "metrics not supported: observability disabled"),
+                          0);
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
     std::lock_guard<std::mutex> l(double_counter_mutex_);
@@ -514,30 +599,45 @@ ErrorInfo MetricsAdaptor::InitDoubleCounter(const YR::Libruntime::DoubleCounterD
     doubleCounterMap_[data.name] = std::move(doubleCounter);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::ReportMetrics(const YR::Libruntime::GaugeData &gauge)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (Initialized_) {
         std::list<std::string> contextAttrs = {"node_id", "ip"};
         return ReportDoubleGauge(gauge, contextAttrs);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)gauge;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ReportGauge(const YR::Libruntime::GaugeData &gauge)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         std::list<std::string> contextAttrs = {"node_id", "ip"};
         return ReportDoubleGauge(gauge, contextAttrs);
     }
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)gauge;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportDoubleGauge(const YR::Libruntime::GaugeData &gauge,
                                             const std::list<std::string> &contextAttrs)
 {
+    (void)contextAttrs;  // Suppress unused parameter warning
     std::unique_lock<std::mutex> l(gauge_mutex_);
     auto err = InitDoubleGauge(gauge);
     if (!err.OK()) {
@@ -579,18 +679,28 @@ ErrorInfo MetricsAdaptor::InitDoubleGauge(const YR::Libruntime::GaugeData &gauge
     doubleGaugeMap_[gauge.name] = std::move(gaugeData);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::SetAlarm(const std::string &name, const std::string &description,
                                    const YR::Libruntime::AlarmInfo &alarmInfo)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return ReportAlarm(name, description, alarmInfo);
     }
     YRLOG_ERROR("failed to set alarm, userEnable: {}, initialized: {}", userEnable_, Initialized_);
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)name;
+    (void)description;
+    (void)alarmInfo;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportAlarm(const std::string &name, const std::string &description,
                                       const YR::Libruntime::AlarmInfo &alarmInfo)
 {
@@ -646,7 +756,9 @@ ErrorInfo MetricsAdaptor::InitAlarm(const std::string &name, const std::string &
     alarmMap_[name] = std::move(alarm);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
     const std::string &backendKey, const std::string &backendName, const nlohmann::json &exporterValue,
     const std::function<std::string(std::string)> &getFileName)
@@ -683,7 +795,9 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
     std::string error;
     return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(FILE_EXPORTER), initConfig, error);
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
 {
     // file reporting is not supported currently,this function is not implemented.
@@ -692,5 +806,6 @@ std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
     }
     return backendName + "-metrics.data";
 }
+#endif  // ENABLE_OBSERVABILITY
 }  // namespace Libruntime
 }  // namespace YR

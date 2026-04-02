@@ -68,7 +68,6 @@ private:
     std::shared_ptr<FSIntf> fsIntf;
     std::string ipAddr;
     int port{};
-    int eventServerPort{};
     ClientType type;
     bool isDriver{};
 };

@@ -19,7 +19,7 @@
 
 namespace YR {
 namespace Libruntime {
-
+#ifdef ENABLE_DATASYSTEM
 std::vector<datasystem::DeviceBlobList> BuildDsDeviceBlobList(const std::vector<DeviceBlobList> &devBlobList)
 {
     std::vector<datasystem::DeviceBlobList> dsDevBlobList;
@@ -40,18 +40,21 @@ std::vector<datasystem::DeviceBlobList> BuildDsDeviceBlobList(const std::vector<
     return dsDevBlobList;
 }
 
-ErrorInfo DatasystemHeteroStore::Init(datasystem::ConnectOptions &options)
+ErrorInfo DatasystemHeteroStore::Init(DsConnectOptions &options)
 {
     connectOptions.host = options.host;
     connectOptions.port = options.port;
     connectOptions.clientPublicKey = options.clientPublicKey;
     connectOptions.clientPrivateKey = options.clientPrivateKey;
     connectOptions.serverPublicKey = options.serverPublicKey;
-    connectOptions.accessKey = options.accessKey;
-    connectOptions.secretKey = options.secretKey;
-    connectOptions.token = options.token;
     connectOptions.connectTimeoutMs = options.connectTimeoutMs;
     connectOptions.tenantId = options.tenantId;
+    connectOptions.enableCrossNodeConnection = options.enableCrossNodeConnection;
+    if (!options.accessKey.empty() && !options.secretKey.empty()) {
+        connectOptions.SetAkSkAuth(options.accessKey, datasystem::SensitiveValue(options.secretKey), options.tenantId);
+    } else if (!options.token.empty()) {
+        connectOptions.token = datasystem::SensitiveValue(options.token);
+    }
     return ErrorInfo();
 }
 
@@ -84,7 +87,7 @@ void DatasystemHeteroStore::Shutdown()
 }
 
 ErrorInfo DatasystemHeteroStore::DevDelete(const std::vector<std::string> &objectIds,
-                                        std::vector<std::string> &failedObjectIds)
+                                           std::vector<std::string> &failedObjectIds)
 {
     HETERO_STORE_INIT_ONCE();
     datasystem::Status status = dsHeteroClient->DevDelete(objectIds, failedObjectIds);
@@ -94,7 +97,7 @@ ErrorInfo DatasystemHeteroStore::DevDelete(const std::vector<std::string> &objec
 }
 
 ErrorInfo DatasystemHeteroStore::DevLocalDelete(const std::vector<std::string> &objectIds,
-                                             std::vector<std::string> &failedObjectIds)
+                                                std::vector<std::string> &failedObjectIds)
 {
     HETERO_STORE_INIT_ONCE();
     datasystem::Status status = dsHeteroClient->DevLocalDelete(objectIds, failedObjectIds);
@@ -170,5 +173,53 @@ ErrorInfo DatasystemHeteroStore::DevMGet(const std::vector<std::string> &keys,
     RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, msg);
     return ErrorInfo();
 }
+#else   // !ENABLE_DATASYSTEM
+void DatasystemHeteroStore::Shutdown() {}
+ErrorInfo DatasystemHeteroStore::Init(DsConnectOptions &connectOptions)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "Init method with the ConnectOptions is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevDelete(const std::vector<std::string> &objectIds,
+                                           std::vector<std::string> &failedObjectIds)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevDelete method is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevLocalDelete(const std::vector<std::string> &objectIds,
+                                                std::vector<std::string> &failedObjectIds)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevLocalDelete method is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevSubscribe(const std::vector<std::string> &keys,
+                                              const std::vector<DeviceBlobList> &blob2dList,
+                                              std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevSubscribe method is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevPublish(const std::vector<std::string> &keys,
+                                            const std::vector<DeviceBlobList> &blob2dList,
+                                            std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevPublish method is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevMSet(const std::vector<std::string> &keys,
+                                         const std::vector<DeviceBlobList> &blob2dList,
+                                         std::vector<std::string> &failedKeys)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevMSet method is not supported when ENABLE_DATASYSTEM is false");
+}
+ErrorInfo DatasystemHeteroStore::DevMGet(const std::vector<std::string> &keys,
+                                         const std::vector<DeviceBlobList> &blob2dList,
+                                         std::vector<std::string> &failedKeys, int32_t timeoutMs)
+{
+    return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                     "DevMGet method is not supported when ENABLE_DATASYSTEM is false");
+}
+#endif  // ENABLE_DATASYSTEM
 }  // namespace Libruntime
 }  // namespace YR

@@ -22,7 +22,7 @@ namespace YR {
 namespace Libruntime {
 const uint32_t CONSUMER_TIMEOUT = 1000;
 const int AGG_WINDOWS_S = 5;
-const int LOGINFO_MATCH_LEN = 2;
+[[maybe_unused]] const int LOGINFO_MATCH_LEN = 2;
 const size_t MAX_LOG_SCAN_LENGTH = 256;  // only scan 256 charactors in log message to parse runtime id
 
 DriverLogReceiver::DriverLogReceiver() {}

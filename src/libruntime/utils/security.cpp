@@ -335,7 +335,7 @@ bool Security::IsFsAuthEnable()
 
 Credential Security::GetCredential()
 {
-    return Credential{ak : this->ak_, sk : std::string(this->sk_.GetData(), this->sk_.GetSize()), dk : this->dk_};
+    return Credential{.ak = this->ak_, .sk = std::string(this->sk_.GetData(), this->sk_.GetSize()), .dk = this->dk_};
 }
 
 void Security::SetAKSKAndCredential(const std::string &ak, const SensitiveValue &sk)

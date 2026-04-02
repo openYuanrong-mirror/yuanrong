@@ -202,6 +202,8 @@ public:
     std::string GetActiveMasterAddr();
     void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
 
+    virtual ~InvokeAdaptor() = default;
+
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
     void CreateNotifyHandler(const NotifyRequest &req);

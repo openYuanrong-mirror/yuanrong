@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <string>
 #include <vector>
 
@@ -67,9 +69,9 @@ ErrorInfo DSCacheStateStore::Init(datasystem::ConnectOptions &inputConnOpt)
     connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
     connectOpts.accessKey = inputConnOpt.accessKey;
     connectOpts.secretKey = inputConnOpt.secretKey;
-    connectOpts.token = inputConnOpt.token;
     connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
     connectOpts.tenantId = inputConnOpt.tenantId;
+    connectOpts.token = inputConnOpt.token;
     return ErrorInfo();
 }
 
@@ -95,18 +97,19 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
 {
     ErrorInfo err;
     YRLOG_DEBUG("Datasystem State store init, ip = {}, port = {}", options.host, options.port);
-    ConnectOptions connectOptsInput{options.host,
-                               options.port,
-                               options.connectTimeoutMs,
-                               options.connectTimeoutMs,
-                               options.token,
-                               options.clientPublicKey,
-                               options.clientPrivateKey,
-                               options.serverPublicKey,
-                               options.accessKey,
-                               options.secretKey,
-                               options.tenantId,
-                               options.enableCrossNodeConnection};
+    ConnectOptions connectOptsInput;
+    connectOptsInput.host = options.host;
+    connectOptsInput.port = options.port;
+    connectOptsInput.connectTimeoutMs = options.connectTimeoutMs;
+    connectOptsInput.requestTimeoutMs = options.connectTimeoutMs;
+    connectOptsInput.token = options.token;
+    connectOptsInput.clientPublicKey = options.clientPublicKey;
+    connectOptsInput.clientPrivateKey = options.clientPrivateKey;
+    connectOptsInput.serverPublicKey = options.serverPublicKey;
+    connectOptsInput.accessKey = options.accessKey;
+    connectOptsInput.secretKey = options.secretKey;
+    connectOptsInput.tenantId = options.tenantId;
+    connectOptsInput.enableCrossNodeConnection = options.enableCrossNodeConnection;
     this->connectOpts = connectOptsInput;
     InitOnce();
     return this->initErr;
@@ -259,7 +262,7 @@ MultipleReadResult DSCacheStateStore::Read(const std::vector<std::string> &keys,
     return std::make_pair(result, err);
 }
 
-MultipleReadResult DSCacheStateStore::GetWithParam(const std::vector<std::string> &keys, 
+MultipleReadResult DSCacheStateStore::GetWithParam(const std::vector<std::string> &keys,
                                                    const GetParams &params, int timeoutMs)
 {
     std::vector<std::shared_ptr<Buffer>> results{};
@@ -369,3 +372,5 @@ ErrorInfo DSCacheStateStore::HealthCheck()
 }
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

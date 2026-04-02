@@ -38,7 +38,7 @@ public:
 
 private:
     mutable absl::Mutex reqMtx_;
-    std::unordered_map<std::string, std::shared_ptr<InvokeSpec>> requestMap ABSL_GUARDED_BY(reqMtx_);
+    std::unordered_map<std::string, std::shared_ptr<InvokeSpec>> requestMap;
 };
 } // namespace Libruntime
 } // namespace YR

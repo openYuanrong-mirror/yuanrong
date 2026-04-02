@@ -19,6 +19,8 @@
 #include <pthread.h>
 #include <string>
 #include <vector>
+
+#include "src/utility/platform_compat.h"
 namespace YR {
 namespace Parallel {
 thread_local int g_threadid = 0;
@@ -69,9 +71,11 @@ void ThreadPool::Init(uint32_t threads)
 void ThreadPool::ThreadInit()
 {
     for (uint32_t i = 0; i < workerNum; i++) {
-        workers[i] = std::thread(&ThreadPool::ThreadTask, this, i);
         std::string threadName = threadNamePrefix + "." + std::to_string(i);
-        pthread_setname_np(workers[i].native_handle(), threadName.data());
+        workers[i] = std::thread([this, i, threadName] {
+            YR_SET_THREAD_NAME_CURRENT(threadName.c_str());
+            ThreadTask(i);
+        });
     }
 }
 

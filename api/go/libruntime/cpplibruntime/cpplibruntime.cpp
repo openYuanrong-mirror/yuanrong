@@ -67,6 +67,11 @@ extern "C" {
         return ErrorInfoToCError(ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to get valid consumer.")); \
     }
 
+#ifdef __cplusplus
+}  // extern "C" - close here, C++ helper functions follow
+#endif
+
+// C++ helper functions - these use C++ types and should NOT have C linkage
 std::tuple<std::shared_ptr<YR::Libruntime::Libruntime>, ErrorInfo> getLibRuntime()
 {
     auto lrt = LibruntimeManager::Instance().GetLibRuntime();
@@ -409,6 +414,11 @@ void FuncExecSubmitHook(std::function<void(void)> &&f)
     GoFunctionExecutionPoolSubmit(funcPtr);
 }
 
+// C interface functions - these need C linkage for Go interop
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 CErrorInfo CInit(CLibruntimeConfig *config)
 {
     LibruntimeConfig librtCfg{};
@@ -435,7 +445,7 @@ CErrorInfo CInit(CLibruntimeConfig *config)
     librtCfg.runtimePrivateKeyPath = config->runtimePrivateKeyContextPath;
     librtCfg.dsPublicKeyPath = config->dsPublicKeyContextPath;
     librtCfg.ak_ = config->systemAuthAccessKey;
-    librtCfg.sk_ = datasystem::SensitiveValue(config->systemAuthSecretKey, config->systemAuthSecretKeySize);
+    librtCfg.sk_ = YR::Libruntime::SensitiveValue(config->systemAuthSecretKey, config->systemAuthSecretKeySize);
     auto len = sizeof(config->privateKeyPaaswd);
     (void)memcpy_s(librtCfg.privateKeyPaaswd, len, config->privateKeyPaaswd, len);
     auto decryptErr = librtCfg.Decrypt();
@@ -845,6 +855,11 @@ void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
                  std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
+#ifdef __cplusplus
+}  // extern "C" - close here for C++ helper function
+#endif
+
+// C++ helper function - uses C++ types
 ErrorInfo ToCBuffer(std::shared_ptr<Buffer> buf, CBuffer *data)
 {
     data->size_buffer = buf->GetSize();
@@ -869,6 +884,11 @@ ErrorInfo ToCBuffer(std::shared_ptr<Buffer> buf, CBuffer *data)
     }
     return ErrorInfo();
 }
+
+// C interface functions continue
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 CErrorInfo CGet(char *objId, int timeoutSec, CBuffer *data)
 {
@@ -1776,7 +1796,7 @@ char* CGetActiveMasterAddr()
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return "";
+        return CString("");
     }
     return CString(lrt->GetActiveMasterAddr());
 }

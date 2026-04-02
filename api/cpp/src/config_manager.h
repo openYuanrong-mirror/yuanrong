@@ -16,15 +16,29 @@
 
 #pragma once
 
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 #include "securec.h"
 
 #include "yr/api/client_info.h"
 #include "yr/api/config.h"
 
+// Ensure singleton instance is exported from shared library
+#if defined(_WIN32) || defined(_WIN64)
+    #define YR_CONFIG_SINGLETON_EXPORT __declspec(dllexport)
+#else
+    #define YR_CONFIG_SINGLETON_EXPORT __attribute__((visibility("default")))
+#endif
+
 namespace YR {
 class ConfigManager {
 public:
-    static ConfigManager &Singleton() noexcept;
+    static ConfigManager &Singleton() noexcept
+    {
+        static ConfigManager confMgr;
+        return confMgr;
+    }
 
     ClientInfo GetClientInfo();
 
@@ -139,5 +153,9 @@ public:
     bool launchUserBinary = false;
 
     std::string workingDir = "";
+
+private:
+    ConfigManager() = default;
+    ~ConfigManager() = default;
 };
 }  // namespace YR

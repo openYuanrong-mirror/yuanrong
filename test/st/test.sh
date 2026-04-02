@@ -17,7 +17,7 @@
 set -e
 BASE_DIR=$(cd "$(dirname "$0")"; pwd)
 . "${BASE_DIR}/utils.sh"
-YUANRONG_DIR="${BASE_DIR}/../../output/yuanrong"
+YUANRONG_DIR="${BASE_DIR}/../../output/openyuanrong"
 BUILD_DIR="${BASE_DIR}/../../build"
 RESERVED_CLUSTER="off"
 GTEST_FILTER="*.*"
@@ -30,9 +30,10 @@ SANITIZER="off"
 PARALLELISM="off"
 AGENT_NUM=1
 START_ONLY="off"
+OFF_CLUSTER="off"
 
 readonly USAGE="
-Usage: bash test.sh [-h] [-f *.*] [-y path-to-yuanrong] [-r][-l language][-m deploy mode][-S thread/address/off]
+Usage: bash test.sh [-h] [-f *.*] [-y path-to-yuanrong] [-r][-l language][-m deploy mode][-S thread/address/off][-O]
 
 Options:
     -h Output this help and exit.
@@ -47,9 +48,12 @@ Options:
                if set the value to 'address' enable AddressSanitizer,
                if set the value to 'thread' enable ThreadSanitizer,
                default off.
+    -O Run off-cluster (云外) Python tests instead of the default in-cluster suite.
+       Requires YR_SERVER_ADDRESS to be set, e.g. export YR_SERVER_ADDRESS=<ip:port>.
 
 Example:
   $ bash test.sh
+  $ YR_SERVER_ADDRESS=1.2.3.4:38888 bash test.sh -l python -O
 "
 
 function usage() {
@@ -88,7 +92,10 @@ function install_python_pkg() {
     pip3.9 install requests
     pip3.9 install numpy
     pip3.9 uninstall -y yr
-    pip3.9 install $YUANRONG_DIR/runtime/sdk/python/yr_sdk-*cp39-cp39-linux*.whl
+    pip3.9 install --force-reinstall $YUANRONG_DIR/runtime/sdk/python/openyuanrong-*cp39-cp39*.whl
+    # Remove stale directories left by old wheel versions that are not in the new wheel
+    YR_SITE=$(python3.9 -c "import site; print(site.getusersitepackages())")/yr
+    rm -rf "${YR_SITE}/runtime" "${YR_SITE}/cpp" 2>/dev/null || true
 }
 
 function common_check_st_result() {
@@ -162,14 +169,13 @@ function check_run_faas_case_result() {
 
 function timeout_run_case_wrapper() {
     set +e
-    run_cmd=$@
-    echo "start to run ${run_cmd}"
+    echo "start to run $*"
     start_time=$(date +%s)
-    timeout 300 ${run_cmd} 2>&1
+    timeout 300 "$@" 2>&1
     ret=$?
     end_time=$(date +%s)
     execute_time=$((end_time - start_time))
-    echo "The cmd ${run_cmd} executed cost ${execute_time} seconds"
+    echo "The cmd $* executed cost ${execute_time} seconds"
     return $ret
 }
 
@@ -184,9 +190,15 @@ function run_cpp_case() {
 function run_python_case() {
     echo "----------------------Start to run python st----------------------"
     cd ${BASE_DIR}/python
-    [ "${SANITIZER}" == "address" ] && export LD_PRELOAD="/usr/lib64/libasan.so.6" && export ASAN_OPTIONS=detect_leaks=0
-    [ "${SANITIZER}" == "thread" ] && export LD_PRELOAD="/usr/local/gcc-10.3.0/lib64/libtsan.so"
-    timeout_run_case_wrapper python3.9 -m pytest -s -vv -m smoke . 2>&1 > "$GLOG_log_dir/python_output.txt"
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        [ "${SANITIZER}" == "address" ] && export LD_PRELOAD="/usr/lib64/libasan.so.6" && export ASAN_OPTIONS=detect_leaks=0
+        [ "${SANITIZER}" == "thread" ] && export LD_PRELOAD="/usr/local/gcc-10.3.0/lib64/libtsan.so"
+    fi
+    if [[ "$OFF_CLUSTER" == "on" ]]; then
+        timeout_run_case_wrapper python3.9 -m pytest -s -vv -m "smoke and off_cluster" test_off_cluster.py 2>&1 > "$GLOG_log_dir/python_output.txt"
+    else
+        timeout_run_case_wrapper python3.9 -m pytest -s -vv -m "smoke and not off_cluster" . 2>&1 > "$GLOG_log_dir/python_output.txt"
+    fi
     check_python_run_st_result $?
     export LD_PRELOAD="" && export ASAN_OPTIONS=""
 }
@@ -201,7 +213,9 @@ function run_manual_case() {
 function run_java_case() {
     echo "----------------------Start to run java st----------------------"
     cd ${BASE_DIR}/java
-    [ "${SANITIZER}" == "address" ] && export LD_PRELOAD="/usr/lib64/libasan.so.6" && export ASAN_OPTIONS=detect_leaks=0
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        [ "${SANITIZER}" == "address" ] && export LD_PRELOAD="/usr/lib64/libasan.so.6" && export ASAN_OPTIONS=detect_leaks=0
+    fi
     timeout_run_case_wrapper mvn test 2>&1 > "$GLOG_log_dir/java_output.txt"
     check_java_run_st_result $?
     export LD_PRELOAD="" && export ASAN_OPTIONS=""
@@ -300,7 +314,7 @@ function run_st() {
     fi
 }
 
-while getopts 'rbf:y:l:m:a:h:S:n:sp' opt; do
+while getopts 'rbf:y:l:m:a:h:S:n:spO' opt; do
     case "${opt}" in
         r)
             RESERVED_CLUSTER="on"
@@ -341,6 +355,9 @@ while getopts 'rbf:y:l:m:a:h:S:n:sp' opt; do
         s)
             START_ONLY="on"
             RESERVED_CLUSTER="on"
+            ;;
+        O)
+            OFF_CLUSTER="on"
             ;;
         *)
             echo "invalid command"

@@ -45,12 +45,20 @@ namespace filesystem = std::experimental::filesystem;
 #endif
 
 const int MAX_READFILE_TIME = 30;  // seconds
+#if defined(__APPLE__)
+const char *DynamicLibraryEnvKey = "DYLD_LIBRARY_PATH";
+#else
 const char *DynamicLibraryEnvKey = "LD_LIBRARY_PATH";
+#endif
 
 void AddLibraryInternal(const filesystem::path &path, std::set<filesystem::path> &libPaths)
 {
     YRLOG_DEBUG("path: {}", path.string());
+#if defined(__APPLE__)
+    if (path.extension().string() == ".dylib") {
+#else
     if (path.extension().string() == ".so") {
+#endif
         libPaths.emplace(path);
     }
 }
@@ -98,7 +106,8 @@ void FunctionExecutor::DoLoadFunctions(const std::vector<std::string> &paths)
     }
     YRLOG_INFO("{}={}", DynamicLibraryEnvKey, GetEnv(DynamicLibraryEnvKey));
     if (libPaths.empty()) {
-        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE, "cannot find shared library file.");
+        throw YR::Exception(ErrorCode::ERR_USER_CODE_LOAD, ModuleCode::RUNTIME_CREATE,
+                            "cannot find shared library file.");
     }
     for (auto &lib : libPaths) {
         OpenLibrary(lib.string());

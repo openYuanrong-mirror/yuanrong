@@ -45,6 +45,13 @@ def hw_rules():
     )
 
     http_archive(
+        name = "bazel_gazelle",
+        sha256 = "29d5dafc2a5582995488c6735115d1d366fcd6a0fc2e2a153f02988706349825",
+        urls = ["https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.31.0/bazel-gazelle-v0.31.0.tar.gz",
+        ],
+    )
+
+    http_archive(
         name = "rules_pkg",
         sha256 = "038f1caa773a7e35b3663865ffb003169c6a71dc995e39bf4815792f385d837d",
         urls = ["https://mirror.bazel.build/github.com/bazelbuild/rules_pkg/releases/download/0.4.0/rules_pkg-0.4.0.tar.gz",
@@ -79,9 +86,5 @@ def hw_rules():
         strip_prefix = "apple_support-0.10.0",
     )
 
-    http_archive(
-        name = "rules_foreign_cc",
-        url = "https://github.com/bazel-contrib/rules_foreign_cc/archive/refs/tags/0.9.0.tar.gz",
-        sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
-        strip_prefix = "rules_foreign_cc-0.9.0",
-    )
+    # rules_foreign_cc is only needed for OpenSSL native builds
+    # For macOS C++/Python builds, we don't need it - skip download

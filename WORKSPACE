@@ -4,9 +4,18 @@ load("//bazel:hazel_workspace.bzl", "hw_rules")
 
 hw_rules()
 
-load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+# Note: rules_foreign_cc and rules_go are not needed for macOS C++/Python builds
+# They require network downloads which may fail without proxy
+# load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+# rules_foreign_cc_dependencies()
 
-rules_foreign_cc_dependencies()
+# load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
+# go_rules_dependencies()
+# go_register_toolchains(version = "1.24.1")
+
+load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
+
+gazelle_dependencies()
 
 load("@rules_python//python:repositories.bzl", "python_register_toolchains")
 python_register_toolchains(
@@ -22,7 +31,10 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "new_git_repository")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
-load("//bazel:local_patched_repository.bzl", "local_patched_repository")
+load("//bazel:host_platform_repo.bzl", "host_platform_repo")
+load("//bazel:platform_local_repository.bzl", "platform_local_repository")
+
+host_platform_repo(name = "host_platform")
 
 http_archive(
     name = "rules_jvm_external",
@@ -61,28 +73,30 @@ maven_install(
     ],
 )
 
-local_patched_repository(
+http_archive(
     name = "spdlog",
-    path = "../thirdparty/spdlog/",
     build_file = "@//bazel:spdlog.bzl",
-    patch_files = [
-         "@yuanrong_multi_language_runtime//patch:spdlog-change-namespace-and-library-name-with-yr.patch",
+    sha256 = "6174bf8885287422a6c6a0312eb8a30e8d22bcfcee7c48a6d02d1835d7769232",
+    strip_prefix = "spdlog-1.12.0",
+    urls = ["https://github.com/gabime/spdlog/archive/refs/tags/v1.12.0.zip"],
+    patches = [
+         "@//patch:spdlog-change-namespace-and-library-name-with-yr.patch",
     ]
 )
 
 http_archive(
     name = "nlohmann_json",
     build_file = "@//bazel:nlohmann_json.bzl",
-    sha256 = "0deac294b2c96c593d0b7c0fb2385a2f4594e8053a36c52b11445ef4b9defebb",
-    strip_prefix = "nlohmann-json-v3.11.3",
-    urls = ["https://gitee.com/mirrors/nlohmann-json/repository/archive/v3.11.3.zip"],
+    sha256 = "04022b05d806eb5ff73023c280b68697d12b93e1b7267a0b22a1a39ec7578069",
+    strip_prefix = "json-3.11.3",
+    urls = ["https://github.com/nlohmann/json/archive/v3.11.3.zip"],
 )
 
 http_archive(
     name = "gtest",
-    sha256 = "647924848ca7cb91ba5e34260132902886e1bd140428bd3bd7b4e8fa6c6c8904",
-    strip_prefix = "googletest-v1.13.0",
-    urls = ["https://gitee.com/mirrors/googletest/repository/archive/v1.13.0.zip"],
+    sha256 = "ffa17fbc5953900994e2deec164bb8949879ea09b411e07f215bfbb1f87f4632",
+    strip_prefix = "googletest-1.13.0",
+    urls = ["https://github.com/google/googletest/archive/refs/tags/v1.13.0.zip"],
 )
 
 http_archive(
@@ -119,38 +133,53 @@ load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
 grpc_deps()
 load("//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
 grpc_extra_deps()
-new_local_repository(
+
+http_archive(
     name = "boost",
     build_file = "@//bazel:boost.bzl",
-    path = "../thirdparty/boost/",
+    sha256 = "f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d",
+    strip_prefix = "boost_1_87_0",
+    url = "https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.gz",
+)
+
+# Pre-built Boost libraries for macOS (static libraries built separately)
+new_local_repository(
+    name = "boost_libs",
+    path = "thirdparty/boost",
+    build_file = "@//bazel:boost_libs.BUILD",
 )
 
 http_archive(
     name = "msgpack",
     build_file = "@//bazel:msgpack.bzl",
-    sha256 = "c51bcee3814b20d38a2e5bdf315e424344adb5330a64f4669cbbcd3cb6c89e27",
+    sha256 = "b68cf63b0bc1d1a84e81252ed44c60528eb60670e81518428804d3d36da57621",
     strip_prefix = "msgpack-c-cpp-5.0.0",
-    url = "https://gitee.com/mirrors/msgpack-c/repository/archive/cpp-5.0.0.zip",
+    url = "https://github.com/msgpack/msgpack-c/archive/refs/tags/cpp-5.0.0.zip",
 )
 
 http_archive(
     name = "yaml-cpp",
-    sha256 = "6a05c681872d9465b8e2040b5211b1aa5cf30151dc4f3d7ed23ac75ce0fd9944",
+    sha256 = "fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16",
     strip_prefix = "yaml-cpp-0.8.0",
-    url = "https://gitee.com/mirrors/yaml-cpp/repository/archive/0.8.0.zip",
+    urls = [
+        "https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz",
+    ],
+    build_file = "@//bazel:yaml_cpp.BUILD",
 )
 
-new_local_repository(
+# DataSystem SDK - use stub targets on macOS where the native SDK is disabled
+platform_local_repository(
     name = "datasystem_sdk",
-    build_file = "@//bazel:datasystem_sdk.bzl",
-    path = "./datasystem/output/sdk/cpp/",
+    build_file = "@//bazel:datasystem_build.bzl",
+    path = "datasystem",
+    stub_build_file = "@//bazel:stub_datasystem.bzl",
 )
 
-new_local_repository(
-    name = "metrics_sdk",
-    build_file = "@//bazel:metrics_sdk.bzl",
-    path = "./metrics/",
-)
+# DataSystem SDK source build external dependencies
+load("@host_platform//:defs.bzl", "IS_MACOS")
+load("//bazel:maybe_datasystem_deps.bzl", "maybe_datasystem_deps")
+
+maybe_datasystem_deps(not IS_MACOS)
 
 load("@bazel_tools//tools/jdk:remote_java_repository.bzl", "remote_java_repository")
 
@@ -176,18 +205,33 @@ http_archive(
     build_file = "@//bazel:jacoco.bzl"
 )
 
-local_patched_repository(
-    name = "gloo",
-    path = "../thirdparty/gloo",
-    build_file = "@//bazel:gloo.bzl",
-    patch_files = [
-        "@//patch:gloo-fix-sign-compare.patch",
-    ],
+# Use local securec from thirdparty directory
+new_local_repository(
+    name = "securec",
+    path = "./thirdparty/libboundscheck",
+    build_file = "@//bazel:securec.bzl",
 )
 
-maybe(
-    new_local_repository,
-    name = "securec",
-    build_file = "@//bazel:securec.bzl",
-    path = "../thirdparty/libboundscheck",
+http_archive(
+    name = "gloo",
+    build_file = "@//bazel:gloo.bzl",
+    sha256 = "ddfb9627304025f294c78fd75ae84d7b9a662213d1b1c955afe6f91bfeb49254",
+    strip_prefix = "gloo-main",
+    urls = [
+        "https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/deps/gloo-main.zip",
+    ],
+    patches= [
+        "@//patch:gloo-fix-sign-compare.patch",
+    ]
+)
+
+# etcd source for python package
+http_archive(
+    name = "etcd_source",
+    build_file = "//bazel:etcd.BUILD",
+    strip_prefix = "etcd-3.5.24",
+    urls = [
+        "https://github.com/etcd-io/etcd/archive/refs/tags/v3.5.24.zip",
+        "https://gitee.com/mirrors/etcd/repository/archive/v3.5.24.zip",
+    ],
 )

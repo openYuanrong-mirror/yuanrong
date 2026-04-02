@@ -18,6 +18,7 @@
 
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
+#include "src/utility/platform_compat.h"
 
 namespace YR {
 namespace Libruntime {
@@ -215,9 +216,11 @@ void FSIntfGrpcReaderWriter::Init()
 {
     isDirectConnection_ = (dstInstance != FUNCTION_PROXY);
     stop_ = false;
-    worker_ = std::thread([this] { Run(); });
     std::string name = "writer." + dstInstance.substr(dstInstance.size() - 6, 6);
-    pthread_setname_np(worker_.native_handle(), name.c_str());
+    worker_ = std::thread([this, name] {
+        YR_SET_THREAD_NAME_CURRENT(name.c_str());
+        Run();
+    });
 }
 
 void FSIntfGrpcReaderWriter::Stop()

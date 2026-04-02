@@ -24,4 +24,3 @@ def preload_opentelemetry():
         urls = ["https://gitee.com/mirrors/nlohmann-json/repository/archive/v3.11.3.zip"],
     )
 
-

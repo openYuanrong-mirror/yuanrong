@@ -39,7 +39,7 @@ std::string SpanIdToString(const opentelemetry::trace::SpanId& spanId)
 }
 
 common_sdk::ExportResult LogFileExporter::Export(
-    const nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept
+    const opentelemetry::nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept
 {
     if (isShutDown) {
         YRLOG_ERROR("[YRLOG File Exporter] Exporting {} log(s) failed, exporter is shutdown", spans.size());

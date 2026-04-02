@@ -28,7 +28,7 @@ class Group : public std::enable_shared_from_this<Group> {
 public:
     Group() = default;
     Group(const std::string &name) : groupName(name) {};
-    ~Group() = default;
+    virtual ~Group() = default;
     ErrorInfo Wait();
     ErrorInfo GroupCreate();
     void Terminate();

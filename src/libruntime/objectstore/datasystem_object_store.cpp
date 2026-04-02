@@ -16,6 +16,8 @@
 
 #include "datasystem_object_store.h"
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <unistd.h>
 #include <iterator>
 #include <memory>
@@ -177,18 +179,20 @@ ErrorInfo DSCacheObjectStore::Init(const std::string &ip, int port, bool enableD
     return err;
 }
 
-ErrorInfo DSCacheObjectStore::Init(datasystem::ConnectOptions &inputConnOpt)
+ErrorInfo DSCacheObjectStore::Init(DsConnectOptions &inputConnOpt)
 {
     this->connectOpts.host = inputConnOpt.host;
     this->connectOpts.port = inputConnOpt.port;
+    this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
+    this->connectOpts.requestTimeoutMs = inputConnOpt.connectTimeoutMs;
+    this->connectOpts.token = inputConnOpt.token;
     this->connectOpts.clientPublicKey = inputConnOpt.clientPublicKey;
     this->connectOpts.clientPrivateKey = inputConnOpt.clientPrivateKey;
     this->connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
     this->connectOpts.accessKey = inputConnOpt.accessKey;
     this->connectOpts.secretKey = inputConnOpt.secretKey;
-    this->connectOpts.token = inputConnOpt.token;
-    this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
     this->connectOpts.tenantId = inputConnOpt.tenantId;
+    this->connectOpts.enableCrossNodeConnection = inputConnOpt.enableCrossNodeConnection;
     return ErrorInfo();
 }
 
@@ -470,3 +474,5 @@ void DSCacheObjectStore::Shutdown()
 }
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

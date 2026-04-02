@@ -20,7 +20,7 @@
 #include <iostream>
 
 #include "logger/logger.h"
-const size_t timerIdLength = 16;
+#include "platform_compat.h"
 
 namespace YR {
 namespace utility {
@@ -65,13 +65,13 @@ std::string Timer::ID()
 
 TimerWorker::TimerWorker() : isRunning(true)
 {
-    th = std::thread([&] {
+    th = std::thread([this] {
+        YR_SET_THREAD_NAME_CURRENT("TimerWorker");
         work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
             boost::asio::make_work_guard(io));
         ;
         io.run();
     });
-    pthread_setname_np(th.native_handle(), "TimerWorker");
 }
 
 TimerWorker::~TimerWorker()

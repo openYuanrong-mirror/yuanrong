@@ -17,20 +17,27 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 #include "src/libruntime/libruntime.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/utility/logger/log_manager.h"
+
+// Ensure singleton instance is exported from shared library
+#if defined(_WIN32) || defined(_WIN64)
+    #define YR_SINGLETON_EXPORT __declspec(dllexport)
+#else
+    #define YR_SINGLETON_EXPORT __attribute__((visibility("default")))
+#endif
+
 namespace YR {
 namespace Libruntime {
 using YR::utility::LogManager;
 class LibruntimeManager {
 public:
-    static LibruntimeManager &Instance()
-    {
-        static LibruntimeManager instance;
-        return instance;
-    }
+    YR_SINGLETON_EXPORT static LibruntimeManager &Instance();
+
+    YR_SINGLETON_EXPORT static void Cleanup();
 
     ErrorInfo Init(const LibruntimeConfig &config, const std::string &rtCtx = "");
 
@@ -55,6 +62,9 @@ public:
     void ExecShutdownCallback(int signum, bool needExit = true);
 
 private:
+    // Static pointer for singleton to avoid duplication when statically linked
+    static std::unique_ptr<LibruntimeManager> instance_;
+    static std::mutex instanceMutex_;
     LibruntimeManager();
 
     void InstallSigtermHandler();

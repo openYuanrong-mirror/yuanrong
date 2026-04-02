@@ -19,6 +19,7 @@ namespace YR {
 
 class Future {
 public:
+    virtual ~Future() = default;
     virtual void Get() = 0;
 };
 

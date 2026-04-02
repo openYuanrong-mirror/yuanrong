@@ -39,12 +39,12 @@ namespace Libruntime {
 const std::string INSTANCE_REQUIREMENT_RESOURKEY = "resourcesData";
 const std::string INSTANCE_REQUIREMENT_INSKEY = "designateInstanceID";
 const std::string INSTANCE_REQUIREMENT_POOLLABELKEY = "poolLabel";
-const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
-const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
-const int64_t IDLE_TIMER_INTERNAL = 10;
+[[maybe_unused]] const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
+[[maybe_unused]] const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
+[[maybe_unused]] const int64_t IDLE_TIMER_INTERNAL = 10;
 const int DEFALUT_CANCEL_DELAY_TIME = 5;  // second
 const int ERASE_DELAY_TIME = 30;
-const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
+[[maybe_unused]] const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
 using namespace YR::utility;
 using json = nlohmann::json;
 

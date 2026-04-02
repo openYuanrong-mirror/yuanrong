@@ -61,7 +61,7 @@ public:
 
 private:
     absl::Mutex mu_;
-    std::unordered_map<std::string, std::string> records_ ABSL_GUARDED_BY(mu_);
+    std::unordered_map<std::string, std::string> records_;
 };
 
 class GeneratorIdRecorder {

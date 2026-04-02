@@ -16,6 +16,8 @@
 
 #pragma once
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <chrono>
 #include <thread>
 
@@ -100,7 +102,7 @@ public:
                    const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
                    const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
                    const datasystem::SensitiveValue &sk, std::int32_t connectTimeout) override;
-    ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) override;
+    ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt);
     void InitOnce(void);
 
     ErrorInfo Init(const DsConnectOptions &options) override;
@@ -285,3 +287,164 @@ private:
 
 }  // namespace Libruntime
 }  // namespace YR
+
+#else  // !ENABLE_DATASYSTEM
+
+#include "src/dto/buffer.h"
+#include "src/libruntime/statestore/state_store.h"
+
+namespace YR {
+namespace Libruntime {
+
+static const ErrorInfo STATESTORE_NOT_ENABLED_ERROR(
+    ErrorCode::ERR_DATASYSTEM_FAILED, ModuleCode::DATASYSTEM,
+    "StateStore operations require ENABLE_DATASYSTEM to be enabled");
+
+class DSCacheStateStore : public StateStore {
+public:
+    DSCacheStateStore() = default;
+    ~DSCacheStateStore() override = default;
+
+    ErrorInfo Init(const std::string &ip, int port, std::int32_t connectTimeout = DS_CONNECT_TIMEOUT) override
+    {
+        (void)ip;
+        (void)port;
+        (void)connectTimeout;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
+                   const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                   const SensitiveValue &sk, std::int32_t connectTimeout) override
+    {
+        (void)ip;
+        (void)port;
+        (void)enableDsAuth;
+        (void)encryptEnable;
+        (void)runtimePublicKey;
+        (void)runtimePrivateKey;
+        (void)dsPublicKey;
+        (void)token;
+        (void)ak;
+        (void)sk;
+        (void)connectTimeout;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Init(const DsConnectOptions &options) override
+    {
+        (void)options;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Write(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam) override
+    {
+        (void)key;
+        (void)value;
+        (void)setParam;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo MSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<Buffer>> &vals,
+                     const MSetParam &mSetParam) override
+    {
+        (void)keys;
+        (void)vals;
+        (void)mSetParam;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Del(const std::string &key) override
+    {
+        (void)key;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    MultipleDelResult Del(const std::vector<std::string> &keys) override
+    {
+        (void)keys;
+        return std::make_pair(std::vector<std::string>{}, STATESTORE_NOT_ENABLED_ERROR);
+    }
+
+    MultipleExistResult Exist(const std::vector<std::string> &keys) override
+    {
+        (void)keys;
+        return std::make_pair(std::vector<bool>{}, STATESTORE_NOT_ENABLED_ERROR);
+    }
+
+    SingleReadResult Read(const std::string &key, int timeoutMS) override
+    {
+        (void)key;
+        (void)timeoutMS;
+        return std::make_pair(nullptr, STATESTORE_NOT_ENABLED_ERROR);
+    }
+
+    MultipleReadResult Read(const std::vector<std::string> &keys, int timeoutMS, bool allowPartial) override
+    {
+        (void)keys;
+        (void)timeoutMS;
+        (void)allowPartial;
+        return std::make_pair(std::vector<std::shared_ptr<Buffer>>{}, STATESTORE_NOT_ENABLED_ERROR);
+    }
+
+    MultipleReadResult GetWithParam(const std::vector<std::string> &keys, const GetParams &params,
+                                    int timeoutMs) override
+    {
+        (void)keys;
+        (void)params;
+        (void)timeoutMs;
+        return std::make_pair(std::vector<std::shared_ptr<Buffer>>{}, STATESTORE_NOT_ENABLED_ERROR);
+    }
+
+    ErrorInfo QuerySize(const std::vector<std::string> &keys, std::vector<uint64_t> &outSizes) override
+    {
+        (void)keys;
+        (void)outSizes;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    void Shutdown() override {}
+
+    ErrorInfo UpdateToken(SensitiveValue token) override
+    {
+        (void)token;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) override
+    {
+        (void)ak;
+        (void)sk;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo GenerateKey(std::string &returnKey) override
+    {
+        (void)returnKey;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey) override
+    {
+        (void)value;
+        (void)setParam;
+        (void)returnKey;
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo StartHealthCheck() override
+    {
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo HealthCheck() override
+    {
+        return STATESTORE_NOT_ENABLED_ERROR;
+    }
+};
+
+}  // namespace Libruntime
+}  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

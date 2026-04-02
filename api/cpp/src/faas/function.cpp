@@ -32,19 +32,19 @@ const int NAME_AND_VERSION_SIZE = 2;
 const char *const FUNC_NAME_PATTERN_STRING = "^[a-zA-Z]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$";
 const char *const VERSION_PATTERN_STRING = "^[a-zA-Z0-9]([a-zA-Z0-9_-]*\\\\.)*[a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$";
 const char *const ALIAS_PATTERN_STRING = "^[a-zA-Z]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$";
-const char *const INSTANCE_NAME_PATTERN_STRING = "^[a-zA-Z0-9]+$";
-const char *const ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION";
+[[maybe_unused]] const char *const INSTANCE_NAME_PATTERN_STRING = "^[a-zA-Z0-9]+$";
+[[maybe_unused]] const char *const ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION";
 const char *const DEFAULT_VERSION = "latest";
 const char *const DEFAULT_TENANT_ID = "default";
-const char FUNCTION_URN_SEPERATOR = '@';
+[[maybe_unused]] const char FUNCTION_URN_SEPERATOR = '@';
 const char FUNCTION_NAME_SEPERATOR = ':';
-const int FUNCTION_NAME_LENGTH = 3;
-const int SERVICE_NAME_INDEX_FOR_FUNCTION_NAME = 1;
+[[maybe_unused]] const int FUNCTION_NAME_LENGTH = 3;
+[[maybe_unused]] const int SERVICE_NAME_INDEX_FOR_FUNCTION_NAME = 1;
 const char ALIAS_PREFIX = '!';
 const int FUNC_NAME_LENGTH_LIMIT = 128;
 const int VERSION_LENGTH_LIMIT = 32;
 const int ALIAS_LENGTH_LIMIT = 32;
-const int INSTANCE_NAME_LENGTH_LIMIT = 128;
+[[maybe_unused]] const int INSTANCE_NAME_LENGTH_LIMIT = 128;
 
 void CheckFuncName(const std::string &funcName)
 {

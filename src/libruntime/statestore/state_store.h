@@ -18,13 +18,13 @@
 
 #include <memory>
 
-#include "datasystem/utils/connection.h"
-#include "datasystem/utils/sensitive_value.h"
 #include "msgpack.hpp"
 #include "src/dto/buffer.h"
 #include "src/dto/types.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/utils/exception.h"
+#include "src/libruntime/utils/sensitive_value.h"
+#include "src/libruntime/utils/datasystem_utils.h"
 
 namespace YR {
 namespace Libruntime {
@@ -64,23 +64,6 @@ struct GetParams {
     std::vector<GetParam> getParams;
 };
 
-struct DsConnectOptions {
-    std::string host;
-    int32_t port;
-    int32_t connectTimeoutMs = 60 * 1000;  // 60s
-    std::string token = "";
-    std::string clientPublicKey = "";
-    std::string clientPrivateKey = "";
-    std::string serverPublicKey = "";
-    std::string accessKey = "";
-    std::string secretKey = "";
-    std::string oAuthClientId = "";
-    std::string oAuthClientSecret = "";
-    std::string oAuthUrl = "";
-    std::string tenantId = "";
-    bool enableCrossNodeConnection = false;
-};
-
 class StateStore {
 public:
     virtual ~StateStore() = default;
@@ -102,14 +85,11 @@ public:
      * @param[in] dsPublicKey The datasystem public key.
      */
     virtual ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                           const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                           const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
-                           const std::string &ak, const datasystem::SensitiveValue &sk,
-                           std::int32_t connectTimeout) = 0;
+                           const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                           const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                           const SensitiveValue &sk, std::int32_t connectTimeout) = 0;
 
     virtual ErrorInfo Init(const DsConnectOptions &options) = 0;
-
-    virtual ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) = 0;
 
     /**
      * @brief Set the value of a key by datasystem StateClient.
@@ -192,13 +172,13 @@ public:
     /**
      * @brief update token
      */
-    virtual ErrorInfo UpdateToken(datasystem::SensitiveValue token) = 0;
+    virtual ErrorInfo UpdateToken(SensitiveValue token) = 0;
 
     virtual ErrorInfo GenerateKey(std::string &returnKey) = 0;
 
     virtual ErrorInfo StartHealthCheck() = 0;
 
-    virtual ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) = 0;
+    virtual ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) = 0;
 
     virtual ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey) = 0;
 

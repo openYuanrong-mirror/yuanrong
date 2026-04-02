@@ -156,6 +156,31 @@ TEST_F(LibruntimeTest, PutTest)
     ASSERT_EQ(errInfo.Code(), ErrorCode::ERR_OK);
 }
 
+TEST_F(LibruntimeTest, KVDelReturnsErrorWhenStateStoreIsMissing)
+{
+    auto localConfig = std::make_shared<LibruntimeConfig>();
+    localConfig->jobId = YR::utility::IDGenerator::GenApplicationId();
+    auto clientsMgr = std::make_shared<ClientsManager>();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
+    auto localRuntime =
+        std::make_shared<YR::Libruntime::Libruntime>(localConfig, clientsMgr, metricsAdaptor, sec_, socketClient);
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    auto finalizeHandler = []() { return; };
+    DatasystemClients dsclients{objectStore_, nullptr, streamStore_, heteroStore_};
+
+    ASSERT_TRUE(localRuntime->Init(fsClient, dsclients, finalizeHandler).OK());
+
+    auto result = localRuntime->KVDel(std::vector<std::string>{"key"});
+
+    EXPECT_TRUE(result.first.empty());
+    EXPECT_EQ(result.second.Code(), ErrorCode::ERR_DATASYSTEM_FAILED);
+    EXPECT_EQ(result.second.MCode(), ModuleCode::DATASYSTEM);
+    EXPECT_THAT(result.second.Msg(), HasSubstr("StateStore is not initialized"));
+
+    EXPECT_NO_THROW(localRuntime->Finalize(true));
+}
+
 TEST_F(LibruntimeTest, InvokeArgTest)
 {
     std::string testStr = "1234567890/func";
@@ -347,7 +372,7 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     EXPECT_CALL(*this->objectStore_, CreateBuffer(_, _, _, _))
         .WillRepeatedly(DoAll(SetArgReferee<2>(returnObjs), testing::Return(ErrorInfo())));
     uint64_t totalNativeBufferSize = 0;
-    for (int i = 0; i < 2; i++) {
+    for (int _ = 0; _ < 2; _++) {
         auto dataObj = std::make_shared<DataObject>(testObjId);
         auto err = lr->AllocReturnObject(dataObj, 0, testDataSize, {}, totalNativeBufferSize);
         ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);

@@ -35,7 +35,7 @@ struct AccelerateMsgQueueHandle {
 class ShmRingBuffer {
 public:
     ShmRingBuffer(int worldSize, int maxChunks, int maxChunkBytes, const std::shared_ptr<Buffer> buffer)
-        : worldSize_(worldSize), maxChunks_(maxChunks), maxChunkBytes_(maxChunkBytes)
+        : maxChunkBytes_(maxChunkBytes)
     {
         metadataSize_ = worldSize + 1;
         metadataOffset_ = maxChunks * maxChunkBytes;
@@ -49,8 +49,6 @@ public:
 private:
     std::shared_ptr<Buffer> buffer_;
     char *data_{nullptr};
-    int worldSize_{0};
-    int maxChunks_{0};
     int maxChunkBytes_{0};
     int metadataOffset_{0};
     int metadataSize_{0};

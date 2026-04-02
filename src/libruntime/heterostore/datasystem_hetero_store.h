@@ -15,8 +15,10 @@
  */
 
 #pragma once
-#include "datasystem/utils/sensitive_value.h"
 #include "hetero_store.h"
+#ifdef ENABLE_DATASYSTEM
+#include "datasystem/hetero_client.h"
+#endif
 #include "src/libruntime/utils/constants.h"
 
 namespace YR {
@@ -26,14 +28,14 @@ public:
     DatasystemHeteroStore() = default;
     ~DatasystemHeteroStore() override = default;
     void Shutdown() override;
-    ErrorInfo Init(datasystem::ConnectOptions &connectOptions) override;
+    ErrorInfo Init(DsConnectOptions &connectOptions) override;
     ErrorInfo DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
     ErrorInfo DevLocalDelete(const std::vector<std::string> &objectIds,
                              std::vector<std::string> &failedObjectIds) override;
     ErrorInfo DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
-                           std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec) override;
+                           std::vector<std::shared_ptr<HeteroFuture>> &futureVec) override;
     ErrorInfo DevPublish(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
-                         std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec) override;
+                         std::vector<std::shared_ptr<HeteroFuture>> &futureVec) override;
     ErrorInfo DevMSet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                       std::vector<std::string> &failedKeys) override;
     ErrorInfo DevMGet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
@@ -45,8 +47,10 @@ private:
     bool isInit = false;
     std::once_flag initFlag;
     ErrorInfo initErr;
+#ifdef ENABLE_DATASYSTEM
     datasystem::ConnectOptions connectOptions;
     std::shared_ptr<datasystem::HeteroClient> dsHeteroClient{nullptr};
+#endif
 };
 
 #define HETERO_STORE_INIT_ONCE() \

@@ -17,8 +17,12 @@
 #pragma once
 
 #include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <unordered_map>
 #include "datasystem_client_wrapper.h"
-#include "object_store_impl.h"
 
 namespace YR {
 namespace Libruntime {

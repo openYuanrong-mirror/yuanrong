@@ -8,14 +8,12 @@ config_setting(
     values = {"define": "sanitize=thread"},
 )
 
+# Simplified SAN_ENV - no nested selects
 SAN_ENV = select({
     ":asan": {
-      "LD_PRELOAD": "/usr/lib64/libasan.so.6",
-      "ASAN_OPTIONS": "detect_leaks=0"
+        "ASAN_OPTIONS": "detect_leaks=0",
     },
-    ":tsan": {
-      "LD_PRELOAD": "/usr/local/gcc-10.3.0/lib64/libtsan.so",
-    },
+    ":tsan": {},
     "//conditions:default": {},
 })
 

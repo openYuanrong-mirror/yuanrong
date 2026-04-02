@@ -50,25 +50,23 @@ public class LoadUtil {
 
     private static final int READ_SIZE = 8192; // 8KB
 
-    // .so files depend on each other and need to be read in a specific sequence.
-
-    private static final String[] LOADING_SEQUENCE = {
-        "libsecurec.so",
-        "libtbb.so.2",
-        "libcrypto.so.1.1",
-        "libssl.so.1.1",
-        "libds-spdlog.so.1.12.0",
-        "libzmq.so.5.2.5",
-        "libcrypto.so.1.1",
-        "libaddress_sorting.so.42.0.0",
-        "libdatasystem.so",
-        "libspdlog.so.1.12.0",
-        "libyrlogs.so",
-        "liblitebus.so.0.0.1",
-        "libobservability-metrics.so",
-        "libobservability-metrics-sdk.so",
-        "libgrpc_dynamic.so.1.65.4",
-        "libruntime_lib_jni.so"
+    // Native libraries depend on each other and need to be loaded in a stable sequence.
+    private static final String[][] LOADING_SEQUENCE = {
+        {"libsecurec.so", "libsecurec.dylib"},
+        {"libtbb.so.2", "libtbb.2.dylib"},
+        {"libcrypto.so.1.1", "libcrypto.dylib"},
+        {"libssl.so.1.1", "libssl.dylib"},
+        {"libds-spdlog.so.1.12.0", "libds-spdlog.1.12.0.dylib"},
+        {"libzmq.so.5.2.5", "libzmq.5.2.5.dylib"},
+        {"libaddress_sorting.so.42.0.0", "libaddress_sorting.42.0.0.dylib"},
+        {"libdatasystem.so", "libdatasystem.dylib"},
+        {"libspdlog.so.1.12.0", "libspdlog.1.12.0.dylib"},
+        {"libyrlogs.so", "libyrlogs.dylib"},
+        {"liblitebus.so.0.0.1", "liblitebus.0.0.1.dylib"},
+        {"libobservability-metrics.so", "libobservability-metrics.dylib"},
+        {"libobservability-metrics-sdk.so", "libobservability-metrics-sdk.dylib"},
+        {"libgrpc_dynamic.so.1.65.4"},
+        {"libruntime_lib_jni.so", "libruntime_lib_jni.dylib"},
     };
 
     /**
@@ -89,11 +87,12 @@ public class LoadUtil {
             if (!jniDir.exists() && !jniDir.mkdirs()) {
                 throw new ExceptionInInitializerError("Failed to create folder: " + jniDir.getAbsolutePath());
             }
-            for (String soFileName : LOADING_SEQUENCE) {
-                String soFileHash = properties.getProperty(soFileName);
-                if (soFileHash == null) {
-                    throw new InvalidPropertiesFormatException("the hash is empty for " + soFileName);
+            for (String[] soFileNames : LOADING_SEQUENCE) {
+                String soFileName = findPackagedLibrary(properties, soFileNames);
+                if (soFileName == null) {
+                    continue;
                 }
+                String soFileHash = properties.getProperty(soFileName);
                 String soFilePath = Paths.get(libPath, soFileName).toString();
                 File localSoFile = Paths.get(DEFAULT_JNI_FOLDER, soFileName).toFile();
                 boolean isSoFileExist = localSoFile.exists();
@@ -108,9 +107,21 @@ public class LoadUtil {
                     copyAndLoadTempSoFile(soFileName, soFilePath);
                 }
             }
+            if (findPackagedLibrary(properties, LOADING_SEQUENCE[LOADING_SEQUENCE.length - 1]) == null) {
+                throw new InvalidPropertiesFormatException("runtime JNI library is missing from SDK jar");
+            }
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
         }
+    }
+
+    private static String findPackagedLibrary(Properties properties, String[] candidates) {
+        for (String candidate : candidates) {
+            if (properties.getProperty(candidate) != null) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private static boolean loadLibraryWithJvmParam() {
@@ -222,6 +233,14 @@ public class LoadUtil {
         if (osName.contains("nix") || osName.contains("nux")) {
             if (osArch.contains("aarch64")) {
                 return "aarch64";
+            }
+            if (osArch.contains("86") || osArch.contains("amd") && osArch.contains("64")) {
+                return "x86_64";
+            }
+        }
+        if (osName.contains("mac") || osName.contains("darwin")) {
+            if (osArch.contains("aarch64") || osArch.contains("arm64")) {
+                return "arm64";
             }
             if (osArch.contains("86") || osArch.contains("amd") && osArch.contains("64")) {
                 return "x86_64";

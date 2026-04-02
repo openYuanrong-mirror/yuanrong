@@ -13,7 +13,10 @@ cc_library(
         "*.h"
     ]),
     copts = COPTS,
-    linkopts = ["-lpthread", "-lstdc++fs"],
+    linkopts = select({
+        "//:is_linux": ["-lpthread", "-lstdc++fs"],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
     deps = [
         "@spdlog//:spdlog",

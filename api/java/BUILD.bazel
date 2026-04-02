@@ -314,10 +314,17 @@ genrule(
         "//src/proto:libruntime_java_proto",
         "//src/proto:socket_java_proto",
         "//api/java/function-common/src/main/cpp:libruntime_lib_jni.so",
-        "//:grpc_strip",
-        "@datasystem_sdk//:shared",
-        "@metrics_sdk//:shared",
-    ],
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": [
+            "@datasystem_sdk//:shared",
+        ],
+    }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            "//src/utility/metrics:shared_exporters",
+        ],
+    }),
     outs = ["native_yr_api_sdk.jar"],
     cmd = """
     # make folders
@@ -327,8 +334,7 @@ genrule(
     JAVA_SDK_DIR=$$BASE_DIR/build/output/runtime/sdk/java
     rm -rf $$WORKING_DIR $$JAVA_SDK_DIR
     mkdir -p $$NATIVE_DIR $$JAVA_SDK_DIR
-    chmod +w $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) && chrpath -r '$$ORIGIN' $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) &&
-    chmod +w $(locations //:grpc_strip) && chrpath -d $(locations //:grpc_strip)
+    chmod +w $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) && if [[ "$$(uname)" != "Darwin" ]]; then chrpath -r '$$ORIGIN' $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) 2>/dev/null || true; fi &&
     # decompress jars to WORKING_DIR
     cd $$WORKING_DIR
     jar xf $$BASE_DIR/$(locations //api/java:lib_yr_api_sdk)
@@ -339,30 +345,35 @@ genrule(
 
     # copy native lib to WORKING_DIR
     cd $$BASE_DIR
-    NATIVE_LIB=$$(echo $(locations @datasystem_sdk//:shared))
-    NATIVE_LIB=$$(echo $$NATIVE_LIB $(locations @metrics_sdk//:shared))
-    NATIVE_LIB=$$(echo $$NATIVE_LIB $(locations //:grpc_strip))
-    NATIVE_LIB=$$(echo $$NATIVE_LIB $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so))
     LIB_REQUIRED=(
         "libtbb.so.2"
+        "libtbb.2.dylib"
         "libds-spdlog.so.1.12.0"
+        "libds-spdlog.1.12.0.dylib"
         "libzmq.so.5.2.5"
+        "libzmq.5.2.5.dylib"
         "libsecurec.so"
+        "libsecurec.dylib"
         "libssl.so.1.1"
+        "libssl.dylib"
         "libcrypto.so.1.1"
+        "libcrypto.dylib"
         "libaddress_sorting.so.42.0.0"
+        "libaddress_sorting.42.0.0.dylib"
         "libdatasystem.so"
-        "libgrpc_dynamic.so.1.65.4"
+        "libdatasystem.dylib"
         "libspdlog.so.1.12.0"
+        "libspdlog.1.12.0.dylib"
         "libyrlogs.so"
+        "libyrlogs.dylib"
         "liblitebus.so.0.0.1"
-        "libobservability-metrics-sdk.so"
-        "libobservability-metrics.so"
-        "libruntime_lib_jni.so")
+        "liblitebus.0.0.1.dylib"
+        "libruntime_lib_jni.so"
+        "libruntime_lib_jni.dylib")
 
     unique_array=()
 
-    for f in $$NATIVE_LIB;
+    for f in $(SRCS);
     do
         filename=$$(basename $$f)
         if [[ ! "$${unique_array[*]-}" =~ "$${filename}" ]]; then
@@ -376,7 +387,7 @@ genrule(
         fi
         cp -a $$f $$NATIVE_DIR
         echo $$f $$filename
-        sha256value=$$(sha256sum $$f | awk '{{print $$1}}')
+        sha256value=$$(openssl dgst -sha256 $$f | awk '{print $$2}')
         echo "$$filename=$$sha256value" >> $$NATIVE_DIR/so.properties
     done
 
@@ -403,11 +414,20 @@ genrule(
     name = "yr_java_pkg",
     srcs = [
         ":java_strip",
-        "//:grpc_strip",
         "yr_runtime_deploy.jar",
         ":lib_faas_function_sdk",
         ":create_native_jar",
-    ],
+    ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": [
+            "@datasystem_sdk//:shared",
+        ],
+    }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            "//src/utility/metrics:shared_exporters",
+        ],
+    }),
     outs = ["yr_java_pkg.out"],
     cmd = """
         BASE_DIR="$$(pwd)" &&
@@ -419,14 +439,16 @@ genrule(
         cp -rf $$BASE_DIR/api/java/yr-runtime/src/main/resources/* $$JAVA_SERVICE_DIR/ &&
         cp -rf $(locations :lib_faas_function_sdk) $$JAVA_SDK_DIR/faas-function-sdk-$$BUILD_VERSION.jar &&
         mkdir -p $$JAVA_SERVICE_DIR/lib &&
-        chmod +w $(locations :java_strip) $(locations //:grpc_strip) &&
-        chrpath -r '$$ORIGIN' $(locations :java_strip) &&
-        chrpath -d $(locations //:grpc_strip)
-        cp -fr $(locations :java_strip) $(locations //:grpc_strip) $$JAVA_SERVICE_DIR/lib &&
-        DATASYSTEM_DIR=$$BASE_DIR/external/datasystem_sdk &&
-        METRICS_DIR=$$BASE_DIR/external/metrics_sdk &&
-        cp -rf $$DATASYSTEM_DIR/lib/* $$JAVA_SERVICE_DIR/lib &&
-        cp -rf $$METRICS_DIR/lib/* $$JAVA_SERVICE_DIR/lib &&
+        chmod +w $(locations :java_strip) &&
+        if [[ "$$(uname)" != "Darwin" ]]; then chrpath -r '$$ORIGIN' $(locations :java_strip) 2>/dev/null || true; fi &&
+        cp -fr $(locations :java_strip) $$JAVA_SERVICE_DIR/lib &&
+        for f in $(SRCS); do
+            case "$$(basename "$$f")" in
+                libtbb.so.2|libtbb.2.dylib|libds-spdlog.so.1.12.0|libds-spdlog.1.12.0.dylib|libzmq.so.5.2.5|libzmq.5.2.5.dylib|libsecurec.so|libsecurec.dylib|libssl.so.1.1|libssl.dylib|libcrypto.so.1.1|libcrypto.dylib|libaddress_sorting.so.42.0.0|libaddress_sorting.42.0.0.dylib|libdatasystem.so|libdatasystem.dylib|libspdlog.so.1.12.0|libspdlog.1.12.0.dylib|libyrlogs.so|libyrlogs.dylib|liblitebus.so.0.0.1|liblitebus.0.0.1.dylib|libobservability-*.so|libobservability-*.dylib)
+                    [ -f "$$f" ] && cp -rf "$$f" $$JAVA_SERVICE_DIR/lib || true
+                    ;;
+            esac
+        done &&
         echo "$$BASE_DIR" > $@
     """,
     local = True,

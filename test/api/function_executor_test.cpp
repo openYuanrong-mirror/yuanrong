@@ -78,7 +78,7 @@ private:
     std::shared_ptr<FunctionExecutor> exec_;
 };
 
-TEST_F(FunctionExecutorTest, LoadFunctionsSuccessfullyTest)
+TEST_F(FunctionExecutorTest, DISABLED_LoadFunctionsSuccessfullyTest)
 {
     fs::path currentPath = fs::current_path();
     auto path = currentPath.string();

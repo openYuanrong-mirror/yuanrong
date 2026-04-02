@@ -18,46 +18,22 @@
 
 #include <memory>
 
-#include "datasystem/object_client.h"
-
 #include "src/libruntime/objectstore/datasystem_client_wrapper.h"
-
-#include "src/libruntime/gwclient/gw_client.h"
 
 namespace YR {
 namespace Libruntime {
-datasystem::StatusCode oneOfNoRetryCode = datasystem::StatusCode::K_RUNTIME_ERROR;
+
+// Forward declaration
+class GwClient;
+
 class GwDatasystemClientWrapper : public DatasystemClientWrapper {
 public:
-    GwDatasystemClientWrapper(std::shared_ptr<GwClient> client)
-    {
-        gwClient = client;
-    }
+    GwDatasystemClientWrapper(std::shared_ptr<GwClient> client);
 
-    datasystem::Status GDecreaseRef(const std::vector<std::string> &objectIds,
-                                    std::vector<std::string> &failedObjectIds)
-    {
-        if (auto locked = gwClient.lock()) {
-            auto failedIdsPtr = std::make_shared<std::vector<std::string>>();
-            auto err = locked->PosixGDecreaseRef(objectIds, failedIdsPtr);
-            if (err.OK()) {
-                failedObjectIds.assign(failedIdsPtr->begin(), failedIdsPtr->end());
-                return datasystem::Status(datasystem::StatusCode::K_OK, err.Msg());
-            } else {
-                return datasystem::Status(oneOfNoRetryCode, err.Msg());
-            }
-        } else {
-            YRLOG_DEBUG("gw client pointer is expired.");
-        }
-        return {};
-    }
+    ErrorInfo GDecreaseRef(const std::vector<std::string> &objectIds,
+                           std::vector<std::string> &failedObjectIds) override;
 
-    void SetTenantId(const std::string &tenantId)
-    {
-        if (auto locked = gwClient.lock()) {
-            locked->SetTenantId(tenantId);
-        }
-    }
+    void SetTenantId(const std::string &tenantId) override;
 
 private:
     std::weak_ptr<GwClient> gwClient;

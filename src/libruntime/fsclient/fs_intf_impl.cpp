@@ -527,7 +527,7 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
 void FSIntfImpl::CallResultAsync(const std::shared_ptr<CallResultMessageSpec> req, CallResultCallBack callback)
 {
     auto reqId = std::make_shared<std::string>(
-        std::move(YR::utility::IDGenerator::GetRealRequestId(req->Immutable().requestid())));
+        YR::utility::IDGenerator::GetRealRequestId(req->Immutable().requestid()));
     YRLOG_DEBUG("Start Call Result Request, requestid: {}, source instanceid: {}", req->Immutable().requestid(),
                 req->Immutable().instanceid());
     auto respCallback = [callback, req](const StreamingMessage &callResultResp, ErrorInfo status,

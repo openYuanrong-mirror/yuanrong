@@ -15,6 +15,9 @@
  */
 
 #include "stream_producer_consumer.h"
+
+#ifdef ENABLE_DATASYSTEM
+
 #include "datasystem/stream/element.h"
 #include "datasystem/stream/stream_config.h"
 #include "src/dto/config.h"
@@ -122,3 +125,61 @@ std::shared_ptr<datasystem::Consumer> &StreamConsumer::GetConsumer()
 
 }  // namespace Libruntime
 }  // namespace YR
+
+#else  // !ENABLE_DATASYSTEM
+
+namespace YR {
+namespace Libruntime {
+
+static const ErrorInfo DATASYSTEM_NOT_ENABLED_ERROR(
+    ErrorCode::ERR_DATASYSTEM_FAILED, ModuleCode::DATASYSTEM,
+    "Stream operations require ENABLE_DATASYSTEM to be enabled");
+
+ErrorInfo StreamProducer::Send(const Element &element)
+{
+    (void)element;
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamProducer::Send(const Element &element, int64_t timeoutMs)
+{
+    (void)element;
+    (void)timeoutMs;
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamProducer::Close()
+{
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamConsumer::Receive(uint32_t expectNum, uint32_t timeoutMs, std::vector<Element> &outElements)
+{
+    (void)expectNum;
+    (void)timeoutMs;
+    (void)outElements;
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamConsumer::Receive(uint32_t timeoutMs, std::vector<Element> &outElements)
+{
+    (void)timeoutMs;
+    (void)outElements;
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamConsumer::Ack(uint64_t elementId)
+{
+    (void)elementId;
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+ErrorInfo StreamConsumer::Close()
+{
+    return DATASYSTEM_NOT_ENABLED_ERROR;
+}
+
+}  // namespace Libruntime
+}  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

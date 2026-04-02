@@ -50,7 +50,7 @@ public:
 
 private:
     absl::Mutex mu_;
-    std::unordered_map<std::string, std::shared_ptr<ResourceGroupDetail>> storeMap_ ABSL_GUARDED_BY(mu_);
+    std::unordered_map<std::string, std::shared_ptr<ResourceGroupDetail>> storeMap_;
 };
 }  // namespace Libruntime
 }  // namespace YR

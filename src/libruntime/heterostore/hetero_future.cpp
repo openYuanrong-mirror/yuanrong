@@ -20,6 +20,8 @@
 namespace YR {
 namespace Libruntime {
 
+#ifdef ENABLE_DATASYSTEM
+
 YR::Libruntime::AsyncResult ConverDsAsyncResultToLib(datasystem::AsyncResult dsResult)
 {
     YR::Libruntime::AsyncResult result;
@@ -74,6 +76,22 @@ YR::Libruntime::AsyncResult HeteroFuture::Get()
     datasystem::Status status = this->dsFuture_->Get();
     return ConverDsStatusToAsyncRes(status);
 }
+
+#else  // ENABLE_DATASYSTEM
+
+bool HeteroFuture::IsDsFuture()
+{
+    return false;
+}
+
+YR::Libruntime::AsyncResult HeteroFuture::Get()
+{
+    YR::Libruntime::AsyncResult result;
+    result.error = ErrorInfo(ErrorCode::ERR_DATASYSTEM_FAILED, "HeteroFuture not supported without datasystem");
+    return result;
+}
+
+#endif  // ENABLE_DATASYSTEM
 
 }  // namespace Libruntime
 }  // namespace YR

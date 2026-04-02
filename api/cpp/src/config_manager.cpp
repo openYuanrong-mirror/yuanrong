@@ -19,6 +19,9 @@
 #include <libgen.h>
 #include <limits.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <iostream>
 #include <thread>
 
@@ -126,18 +129,19 @@ int GetValidThreadPoolSize(int threadPoolSize)
 std::string GetExecutablePath()
 {
     char buffer[PATH_MAX];
+#ifdef __APPLE__
+    uint32_t bufsize = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &bufsize) == 0) {
+        return std::string(dirname(buffer));
+    }
+#else
     ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
     if (len != -1) {
         buffer[len] = '\0';
         return std::string(dirname(buffer));
     }
+#endif
     return "";
-}
-
-ConfigManager &ConfigManager::Singleton() noexcept
-{
-    static ConfigManager confMgr;
-    return confMgr;
 }
 
 ClientInfo ConfigManager::GetClientInfo()

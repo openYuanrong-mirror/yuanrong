@@ -541,19 +541,21 @@ public:
     // and thread pools without clearing user data.
     void ReInit(void) override;
     void GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallback respCallback, CreateCallBack callback,
-                          int timeoutSec = -1);
+                          int timeoutSec = -1) override;
     void CreateAsync(const CreateRequest &req, CreateRespCallback respCallback, CreateCallBack callback,
-                     int timeoutSec = -1);
-    void InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec = -1);
-    void CallResultAsync(const std::shared_ptr<CallResultMessageSpec> req, CallResultCallBack callback);
-    void KillAsync(const KillRequest &req, KillCallBack callback, int timeoutSec = -1);
-    void ExitAsync(const ExitRequest &req, ExitCallBack callback);
-    void StateSaveAsync(const StateSaveRequest &req, StateSaveCallBack callback);
-    void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback);
+                     int timeoutSec = -1) override;
+    void InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback,
+                     int timeoutSec = -1) override;
+    void CallResultAsync(const std::shared_ptr<CallResultMessageSpec> req, CallResultCallBack callback) override;
+    void KillAsync(const KillRequest &req, KillCallBack callback, int timeoutSec = -1) override;
+    void ExitAsync(const ExitRequest &req, ExitCallBack callback) override;
+    void StateSaveAsync(const StateSaveRequest &req, StateSaveCallBack callback) override;
+    void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback) override;
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
-                           int timeoutSec = -1);
-    void EventAsync(const std::shared_ptr<EventMessageSpec> &req, int timeoutSec = -1);
-    void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instaceId);
+                           int timeoutSec = -1) override;
+    void EventAsync(const std::shared_ptr<EventMessageSpec> &req, int timeoutSec = -1) override;
+    void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instaceId) override;
+    ErrorInfo ReconnectProxyClient(const std::string &fsIp, int fsPort) override;
     void ResendRequests(const std::string &dstInstanceID);
     void NotifyDisconnected(const std::string &dstInstanceID);
     bool NeedResendReq(const std::shared_ptr<StreamingMessage> &message);
@@ -567,8 +569,7 @@ public:
     }
     void RemoveInsRtIntf(const std::string &instanceId) override;
     bool IsHealth() override;
-    int GetSelfPort() const;
-    ErrorInfo ReconnectProxyClient(const std::string &fsIp, int fsPort) override;
+    int GetSelfPort() const override;
 
 protected:
     void Write(const std::shared_ptr<StreamingMessage> &msg, std::function<void(ErrorInfo)> callback = nullptr);
@@ -592,7 +593,7 @@ protected:
     bool enableDirectCall = false;
     bool enableEvent = false;
     mutable absl::Mutex mu;
-    std::unordered_map<std::string, std::shared_ptr<WiredRequest>> wiredRequests ABSL_GUARDED_BY(mu);
+    std::unordered_map<std::string, std::shared_ptr<WiredRequest>> wiredRequests;
     std::shared_ptr<TimerWorker> timerWorker;
     std::shared_ptr<absl::Notification> notification;
     std::shared_ptr<Security> security;
