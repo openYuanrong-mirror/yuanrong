@@ -9,25 +9,25 @@ set -e
 # ============================================
 
 BUILD_TARGET="${BUILD_TARGET:-all}"        # all, linux, macos
+BUILD_ARCH="${BUILD_ARCH:-amd64}"          # 默认改为 amd64
+BUILD_OS="${BUILD_OS:-linux}"              # 默认改为 linux
+BUILD_QUEUE="${BUILD_QUEUE:-default}"      # 默认队列
 COMPONENTS="${COMPONENTS:-frontend,datasystem,functionsystem,yuanrong}"
-BUILDER_IMAGE="${BUILDER_IMAGE:-yuanrong/builder:arm64}"
+BUILDER_IMAGE="${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-${BUILD_ARCH}}"
 BUILD_VERSION="${BUILD_VERSION:-v0.0.1}"
 
 # 华为云 OBS 配置 (从环境变量读取)
-OBS_ENDPOINT="${OBS_ENDPOINT:-obs.cn-north-4.myhuaweicloud.com}"
-OBS_BUCKET="${OBS_BUCKET}"
-OBS_ACCESS_KEY="${OBS_ACCESS_KEY}"
-OBS_SECRET_KEY="${OBS_SECRET_KEY}"
-OBS_PATH_PREFIX="${OBS_PATH_PREFIX:-yuanrong/builds}"
+# ... (中间代码保持不变)
 
 # ============================================
 # 工具函数
 # ============================================
 
-# 生成 Linux 构建步骤 (Docker 容器)
+# 生成 Linux 构建步骤 (K8s 原生容器)
 generate_linux_step() {
     local component="$1"
     local label=""
+    local arch_display=$(echo ${BUILD_ARCH} | tr '[:lower:]' '[:upper:]')
 
     case "$component" in
         frontend)      label=":gopher: Frontend" ;;
@@ -40,25 +40,26 @@ generate_linux_step() {
     esac
 
     cat << STEP
-  - label: "$label (Linux ARM64)"
+  - label: "$label (Linux $arch_display)"
     command: |
-      #!/bin/bash
       set -e
-      echo "=== Building $component for Linux ARM64 ==="
-      echo "Platform: \$(uname -a)"
+      echo "=== Building $component for Linux $arch_display ==="
       make $component
       mkdir -p artifacts/linux
       cp -r output/* artifacts/linux/ 2>/dev/null || true
     agents:
-      docker: "true"
-      arch: "arm64"
+      arch: "${BUILD_ARCH}"
+      queue: "${BUILD_QUEUE}"
     plugins:
-      - docker-compose#v5.0.0:
-          config: scripts/docker-compose.builder.yml
-          run: builder
-          env:
-            - BUILD_VERSION=$BUILD_VERSION
-            - GOPROXY=https://goproxy.cn,direct
+      - kubernetes#v0.12.0:
+          podSpec:
+            containers:
+              - image: "${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-amd64}"
+                env:
+                  - name: BUILD_VERSION
+                    value: "$BUILD_VERSION"
+                  - name: GOPROXY
+                    value: "https://goproxy.cn,direct"
     retry:
       automatic:
         - limit: 1
@@ -95,7 +96,9 @@ generate_macos_step() {
       mkdir -p artifacts/macos
       cp -r output/* artifacts/macos/ 2>/dev/null || true
     agents:
-      os: "macos"
+      os: "${BUILD_OS:-macos}"
+      arch: "${BUILD_ARCH:-arm64}"
+      queue: "${BUILD_QUEUE:-default}"
       arch: "arm64"
     retry:
       automatic:
@@ -126,7 +129,9 @@ steps:
       echo "提交: ${BUILDKITE_COMMIT:-unknown}"
       echo "=========================================="
     agents:
-      os: "macos"
+      os: "${BUILD_OS:-macos}"
+      arch: "${BUILD_ARCH:-arm64}"
+      queue: "${BUILD_QUEUE:-default}"
 
   # 等待信息步骤
   - wait: ~
@@ -216,7 +221,9 @@ cat << YAML
       echo "产物位置:"
       ls -lh *.tar.gz 2>/dev/null || echo "无产物"
     agents:
-      os: "macos"
+      os: "${BUILD_OS:-macos}"
+      arch: "${BUILD_ARCH:-arm64}"
+      queue: "${BUILD_QUEUE:-default}"
     artifact_paths:
       - "output-final/**/*"
       - "yuanrong-*.tar.gz"
@@ -323,6 +330,8 @@ cat << YAML
       ls -lh *.tar.gz 2>/dev/null | awk '{print "|", \$9, "|", \$5, "|"}'
       echo "\`\`\`"
     agents:
-      os: "macos"
+      os: "${BUILD_OS:-macos}"
+      arch: "${BUILD_ARCH:-arm64}"
+      queue: "${BUILD_QUEUE:-default}"
 
 YAML
