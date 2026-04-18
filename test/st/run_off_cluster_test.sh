@@ -13,28 +13,34 @@ TEST_DIR="${SCRIPT_DIR}/python"
 SERVER_ADDRESS=""
 PYTHON_BIN=""
 EXTRA_ARGS=""
+JWT_TOKEN="${YR_JWT_TOKEN:-}"
 
 usage() {
     cat <<EOF
-Usage: bash $0 -a <ip:port> [-p python_path] [-- pytest args...]
+Usage: bash $0 -a <ip:port> [-p python_path] [-t jwt_token] [-- pytest args...]
 
 Options:
-    -a  Cluster address (required), e.g. 100.111.54.22:38888
-    -p  Python binary path (default: auto-detect py39)
+    -a  Cluster address (required), e.g. <server-ip>:<port>
+    -p  Python binary path (default: prefer active conda/current Python, then common local envs)
+    -t  JWT token for X-Auth authentication (default: read from YR_JWT_TOKEN)
     -h  Show this help
 
 Examples:
-    bash $0 -a 100.111.54.22:38888
-    bash $0 -a 100.111.54.22:38888 -p /usr/bin/python3.9
-    bash $0 -a 100.111.54.22:38888 -- -k test_put_get
+    conda activate py310 && bash $0 -a <server-ip>:<port>
+    bash $0 -a <server-ip>:<port>
+    bash $0 -a <server-ip>:<port> -p /usr/bin/python3.9
+    bash $0 -a <server-ip>:<port> -t <jwt_token>
+    export YR_JWT_TOKEN=<jwt_token> && bash $0 -a <server-ip>:<port>
+    bash $0 -a <server-ip>:<port> -- -k test_put_get
 EOF
 }
 
 # Parse args before --
-while getopts "a:p:h" opt; do
+while getopts "a:p:t:h" opt; do
     case "${opt}" in
         a) SERVER_ADDRESS="${OPTARG}" ;;
         p) PYTHON_BIN="${OPTARG}" ;;
+        t) JWT_TOKEN="${OPTARG}" ;;
         h) usage; exit 0 ;;
         *) usage; exit 1 ;;
     esac
@@ -50,23 +56,44 @@ if [ -z "${SERVER_ADDRESS}" ]; then
     exit 1
 fi
 
-# Auto-detect Python 3.9
-if [ -z "${PYTHON_BIN}" ]; then
-    # Prefer miniforge/conda py39
-    for candidate in \
-        /Users/wangyuchao/miniforge3/envs/py39/bin/python \
-        /opt/homebrew/bin/python3.9 \
-        /usr/local/bin/python3.9 \
-        python3.9; do
-        if command -v "${candidate}" &>/dev/null; then
-            PYTHON_BIN="${candidate}"
-            break
+find_usable_python() {
+    local candidate=""
+    local resolved=""
+    local candidates=()
+
+    if [ -n "${CONDA_PREFIX:-}" ]; then
+        candidates+=("${CONDA_PREFIX}/bin/python")
+    fi
+
+    candidates+=(
+        python
+        python3
+        python3.10
+        python3.9
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if ! command -v "${candidate}" &>/dev/null; then
+            continue
+        fi
+
+        resolved=$(command -v "${candidate}")
+        if "${resolved}" -c "import yr" &>/dev/null; then
+            printf '%s\n' "${resolved}"
+            return 0
         fi
     done
+
+    return 1
+}
+
+# Auto-detect a usable Python with openyuanrong installed
+if [ -z "${PYTHON_BIN}" ]; then
+    PYTHON_BIN=$(find_usable_python || true)
 fi
 
 if [ -z "${PYTHON_BIN}" ]; then
-    echo "ERROR: Python 3.9 not found. Install it or specify -p <path>"
+    echo "ERROR: No usable Python with openyuanrong installed was found. Activate your conda env or specify -p <path>"
     exit 1
 fi
 
@@ -74,6 +101,11 @@ echo "=== Off-Cluster (云外) openyuanrong Smoke Test ==="
 echo "Python:    ${PYTHON_BIN}"
 echo "Cluster:   ${SERVER_ADDRESS}"
 echo "Test dir:  ${TEST_DIR}"
+if [ -n "${JWT_TOKEN}" ]; then
+    echo "Auth:      enabled (X-Auth)"
+else
+    echo "Auth:      disabled"
+fi
 echo ""
 
 # Verify openyuanrong is installed
@@ -85,7 +117,12 @@ PKG=$("${PYTHON_BIN}" -c "import yr; print('ok')" 2>&1) || {
 
 # Verify cluster is reachable
 PROTO="https"
-STATUS=$(curl -sk -o /dev/null -w "%{http_code}" "${PROTO}://${SERVER_ADDRESS}/" 2>&1) || {
+if [ -n "${JWT_TOKEN}" ]; then
+    CURL_AUTH_ARGS=(-H "X-Auth: ${JWT_TOKEN}")
+else
+    CURL_AUTH_ARGS=()
+fi
+STATUS=$(curl -sk "${CURL_AUTH_ARGS[@]}" -o /dev/null -w "%{http_code}" "${PROTO}://${SERVER_ADDRESS}/" 2>&1) || {
     echo "ERROR: Cannot reach cluster at ${PROTO}://${SERVER_ADDRESS}"
     exit 1
 }
@@ -96,6 +133,7 @@ echo ""
 cd "${TEST_DIR}"
 
 export YR_SERVER_ADDRESS="${SERVER_ADDRESS}"
+export YR_JWT_TOKEN="${JWT_TOKEN}"
 
 echo "--- Running tests ---"
 "${PYTHON_BIN}" -m pytest -s -vv \

@@ -102,8 +102,21 @@ public:
 
     void SetAvailable()
     {
+        std::function<void()> releaseCallback;
+        {
+            absl::WriterMutexLock l(&mu_);
+            isUsed_ = false;
+            releaseCallback = std::move(onRelease_);
+        }
+        if (releaseCallback) {
+            releaseCallback();
+        }
+    }
+
+    void SetOnRelease(std::function<void()> callback)
+    {
         absl::WriterMutexLock l(&mu_);
-        isUsed_ = false;
+        onRelease_ = std::move(callback);
     }
 
     void ResetConnActive()
@@ -163,6 +176,7 @@ protected:
     std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_;
     bool retried_{false};
     int idleTime_{120};
+    std::function<void()> onRelease_;
     mutable absl::Mutex mu_;
 };
 

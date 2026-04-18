@@ -81,8 +81,8 @@ RUN ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
     pip${PYTHON_MAJOR_MINOR} config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip${PYTHON_MAJOR_MINOR} config set global.timeout 100
 
-COPY pkg/openyuanrong_sdk-*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/openyuanrong_sdk-*.whl && \
-    rm -f /tmp/openyuanrong_sdk-*.whl
+COPY pkg/openyuanrong_sdk*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl && \
+    rm -f /tmp/openyuanrong_sdk*.whl
 
 WORKDIR /root

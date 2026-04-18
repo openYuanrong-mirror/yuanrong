@@ -216,6 +216,58 @@ native_tool_toolchain(
 )
 
 http_archive(
+    name = "cmake_3.21.2_linux_x86_64",
+    sha256 = "d5517d949eaa8f10a149ca250e811e1473ee3f6f10935f1f69596a1e184eafc1",
+    strip_prefix = "cmake-3.21.2-linux-x86_64",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/cmake-3.21.2-linux-x86_64.tar.gz",
+        "https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-x86_64.tar.gz",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "cmake_bin",
+    srcs = ["bin/cmake"],
+)
+
+native_tool_toolchain(
+    name = "cmake_tool",
+    path = "$(execpath :cmake_bin)",
+    target = ":cmake_bin",
+)
+""",
+)
+
+http_archive(
+    name = "cmake_3.21.2_linux_aarch64",
+    sha256 = "fe0673c1877f31e37fd94bfe0509c2e4c13b9d5174dd953c2354549685e1d055",
+    strip_prefix = "cmake-3.21.2-linux-aarch64",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/cmake-3.21.2-linux-aarch64.tar.gz",
+        "https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-aarch64.tar.gz",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "cmake_bin",
+    srcs = ["bin/cmake"],
+)
+
+native_tool_toolchain(
+    name = "cmake_tool",
+    path = "$(execpath :cmake_bin)",
+    target = ":cmake_bin",
+)
+""",
+)
+
+http_archive(
     name = "opentelemetry_cpp",
     sha256 = "7735cc56507149686e6019e06f588317099d4522480be5f38a2a09ec69af1706",
     strip_prefix = "opentelemetry-cpp-1.13.0",

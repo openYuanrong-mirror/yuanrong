@@ -33,7 +33,7 @@ from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 try:
     from packaging import tags
     from packaging.version import Version
-except ImportError:  # pragma: no cover
+except ModuleNotFoundError:  # pragma: no cover
     try:
         from wheel.vendored.packaging import tags
         from wheel.vendored.packaging.version import Version
@@ -58,8 +58,9 @@ class SetupType(Enum):
     """setup type enum"""
 
     OPENYUANRONG = 1
-    OPENYUANRONG_RUNTIME = 2
-    OPENYUANRONG_SERVICE = 3
+    OPENYUANRONG_SDK = 2
+    OPENYUANRONG_CPP_SDK = 3
+    OPENYUANRONG_ALL = 4
 
 
 class SetupSpec:
@@ -76,44 +77,26 @@ class SetupSpec:
 
     def get_packages(self):
         if self.setup_type == SetupType.OPENYUANRONG:
+            return setuptools.find_packages(include=("yr.inner", "yr.inner.*"))
+        if self.setup_type == SetupType.OPENYUANRONG_SDK:
             return setuptools.find_packages(
-                exclude=(
-                    "yr.tests",
-                    "yr.tests.*",
-                ),
+                exclude=("yr.tests", "yr.tests.*", "yr.inner", "yr.inner.*")
             )
-        if self.setup_type == SetupType.OPENYUANRONG_RUNTIME:
+        if self.setup_type == SetupType.OPENYUANRONG_ALL:
             return setuptools.find_packages(
-                include=("yr", "yr.inner", "yr.inner.*"),
-            )
-        if self.setup_type == SetupType.OPENYUANRONG_SERVICE:
-            return setuptools.find_packages(
-                include=("yr", "yr.inner", "yr.inner.*"),
+                exclude=("yr.tests", "yr.tests.*"),
             )
         return []
 
 
 setup_type_env = os.getenv("SETUP_TYPE", "")
+base_name = os.getenv("YR_PACKAGE_NAME", "openyuanrong")
 
-if setup_type_env == "runtime":
+if setup_type_env == "sdk":
     setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG_RUNTIME,
-        "openyuanrong_runtime",
-        "openyuanrong runtime package",
-    )
-    setup_spec.install_requires = ["openyuanrong==" + setup_spec.version]
-elif setup_type_env == "service":
-    setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG_SERVICE,
-        "openyuanrong_service",
-        "openyuanrong service package",
-    )
-    setup_spec.install_requires = ["openyuanrong==" + setup_spec.version]
-else:
-    setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG,
-        "openyuanrong",
-        "openyuanrong - serverless computing framework",
+        SetupType.OPENYUANRONG_SDK,
+        f"{base_name}_sdk",
+        "openyuanrong python sdk",
     )
     setup_spec.install_requires = [
         "cloudpickle==2.2.1",
@@ -127,16 +110,42 @@ else:
         "aiohttp>=3.9.0",   # tunnel_server Port B HTTP/WS server
         "httpx>=0.27.0",    # tunnel_client async HTTP forwarding
     ]
-    setup_spec.extras["runtime"] = ["openyuanrong_runtime==" + setup_spec.version]
-    setup_spec.extras["service"] = ["openyuanrong_service==" + setup_spec.version]
-    setup_spec.extras["all"] = [
-        "openyuanrong_runtime==" + setup_spec.version,
-        "openyuanrong_service==" + setup_spec.version,
-    ]
+    setup_spec.entry_points = {
+        "console_scripts": [
+            "yrcli=yr.cli.scripts:main",
+        ]
+    }
+elif setup_type_env == "sdk_cpp":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_CPP_SDK,
+        f"{base_name}_cpp_sdk",
+        "openyuanrong cpp sdk",
+    )
+elif setup_type_env == "all":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_ALL,
+        f"{base_name}_all",
+        "openyuanrong all package",
+    )
     setup_spec.entry_points = {
         "console_scripts": [
             "yr=yr.inner.scripts:run_yr",
             "yrcli=yr.cli.scripts:main",
+        ]
+    }
+else:
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG,
+        base_name,
+        "openyuanrong package",
+    )
+    setup_spec.install_requires = [
+        f"{base_name}_sdk==" + setup_spec.version,
+    ]
+    setup_spec.extras["cpp"] = [f"{base_name}_cpp_sdk==" + setup_spec.version]
+    setup_spec.entry_points = {
+        "console_scripts": [
+            "yr=yr.inner.scripts:run_yr",
         ]
     }
 
@@ -160,95 +169,49 @@ def contains_keyword(text, keywords):
 
 
 def copy_openyuanrong_runtime(build_lib):
-    """copy runtime components"""
+    """copy openyuanrong runtime files"""
+    keyword_to_exclude = [
+        "datasystem/sdk",
+        "deploy/k8s",
+        "functionsystem/bin/domain_scheduler",
+        "functionsystem/bin/iam_server",
+        "functionsystem/bin/runtime_manager",
+        "functionsystem/sym",
+        "pattern_faas/faasmanager",
+        "runtime/sdk",
+    ]
+    file_to_exclude = [
+        "faasfrontend",
+        "faasfrontend.zip",
+        "faasscheduler",
+        "faasscheduler.zip",
+    ]
+    files_to_include = []
     root_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong")
-    runtime_dir = os.path.join(root_dir, "runtime")
-
-    # Copy Go runtime
-    go_dir = os.path.join(runtime_dir, "service/go/bin")
-    if os.path.exists(go_dir):
-        for f in os.listdir(go_dir):
-            src = os.path.join(go_dir, f)
-            dst = os.path.join(build_lib, "yr/runtime/service/go/bin", f)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            if os.path.isfile(src):
-                shutil.copy(src, dst, follow_symlinks=True)
-
-    # Copy Java runtime
-    java_dir = os.path.join(runtime_dir, "service/java")
-    if os.path.exists(java_dir):
-        for root, dirs, files in os.walk(java_dir):
-            for f in files:
-                src = os.path.join(root, f)
-                rel_path = os.path.relpath(src, java_dir)
-                dst = os.path.join(build_lib, "yr/runtime/service/java", rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(src, dst, follow_symlinks=True)
+    for root, _, fs in os.walk(root_dir):
+        if contains_keyword(root, keyword_to_exclude):
+            continue
+        for i in fs:
+            if i in file_to_exclude:
+                continue
+            files_to_include.append(os.path.join(root, i))
+    for filename in files_to_include:
+        copy_file(os.path.join(build_lib, "yr/inner"), filename, root_dir)
 
 
 def copy_openyuanrong_cpp_sdk(build_lib):
-    """copy C++ SDK payload"""
-    root_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong")
-
-    # Copy C++ SDK headers and libraries
-    cpp_sdk_dir = os.path.join(root_dir, "runtime/sdk/cpp")
-    if os.path.exists(cpp_sdk_dir):
-        for root, dirs, files in os.walk(cpp_sdk_dir):
-            for f in files:
-                src = os.path.join(root, f)
-                rel_path = os.path.relpath(src, cpp_sdk_dir)
-                dst = os.path.join(build_lib, "yr/cpp", rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(src, dst, follow_symlinks=True)
-
-    # Copy C++ service runtime
-    cpp_service_dir = os.path.join(root_dir, "runtime/service/cpp")
-    if os.path.exists(cpp_service_dir):
-        for root, dirs, files in os.walk(cpp_service_dir):
-            for f in files:
-                src = os.path.join(root, f)
-                rel_path = os.path.relpath(src, cpp_service_dir)
-                dst = os.path.join(build_lib, "yr/runtime/service/cpp", rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(src, dst, follow_symlinks=True)
-
-
-def copy_openyuanrong_services(build_lib):
-    """copy dashboard and faas payload"""
-    root_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong")
-
-    # Copy Dashboard
-    dashboard_dir = os.path.join(root_dir, "dashboard")
-    if os.path.exists(dashboard_dir):
-        for root, dirs, files in os.walk(dashboard_dir):
-            for f in files:
-                src = os.path.join(root, f)
-                rel_path = os.path.relpath(src, dashboard_dir)
-                dst = os.path.join(build_lib, "yr/dashboard", rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(src, dst, follow_symlinks=True)
-
-    # Copy FaaS (exclude .zip files and standalone binaries to reduce package size)
-    faas_dir = os.path.join(root_dir, "pattern/pattern_faas")
-    if os.path.exists(faas_dir):
-        for root, dirs, files in os.walk(faas_dir):
-            if contains_keyword(root, ["faasmanager"]):
-                continue
-            for f in files:
-                # Skip .zip files and standalone binaries (keep only .so shared libraries)
-                # .so files are used by Python/Go/Java runtimes via ctypes/cgo
-                if f.endswith('.zip') or (f in ['faasfrontend', 'faasscheduler']):
-                    continue
-                src = os.path.join(root, f)
-                rel_path = os.path.relpath(src, faas_dir)
-                dst = os.path.join(build_lib, "yr/faas", rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(src, dst, follow_symlinks=True)
+    """copy C++ SDK .so files"""
+    files_to_include = []
+    for root, _, fs in os.walk("./yr"):
+        for i in fs:
+            if "so" in i:
+                files_to_include.append(os.path.join(root, i))
+    for filename in files_to_include:
+        copy_file(build_lib, filename, ROOT_DIR)
 
 
 def copy_openyuanrong(build_lib):
-    """copy openyuanrong"""
-
+    """copy openyuanrong .so files"""
     files_to_include = []
     for root, _, fs in os.walk("./yr"):
         for i in fs:
@@ -262,14 +225,11 @@ def copy_openyuanrong(build_lib):
 def run_ext(build_lib):
     """run ext"""
     if setup_spec.setup_type == SetupType.OPENYUANRONG:
-        copy_openyuanrong(build_lib)
-        return
-    if setup_spec.setup_type == SetupType.OPENYUANRONG_RUNTIME:
         copy_openyuanrong_runtime(build_lib)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_CPP_SDK:
         copy_openyuanrong_cpp_sdk(build_lib)
-        return
-    if setup_spec.setup_type == SetupType.OPENYUANRONG_SERVICE:
-        copy_openyuanrong_services(build_lib)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_ALL:
+        copy_openyuanrong_runtime(build_lib)
 
 
 class BuildExtImpl(build_ext):
@@ -347,8 +307,8 @@ warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarni
 ext_modules = []
 if setup_spec.setup_type in [
     SetupType.OPENYUANRONG,
-    SetupType.OPENYUANRONG_RUNTIME,
-    SetupType.OPENYUANRONG_SERVICE,
+    SetupType.OPENYUANRONG_CPP_SDK,
+    SetupType.OPENYUANRONG_ALL,
 ]:
     # 虚拟扩展模块，不实际编译，仅用于触发 build_ext
     ext_modules = [Extension("yr._dummy", sources=[])]

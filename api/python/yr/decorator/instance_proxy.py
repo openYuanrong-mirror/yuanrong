@@ -277,7 +277,11 @@ class InstanceCreator:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
-                self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
+                runtime = global_runtime.get_runtime()
+                code_id = runtime.put_serialized(serialized_object)
+                if not isinstance(code_id, str):
+                    code_id = runtime.put(serialized_object)
+                self._code_ref = ObjectRef(code_id, need_incre=False)
                 _logger.info("[Reference Counting] put code with id = %s, className = %s",
                          self._code_ref.id, self.__user_class_descriptor__.class_name)
             elif getattr(invoke_options, "skip_serialize", False):

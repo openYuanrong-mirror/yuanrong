@@ -21,7 +21,7 @@ if ! compgen -G "${SCRIPT_DIR}/pkg/openyuanrong-*.whl" >/dev/null; then
     exit 1
 fi
 
-if ! compgen -G "${SCRIPT_DIR}/pkg/openyuanrong_sdk-*.whl" >/dev/null; then
+if ! compgen -G "${SCRIPT_DIR}/pkg/openyuanrong_sdk*.whl" >/dev/null; then
     echo "Missing required build artifact: ${SCRIPT_DIR}/pkg/openyuanrong_sdk-*.whl" >&2
     echo "Run: make all" >&2
     exit 1

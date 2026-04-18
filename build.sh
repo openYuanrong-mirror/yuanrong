@@ -187,6 +187,8 @@ function build_python_sdk() {
     API_DIR="$BASE_DIR/api"
     cd $API_DIR/python
     rm -rf build/ dist/ *.egg-info
+    # Ensure packaging is available (setup.py requires it)
+    "${PYTHON3_SDK_BIN_PATH}" -m pip install $PIP_FLAGS -q packaging wheel
     # Determine python runtime version for services.yaml
     if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
         PYTHON_RUNTIME_VERSION=python3.11
@@ -400,6 +402,7 @@ fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
     ENABLE_DATASYSTEM="false"
+    ENABLE_GLOO="false"
 fi
 
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
@@ -444,10 +447,13 @@ if [ "$PACKAGE_ALL" == "true" ]; then
     bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
     cd "$BASE_DIR"/api/python
     rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=runtime PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    SETUP_TYPE= PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
     rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=service PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+    rm -rf build/ dist/ *.egg-info
+    SETUP_TYPE=sdk_cpp PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
     end2=$(date +%s)
     echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"

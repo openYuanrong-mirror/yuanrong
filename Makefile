@@ -52,9 +52,10 @@ datasystem:
 	bash datasystem/build.sh -X off -G on -i on
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem*.tar.gz output/
-	mkdir -p functionsystem/vendor/src
-	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
+	@mkdir -p functionsystem/vendor/src
+	@cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
 	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
+	@cp datasystem/output/*.whl output/
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
@@ -81,6 +82,7 @@ functionsystem:
 	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) && bash run.sh pack && cd -
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
+	cp functionsystem/output/*.whl output/
 
 dashboard:
 	cd go && bash build.sh && cd -
@@ -102,7 +104,7 @@ pkg:
 	@cp datasystem/output/openyuanrong_datasystem-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/output/openyuanrong_functionsystem-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp output/openyuanrong-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
 	@mkdir -p example/aio/docs
 	@echo "Packages copied successfully!"

@@ -105,10 +105,10 @@ RUN pip${PYTHON_MAJOR_MINOR} config set global.index-url https://pypi.tuna.tsing
     ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
     ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip
 
-COPY pkg/openyuanrong_sdk-*.whl /tmp/
 COPY pkg/openyuanrong-*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/openyuanrong_sdk-*.whl /tmp/openyuanrong-*.whl && \
-    rm -f /tmp/openyuanrong_sdk-*.whl /tmp/openyuanrong-*.whl
+COPY pkg/openyuanrong_sdk*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/openyuanrong-*.whl /tmp/openyuanrong_sdk*.whl && \
+    rm -f /tmp/openyuanrong_sdk*.whl /tmp/openyuanrong-*.whl
 
 COPY pkg/runtime-launcher /openyuanrong/runtime-launcher
 COPY pkg/aio-yr-runtime.tar /opt/runtime-images/aio-yr-runtime.tar

@@ -25,6 +25,7 @@ Off-cluster known limitations (marked as skip):
 
 Run:
     export YR_SERVER_ADDRESS=<ip:port>
+    export YR_JWT_TOKEN=<jwt_token>   # optional
     /path/to/python3.9 -m pytest -s -vv -p no:conftest test_off_cluster.py
 
     # or via the wrapper script:
@@ -46,6 +47,10 @@ def _get_addr():
     return addr
 
 
+def _get_jwt_token():
+    return os.getenv("YR_JWT_TOKEN", "")
+
+
 def _build_conf():
     addr = _get_addr()
     return yr.Config(
@@ -54,6 +59,7 @@ def _build_conf():
         in_cluster=False,
         enable_tls=True,
         log_level="DEBUG",
+        auth_token=_get_jwt_token(),
     )
 
 
@@ -64,6 +70,23 @@ def init_yr():
     yr.init(conf)
     yield
     yr.finalize()
+
+
+@pytest.fixture(scope="session")
+def require_remote_python_runtime(init_yr):
+    """Skip worker-executed tests when the remote cluster lacks a compatible Python runtime."""
+
+    @yr.invoke
+    def _probe():
+        return "remote-python-ready"
+
+    try:
+        assert yr.get(_probe.invoke(), timeout=60) == "remote-python-ready"
+    except RuntimeError as exc:
+        message = str(exc)
+        if "Executable path of python" in message and "is not found on" in message:
+            pytest.skip(f"off-cluster: remote worker Python runtime unavailable: {message}")
+        raise
 
 
 # ============================================================
@@ -135,7 +158,7 @@ def test_get_multiple_refs(init_yr):
 # ============================================================
 
 @pytest.mark.smoke
-def test_invoke_basic(init_yr):
+def test_invoke_basic(init_yr, require_remote_python_runtime):
     @yr.invoke
     def add(a, b):
         return a + b
@@ -145,7 +168,7 @@ def test_invoke_basic(init_yr):
 
 
 @pytest.mark.smoke
-def test_invoke_string(init_yr):
+def test_invoke_string(init_yr, require_remote_python_runtime):
     @yr.invoke
     def greet(name):
         return f"hello {name}"
@@ -195,7 +218,7 @@ def test_invoke_with_nested_ref(init_yr):
 
 
 @pytest.mark.smoke
-def test_invoke_return_multiple_values(init_yr):
+def test_invoke_return_multiple_values(init_yr, require_remote_python_runtime):
     @yr.invoke(return_nums=3)
     def func_returns():
         return 1, 2, 3
@@ -205,7 +228,7 @@ def test_invoke_return_multiple_values(init_yr):
 
 
 @pytest.mark.smoke
-def test_invoke_return_none(init_yr):
+def test_invoke_return_none(init_yr, require_remote_python_runtime):
     @yr.invoke(return_nums=0)
     def func():
         return
@@ -227,7 +250,7 @@ def test_invoke_with_big_bytes(init_yr):
 
 
 @pytest.mark.smoke
-def test_invoke_redefine(init_yr):
+def test_invoke_redefine(init_yr, require_remote_python_runtime):
     """Decorating a new function with the same name should work."""
     @yr.invoke
     def get_num():
@@ -243,7 +266,7 @@ def test_invoke_redefine(init_yr):
 
 
 @pytest.mark.smoke
-def test_invoke_runtime_error(init_yr):
+def test_invoke_runtime_error(init_yr, require_remote_python_runtime):
     @yr.invoke
     def raise_error():
         raise RuntimeError("test error from off-cluster driver")
@@ -257,7 +280,7 @@ def test_invoke_runtime_error(init_yr):
 # ============================================================
 
 @pytest.mark.smoke
-def test_instance_basic(init_yr):
+def test_instance_basic(init_yr, require_remote_python_runtime):
     @yr.instance
     class Counter:
         def __init__(self):
@@ -274,7 +297,7 @@ def test_instance_basic(init_yr):
 
 
 @pytest.mark.smoke
-def test_instance_named(init_yr):
+def test_instance_named(init_yr, require_remote_python_runtime):
     @yr.instance
     class Counter:
         def __init__(self):
@@ -318,7 +341,7 @@ def test_instance_pass_to_invoke(init_yr):
 
 
 @pytest.mark.smoke
-def test_instance_order_preserve(init_yr):
+def test_instance_order_preserve(init_yr, require_remote_python_runtime):
     """Instance method calls should be ordered (single concurrency)."""
     @yr.instance
     class Counter:
@@ -350,7 +373,7 @@ def test_kv_write_read_del(init_yr):
 
 
 @pytest.mark.smoke
-def test_kv_write_read_del_in_invoke(init_yr):
+def test_kv_write_read_del_in_invoke(init_yr, require_remote_python_runtime):
     """Worker writes, reads, and deletes its own KV entries (no cross-network read-back)."""
     @yr.invoke
     def kv_ops():
@@ -376,7 +399,7 @@ def test_kv_set_get(init_yr):
 # ============================================================
 
 @pytest.mark.smoke
-def test_wait_basic(init_yr):
+def test_wait_basic(init_yr, require_remote_python_runtime):
     @yr.invoke
     def get_num(x):
         return x
@@ -389,7 +412,7 @@ def test_wait_basic(init_yr):
 
 
 @pytest.mark.smoke
-def test_wait_with_exception(init_yr):
+def test_wait_with_exception(init_yr, require_remote_python_runtime):
     @yr.invoke
     def may_throw(n):
         if n % 2 == 0:
@@ -409,7 +432,7 @@ def test_wait_with_exception(init_yr):
 
 
 @pytest.mark.smoke
-def test_cancel(init_yr):
+def test_cancel(init_yr, require_remote_python_runtime):
     @yr.invoke
     def slow_func(x):
         time.sleep(3)
@@ -427,7 +450,7 @@ def test_cancel(init_yr):
 # ============================================================
 
 @pytest.mark.smoke
-def test_repeated_invoke_stability(init_yr):
+def test_repeated_invoke_stability(init_yr, require_remote_python_runtime):
     """Verify repeated invoke/get cycles are stable across the session."""
     @yr.invoke
     def echo(x):

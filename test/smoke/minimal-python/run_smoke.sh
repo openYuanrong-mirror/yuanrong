@@ -15,8 +15,11 @@
 
 set -euo pipefail
 
+# Unset proxy vars so curl reaches local cluster addresses directly
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 DEPLOY_PATH="${DEPLOY_PATH:-/tmp/yr-minimal-python-smoke}"
 STARTUP_LOG="${DEPLOY_PATH}/startup.log"
 
@@ -252,7 +255,6 @@ check_ports() {
 start_runtime() {
     log_info "Starting runtime..."
     export LITEBUS_DATA_KEY=6D792D7365637265742D6B65792D666F722D6A77742D64656D6F
-    export CONTAINER_EP=unix:///tmp/yr_sessions/runtime-launcher.sock
     mkdir -p "${DEPLOY_PATH}"
 
     "${YR_BIN}" stop 2>/dev/null || true
@@ -260,6 +262,7 @@ start_runtime() {
 
     "${YR_BIN}" start --master \
         -d "${DEPLOY_PATH}" \
+        --runtime_home_dir "${HOME}" \
         --enable_faas_frontend=true \
         -l DEBUG \
         --port_policy FIX \

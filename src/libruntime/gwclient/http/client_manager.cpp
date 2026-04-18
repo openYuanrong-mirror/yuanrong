@@ -39,6 +39,7 @@ ClientManager::ClientManager(const std::shared_ptr<LibruntimeConfig> &libruntime
     this->ioc = std::make_shared<boost::asio::io_context>();
     this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         boost::asio::make_work_guard(*ioc));
+    this->strand_ = std::make_unique<asio::strand<asio::io_context::executor_type>>(ioc->get_executor());
     this->maxIocThread = libruntimeConfig->httpIocThreadsNum;
     // enableMTLS: Enable mutual TLS authentication (both client and server verify each other's certificates)
     // true = mutual TLS (client provides certificate for authentication)
@@ -212,57 +213,87 @@ void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::str
                                         const std::string &body, const std::shared_ptr<std::string> requestId,
                                         const HttpCallbackFunction &receiver)
 {
-    for (;;) {
-        if (SubmitRequest(method, target, headers, body, requestId, receiver)) {
-            break;
+    // Non-blocking: post to strand, either dispatch immediately or enqueue.
+    // Caller thread is never blocked waiting for a free connection.
+    asio::post(*strand_, [this, method, target, headers, body, requestId, receiver]() {
+        if (stopped_) {
+            return;
         }
-        std::this_thread::yield();
-    }
+        PendingRequest req{method, target, headers, body, requestId, receiver};
+        if (!TryDispatch(req)) {
+            YRLOG_DEBUG("all connections busy, enqueueing request. requestId: {}", *requestId);
+            pendingQueue_.push(std::move(req));
+        }
+    });
 }
 
-bool ClientManager::SubmitRequest(const http::verb &method, const std::string &target,
-                                  const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                                  const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver)
+// TryDispatch: must be called on strand_.
+// Finds a free connection (or creates a new one up to maxConnSize_) and dispatches req.
+// Returns true if dispatched, false if all connections are at capacity.
+bool ClientManager::TryDispatch(const PendingRequest &req)
 {
-    for (uint32_t i = 0;; i++) {
-        {
-            absl::ReaderMutexLock l(&connCntMu_);
-            if (i >= connectedClientsCnt_) {
-                break;
-            }
-        }
-        if (!this->clients[i]->SetUnavailable()) {
+    // Scan existing connections for a free one.
+    for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
+        if (!clients[i]->SetUnavailable()) {
             continue;
         }
-        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
-        // while the connection idletime exceed setup timeout, the server may close the connection
-        // in this situation, client should try to reconnect
-        if (!this->clients[i]->IsConnActive()) {
-            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *requestId);
-            auto err = this->clients[i]->ReInit(requestId);
+        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *req.requestId);
+        // If the connection has been idle past the server-side timeout, reconnect.
+        if (!clients[i]->IsConnActive()) {
+            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *req.requestId);
+            auto err = clients[i]->ReInit(req.requestId);
             if (!err.OK()) {
-                YRLOG_DEBUG("httpclient {} is reInit failed, requestId:{} err: {}", i, *requestId, err.CodeAndMsg());
-                receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                         HTTP_CONNECTION_ERROR_CODE);
-                this->clients[i]->SetAvailable();
+                YRLOG_DEBUG("httpclient {} reInit failed, requestId:{} err: {}", i, *req.requestId,
+                            err.CodeAndMsg());
+                req.receiver(err.CodeAndMsg(),
+                             boost::asio::error::make_error_code(boost::asio::error::connection_reset),
+                             HTTP_CONNECTION_ERROR_CODE);
+                clients[i]->SetAvailable();
                 return true;
             }
         }
-        this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+        // When this connection finishes, post DrainQueue back onto the strand so the
+        // next pending request (if any) is dispatched without blocking any thread.
+        clients[i]->SetOnRelease([this]() {
+            asio::post(*strand_, [this]() { DrainQueue(); });
+        });
+        clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                        req.receiver);
         return true;
     }
-    uint32_t newClientIdx = 0;
-    {
-        absl::WriterMutexLock l(&connCntMu_);
-        if (connectedClientsCnt_ >= maxConnSize_) {
-            return false;
-        }
-        newClientIdx = connectedClientsCnt_++;
+    // No free connection; try to lazily open a new one up to the pool limit.
+    if (connectedClientsCnt_ >= maxConnSize_) {
+        return false;
     }
-    YRLOG_DEBUG("init httpclient {}", newClientIdx);
-    this->clients[newClientIdx]->Init(this->connParam);
-    this->clients[newClientIdx]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+    uint32_t newIdx = connectedClientsCnt_++;
+    YRLOG_DEBUG("init httpclient {}", newIdx);
+    auto err = clients[newIdx]->Init(connParam);
+    if (!err.OK()) {
+        YRLOG_ERROR("failed to init httpclient {}: {}", newIdx, err.Msg());
+        connectedClientsCnt_--;
+        return false;
+    }
+    clients[newIdx]->SetOnRelease([this]() {
+        asio::post(*strand_, [this]() { DrainQueue(); });
+    });
+    clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                         req.receiver);
     return true;
+}
+
+// DrainQueue: must be called on strand_.
+// Dispatches queued requests to any newly free connections.
+void ClientManager::DrainQueue()
+{
+    while (!pendingQueue_.empty()) {
+        auto req = std::move(pendingQueue_.front());
+        pendingQueue_.pop();
+        if (!TryDispatch(req)) {
+            // All connections are busy again; re-enqueue and wait for the next release.
+            pendingQueue_.push(std::move(req));
+            break;
+        }
+    }
 }
 }  // namespace Libruntime
 }  // namespace YR

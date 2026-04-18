@@ -18,6 +18,7 @@
 
 Usage:
     export YR_SERVER_ADDRESS=100.111.54.22:38888
+    export YR_JWT_TOKEN=<jwt_token>  # optional
     pytest -s -vv conftest_off_cluster.py::test_connection test_off_cluster.py
 """
 
@@ -30,6 +31,10 @@ def _get_server_address():
     return os.getenv("YR_SERVER_ADDRESS", "")
 
 
+def _get_jwt_token():
+    return os.getenv("YR_JWT_TOKEN", "")
+
+
 def _build_conf():
     addr = _get_server_address()
     if not addr:
@@ -40,6 +45,7 @@ def _build_conf():
         in_cluster=False,
         enable_tls=True,
         log_level="DEBUG",
+        auth_token=_get_jwt_token(),
     )
 
 

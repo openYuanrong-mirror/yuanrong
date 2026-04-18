@@ -170,9 +170,8 @@ YR::Libruntime::ErrorInfo ApiClient::Init()
         return Libruntime::ErrorInfo(Libruntime::ErrorCode::ERR_PARAM_INVALID, "YR_INVOCATION_URL_PREFIX env unset");
     }
     auto config = std::make_shared<LibruntimeConfig>();
-    const uint32_t threadNum = 10;
-    config->httpIocThreadsNum = threadNum;
-    config->maxConnSize = config->httpIocThreadsNum;
+    config->httpIocThreadsNum = std::max(1u, std::thread::hardware_concurrency());
+    config->maxConnSize = 10;
     config->enableTLS = enableTLS_;
     config->verifyFilePath = YR::GetEnvValue(CERTIFICATE_FILE_ENV);
     config->serverName = host;

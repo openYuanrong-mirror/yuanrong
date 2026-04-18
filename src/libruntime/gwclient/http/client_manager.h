@@ -17,9 +17,11 @@
 #pragma once
 
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <vector>
 
+#include <boost/asio/strand.hpp>
 #include "src/libruntime/gwclient/http/http_client.h"
 #include "src/libruntime/libruntime_config.h"
 
@@ -27,6 +29,16 @@ namespace asio = boost::asio;
 
 namespace YR {
 namespace Libruntime {
+
+struct PendingRequest {
+    http::verb method;
+    std::string target;
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+    std::shared_ptr<std::string> requestId;
+    HttpCallbackFunction receiver;
+};
+
 class ClientManager : public HttpClient {
 public:
     ClientManager(const std::shared_ptr<LibruntimeConfig> &librtCfg);
@@ -39,9 +51,11 @@ public:
                                      const HttpCallbackFunction &receiver) override;
     void Stop() override;
 private:
-    bool SubmitRequest(const http::verb &method, const std::string &target,
-                       const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                       const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver);
+    // TryDispatch: runs on strand_; attempts to find a free connection and dispatch req.
+    // Returns true if dispatched (req consumed), false if all connections are busy.
+    bool TryDispatch(const PendingRequest &req);
+    // DrainQueue: runs on strand_; dispatches pending requests to any free connection.
+    void DrainQueue();
     ErrorInfo InitCtxAndIocThread();
     std::shared_ptr<asio::io_context> ioc;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
@@ -49,8 +63,10 @@ private:
 
     ConnectionParam connParam;
     std::vector<std::shared_ptr<HttpClient>> clients;
-    uint32_t connectedClientsCnt_;
-    mutable absl::Mutex connCntMu_;
+    uint32_t connectedClientsCnt_{0};
+    // strand_ serializes all dispatch / queue operations; no separate mutex needed.
+    std::unique_ptr<asio::strand<asio::io_context::executor_type>> strand_;
+    std::queue<PendingRequest> pendingQueue_;
     std::shared_ptr<LibruntimeConfig> librtCfg;
     uint32_t maxIocThread;
     bool enableMTLS;

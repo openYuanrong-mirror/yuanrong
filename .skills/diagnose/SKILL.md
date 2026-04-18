@@ -46,10 +46,12 @@ When user reports a service issue, gather:
 
 ## Key Access
 
-- Grafana: `https://<traefik-ip>:8888/grafana/` (credentials from deployment config)
-- kubectl: `kubectl -n <namespace> exec <pod-name> -- bash`
-- Pod logs: `/tmp/yr_sessions/` inside pod
-- Component health: `curl <node-ip>:<port>/healthz`
+- Grafana: `https://<grafana-host>:8888/grafana/` — credentials in LastPass "Grafana Admin"
+- kubectl: `KUBECONFIG=~/.kube/yr.yaml /tmp/kubectl -n akernel exec <pod> -- <cmd>`
+  - Binary: `/tmp/kubectl` (install if missing: `curl -sk https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl -o /tmp/kubectl && chmod +x /tmp/kubectl`)
+  - Kubeconfig: `~/.kube/yr.yaml` (contexts: `external` default, `internal`, `externalTLSVerify`)
+- Pod logs: `/home/yuanrong/master/log/` inside pod (NOT `/tmp/yr_sessions/` — that's inside runtime instances)
+- Component health: `curl http://<pod-ip>:22772/local-scheduler/healthy`
 
 ## Rules
 

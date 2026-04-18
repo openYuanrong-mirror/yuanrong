@@ -17,6 +17,7 @@
 #pragma once
 #include <optional>
 #include <string>
+#include <thread>
 #include "securec.h"
 #include "src/dto/config.h"
 #include "src/dto/function_group_running_info.h"
@@ -224,7 +225,7 @@ struct LibruntimeConfig {
     std::string verifyFilePath = "";
     char privateKeyPaaswd[MAX_PASSWD_LENGTH] = {0};
     std::shared_ptr<void> tlsContext = nullptr;
-    uint32_t httpIocThreadsNum = 200;
+    uint32_t httpIocThreadsNum = std::max(1u, std::thread::hardware_concurrency());
     int httpIdleTime = HTTP_IDLE_TIME;
     std::string serverName = "";
     bool skipServerVerify = true;  // Whether to skip server certificate verification
