@@ -1,83 +1,247 @@
 #!/bin/bash
-# Buildkite 动态 Pipeline
-# 根据参数动态生成构建步骤
-
+# Buildkite 动态 Pipeline - 标准 SSH 版
 set -e
+BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed"
+ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-false}"
 
-# ============================================
-# 配置
-# ============================================
-
-BUILD_TARGET="${BUILD_TARGET:-all}"        # all, linux, macos
-BUILD_ARCH="${BUILD_ARCH:-amd64}"          # 默认改为 amd64
-BUILD_QUEUE="${BUILD_QUEUE:-default}"      # 默认队列
-COMPONENTS="${COMPONENTS:-frontend,datasystem,functionsystem,yuanrong}"
-BUILDER_IMAGE="${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-${BUILD_ARCH}}"
-BUILD_VERSION="${BUILD_VERSION:-v0.0.1}"
-
-# ============================================
-# 工具函数
-# ============================================
-
-# 生成 Linux 构建步骤 (K8s 原生容器)
-generate_linux_step() {
-    local component="$1"
-    local label=""
-    local arch_display=$(echo ${BUILD_ARCH} | tr '[:lower:]' '[:upper:]')
-
-    case "$component" in
-        frontend)      label=":gopher: Frontend" ;;
-        datasystem)    label=":database: DataSystem" ;;
-        functionsystem) label=":gear: FunctionSystem" ;;
-        yuanrong)      label=":package: Runtime" ;;
-        *)             label=":linux: $component" ;;
-    esac
-
-    cat << STEP
-  - label: "$label (Linux $arch_display)"
+echo "steps:"
+cat << YAML
+  - label: ":rocket: Build All"
     command: |
       set -e
-      [ -f "/etc/profile.d/buildtools.sh" ] && . /etc/profile.d/buildtools.sh
-      echo "=== Building $component ==="
-      make $component
-      mkdir -p artifacts/linux
-      cp -r output/* artifacts/linux/ 2>/dev/null || true
+      echo "=== [1/3] Environment Setup ==="
+      
+      export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      export CC=gcc-10
+      export CXX=g++-10
+      export PIP_BREAK_SYSTEM_PACKAGES=1
+      JOBS="\$\${JOBS:-16}"
+      
+      CACHE_BASE="/mnt/paas/build-cache"
+      mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/opensource
+      export CCACHE_DIR=\$\$CACHE_BASE/ccache
+      export GOMODCACHE=\$\$CACHE_BASE/go-mod
+      export GOCACHE=\$\$CACHE_BASE/go-cache
+      export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
+      export CMAKE_C_COMPILER_LAUNCHER=ccache
+      export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+      # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)
+      # Use bash /dev/tcp (built-in, no nc required) to test connectivity
+      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
+      echo "=== Configuring bazel-remote cache ==="
+      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+        echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
+        export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
+      else
+        echo "WARNING: bazel-remote not reachable, building without remote cache"
+      fi
+      
+      echo "=== [2/3] Submodule Update ==="
+      git submodule sync --recursive
+      git submodule update --init --recursive --force --jobs=4
+      
+      echo "=== [3/6] Starting Build (JOBS=\$\$JOBS) ==="
+      # Snapshot bazel-remote before build (to compute delta later)
+      _BAZEL_PRE=\$\$(wget -qO- http://bazel-remote.build-tools.svc.cluster.local:8080/status 2>/dev/null || echo '{}')
+      _BAZEL_FILES_PRE=\$\$(echo "\$\$_BAZEL_PRE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('NumFiles',0))" 2>/dev/null || echo 0)
+      _BAZEL_SIZE_PRE=\$\$(echo "\$\$_BAZEL_PRE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('CurrSize',0))//1024//1024)" 2>/dev/null || echo 0)
+
+      BUILD_START=\$\$(date +%s)
+      # Capture build output for Bazel action stats while showing live output.
+      # Named pipe approach: POSIX-compatible, captures make exit code correctly
+      # (avoids PIPESTATUS which is bash-only and fails under /bin/sh).
+      # Keep top-level target execution sequential for stability.
+      rm -f /tmp/yr_build_pipe
+      mkfifo /tmp/yr_build_pipe
+      tee /tmp/build_output.log < /tmp/yr_build_pipe &
+      make all JOBS=\$\$JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      BUILD_EXIT=\$\$?
+      wait
+      rm -f /tmp/yr_build_pipe
+      BUILD_END=\$\$(date +%s)
+      BUILD_ELAPSED=\$\$(( BUILD_END - BUILD_START ))
+      [ "\$\$BUILD_EXIT" -eq 0 ]
+
+      (
+        set +e
+        echo "=== [4/6] Cache Hit Report ==="
+        # --- Bazel action stats from build output ---
+        # Last "INFO: N processes: ..." line in the log has the final tally
+        _BAZEL_PROC=\$\$(grep -E "^INFO: [0-9,]+ processes:" /tmp/build_output.log | tail -1 || echo "")
+        if [ -n "\$\$_BAZEL_PROC" ]; then
+          _BAZEL_TOTAL=\$\$(echo "\$\$_BAZEL_PROC" | grep -oE "[0-9,]+ processes" | tr -d ',')
+          _BAZEL_TOTAL=\$\${_BAZEL_TOTAL% processes}
+          _BAZEL_HIT=\$\$(echo "\$\$_BAZEL_PROC" | grep -oE "[0-9,]+ remote cache hit" | tr -d ',' | awk '{print \$\$1}' || echo 0)
+          _BAZEL_LOCAL=\$\$(echo "\$\$_BAZEL_PROC" | grep -oE "[0-9,]+ processwrapper-sandbox" | tr -d ',' | awk '{print \$\$1}' || echo 0)
+          _BAZEL_INTERNAL=\$\$(echo "\$\$_BAZEL_PROC" | grep -oE "[0-9,]+ internal" | tr -d ',' | awk '{print \$\$1}' || echo 0)
+          if [ "\$\${_BAZEL_TOTAL:-0}" -gt 0 ] && [ "\$\${_BAZEL_HIT:-0}" -gt 0 ]; then
+            _BAZEL_RATIO=\$\$(awk "BEGIN{printf \"%.1f\", \$\${_BAZEL_HIT}*100/(\$\${_BAZEL_TOTAL}-\$\${_BAZEL_INTERNAL:-0})}")
+          else
+            _BAZEL_RATIO="0.0"
+          fi
+          echo "bazel actions: total=\$\$_BAZEL_TOTAL internal=\$\$_BAZEL_INTERNAL cache_hit=\$\${_BAZEL_HIT:-0} local=\$\${_BAZEL_LOCAL:-0} hit_ratio=\$\$_BAZEL_RATIO%"
+          echo "bazel summary: \$\$_BAZEL_PROC"
+        else
+          echo "bazel actions: (no summary found in log)"
+          _BAZEL_HIT=0; _BAZEL_LOCAL=0; _BAZEL_RATIO="n/a"; _BAZEL_TOTAL=0; _BAZEL_INTERNAL=0
+        fi
+
+        # --- Bazel remote cache before/after delta ---
+        _BAZEL_POST=\$\$(wget -qO- http://bazel-remote.build-tools.svc.cluster.local:8080/status 2>/dev/null || echo '{}')
+        BAZEL_FILES=\$\$(echo "\$\$_BAZEL_POST" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('NumFiles',0))" 2>/dev/null || echo 0)
+        BAZEL_SIZE_MB=\$\$(echo "\$\$_BAZEL_POST" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('CurrSize',0))//1024//1024)" 2>/dev/null || echo 0)
+        _BAZEL_FILES_DELTA=\$\$(( \$\${BAZEL_FILES:-0} - \$\${_BAZEL_FILES_PRE:-0} ))
+        _BAZEL_SIZE_DELTA=\$\$(( \$\${BAZEL_SIZE_MB:-0} - \$\${_BAZEL_SIZE_PRE:-0} ))
+        echo "bazel-remote: files=\$\$BAZEL_FILES (+\$\$_BAZEL_FILES_DELTA), size=\$\${BAZEL_SIZE_MB}MB (+\$\${_BAZEL_SIZE_DELTA}MB)"
+
+        # --- ccache ---
+        CCACHE_HITS=\$\$(ccache -s 2>/dev/null | awk '/^cache hit/ {sum += \$\$NF} END {print sum+0}' || echo 0)
+        CCACHE_MISS=\$\$(ccache -s 2>/dev/null | awk '/^cache miss/ {sum += \$\$NF} END {print sum+0}' || echo 0)
+        CCACHE_TOTAL=\$\$(( CCACHE_HITS + CCACHE_MISS ))
+        if [ "\$\$CCACHE_TOTAL" -gt 0 ]; then
+          CCACHE_RATIO=\$\$(awk "BEGIN{printf \"%.1f\", \$\$CCACHE_HITS*100/\$\$CCACHE_TOTAL}")
+        else
+          CCACHE_RATIO="n/a"
+        fi
+        echo "ccache: hits=\$\$CCACHE_HITS miss=\$\$CCACHE_MISS ratio=\$\$CCACHE_RATIO%"
+
+        # --- Go cache size ---
+        GOCACHE_SIZE=\$\$(du -sh \$\$GOCACHE 2>/dev/null | cut -f1 || echo "?")
+        GOMOD_SIZE=\$\$(du -sh \$\$GOMODCACHE 2>/dev/null | cut -f1 || echo "?")
+        echo "go-cache: \$\${GOCACHE_SIZE}  go-mod: \$\${GOMOD_SIZE}"
+
+        # --- datasystem CMake: fresh build each run, ccache handles incremental ---
+        DS_CACHE_STATUS="fresh cmake (ccache backed)"
+        echo "datasystem cmake: \$\$DS_CACHE_STATUS"
+
+        # --- Build time ---
+        BUILD_MIN=\$\$(( BUILD_ELAPSED / 60 ))
+        BUILD_SEC=\$\$(( BUILD_ELAPSED % 60 ))
+        echo "build time: \$\${BUILD_MIN}m\$\${BUILD_SEC}s"
+
+        # --- Buildkite annotation (visible in UI) ---
+        {
+          echo "<h3>📊 Cache Hit Report</h3>"
+          echo "<table>"
+          echo "<tr><th>Cache</th><th>Detail</th><th>Hit Rate</th></tr>"
+          echo "<tr><td>🔵 Bazel actions</td><td>total=\$\$_BAZEL_TOTAL, internal=\$\$_BAZEL_INTERNAL, hit=\$\${_BAZEL_HIT:-0}, local=\$\${_BAZEL_LOCAL:-0}</td><td><b>\$\$_BAZEL_RATIO%</b></td></tr>"
+          echo "<tr><td>🗄️ Bazel remote store</td><td>\$\$BAZEL_FILES files (+\$\$_BAZEL_FILES_DELTA new), \$\${BAZEL_SIZE_MB}MB (+\$\${_BAZEL_SIZE_DELTA}MB)</td><td>-</td></tr>"
+          echo "<tr><td>⚡ ccache</td><td>hits=\$\$CCACHE_HITS / total=\$\$CCACHE_TOTAL</td><td><b>\$\$CCACHE_RATIO%</b></td></tr>"
+          echo "<tr><td>🐹 Go cache</td><td>\$\$GOCACHE_SIZE (module: \$\$GOMOD_SIZE)</td><td>-</td></tr>"
+          echo "<tr><td>🏗️ datasystem cmake</td><td>\$\$DS_CACHE_STATUS</td><td>-</td></tr>"
+          echo "<tr><td>⏱️ Build time</td><td colspan=2><b>\$\${BUILD_MIN}m\$\${BUILD_SEC}s</b></td></tr>"
+          echo "</table>"
+        } | buildkite-agent annotate --style "info" --context "cache-report"
+      ) || echo "WARNING: cache report generation failed; continuing"
+
+      echo "=== [5/6] Collect Artifacts ==="
+      mkdir -p artifacts/release
+      # Main output dir: yr-runtime, yr-dashboard, yr-faas, yr-functionsystem, *.whl
+      cp output/*.tar.gz artifacts/release/ 2>/dev/null || true
+      cp output/*.whl artifacts/release/ 2>/dev/null || true
+      # Sub-project outputs not already copied to output/
+      cp datasystem/output/*.tar.gz artifacts/release/ 2>/dev/null || true
+      cp datasystem/output/*.whl artifacts/release/ 2>/dev/null || true
+      cp datasystem/output/sdk/*.whl artifacts/release/ 2>/dev/null || true
+      cp functionsystem/output/*.whl artifacts/release/ 2>/dev/null || true
+      ls -lh artifacts/release/
+
+      echo "=== [6/6] Upload Artifacts to OBS ==="
+      if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
+        echo "WARNING: OBS credentials not set, skipping OBS upload"
+      else
+        pip install esdk-obs-python --quiet 2>/dev/null || true
+        UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
+        UPLOAD_OK=0
+        UPLOAD_FAIL=0
+        for f in artifacts/release/*.tar.gz artifacts/release/*.whl; do
+          [ -f "\$\$f" ] || continue
+          echo "Uploading: \$\$f"
+          if python3 tools/upload_build_artifact.py \
+              --file "\$\$f" \
+              --kind build \
+              --channel daily \
+              --arch "\$\${BUILD_ARCH:-x86_64}" \
+              --platform linux \
+              --timestamp "\$\$UPLOAD_TIMESTAMP"; then
+            UPLOAD_OK=\$\$((UPLOAD_OK + 1))
+          else
+            echo "WARNING: Failed to upload \$\$f"
+            UPLOAD_FAIL=\$\$((UPLOAD_FAIL + 1))
+          fi
+        done
+        echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
+        [ "\$\$UPLOAD_FAIL" -eq 0 ]
+      fi
     agents:
-      arch: "${BUILD_ARCH}"
-      queue: "${BUILD_QUEUE}"
+      queue: "default"
     plugins:
       - kubernetes:
           podSpec:
             containers:
-              - image: "${BUILDER_IMAGE}"
+              - image: "$BUILDER_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "16", memory: "32Gi" }
+                  limits: { cpu: "16", memory: "32Gi" }
                 env:
-                  - name: BUILD_VERSION
-                    value: "$BUILD_VERSION"
+                  - name: GO111MODULE
+                    value: "on"
+                  - name: CGO_ENABLED
+                    value: "1"
                   - name: GOPROXY
                     value: "https://goproxy.cn,direct"
-    retry:
-      automatic:
-        - limit: 1
-        exit_status: -1
-    timeout_in_minutes: 90
-    artifact_paths: "artifacts/linux/**/*"
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 180
+    artifact_paths:
+      - "artifacts/release/**/*"
+YAML
 
-STEP
-}
+case "${ENABLE_MACOS_SDK}" in
+  1|true|TRUE|yes|YES|on|ON)
+cat << YAML
+  - label: ":apple: Build macOS SDK"
+    command: |
+      set -e
+      echo "=== [1/4] Prepare macOS build machine ==="
+      bash scripts/install-buildkite-build-tools-macos.sh
 
-# ============================================
-# 生成 Pipeline
-# ============================================
+      echo "=== [2/4] Sync submodules ==="
+      git submodule sync --recursive
+      git submodule update --init --recursive --force --jobs=4
 
-echo "steps:"
+      echo "=== [3/4] Build macOS SDK ==="
+      bash build.sh
 
-# 根据目标生成构建步骤
-IFS=',' read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
-
-if [ "$BUILD_TARGET" = "all" ] || [ "$BUILD_TARGET" = "linux" ]; then
-    for component in "${COMPONENT_ARRAY[@]}"; do
-        generate_linux_step "$component"
-    done
-fi
-
-# 移除 wait 和摘要，保持流水线简洁
+      echo "=== [4/4] Collect openyuanrong-sdk artifacts ==="
+      mkdir -p artifacts/openyuanrong-sdk
+      cp output/openyuanrong-*.whl artifacts/openyuanrong-sdk/
+      ls -lh artifacts/openyuanrong-sdk/
+    agents:
+      queue: "default"
+      os: "macos"
+      arch: "arm64"
+    timeout_in_minutes: 180
+    artifact_paths:
+      - "artifacts/openyuanrong-sdk/**/*"
+YAML
+;;
+esac

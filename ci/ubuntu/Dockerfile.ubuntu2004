@@ -1,0 +1,112 @@
+# Dockerfile.ubuntu2004 - 全能多架构构建工具镜像
+# 支持 amd64 和 arm64，自动适配架构
+
+ARG BASE_IMAGE=docker.m.daocloud.io/ubuntu:20.04
+FROM ${BASE_IMAGE} AS builder
+
+# 使用 Docker 自动注入的架构变量
+ARG TARGETARCH
+
+# 配置环境变量和工具路径
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/*; \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/* 2>/dev/null || true; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-10 g++-10 make wget ca-certificates \
+    zlib1g-dev libssl-dev libffi-dev libsqlite3-dev libbz2-dev \
+    libexpat1-dev xz-utils unzip python3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+
+RUN mkdir -p /opt/buildtools /opt/buildtools/go_workspace /tmp/build
+
+# ---------------------------------------------------------------------------
+# 架构适配映射 (Bash 脚本内执行)
+# ---------------------------------------------------------------------------
+RUN set -e; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        JDK_ARCH="x64"; GO_ARCH="amd64"; NODE_ARCH="x64"; BAZEL_ARCH="x86_64"; PROTOC_ARCH="x86_64"; \
+    else \
+        JDK_ARCH="aarch64"; GO_ARCH="arm64"; NODE_ARCH="arm64"; BAZEL_ARCH="arm64"; PROTOC_ARCH="aarch_64"; \
+    fi; \
+    cd /tmp/build; \
+    # 1. JDK 8
+    wget -q "https://mirrors.huaweicloud.com/eclipse/temurin-compliance/temurin/8/jdk8u382-b05/OpenJDK8U-jdk_${JDK_ARCH}_linux_hotspot_8u382b05.tar.gz" -O jdk8.tar.gz; \
+    tar -xf jdk8.tar.gz -C /opt/buildtools && mv /opt/buildtools/jdk8u382-b05 /opt/buildtools/jdk8; \
+    # 2. Maven
+    wget -q "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz" -O maven.tar.gz; \
+    tar -xf maven.tar.gz -C /opt/buildtools; \
+    # 3. Go
+    wget -q "https://dl.google.com/go/go1.24.1.linux-${GO_ARCH}.tar.gz" -O go.tar.gz; \
+    tar -xzf go.tar.gz -C /opt/buildtools && mv /opt/buildtools/go /opt/buildtools/golang_go-1.24.1; \
+    # 5. Bazel
+    wget -q "https://mirrors.huaweicloud.com/bazel/6.5.0/bazel-6.5.0-linux-${BAZEL_ARCH}" -O bazel; \
+    chmod +x bazel && mv bazel /usr/local/bin/; \
+    # 6. Protoc
+    wget -q -L "https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-${PROTOC_ARCH}.zip" -O protoc.zip; \
+    unzip -q protoc.zip -d /usr/local; \
+    # 8. Node.js
+    wget -q "https://mirrors.huaweicloud.com/nodejs/v20.19.0/node-v20.19.0-linux-${NODE_ARCH}.tar.gz" -O node.tar.gz; \
+    tar -xzf node.tar.gz -C /opt/buildtools && mv /opt/buildtools/node-v20.19.0-linux-${NODE_ARCH} /opt/buildtools/nodejs; \
+    rm -rf /tmp/build/*
+
+# 4. Python - 多架构通用源码编译
+RUN set -e; mkdir -p /tmp/build && cd /tmp/build; \
+    for v in 3.9.11 3.10.2 3.11.4 3.12.0 3.13.0; do \
+        minor=$(echo "$v" | cut -d. -f1-2); \
+        wget -q "https://mirrors.huaweicloud.com/python/${v}/Python-${v}.tgz" -O "py${minor}.tar.gz"; \
+        tar -xzf "py${minor}.tar.gz" && cd "Python-${v}"; \
+        ./configure --prefix="/opt/buildtools/python${minor}" --enable-shared --enable-loadable-sqlite-extensions; \
+        make -j$(nproc) && make install; \
+        cd /tmp/build && rm -rf "Python-${v}" "py${minor}.tar.gz"; \
+    done
+
+# =============================================================================
+# 二阶段：运行环境
+# =============================================================================
+FROM ${BASE_IMAGE}
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/*; \
+    sed -i 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/* 2>/dev/null || true; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-10 g++-10 git make curl libtool zip vim cmake ccache \
+    binutils binutils-dev libcurl4-openssl-dev zlib1g zlib1g-dev automake \
+    python3-pip python3-mock patch openssl libssl-dev libssh-dev libffi-dev \
+    libsqlite3-dev bison gawk texinfo libc6 libc6-dev wget libbz2-dev sudo \
+    rsync nfs-common xz-utils libuuid1 unzip cpio libcap-dev libatomic1 \
+    chrpath libnuma-dev dos2unix net-tools pigz pkg-config \
+    libibverbs-dev libibverbs1 libmount-dev libblkid-dev ca-certificates && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/buildtools /opt/buildtools
+COPY --from=builder /usr/local/bin/bazel /usr/local/bin/
+COPY --from=builder /usr/local/bin/protoc /usr/local/bin/
+COPY --from=builder /usr/local/include/google /usr/local/include/google
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100 && \
+    ln -sf /usr/bin/gcc /usr/bin/cc
+
+# Python 兼容性设置
+RUN for v in 3.9 3.10 3.11 3.12 3.13; do \
+        pip_v=$(ls /opt/buildtools/python${v}/bin/pip${v}* 2>/dev/null | head -1); \
+        ln -sf /opt/buildtools/python${v}/bin/python${v} /usr/local/bin/python${v}; \
+        [ -n "$pip_v" ] && $pip_v install --no-cache-dir setuptools wheel packaging; \
+        echo "/opt/buildtools/python${v}/lib" > /etc/ld.so.conf.d/python${v}.conf; \
+    done && ldconfig
+
+# 环境变量设置
+RUN { \
+    echo '#!/bin/bash'; \
+    echo 'export GOROOT=/opt/buildtools/golang_go-1.24.1'; \
+    echo 'export PATH=$GOROOT/bin:$PATH'; \
+    echo 'export CGO_ENABLED=1'; \
+    echo 'export GO111MODULE=on'; \
+    echo 'export GOPROXY=https://goproxy.cn,direct'; \
+    } > /etc/profile.d/buildtools.sh
+
+CMD ["/bin/bash"]

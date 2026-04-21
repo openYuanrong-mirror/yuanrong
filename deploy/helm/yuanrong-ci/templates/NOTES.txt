@@ -1,0 +1,57 @@
+YuanRong CI Infrastructure deployed!
+
+=== Components ===
+
+{{- if .Values.bazelRemote.enabled }}
+[OK] bazel-remote cache
+     Namespace : {{ .Values.namespaces.buildTools }}
+     HTTP      : http://bazel-remote.{{ .Values.namespaces.buildTools }}.svc.cluster.local:{{ .Values.bazelRemote.service.httpPort }}
+     gRPC      : bazel-remote.{{ .Values.namespaces.buildTools }}.svc.cluster.local:{{ .Values.bazelRemote.service.grpcPort }}
+     HostPath   : {{ .Values.bazelRemote.hostPath }}
+{{- if .Values.global.buildNode }}
+     Node       : {{ .Values.global.buildNode }}
+{{- end }}
+{{- end }}
+
+=== Secrets (must exist before build pods run) ===
+
+Check:
+  kubectl get secret obs-credentials -n {{ .Release.Namespace }}
+
+Create if missing:
+  kubectl create secret generic obs-credentials \
+    --from-literal=access-key-id=<AK> \
+    --from-literal=secret-access-key=<SK> \
+    -n {{ .Release.Namespace }}
+
+=== agent-stack-k8s (deployed separately via upstream chart) ===
+
+  helm repo add buildkite https://buildkite.github.io/agent-stack-k8s
+  helm upgrade --install agent-stack-k8s buildkite/agent-stack-k8s \
+    -f deploy/helm/agent-stack-k8s-values.yaml \
+    -n {{ .Release.Namespace }}
+
+=== bazel-remote image note ===
+
+The image must be mirrored to SWR before deploying (Docker Hub is blocked):
+  docker pull buchgr/bazel-remote-cache:latest
+  docker tag buchgr/bazel-remote-cache:latest {{ .Values.bazelRemote.image }}
+  docker push {{ .Values.bazelRemote.image }}
+
+{{- if .Values.gitcodeWebhookRelay.enabled }}
+
+=== GitCode webhook relay ===
+
+[OK] gitcode-webhook-relay
+     Namespace : {{ .Values.namespaces.buildTools }}
+     Service   : http://gitcode-webhook-relay.{{ .Values.namespaces.buildTools }}.svc.cluster.local{{ .Values.gitcodeWebhookRelay.path }}
+{{- if .Values.gitcodeWebhookRelay.ingress.enabled }}
+     Ingress   : https://{{ .Values.gitcodeWebhookRelay.ingress.host }}{{ .Values.gitcodeWebhookRelay.path }}
+{{- end }}
+
+GitCode WebHook settings:
+  URL: {{- if .Values.gitcodeWebhookRelay.ingress.enabled }} https://{{ .Values.gitcodeWebhookRelay.ingress.host }}{{ .Values.gitcodeWebhookRelay.path }}{{- else }} expose the Service first, then use {{ .Values.gitcodeWebhookRelay.path }}{{- end }}
+  Content-Type: application/json
+  Events: Commit Event, Pull Request Event
+  Secret: use either X-GitCode-Token or X-GitCode-Signature-256 configured in secret {{ .Values.gitcodeWebhookRelay.secretName }}
+{{- end }}

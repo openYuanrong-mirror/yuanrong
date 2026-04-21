@@ -40,7 +40,9 @@ openYuanrong 分为四个代码仓库：yuanrong 对应多语言函数运行时�
 
 ```bash
 export BUILDKITE_AGENT_TOKEN=your-token
+bash scripts/install-buildkite-build-tools-macos.sh
 bash scripts/install-buildkite-agent.sh
+bash scripts/start-buildkite-agent-macos.sh
 ```
 
 **Linux:**
@@ -53,6 +55,12 @@ bash scripts/install-buildkite-agent-linux.sh install
 #### 3. 创建 Pipeline
 
 在 Buildkite Dashboard 创建 Pipeline，指向 `.buildkite/pipeline.yml`
+
+默认只跑 Linux 构建。需要额外启用 macOS SDK 任务时，在触发构建时增加环境变量：
+
+```bash
+ENABLE_MACOS_SDK=true
+```
 
 #### 4. 配置 GitCode Webhook
 
@@ -68,6 +76,7 @@ git push origin main
 
 - **Linux ARM64**: `yuanrong-{version}-linux-arm64-{commit}.tar.gz`
 - **macOS ARM64**: `yuanrong-{version}-macos-arm64-{commit}.tar.gz`
+- **macOS SDK**: `openyuanrong-*.whl` (uploaded under `openyuanrong-sdk/`)
 
 产物自动上传到华为云 OBS，详见 [CI/CD 配置指南](docs/CICD_COMPARISON.md)
 

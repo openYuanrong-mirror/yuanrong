@@ -1,0 +1,12 @@
+apiVersion: v2
+name: yuanrong-ci
+description: YuanRong CI infrastructure (Buildkite agent-stack-k8s + bazel-remote cache)
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - buildkite
+  - ci
+  - bazel
+maintainers:
+  - name: yuchaow

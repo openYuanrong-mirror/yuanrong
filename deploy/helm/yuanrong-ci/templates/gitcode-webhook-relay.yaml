@@ -1,0 +1,166 @@
+{{- if .Values.gitcodeWebhookRelay.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitcode-webhook-relay
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: gitcode-webhook-relay
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+data:
+  app.py: |
+{{ .Files.Get "files/gitcode-webhook-relay/app.py" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitcode-webhook-relay
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: gitcode-webhook-relay
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+spec:
+  replicas: {{ .Values.gitcodeWebhookRelay.replicas }}
+  selector:
+    matchLabels:
+      app: gitcode-webhook-relay
+  template:
+    metadata:
+      labels:
+        app: gitcode-webhook-relay
+    spec:
+      imagePullSecrets:
+        - name: swr-pull-secret
+      containers:
+        - name: relay
+          image: {{ .Values.gitcodeWebhookRelay.image }}
+          imagePullPolicy: {{ .Values.gitcodeWebhookRelay.imagePullPolicy }}
+          command: ["python3", "/app/app.py"]
+          ports:
+            - containerPort: {{ .Values.gitcodeWebhookRelay.port }}
+              name: http
+          env:
+            - name: PORT
+              value: {{ .Values.gitcodeWebhookRelay.port | quote }}
+            - name: RELAY_PATH
+              value: {{ .Values.gitcodeWebhookRelay.path | quote }}
+            - name: BUILDKITE_ORGANIZATION
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.organization | quote }}
+            - name: BUILDKITE_PIPELINE
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.pipeline | quote }}
+            - name: BUILDKITE_MESSAGE_PREFIX
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.messagePrefix | quote }}
+            - name: BUILDKITE_ENV_JSON
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.env | toJson | quote }}
+            - name: RELAY_TRIGGER_PUSH
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.triggerPush | quote }}
+            - name: RELAY_TRIGGER_MERGE_REQUEST
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.triggerMergeRequest | quote }}
+            - name: RELAY_ALLOWED_PUSH_BRANCHES
+              value: {{ join "," .Values.gitcodeWebhookRelay.filters.pushBranches | quote }}
+            - name: RELAY_ALLOWED_MR_TARGET_BRANCHES
+              value: {{ join "," .Values.gitcodeWebhookRelay.filters.mergeRequestTargetBranches | quote }}
+            - name: RELAY_ALLOWED_MR_ACTIONS
+              value: {{ join "," .Values.gitcodeWebhookRelay.filters.mergeRequestActions | quote }}
+            - name: RELAY_SKIP_WORK_IN_PROGRESS
+              value: {{ .Values.gitcodeWebhookRelay.filters.skipWorkInProgress | quote }}
+            - name: RELAY_USE_VIRTUAL_MERGE_REF
+              value: {{ .Values.gitcodeWebhookRelay.filters.useVirtualMergeRef | quote }}
+            - name: BUILDKITE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gitcodeWebhookRelay.secretName }}
+                  key: buildkite-api-token
+            - name: GITCODE_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gitcodeWebhookRelay.secretName }}
+                  key: webhook-token
+                  optional: true
+            - name: GITCODE_WEBHOOK_SIGNATURE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.gitcodeWebhookRelay.secretName }}
+                  key: webhook-signature-secret
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          resources:
+            {{- toYaml .Values.gitcodeWebhookRelay.resources | nindent 12 }}
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: gitcode-webhook-relay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitcode-webhook-relay
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: gitcode-webhook-relay
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+  {{- with .Values.gitcodeWebhookRelay.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.gitcodeWebhookRelay.service.type }}
+  selector:
+    app: gitcode-webhook-relay
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      {{- if and (eq .Values.gitcodeWebhookRelay.service.type "NodePort") .Values.gitcodeWebhookRelay.service.nodePort }}
+      nodePort: {{ .Values.gitcodeWebhookRelay.service.nodePort }}
+      {{- end }}
+{{- if .Values.gitcodeWebhookRelay.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitcode-webhook-relay
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: gitcode-webhook-relay
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+  {{- with .Values.gitcodeWebhookRelay.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.gitcodeWebhookRelay.ingress.className }}
+  ingressClassName: {{ .Values.gitcodeWebhookRelay.ingress.className | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.gitcodeWebhookRelay.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.gitcodeWebhookRelay.path | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: gitcode-webhook-relay
+                port:
+                  number: 80
+  {{- with .Values.gitcodeWebhookRelay.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

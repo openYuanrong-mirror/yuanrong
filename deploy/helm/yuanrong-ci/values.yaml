@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────
+# Global
+# ─────────────────────────────────────────────
+global:
+  # SWR registry prefix for all images
+  imageRegistry: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev
+  # Optional node to pin bazel-remote cache; leave empty for scheduler default.
+  buildNode: ""
+
+# ─────────────────────────────────────────────
+# Namespaces
+# ─────────────────────────────────────────────
+namespaces:
+  buildTools: build-tools
+
+# ─────────────────────────────────────────────
+# Buildkite agent-stack-k8s
+# (deployed via upstream Helm chart separately;
+#  use agent-stack-k8s-values.yaml as --values)
+# ─────────────────────────────────────────────
+agentStack:
+  # Buildkite cluster token (set via --set or sealed-secret)
+  agentToken: ""
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
+  tags:
+    - queue=default
+    - arch=amd64
+  imagePullBackoffGracePeriod: 15m
+  podPendingTimeout: 20m
+
+# ─────────────────────────────────────────────
+# Bazel remote cache
+# ─────────────────────────────────────────────
+bazelRemote:
+  enabled: true
+  # Mirror buchgr/bazel-remote-cache to SWR to avoid Docker Hub rate-limit
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/bazel-remote-cache:latest
+  maxSizeGb: 200
+  # Local cache directory on the build node
+  hostPath: /mnt/paas
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  service:
+    httpPort: 8080
+    grpcPort: 9092
+
+# ─────────────────────────────────────────────
+# Secrets (set via --set or external secret manager)
+# ─────────────────────────────────────────────
+secrets:
+  # OBS credentials for artifact upload
+  # kubectl create secret generic obs-credentials \
+  #   --from-literal=access-key-id=AK... --from-literal=secret-access-key=SK...
+  obsCredentials:
+    create: false       # set true to create from values below
+    accessKeyId: ""
+    secretAccessKey: ""
+
+  # Credentials for the GitCode -> Buildkite relay service
+  # Create manually or let Helm create the secret from values below.
+  gitcodeWebhookRelayAuth:
+    create: false
+    buildkiteApiToken: ""
+    webhookToken: ""
+    webhookSignatureSecret: ""
+
+# ─────────────────────────────────────────────
+# GitCode -> Buildkite webhook relay
+# ─────────────────────────────────────────────
+gitcodeWebhookRelay:
+  enabled: false
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed
+  imagePullPolicy: IfNotPresent
+  secretName: gitcode-webhook-relay-auth
+  replicas: 1
+  port: 8080
+  path: /webhook/gitcode
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+  buildkite:
+    organization: yuchao-wang
+    pipeline: yuanrong
+    messagePrefix: "Triggered by GitCode"
+    env:
+      BUILD_TARGET: linux
+    triggerPush: false
+    triggerMergeRequest: true
+  filters:
+    pushBranches:
+      - feature/sandbox
+      - feature/ci-buildkite-k8s
+    mergeRequestTargetBranches:
+      - feature/sandbox
+    mergeRequestActions:
+      - merge
+    skipWorkInProgress: true
+    useVirtualMergeRef: false
+  service:
+    type: ClusterIP
+    annotations: {}
+    nodePort: null
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    host: ""
+    tls: []

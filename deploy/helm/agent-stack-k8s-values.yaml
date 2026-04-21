@@ -1,0 +1,25 @@
+# agent-stack-k8s Helm values
+# Reference: https://github.com/buildkite/agent-stack-k8s
+#
+# Install:
+#   helm repo add buildkite https://buildkite.github.io/agent-stack-k8s
+#   helm upgrade --install agent-stack-k8s buildkite/agent-stack-k8s \
+#     -f deploy/helm/agent-stack-k8s-values.yaml \
+#     --set config.agentToken="${BUILDKITE_AGENT_TOKEN}" \
+#     -n default
+
+config:
+  # Buildkite cluster token — supply via --set config.agentToken=$TOKEN
+  agentToken: ""
+  org: yuchao-wang
+  tags:
+    - queue=default
+    - arch=amd64
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
+  imagePullBackoffGracePeriod: 15m
+  podPendingTimeout: 20m
+
+agentStackSecret: agent-stack-k8s-secrets
+
+podTemplate:
+  spec: {}

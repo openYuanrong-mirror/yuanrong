@@ -4,7 +4,7 @@
 # Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
 REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-FUNCTIONSYSTEM_JOBS ?= $(shell jobs=$$(($(NPROCS) / 2)); if [ $$jobs -lt 1 ]; then jobs=1; fi; echo $$jobs)
+JOBS ?= $(NPROCS)
 
 help:
 	@echo "Available targets:"
@@ -23,8 +23,8 @@ help:
 	@echo "  REMOTE_CACHE       - Remote cache server address"
 	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092"
 	@echo "                      If not provided, build will proceed without remote cache"
-	@echo "  FUNCTIONSYSTEM_JOBS - Functionsystem jobs (default: auto/2)"
-	@echo "                      Example: make functionsystem FUNCTIONSYSTEM_JOBS=8"
+	@echo "  JOBS               - Default parallelism for datasystem and runtime builds"
+	@echo "                      Example: make all JOBS=8"
 
 clean:
 	@echo "Cleaning build outputs..."
@@ -38,24 +38,41 @@ clean:
 	@echo "Clean completed!"
 
 frontend:
-	@if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
-		sed -i 's|yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go|yuanrong.org/kernel/runtime => ../api/go|g' "frontend/go.mod"; \
-		echo "Updated frontend/go.mod: yuanrong.org/kernel/runtime => ../api/go"; \
+	@if [ -f "frontend/go.mod" ]; then \
+		if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
+			sed -i 's|yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go|yuanrong.org/kernel/runtime => ../api/go|g' "frontend/go.mod"; \
+			echo "Updated frontend/go.mod: yuanrong.org/kernel/runtime => ../api/go"; \
+		else \
+			echo "frontend/go.mod already correct"; \
+		fi \
 	else \
-		echo "frontend/go.mod already correct"; \
+		echo "Warning: frontend/go.mod not found, skipping mod fix"; \
 	fi
-	bash frontend/build.sh
+	@if [ -f "frontend/build.sh" ]; then \
+		bash frontend/build.sh; \
+	else \
+		echo "Error: frontend/build.sh not found!"; \
+		exit 1; \
+	fi
 	@mkdir -p output
-	@cp frontend/output/yr-frontend*.tar.gz output/
+	@cp frontend/output/yr-frontend*.tar.gz output/ 2>/dev/null || true
 
 datasystem:
-	bash datasystem/build.sh -X off -G on -i on
+	bash datasystem/build.sh -j $(JOBS) -X off -G on -i on
 	@mkdir -p output
-	@cp datasystem/output/yr-datasystem*.tar.gz output/
-	@mkdir -p functionsystem/vendor/src
-	@cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
-	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
-	@cp datasystem/output/*.whl output/
+	@for f in datasystem/output/yr-datasystem*.tar.gz; do \
+		if [ -e "$$f" ]; then \
+			cp "$$f" output/ || true; \
+			mkdir -p functionsystem/vendor/src; \
+			cp "$$f" functionsystem/vendor/src/yr-datasystem.tar.gz || true; \
+			if [ ! -d datasystem/output/sdk ]; then \
+				tar --no-same-owner -zxf "$$f" --strip-components=1 -C datasystem/output || true; \
+			fi; \
+			break; \
+		fi; \
+	done
+	@cp datasystem/output/*.whl output/ 2>/dev/null || true
+	@true
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
@@ -79,22 +96,24 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) && bash run.sh pack && cd -
+	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
+	mkdir -p output
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
 	cp functionsystem/output/*.whl output/
 
 dashboard:
 	cd go && bash build.sh && cd -
+	mkdir -p output
 	cp go/output/yr-dashboard*.tar.gz output/
 	cp go/output/yr-faas*.tar.gz output/
 
 yuanrong:
 	@echo "Building yuanrong runtime..."
 ifeq ($(strip $(REMOTE_CACHE)),)
-	bash build.sh -P
+	bash build.sh -P -j $(JOBS)
 else
-	bash build.sh -P -r $(REMOTE_CACHE)
+	bash build.sh -P -r $(REMOTE_CACHE) -j $(JOBS)
 endif
 
 pkg:
@@ -104,7 +123,7 @@ pkg:
 	@cp datasystem/output/openyuanrong_datasystem-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/output/openyuanrong_functionsystem-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp output/openyuanrong-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp output/openyuanrong_*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
 	@mkdir -p example/aio/docs
 	@echo "Packages copied successfully!"
@@ -117,3 +136,8 @@ image:
 all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong pkg
 	@echo "Build completed!"
 	@echo "Artifacts and example/aio/pkg are ready."
+
+# Define dependencies for parallel make
+functionsystem: datasystem
+yuanrong: datasystem
+pkg: frontend datasystem functionsystem runtime_launcher dashboard yuanrong

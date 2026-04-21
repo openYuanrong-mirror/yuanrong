@@ -1,13 +1,21 @@
 workspace(name = "yuanrong_multi_language_runtime")
 
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("//bazel:hazel_workspace.bzl", "hw_rules")
 
 hw_rules()
 
 # Note: rules_foreign_cc and rules_go are not needed for macOS C++/Python builds
 # They require network downloads which may fail without proxy
-# load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
-# rules_foreign_cc_dependencies()
+http_archive(
+    name = "rules_foreign_cc",
+    sha256 = "69023642d5781c68911beda769f91fcbc8ca48711db935a75da7f6536b65047f",
+    strip_prefix = "rules_foreign_cc-0.6.0",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/bazelbuild/rules_foreign_cc/0.6.0.tar.gz",
+        "https://github.com/bazelbuild/rules_foreign_cc/archive/0.6.0.tar.gz",
+    ],
+)
 
 # load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 # go_rules_dependencies()
@@ -211,6 +219,67 @@ native_tool_toolchain(
     name = "ninja_tool",
     path = "$(execpath :ninja_bin)",
     target = ":ninja_bin",
+)
+""",
+)
+
+# Override cmake-3.21.2 pre-built toolchains from rules_foreign_cc.
+# rules_foreign_cc uses maybe(), so defining the repo here takes precedence
+# and prevents Bazel from hitting GitHub (unreliable from CCE cluster in China).
+http_archive(
+    name = "cmake-3.21.2-linux-x86_64",
+    sha256 = "d5517d949eaa8f10a149ca250e811e1473ee3f6f10935f1f69596a1e184eafc1",
+    strip_prefix = "cmake-3.21.2-linux-x86_64",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-x86_64.tar.gz",
+        "https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-x86_64.tar.gz",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "cmake_data",
+    srcs = glob(
+        ["**"],
+        exclude = ["WORKSPACE", "WORKSPACE.bazel", "BUILD", "BUILD.bazel"],
+    ),
+)
+
+native_tool_toolchain(
+    name = "cmake_tool",
+    path = "bin/cmake",
+    target = ":cmake_data",
+)
+""",
+)
+
+http_archive(
+    name = "cmake-3.21.2-linux-aarch64",
+    sha256 = "fe0673c1877f31e37fd94bfe0509c2e4c13b9d5174dd953c2354549685e1d055",
+    strip_prefix = "cmake-3.21.2-linux-aarch64",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-aarch64.tar.gz",
+        "https://github.com/Kitware/CMake/releases/download/v3.21.2/cmake-3.21.2-linux-aarch64.tar.gz",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "cmake_data",
+    srcs = glob(
+        ["**"],
+        exclude = ["WORKSPACE", "WORKSPACE.bazel", "BUILD", "BUILD.bazel"],
+    ),
+)
+
+native_tool_toolchain(
+    name = "cmake_tool",
+    path = "bin/cmake",
+    target = ":cmake_data",
 )
 """,
 )

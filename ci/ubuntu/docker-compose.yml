@@ -1,0 +1,18 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu2004
+    image: compile-ubuntu2004:local
+    privileged: true
+    restart: unless-stopped
+    working_dir: /workspace
+    ports:
+      - "${COMPILE_PORT:-8888}:8888"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${WORKSPACE:-../../}:/workspace
+    command: >
+      bash -lc "mkdir -p /opt/buildtools/go_workspace;
+      chmod -R 777 /opt/buildtools/go_workspace;
+      while true; do sleep 300; done"

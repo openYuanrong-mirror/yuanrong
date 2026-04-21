@@ -1,30 +1,19 @@
-# Buildkite Pipeline - K8s Native
+# Buildkite Pipeline - Standard SSH Mode
 
 env:
-  BUILD_ARCH: "${BUILD_ARCH:-amd64}"
-  BUILDER_IMAGE: "${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-${BUILD_ARCH:-amd64}}"
+  BUILD_ARCH: "amd64"
+  BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed"
 
 steps:
-  - label: ":linux: K8s 原生构建"
+  - label: ":key: Initialize and Load"
     command: |
-      set -e
-      echo "=== 环境初始化 ==="
-      [ -f "/etc/profile.d/buildtools.sh" ] && . /etc/profile.d/buildtools.sh
-      
-      echo "=== 环境信息 ==="
-      go version || echo "go not found"
-      
-      echo "=== 加载动态流水线 ==="
-      buildkite-agent pipeline upload .buildkite/pipeline.dynamic.yml
+      bash .buildkite/pipeline.dynamic.yml | buildkite-agent pipeline upload
     plugins:
       - kubernetes:
           podSpec:
             containers:
-              - image: "${BUILDER_IMAGE}"
-                env:
-                  - name: GO111MODULE
-                    value: "on"
-                  - name: GOPROXY
-                    value: "https://goproxy.cn,direct"
+              - image: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed"
+                resources:
+                  limits: { cpu: "4", memory: "8Gi" }
     agents:
-      queue: "${BUILD_QUEUE:-default}"
+      queue: "default"
