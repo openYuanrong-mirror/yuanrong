@@ -28,6 +28,7 @@ from aiohttp import web
 import websockets
 
 from yr.sandbox.tunnel_protocol import (
+    MAX_TUNNEL_BODY_SIZE, MAX_TUNNEL_FRAME_SIZE,
     parse_frame, make_id,
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
@@ -65,6 +66,7 @@ class TunnelServer:
             reuse_address=True,
             ping_interval=None,
             ping_timeout=None,
+            max_size=MAX_TUNNEL_FRAME_SIZE,
         )
         app = web.Application()
         app.router.add_route("*", "/{path_info:.*}", self._handle_request)
@@ -246,7 +248,7 @@ class TunnelServer:
         return resp
 
     async def _handle_ws(self, request: web.Request) -> web.WebSocketResponse:
-        ws_resp = web.WebSocketResponse()
+        ws_resp = web.WebSocketResponse(max_msg_size=MAX_TUNNEL_BODY_SIZE)
         await ws_resp.prepare(request)
         fid = make_id()
         headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}

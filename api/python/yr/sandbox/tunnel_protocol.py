@@ -15,6 +15,7 @@
 """Wire protocol frames for the sandbox reverse tunnel."""
 import base64
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -22,10 +23,24 @@ from typing import Dict
 
 
 _HTTP_METHOD_RE = re.compile(r"^[A-Z]+$")
-_MAX_FRAME_SIZE = 1 << 20  # 1 MB
-_MAX_BODY_SIZE = 10 << 20   # 10 MB
+_DEFAULT_MAX_BODY_SIZE = 256 << 20   # 256 MB
+_DEFAULT_MAX_FRAME_SIZE = 384 << 20  # Allows 256 MB base64 bodies plus JSON overhead.
 _CRLF_RE = re.compile(r"[\r\n]")
 _PATH_TRAVERSAL_RE = re.compile(r"(?:^|/)\.\.(?:/|$)")
+
+
+def _read_size_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+MAX_TUNNEL_BODY_SIZE = _read_size_env("YR_TUNNEL_MAX_BODY_SIZE", _DEFAULT_MAX_BODY_SIZE)
+MAX_TUNNEL_FRAME_SIZE = _read_size_env("YR_TUNNEL_MAX_FRAME_SIZE", _DEFAULT_MAX_FRAME_SIZE)
+_MAX_BODY_SIZE = MAX_TUNNEL_BODY_SIZE
+_MAX_FRAME_SIZE = MAX_TUNNEL_FRAME_SIZE
 
 
 def _validate_path(path: str) -> str:

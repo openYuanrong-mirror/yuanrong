@@ -31,6 +31,7 @@ import httpx
 import websockets
 
 from yr.sandbox.tunnel_protocol import (
+    MAX_TUNNEL_FRAME_SIZE,
     parse_frame,
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
@@ -156,6 +157,7 @@ class TunnelClient:
                     ssl=ssl_ctx,
                     ping_interval=None,
                     ping_timeout=None,
+                    max_size=MAX_TUNNEL_FRAME_SIZE,
                 ) as ws:
                     logger.info("Connected to tunnel: %s", self._tunnel_url)
                     self._connected_event.set()  # Signal connected
@@ -339,7 +341,10 @@ class TunnelClient:
         queue: asyncio.Queue = asyncio.Queue(maxsize=_WS_CHANNEL_QUEUE_MAX)
         self._ws_channels[frame.id] = queue
         try:
-            async with websockets.connect(upstream_ws_url) as upstream_ws:
+            async with websockets.connect(
+                upstream_ws_url,
+                max_size=MAX_TUNNEL_FRAME_SIZE,
+            ) as upstream_ws:
                 try:
                     await ws.send(WsConnectedFrame(id=frame.id).to_json())
                 except websockets.ConnectionClosedOK:

@@ -87,6 +87,37 @@ class TestIntegration(unittest.TestCase):
             client.stop()
             self._stop_upstream(upstream_runner)
 
+    def test_large_http_response_roundtrip_through_tunnel(self):
+        """HTTP responses larger than websockets' default 1 MiB frame limit should pass."""
+        import time
+
+        large_body = b"x" * (2 << 20)
+
+        async def handler(request):
+            return web.Response(status=200, body=large_body,
+                                headers={"Content-Type": "application/octet-stream"})
+        app = web.Application()
+        app.router.add_route("GET", "/large", handler)
+        upstream_runner = self._start_upstream(app)
+
+        async def _fetch_via_portb():
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/large") as resp:
+                    return resp.status, await resp.read()
+
+        try:
+            client = TunnelClient(upstream=f"http://127.0.0.1:{UPSTREAM_PORT}")
+            client.start(f"ws://127.0.0.1:{SRV_WS_PORT}")
+            time.sleep(0.5)
+
+            status, body = asyncio.run(_fetch_via_portb())
+            self.assertEqual(status, 200)
+            self.assertEqual(body, large_body)
+        finally:
+            client.stop()
+            self._stop_upstream(upstream_runner)
+
     def test_http_post_with_body_roundtrip(self):
         """POST with body is forwarded and body reaches upstream."""
         import time

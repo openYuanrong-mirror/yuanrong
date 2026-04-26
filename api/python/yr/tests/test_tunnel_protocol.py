@@ -3,6 +3,7 @@ import base64
 import json
 import unittest
 from yr.sandbox.tunnel_protocol import (
+    MAX_TUNNEL_FRAME_SIZE,
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
     PingFrame, PongFrame,
@@ -32,6 +33,16 @@ class TestHttpFrames(unittest.TestCase):
         self.assertIsInstance(parsed, HttpRespFrame)
         self.assertEqual(parsed.status, 200)
         self.assertEqual(parsed.body, b"hello")
+
+    def test_http_resp_body_larger_than_one_mib_roundtrip(self):
+        body = b"x" * (2 << 20)
+        frame = HttpRespFrame(id="id-large", status=200, headers={}, body=body)
+        raw = frame.to_json()
+        self.assertGreater(len(raw), 1 << 20)
+        self.assertLess(len(raw), MAX_TUNNEL_FRAME_SIZE)
+        parsed = parse_frame(raw)
+        self.assertIsInstance(parsed, HttpRespFrame)
+        self.assertEqual(parsed.body, body)
 
     def test_http_req_empty_body(self):
         frame = HttpReqFrame(id="id-3", method="GET", path="/", headers={}, body=b"")
