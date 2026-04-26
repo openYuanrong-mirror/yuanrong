@@ -26,6 +26,28 @@ cat << YAML
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
       export CMAKE_C_COMPILER_LAUNCHER=ccache
       export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+      collect_failure_logs() {
+        _STATUS="\$\$1"
+        _ARCH="\$\${BUILD_ARCH:-x86_64}"
+        _LOG_DIR="artifacts/failure-logs/\$\$_ARCH"
+        echo "=== Build failed (exit \$\$_STATUS); collecting diagnostic logs ==="
+        mkdir -p "\$\$_LOG_DIR"
+        [ -f /tmp/build_output.log ] && cp /tmp/build_output.log "\$\$_LOG_DIR/build_output.log"
+        for _DIR in \
+            functionsystem/vendor/output/Stamp \
+            functionsystem/vendor/src \
+            functionsystem/build \
+            datasystem/build; do
+          if [ -d "\$\$_DIR" ]; then
+            find "\$\$_DIR" -type f \( -name "*.log" -o -name "*.rej" \) -print >> "\$\$_LOG_DIR/file-list.txt" || true
+          fi
+        done
+        if [ -s "\$\$_LOG_DIR/file-list.txt" ]; then
+          tar -czf "\$\$_LOG_DIR/internal-logs.tar.gz" -T "\$\$_LOG_DIR/file-list.txt" || true
+        fi
+        ls -lh "\$\$_LOG_DIR" || true
+        buildkite-agent artifact upload "\$\$_LOG_DIR/**/*" || true
+      }
       # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)
       # Use bash /dev/tcp (built-in, no nc required) to test connectivity
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
@@ -55,12 +77,18 @@ cat << YAML
       rm -f /tmp/yr_build_pipe
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
+      set +e
       make all JOBS=\$\$JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
+      set -e
       rm -f /tmp/yr_build_pipe
       BUILD_END=\$\$(date +%s)
       BUILD_ELAPSED=\$\$(( BUILD_END - BUILD_START ))
+      if [ "\$\$BUILD_EXIT" -ne 0 ]; then
+        collect_failure_logs "\$\$BUILD_EXIT"
+        exit "\$\$BUILD_EXIT"
+      fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
       (
@@ -151,7 +179,8 @@ cat << YAML
       if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
         echo "WARNING: OBS credentials not set, skipping OBS upload"
       else
-        pip install esdk-obs-python --quiet 2>/dev/null || true
+        python3 -m pip install esdk-obs-python --quiet
+        python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
         UPLOAD_OK=0
         UPLOAD_FAIL=0
@@ -240,6 +269,28 @@ cat << YAML
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
       export CMAKE_C_COMPILER_LAUNCHER=ccache
       export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+      collect_failure_logs() {
+        _STATUS="\$\$1"
+        _ARCH="\$\${BUILD_ARCH:-x86_64}"
+        _LOG_DIR="artifacts/failure-logs/\$\$_ARCH"
+        echo "=== Build failed (exit \$\$_STATUS); collecting diagnostic logs ==="
+        mkdir -p "\$\$_LOG_DIR"
+        [ -f /tmp/build_output.log ] && cp /tmp/build_output.log "\$\$_LOG_DIR/build_output.log"
+        for _DIR in \
+            functionsystem/vendor/output/Stamp \
+            functionsystem/vendor/src \
+            functionsystem/build \
+            datasystem/build; do
+          if [ -d "\$\$_DIR" ]; then
+            find "\$\$_DIR" -type f \( -name "*.log" -o -name "*.rej" \) -print >> "\$\$_LOG_DIR/file-list.txt" || true
+          fi
+        done
+        if [ -s "\$\$_LOG_DIR/file-list.txt" ]; then
+          tar -czf "\$\$_LOG_DIR/internal-logs.tar.gz" -T "\$\$_LOG_DIR/file-list.txt" || true
+        fi
+        ls -lh "\$\$_LOG_DIR" || true
+        buildkite-agent artifact upload "\$\$_LOG_DIR/**/*" || true
+      }
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
       if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
@@ -262,12 +313,18 @@ cat << YAML
       rm -f /tmp/yr_build_pipe
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
+      set +e
       make all JOBS=\$\$JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
+      set -e
       rm -f /tmp/yr_build_pipe
       BUILD_END=\$\$(date +%s)
       BUILD_ELAPSED=\$\$(( BUILD_END - BUILD_START ))
+      if [ "\$\$BUILD_EXIT" -ne 0 ]; then
+        collect_failure_logs "\$\$BUILD_EXIT"
+        exit "\$\$BUILD_EXIT"
+      fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
       (
@@ -348,7 +405,8 @@ cat << YAML
       if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
         echo "WARNING: OBS credentials not set, skipping OBS upload"
       else
-        pip install esdk-obs-python --quiet 2>/dev/null || true
+        python3 -m pip install esdk-obs-python --quiet
+        python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
         UPLOAD_OK=0
         UPLOAD_FAIL=0
@@ -373,12 +431,14 @@ cat << YAML
       fi
     agents:
       queue: "default"
-      arch: "arm64"
+      linux_arch: "arm64"
     plugins:
       - kubernetes:
           podSpec:
+            nodeSelector:
+              kubernetes.io/arch: arm64
             containers:
-              - image: "\${ARM_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_arm:2.1}"
+              - image: "$BUILDER_IMAGE"
                 volumeMounts:
                   - name: build-cache
                     mountPath: /mnt/paas

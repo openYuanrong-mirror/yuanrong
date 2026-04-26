@@ -26,9 +26,16 @@ Create if missing:
 
 === agent-stack-k8s (deployed separately via upstream chart) ===
 
-  helm repo add buildkite https://buildkite.github.io/agent-stack-k8s
-  helm upgrade --install agent-stack-k8s buildkite/agent-stack-k8s \
+  helm upgrade --install agent-stack-k8s oci://ghcr.io/buildkite/helm/agent-stack-k8s \
+    --version 0.40.0 \
     -f deploy/helm/agent-stack-k8s-values.yaml \
+    --set agentToken="${BUILDKITE_AGENT_TOKEN}" \
+    -n {{ .Release.Namespace }}
+
+  helm upgrade --install agent-stack-k8s-arm64 oci://ghcr.io/buildkite/helm/agent-stack-k8s \
+    --version 0.40.0 \
+    -f deploy/helm/agent-stack-k8s-arm64-values.yaml \
+    --set agentToken="${BUILDKITE_AGENT_TOKEN}" \
     -n {{ .Release.Namespace }}
 
 === bazel-remote image note ===

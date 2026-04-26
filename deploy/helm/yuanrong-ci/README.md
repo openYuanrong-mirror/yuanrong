@@ -22,11 +22,18 @@ helm upgrade --install yuanrong-ci deploy/helm/yuanrong-ci/ \
   -n default \
   --create-namespace
 
-# 2. Deploy agent-stack-k8s (upstream chart)
-helm repo add buildkite https://buildkite.github.io/agent-stack-k8s
-helm upgrade --install agent-stack-k8s buildkite/agent-stack-k8s \
+# 2. Deploy Linux amd64 agent-stack-k8s (upstream chart)
+helm upgrade --install agent-stack-k8s oci://ghcr.io/buildkite/helm/agent-stack-k8s \
+  --version 0.40.0 \
   -f deploy/helm/agent-stack-k8s-values.yaml \
-  --set config.agentToken="${BUILDKITE_AGENT_TOKEN}" \
+  --set agentToken="${BUILDKITE_AGENT_TOKEN}" \
+  -n default
+
+# 3. Deploy Linux arm64 agent-stack-k8s (optional, same default queue)
+helm upgrade --install agent-stack-k8s-arm64 oci://ghcr.io/buildkite/helm/agent-stack-k8s \
+  --version 0.40.0 \
+  -f deploy/helm/agent-stack-k8s-arm64-values.yaml \
+  --set agentToken="${BUILDKITE_AGENT_TOKEN}" \
   -n default
 ```
 

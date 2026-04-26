@@ -3,7 +3,6 @@
 env:
   BUILD_ARCH: "amd64"
   BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed"
-  ARM_BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_arm:2.1"
 
 steps:
   - label: ":key: Initialize and Load"

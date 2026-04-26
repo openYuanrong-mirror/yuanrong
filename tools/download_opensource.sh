@@ -80,6 +80,9 @@ function checksum_and_decompress() {
     actual_sha256=$(shasum -a 256 "${filename}" | awk '{print $1}')
     if [ "$actual_sha256" != "$sha256" ]; then
         echo "=== download ${name}-${tag} to ${savepath} checksum failed ==="
+        echo "expected sha256: ${sha256}"
+        echo "actual sha256: ${actual_sha256}"
+        rm -f "${filename}"
         cd ..
         rm -rf "${savepath}/${name}"
         return 1
@@ -153,6 +156,24 @@ function download_open_src() {
                 return 1
             fi
         fi
+    fi
+
+    if checksum_and_decompress "${name}" "${filename}"; then
+        return 0
+    fi
+
+    if [ -z "${download_repo}" ]; then
+        return 1
+    fi
+
+    echo -e "=== retry ${name}-${tag} from source: ${download_repo} ==="
+    cd "${savepath}"
+    rm -f "${filename}"
+    if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+        echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+        cd ..
+        rm -rf "${savepath}/${name}"
+        return 1
     fi
 
     checksum_and_decompress "${name}" "${filename}"

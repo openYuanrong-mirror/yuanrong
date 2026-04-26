@@ -16,7 +16,8 @@ namespaces:
 # ─────────────────────────────────────────────
 # Buildkite agent-stack-k8s
 # (deployed via upstream Helm chart separately;
-#  use agent-stack-k8s-values.yaml as --values)
+#  use agent-stack-k8s-values.yaml for Linux amd64 and
+#  agent-stack-k8s-arm64-values.yaml for Linux arm64)
 # ─────────────────────────────────────────────
 agentStack:
   # Buildkite cluster token (set via --set or sealed-secret)
