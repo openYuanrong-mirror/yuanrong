@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import asyncio
+import base64
 import builtins
 import os
 import uuid
@@ -876,25 +877,35 @@ def sandbox():
     help="Name for sandbox instance",
 )
 def sandbox_create(namespace, name):
-    """Create a detached sandbox instance directly in YR runtime context."""
-    os.environ.pop("YR_WORKING_DIR", None)
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            opt = yr.InvokeOptions()
-            opt.custom_extensions["lifecycle"] = "detached"
-            opt.idle_timeout = 60 * 60 * 24 * 1
-            opt.cpu = 1000
-            opt.memory = 2048
-            opt.name = name
-            opt.namespace = namespace
+    """Create a detached sandbox instance via frontend API."""
+    if not __server_address:
+        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        sys.exit(1)
 
-            sandbox = yr.sandbox.SandboxInstance.options(opt).invoke()
-            instance_name = yr.get(sandbox.get_name.invoke())
-            if not instance_name:
-                instance_name = f"{namespace}-{name}"
-            print(f"sandbox created, instance_name={instance_name}")
-    except Exception as e:
-        print(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
+    http_client = HTTPClient(
+        timeout=60,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/api/sandbox/create"
+    headers = {}
+    if __user:
+        headers["X-Tenant-ID"] = __user
+    resp = http_client.request(url, {"name": name, "namespace": namespace}, headers=headers, method="POST")
+    if resp["success"]:
+        data = resp["data"]
+        inner = data.get("data", "") if isinstance(data, dict) else ""
+        if inner:
+            try:
+                decoded = json.loads(base64.b64decode(inner).decode())
+                instance_id = decoded.get("instance_id", "")
+            except Exception:
+                instance_id = ""
+        if instance_id:
+            print(f"sandbox created, instance_id={instance_id}")
+        else:
+            print(f"sandbox created, response={json.dumps(data, ensure_ascii=False)}")
+    else:
+        print(f"sandbox create failed, name={name}, namespace={namespace}, error={resp.get('error', resp)}")
         sys.exit(1)
 
 
@@ -954,13 +965,21 @@ def sandbox_query(sandbox_id):
 @sandbox.command("delete")
 @click.argument("sandbox_id", type=str)
 def sandbox_delete(sandbox_id):
-    """Delete (terminate) a sandbox instance by instance id."""
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            yr.kill_instance(sandbox_id)
+    """Delete (terminate) a sandbox instance via frontend API."""
+    if not __server_address:
+        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        sys.exit(1)
+
+    http_client = HTTPClient(
+        timeout=30,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/api/sandbox/{sandbox_id}"
+    resp = http_client.request(url, {}, method="DELETE")
+    if resp["success"]:
         print(f"succeed to delete sandbox: {sandbox_id}")
-    except Exception as e:
-        print(f"failed to delete sandbox {sandbox_id}: {e}")
+    else:
+        print(f"failed to delete sandbox {sandbox_id}: {resp.get('error', resp)}")
         sys.exit(1)
 
 
