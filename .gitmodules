@@ -6,4 +6,4 @@
 	url = https://gitcode.com/yuchaow/yuanrong-datasystem.git
 [submodule "functionsystem"]
 	path = functionsystem
-	url = https://gitcode.com/yuchaow/yuanrong-functionsystem.git
+	url = https://gitcode.com/openeuler/yuanrong-functionsystem.git
