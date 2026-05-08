@@ -56,10 +56,10 @@ bash scripts/install-buildkite-agent-linux.sh install
 
 在 Buildkite Dashboard 创建 Pipeline，指向 `.buildkite/pipeline.yml`
 
-默认只跑 Linux 构建。需要额外启用 macOS SDK 任务时，在触发构建时增加环境变量：
+默认启用 Linux ARM64 和 macOS SDK 构建。需要临时跳过 macOS SDK 任务时，在触发构建时增加环境变量：
 
 ```bash
-ENABLE_MACOS_SDK=true
+ENABLE_MACOS_SDK=false
 ```
 
 Linux ARM64 任务默认启用。

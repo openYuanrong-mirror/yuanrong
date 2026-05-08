@@ -21,6 +21,10 @@ global:
       repository: yr-node
       tag: latest
       pullPolicy: IfNotPresent
+    runtime:
+      repository: yr-runtime
+      tag: latest
+      pullPolicy: IfNotPresent
     traefik:
       registry: docker.io
       repository: traefik
@@ -47,6 +51,16 @@ global:
             memory: 500
             runtime: python3.9
             concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.runtime) | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
           java:
             timeout: 900
             cpu: 500

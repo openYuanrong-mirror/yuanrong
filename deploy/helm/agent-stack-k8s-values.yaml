@@ -19,7 +19,22 @@ config:
   image-pull-backoff-grace-period: 15m
   pod-pending-timeout: 20m
   pod-spec-patch:
-    containers: []
+    containers:
+      - name: container-0
+        env:
+          - name: YR_K8S_KUBECONFIG
+            value: /var/run/yr-k8s/target/kubeconfig
+        volumeMounts:
+          - name: sandbox-target-kubeconfig
+            mountPath: /var/run/yr-k8s/target
+            readOnly: true
+    volumes:
+      - name: sandbox-target-kubeconfig
+        secret:
+          secretName: sandbox-target-kubeconfig
+          items:
+            - key: kubeconfig
+              path: kubeconfig
     nodeSelector:
       kubernetes.io/arch: amd64
 

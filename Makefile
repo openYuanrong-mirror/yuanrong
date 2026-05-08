@@ -5,6 +5,8 @@
 REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 JOBS ?= $(NPROCS)
+BUILD_VERSION ?=
+BUILD_VERSION_ARG := $(if $(BUILD_VERSION),-v $(BUILD_VERSION),)
 
 help:
 	@echo "Available targets:"
@@ -69,7 +71,7 @@ frontend:
 
 datasystem:
 	@rm -rf datasystem/output/*
-	bash datasystem/build.sh -j $(JOBS) -X off -G on -i on
+	bash datasystem/build.sh -j $(JOBS) -X off -G on -i on $(BUILD_VERSION_ARG)
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem-*.tar.gz output/
 	@mkdir -p functionsystem/vendor/src
@@ -102,7 +104,7 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j 8 && bash run.sh pack && cd -
+	cd functionsystem && bash run.sh build -j $(JOBS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
 	mkdir -p output
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
@@ -117,11 +119,11 @@ dashboard:
 
 runtime:
 	@echo "Building yuanrong runtime..."
-	bash build.sh -j $(JOBS)
+	bash build.sh -j $(JOBS) $(BUILD_VERSION_ARG)
 
 yuanrong:
 	@echo "Building yuanrong..."
-	bash build.sh -P -j $(JOBS)
+	bash build.sh -P -j $(JOBS) $(BUILD_VERSION_ARG)
 
 image:
 	@echo "Building aio images via deploy/sandbox/docker/build-images.sh..."

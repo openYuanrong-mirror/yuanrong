@@ -29,11 +29,11 @@ Options:
 
 Examples:
   bash tools/trigger_build.sh --watch
-  bash tools/trigger_build.sh --env ENABLE_MACOS_SDK=true --watch
+  bash tools/trigger_build.sh --env ENABLE_MACOS_SDK=false --watch
   bash tools/trigger_build.sh \
     --repo https://gitcode.com/yuchaow/yuanrong.git \
     --branch feature/sandbox-macos-sync \
-    --env ENABLE_MACOS_SDK=true
+    --env ENABLE_MACOS_SDK=false
 EOF
 }
 
@@ -126,7 +126,7 @@ if [[ -z "$MESSAGE" ]]; then
     MESSAGE="Triggered via trigger_build.sh $(date '+%H:%M:%S')"
 fi
 
-ENV_JSON='{"BUILD_TARGET":"linux"}'
+ENV_JSON='{"BUILD_TARGET":"linux","BUILDKITE_AGENT_NAME":"agent-stack-k8s"}'
 for entry in "${EXTRA_ENVS[@]}"; do
     if [[ "$entry" != *=* ]]; then
         echo "❌ Invalid --env value: $entry"

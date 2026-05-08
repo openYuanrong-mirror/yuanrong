@@ -1,0 +1,120 @@
+{{- if .Values.cacheAging.enabled }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: build-cache-aging
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: build-cache-aging
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+spec:
+  selector:
+    matchLabels:
+      app: build-cache-aging
+  template:
+    metadata:
+      labels:
+        app: build-cache-aging
+    spec:
+      imagePullSecrets:
+        - name: swr-pull-secret
+      {{- with .Values.cacheAging.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cacheAging.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cache-aging
+          image: {{ .Values.cacheAging.image }}
+          imagePullPolicy: {{ .Values.cacheAging.imagePullPolicy }}
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - |
+              set -o pipefail
+
+              cache_root="/cache"
+              interval_seconds=$((INTERVAL_HOURS * 3600))
+
+              usage_percent() {
+                  df -P "${cache_root}" | awk 'NR == 2 { gsub("%", "", $5); print $5 }'
+              }
+
+              prune_by_age() {
+                  for cache_path in ${CACHE_PATHS}; do
+                      if [[ ! -d "${cache_path}" ]]; then
+                          echo "$(date -Is) skip missing cache path: ${cache_path}"
+                          continue
+                      fi
+
+                      echo "$(date -Is) aging entries older than ${RETENTION_DAYS}d under ${cache_path}"
+                      find "${cache_path}" -xdev -mindepth 1 -maxdepth 1 -mtime +"${RETENTION_DAYS}" -print0 2>/dev/null \
+                          | xargs -0r rm -rf --
+                  done
+              }
+
+              prune_by_pressure() {
+                  local usage
+                  usage="$(usage_percent)"
+                  if (( usage < HIGH_WATERMARK_PERCENT )); then
+                      echo "$(date -Is) cache usage ${usage}% below high watermark ${HIGH_WATERMARK_PERCENT}%"
+                      return
+                  fi
+
+                  echo "$(date -Is) cache usage ${usage}% exceeds high watermark ${HIGH_WATERMARK_PERCENT}%; pruning oldest build-cache entries older than ${PRESSURE_MIN_AGE_HOURS}h"
+                  while (( usage > LOW_WATERMARK_PERCENT )); do
+                      candidate="$(
+                          find ${CACHE_PATHS} -xdev -mindepth 1 -maxdepth 1 -mmin +"$((PRESSURE_MIN_AGE_HOURS * 60))" -printf '%T@ %p\n' 2>/dev/null \
+                              | sort -n \
+                              | head -1 \
+                              | cut -d' ' -f2-
+                      )"
+                      if [[ -z "${candidate}" ]]; then
+                          echo "$(date -Is) no more eligible build-cache entries to prune"
+                          break
+                      fi
+
+                      rm -rf -- "${candidate}" || true
+                      usage="$(usage_percent)"
+                  done
+
+                  echo "$(date -Is) cache usage after pressure pruning: $(usage_percent)%"
+              }
+
+              while true; do
+                  echo "$(date -Is) starting build-cache aging cycle"
+                  prune_by_age
+                  prune_by_pressure
+                  echo "$(date -Is) build-cache aging cycle complete; sleeping ${interval_seconds}s"
+                  sleep "${interval_seconds}"
+              done
+          env:
+            - name: CACHE_PATHS
+              value: {{ join " " .Values.cacheAging.paths | quote }}
+            - name: INTERVAL_HOURS
+              value: {{ .Values.cacheAging.intervalHours | quote }}
+            - name: RETENTION_DAYS
+              value: {{ .Values.cacheAging.retentionDays | quote }}
+            - name: PRESSURE_MIN_AGE_HOURS
+              value: {{ .Values.cacheAging.pressureMinAgeHours | quote }}
+            - name: HIGH_WATERMARK_PERCENT
+              value: {{ .Values.cacheAging.highWatermarkPercent | quote }}
+            - name: LOW_WATERMARK_PERCENT
+              value: {{ .Values.cacheAging.lowWatermarkPercent | quote }}
+          resources:
+            {{- toYaml .Values.cacheAging.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache-storage
+              mountPath: /cache
+      volumes:
+        - name: cache-storage
+          hostPath:
+            path: {{ .Values.cacheAging.hostPath }}
+            type: DirectoryOrCreate
+{{- end }}

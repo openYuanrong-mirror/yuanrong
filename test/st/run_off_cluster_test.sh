@@ -14,6 +14,7 @@ SERVER_ADDRESS=""
 PYTHON_BIN=""
 EXTRA_ARGS=""
 JWT_TOKEN="${YR_JWT_TOKEN:-}"
+ENABLE_TLS="${YR_ENABLE_TLS:-true}"
 
 usage() {
     cat <<EOF
@@ -23,6 +24,7 @@ Options:
     -a  Cluster address (required), e.g. <server-ip>:<port>
     -p  Python binary path (default: prefer active conda/current Python, then common local envs)
     -t  JWT token for X-Auth authentication (default: read from YR_JWT_TOKEN)
+    YR_ENABLE_TLS=false may be used for non-TLS off-cluster endpoints.
     -h  Show this help
 
 Examples:
@@ -116,7 +118,14 @@ PKG=$("${PYTHON_BIN}" -c "import yr; print('ok')" 2>&1) || {
 }
 
 # Verify cluster is reachable
-PROTO="https"
+case "${ENABLE_TLS}" in
+    1|true|TRUE|yes|YES|on|ON) PROTO="https" ;;
+    0|false|FALSE|no|NO|off|OFF) PROTO="http" ;;
+    *)
+        echo "ERROR: YR_ENABLE_TLS must be true or false, got: ${ENABLE_TLS}"
+        exit 1
+        ;;
+esac
 if [ -n "${JWT_TOKEN}" ]; then
     CURL_AUTH_ARGS=(-H "X-Auth: ${JWT_TOKEN}")
 else
@@ -134,15 +143,26 @@ cd "${TEST_DIR}"
 
 export YR_SERVER_ADDRESS="${SERVER_ADDRESS}"
 export YR_JWT_TOKEN="${JWT_TOKEN}"
+export YR_ENABLE_TLS="${ENABLE_TLS}"
 
 echo "--- Running tests ---"
-"${PYTHON_BIN}" -m pytest -s -vv \
-    --override-ini="confcutdir=${TEST_DIR}" \
-    -p no:conftest \
-    test_off_cluster.py \
-    "${PYTEST_ARGS[@]+"${PYTEST_ARGS[@]}"}"
+PYTEST_CMD=(
+    "${PYTHON_BIN}" -m pytest -s -vv
+    --override-ini="confcutdir=${TEST_DIR}"
+    -p no:conftest
+    test_off_cluster.py
+    "${PYTEST_ARGS[@]}"
+)
+
+set +e
+if command -v timeout >/dev/null 2>&1; then
+    timeout "${YR_OFF_CLUSTER_TEST_TIMEOUT:-600}" "${PYTEST_CMD[@]}"
+else
+    "${PYTEST_CMD[@]}"
+fi
 
 EXIT_CODE=$?
+set -e
 
 echo ""
 if [ ${EXIT_CODE} -eq 0 ]; then

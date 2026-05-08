@@ -8,11 +8,12 @@ REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/open
 IMAGE_TAG="${YR_K8S_IMAGE_TAG:-$(date +%Y%m%d-%H%M%S)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD)}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 IMAGE_PLATFORM="${YR_K8S_IMAGE_PLATFORM:-}"
-local_images=(yr-controlplane yr-node)
+local_images=(yr-controlplane yr-node yr-runtime)
 
 declare -A LOCAL_TO_REMOTE=(
   ["yr-controlplane"]="${REGISTRY_REPO}/yr-controlplane:${IMAGE_TAG}"
   ["yr-node"]="${REGISTRY_REPO}/yr-node:${IMAGE_TAG}"
+  ["yr-runtime"]="${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
 )
 
 require_local_image() {
@@ -72,6 +73,8 @@ main() {
     --set global.images.controlplane.tag=${IMAGE_TAG} \\
     --set global.images.node.repository=yr-node \\
     --set global.images.node.tag=${IMAGE_TAG} \\
+    --set global.images.runtime.repository=yr-runtime \\
+    --set global.images.runtime.tag=${IMAGE_TAG} \\
     --set global.images.traefik.registry=${REGISTRY_REPO} \\
     --set global.images.traefik.repository=traefik \\
     --set global.images.traefik.tag=v2.11.14

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-HELM_BIN="${HELM_BIN:-/home/wyc/.local/bin/helm}"
+HELM_BIN="${HELM_BIN:-helm}"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 
 KUBECONFIG_PATH="${YR_K8S_KUBECONFIG:-${HOME}/.kube/beijing4.yaml}"
@@ -69,7 +69,50 @@ resolve_swr_password() {
     printf '%s' "${SWR_PASSWORD}"
     return 0
   fi
+  if [ -n "${SWR_DOCKER_CONFIG_JSON:-}" ]; then
+    docker_config_field password
+    return 0
+  fi
   return 1
+}
+
+resolve_swr_username() {
+  if [ -n "${SWR_USERNAME:-}" ]; then
+    printf '%s' "${SWR_USERNAME}"
+    return 0
+  fi
+  if [ -n "${SWR_DOCKER_CONFIG_JSON:-}" ]; then
+    docker_config_field username
+    return 0
+  fi
+  return 1
+}
+
+docker_config_field() {
+  local field="$1"
+  require_bin python3
+  FIELD="${field}" REGISTRY_SERVER="${REGISTRY_SERVER}" python3 -c '
+import base64
+import json
+import os
+import sys
+
+config = json.loads(os.environ["SWR_DOCKER_CONFIG_JSON"])
+server = os.environ["REGISTRY_SERVER"]
+field = os.environ["FIELD"]
+entry = config.get("auths", {}).get(server)
+if not entry:
+    raise SystemExit(f"missing registry auth for {server}")
+username = entry.get("username", "")
+password = entry.get("password", "")
+if (not username or not password) and entry.get("auth"):
+    decoded = base64.b64decode(entry["auth"]).decode()
+    username, _, password = decoded.partition(":")
+value = username if field == "username" else password
+if not value:
+    raise SystemExit(f"missing {field} in docker config for {server}")
+sys.stdout.write(value)
+'
 }
 
 resolve_docker_config_json() {
@@ -136,6 +179,8 @@ helm_deploy() {
     --set global.images.controlplane.tag="${IMAGE_TAG}" \
     --set global.images.node.repository="yr-node" \
     --set global.images.node.tag="${IMAGE_TAG}" \
+    --set global.images.runtime.repository="yr-runtime" \
+    --set global.images.runtime.tag="${IMAGE_TAG}" \
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
@@ -163,8 +208,42 @@ wait_for_rollout() {
     [ -n "${resource}" ] || continue
     "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${resource}" \
       --namespace "${NAMESPACE}" \
-      --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-10m}"
+      --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"
   done < <(workload_resources)
+}
+
+node_pods() {
+  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get pods \
+    --namespace "${NAMESPACE}" \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=node \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+}
+
+prepull_runtime_image() {
+  if ! has_registry_credentials; then
+    printf 'Skipping runtime image pre-pull because no registry credentials were provided.\n' >&2
+    return 0
+  fi
+
+  local runtime_image="${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
+  local pods pod username password
+  pods="$(node_pods)"
+  if [ -z "${pods}" ]; then
+    printf 'No node pods found for release %s in namespace %s.\n' "${RELEASE_NAME}" "${NAMESPACE}" >&2
+    exit 1
+  fi
+
+  username="$(resolve_swr_username)"
+  password="$(resolve_swr_password)"
+  while IFS= read -r pod; do
+    [ -n "${pod}" ] || continue
+    printf 'Pre-pulling runtime image %s on %s.\n' "${runtime_image}" "${pod}" >&2
+    printf '%s' "${password}" | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
+      --namespace "${NAMESPACE}" -i "${pod}" -c node -- sh -eu -c '
+        docker login "$1" -u "$2" --password-stdin >/dev/null
+        docker pull "$3"
+      ' sh "${REGISTRY_SERVER}" "${username}" "${runtime_image}"
+  done <<<"${pods}"
 }
 
 show_status() {
@@ -188,6 +267,7 @@ main() {
   helm_deploy
   patch_workloads_with_pull_secret
   wait_for_rollout
+  prepull_runtime_image
   show_status
 }
 

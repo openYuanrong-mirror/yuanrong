@@ -2,14 +2,16 @@
 # Buildkite 动态 Pipeline - 标准 SSH 版
 set -e
 BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
-SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260427_dind2}"
-ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-false}"
+SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260506_kubectl}"
+SANDBOX_DEPLOYER_IMAGE="${SANDBOX_DEPLOYER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-deployer:v20260506_kubectl_py39}"
+ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-true}"
 ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
+ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
 
 echo "steps:"
 cat << YAML
-  - label: ":rocket: Build All"
+  - label: ":rocket: Build X86"
     key: "build-all-amd64"
     command: |
       set -e
@@ -20,15 +22,25 @@ cat << YAML
       export CXX=g++-10
       export PIP_BREAK_SYSTEM_PACKAGES=1
       JOBS="\$\${JOBS:-16}"
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
+      echo "Package version: \$\$YR_BUILD_VERSION"
       
       CACHE_BASE="/mnt/paas/build-cache"
-      mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/opensource
+      mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \
+        \$\$CACHE_BASE/opensource \$\$CACHE_BASE/pip \$\$CACHE_BASE/functionsystem-vendor-cache
       export CCACHE_DIR=\$\$CACHE_BASE/ccache
+      export CCACHE_MAXSIZE="\$\${CCACHE_MAXSIZE:-100G}"
+      ccache -M "\$\$CCACHE_MAXSIZE"
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
-      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILDKITE_JOB_ID:-local}-\$\${BUILD_ARCH:-amd64}
-      rm -rf "\$\$GOCACHE"
+      export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
+      # Keep Go's content-addressed build cache warm across Buildkite jobs; cache-aging handles old entries.
+      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILD_ARCH:-amd64}
       mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
+      export FS_VENDOR_CACHE_DIR=\$\$CACHE_BASE/functionsystem-vendor-cache
       collect_failure_logs() {
         _STATUS="\$\$1"
         _ARCH="\$\${BUILD_ARCH:-x86_64}"
@@ -94,8 +106,26 @@ cat << YAML
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
+      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
+      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
+      cd api/python
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
+      cd ../..
+
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
+
+      echo "=== [3.6/6] Package CI source snapshot ==="
+      mkdir -p artifacts/ci-source
+      git archive --format=tar HEAD | gzip > artifacts/ci-source/yuanrong-ci-source.tgz
+      buildkite-agent artifact upload "artifacts/ci-source/yuanrong-ci-source.tgz"
 
       (
         set +e
@@ -171,15 +201,8 @@ cat << YAML
 
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
-      # Main output dir: yr-runtime, yr-dashboard, yr-faas, yr-functionsystem, *.whl
-      cp output/*.tar.gz artifacts/release/ 2>/dev/null || true
+      cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
       cp output/*.whl artifacts/release/ 2>/dev/null || true
-      cp output/runtime-launcher artifacts/release/ 2>/dev/null || true
-      # Sub-project outputs not already copied to output/
-      cp datasystem/output/*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp datasystem/output/*.whl artifacts/release/ 2>/dev/null || true
-      cp datasystem/output/sdk/*.whl artifacts/release/ 2>/dev/null || true
-      cp functionsystem/output/*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
 
       echo "=== [6/6] Upload Artifacts to OBS ==="
@@ -192,7 +215,7 @@ cat << YAML
         UPLOAD_FAIL=0
         OBS_URLS_FILE=artifacts/release/obs-urls.txt
         : > "\$\$OBS_URLS_FILE"
-        for f in artifacts/release/*.tar.gz artifacts/release/*.whl; do
+        for f in artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl; do
           [ -f "\$\$f" ] || continue
           echo "Uploading: \$\$f"
           if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
@@ -224,6 +247,38 @@ cat << YAML
         fi
         echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
         [ "\$\$UPLOAD_FAIL" -eq 0 ]
+      fi
+
+      echo "=== [6.5/6] Upload openyuanrong-sdk to TestPyPI ==="
+      if [ -z "\$\${TEST_PYPI_API_TOKEN:-}" ]; then
+        echo "WARNING: TEST_PYPI_API_TOKEN not set, skipping TestPyPI upload"
+      else
+        SDK_WHEELS=\$\$(find artifacts/release -maxdepth 1 -type f -name 'openyuanrong_sdk*.whl' | sort)
+        if [ -z "\$\$SDK_WHEELS" ]; then
+          echo "WARNING: no openyuanrong_sdk wheel found, skipping TestPyPI upload"
+        elif printf '%s\n' "\$\$SDK_WHEELS" | grep -q '+.*\.whl'; then
+          echo "WARNING: openyuanrong-sdk uses local version \$\$YR_BUILD_VERSION; PyPI/TestPyPI reject local versions, skipping TestPyPI upload"
+        else
+          python3 -m pip show twine >/dev/null 2>&1 || \
+            python3 -m pip install -q --retries 2 --timeout 60 \
+              --index-url "\$\${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}" \
+              --trusted-host "\$\${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}" \
+              twine
+          PYPI_ATTEMPT=1
+          until TWINE_USERNAME=__token__ TWINE_PASSWORD="\$\$TEST_PYPI_API_TOKEN" \
+            python3 -m twine upload \
+              --repository-url https://test.pypi.org/legacy/ \
+              --skip-existing \
+              \$\$SDK_WHEELS; do
+            if [ "\$\$PYPI_ATTEMPT" -ge 3 ]; then
+              echo "ERROR: TestPyPI upload failed after \$\$PYPI_ATTEMPT attempts"
+              exit 1
+            fi
+            PYPI_ATTEMPT=\$\$((PYPI_ATTEMPT + 1))
+            echo "WARNING: TestPyPI upload failed; retrying attempt \$\$PYPI_ATTEMPT/3"
+            sleep 15
+          done
+        fi
       fi
     agents:
       queue: "default"
@@ -259,6 +314,12 @@ cat << YAML
                         name: obs-credentials
                         key: SK
                         optional: true
+                  - name: TEST_PYPI_API_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: test-pypi-credentials
+                        key: api-token
+                        optional: true
             volumes:
               - name: build-cache
                 hostPath:
@@ -272,12 +333,18 @@ YAML
 case "${ENABLE_SANDBOX_PACKAGE}" in
   1|true|TRUE|yes|YES|on|ON)
 cat << YAML
-  - label: ":package: Package sandbox images and Helm"
-    key: "package-sandbox-amd64"
+  - label: ":package: Build Image"
+    key: "publish-sandbox-release-amd64"
     depends_on: "build-all-amd64"
     command: |
       set -e
+      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
+      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
+      export PATH="/workspace:\$\$PATH"
       bash .buildkite/package_sandbox_release.sh
+    env:
+      BUILDKITE_AGENT_NAME: "agent-stack-k8s"
+      BUILDKITE_SKIP_CHECKOUT: "true"
     agents:
       queue: "default"
       os: "linux"
@@ -285,6 +352,8 @@ cat << YAML
     plugins:
       - kubernetes:
           podSpec:
+            imagePullSecrets:
+              - name: swr-pull-secret
             containers:
               - image: "$SANDBOX_PACKAGER_IMAGE"
                 securityContext:
@@ -333,13 +402,68 @@ cat << YAML
     artifact_paths:
       - "artifacts/sandbox/**/*"
 YAML
+
+case "${ENABLE_SANDBOX_K8S_TEST}" in
+  1|true|TRUE|yes|YES|on|ON)
+cat << YAML
+  - label: ":rocket: Test K8S"
+    key: "test-k8s"
+    depends_on: "publish-sandbox-release-amd64"
+    command: |
+      set -e
+      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
+      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
+      export PATH="/workspace:\$\$PATH"
+      bash .buildkite/test_sandbox_k8s.sh
+    env:
+      BUILDKITE_AGENT_NAME: "agent-stack-k8s"
+      BUILDKITE_SKIP_CHECKOUT: "true"
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            imagePullSecrets:
+              - name: swr-pull-secret
+            containers:
+              - image: "$SANDBOX_DEPLOYER_IMAGE"
+                resources:
+                  requests: { cpu: "2", memory: "4Gi" }
+                  limits: { cpu: "4", memory: "8Gi" }
+                env:
+                  - name: SWR_USERNAME
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-credentials
+                        key: username
+                        optional: true
+                  - name: SWR_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-credentials
+                        key: password
+                        optional: true
+                  - name: SWR_DOCKER_CONFIG_JSON
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-pull-secret
+                        key: .dockerconfigjson
+                        optional: true
+    timeout_in_minutes: 60
+    artifact_paths:
+      - "artifacts/sandbox-smoke/**/*"
+YAML
+;;
+esac
 ;;
 esac
 
 case "${ENABLE_LINUX_ARM}" in
   1|true|TRUE|yes|YES|on|ON)
 cat << YAML
-  - label: ":penguin: Build All (linux-arm64)"
+  - label: ":penguin: Build arm"
     command: |
       set -e
       echo "=== [1/3] Environment Setup ==="
@@ -350,15 +474,25 @@ cat << YAML
       export PIP_BREAK_SYSTEM_PACKAGES=1
       export BUILD_ARCH=arm64
       JOBS="\$\${JOBS:-16}"
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
+      echo "Package version: \$\$YR_BUILD_VERSION"
 
       CACHE_BASE="/mnt/paas/build-cache"
-      mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/opensource
+      mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \
+        \$\$CACHE_BASE/opensource \$\$CACHE_BASE/pip \$\$CACHE_BASE/functionsystem-vendor-cache
       export CCACHE_DIR=\$\$CACHE_BASE/ccache
+      export CCACHE_MAXSIZE="\$\${CCACHE_MAXSIZE:-100G}"
+      ccache -M "\$\$CCACHE_MAXSIZE"
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
-      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILDKITE_JOB_ID:-local}-\$\${BUILD_ARCH:-arm64}
-      rm -rf "\$\$GOCACHE"
+      export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
+      # Keep Go's content-addressed build cache warm across Buildkite jobs; cache-aging handles old entries.
+      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILD_ARCH:-arm64}
       mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
+      export FS_VENDOR_CACHE_DIR=\$\$CACHE_BASE/functionsystem-vendor-cache
       collect_failure_logs() {
         _STATUS="\$\$1"
         _ARCH="\$\${BUILD_ARCH:-x86_64}"
@@ -416,6 +550,19 @@ cat << YAML
         exit "\$\$BUILD_EXIT"
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
+
+      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
+      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
+      cd api/python
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
+      cd ../..
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
@@ -486,12 +633,8 @@ cat << YAML
 
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
-      cp output/*.tar.gz artifacts/release/ 2>/dev/null || true
+      cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
       cp output/*.whl artifacts/release/ 2>/dev/null || true
-      cp datasystem/output/*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp datasystem/output/*.whl artifacts/release/ 2>/dev/null || true
-      cp datasystem/output/sdk/*.whl artifacts/release/ 2>/dev/null || true
-      cp functionsystem/output/*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
 
       echo "=== [6/6] Upload Artifacts to OBS ==="
@@ -504,7 +647,7 @@ cat << YAML
         UPLOAD_FAIL=0
         OBS_URLS_FILE=artifacts/release/obs-urls.txt
         : > "\$\$OBS_URLS_FILE"
-        for f in artifacts/release/*.tar.gz artifacts/release/*.whl; do
+        for f in artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl; do
           [ -f "\$\$f" ] || continue
           echo "Uploading: \$\$f"
           if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
@@ -590,15 +733,27 @@ esac
 case "${ENABLE_MACOS_SDK}" in
   1|true|TRUE|yes|YES|on|ON)
 cat << YAML
-  - label: ":apple: Build macOS SDK"
+  - label: ":apple: Build macOS"
     command: |
       set -e
       echo "=== [1/4] Sync submodules ==="
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      echo "Package version: \$\$YR_BUILD_VERSION"
 
-      echo "=== [2/4] Build macOS SDK ==="
+      echo "=== [2/4] Build macOS ==="
       bash build.sh
+
+      echo "=== [2.5/4] Repackage macOS SDK (version=\$\$YR_BUILD_VERSION) ==="
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      cd api/python
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
+      cd ../..
 
       echo "=== [3/4] Collect openyuanrong-sdk artifacts ==="
       mkdir -p artifacts/openyuanrong-sdk

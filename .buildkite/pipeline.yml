@@ -3,9 +3,10 @@
 env:
   BUILD_ARCH: "amd64"
   BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
+  ENABLE_MACOS_SDK: "true"
 
 steps:
-  - label: ":key: Initialize and Load"
+  - label: ":key: Initialize"
     command: |
       bash .buildkite/pipeline.dynamic.yml | buildkite-agent pipeline upload
     plugins:

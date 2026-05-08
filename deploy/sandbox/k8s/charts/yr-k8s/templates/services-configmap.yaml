@@ -8,5 +8,5 @@ metadata:
     {{- include "yr-k8s.labels" . | nindent 4 }}
 data:
   services.yaml: |-
-{{ .Values.global.services.servicesYaml | nindent 4 }}
+{{ tpl .Values.global.services.servicesYaml . | nindent 4 }}
 {{- end }}

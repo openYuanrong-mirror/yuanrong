@@ -16,6 +16,7 @@ ACTIVE_SCRIPTS = [
     "bin/start-frontend.sh",
     "bin/start-node.sh",
     "bin/supervisord-node-entrypoint.sh",
+    "smoke.py",
 ]
 
 RETIRED_SCRIPTS = [
@@ -151,9 +152,10 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "README.md",
                 "build-images.sh",
                 "push-images-swr.sh",
-                "deploy-beijing4.sh",
+                "deploy.sh",
                 "images/Dockerfile.controlplane-base",
                 "images/Dockerfile.node",
+                "images/Dockerfile.runtime",
                 "images/supervisord-node.conf",
                 "charts/yr-k8s/Chart.yaml",
                 "charts/yr-k8s/values.yaml",
@@ -176,7 +178,9 @@ class YrK8sLayoutTests(unittest.TestCase):
     def test_build_and_readme_document_real_image_builds(self):
         build_script = (ROOT / "build-images.sh").read_text()
         package_script = (ROOT.parents[2] / ".buildkite/package_sandbox_release.sh").read_text()
+        pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()
         controlplane_dockerfile = (ROOT / "images/Dockerfile.controlplane-base").read_text()
+        runtime_dockerfile = (ROOT / "images/Dockerfile.runtime").read_text()
         readme = (ROOT / "README.md").read_text().lower()
 
         for token in [
@@ -185,22 +189,35 @@ class YrK8sLayoutTests(unittest.TestCase):
             "docker build",
             "yr-controlplane",
             "yr-node",
+            "yr-runtime",
         ]:
             with self.subTest(token=token):
                 self.assertIn(token, build_script)
 
         self.assertIn("bash deploy/sandbox/k8s/build-images.sh", readme)
         self.assertIn("push-images-swr.sh", readme)
-        self.assertIn("deploy-beijing4.sh", readme)
+        self.assertIn("deploy.sh", readme)
+        self.assertIn("run_off_cluster_test.sh", readme)
         self.assertNotIn("pkg/", readme)
         self.assertNotIn("scaffold only", readme)
+        self.assertIn("cp output/openyuanrong-*.tar.gz artifacts/release/", pipeline)
+        self.assertNotIn("cp output/*.tar.gz artifacts/release/", pipeline)
+        self.assertNotIn("cp datasystem/output/*.tar.gz artifacts/release/", pipeline)
         self.assertNotIn("yr-frontend*.tar.gz", build_script)
         self.assertNotIn("yr-frontend*.tar.gz", package_script)
         self.assertNotIn("yr-frontend*.tar.gz", controlplane_dockerfile)
+        self.assertIn("artifacts/release/openyuanrong-*.whl", package_script)
+        self.assertIn("artifacts/release/openyuanrong_sdk*.whl", package_script)
+        self.assertNotIn("runtime-launcher", package_script)
+        self.assertNotIn("artifacts/release/*", package_script)
         self.assertIn("COPY openyuanrong-*.whl", controlplane_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", controlplane_dockerfile)
+        self.assertNotIn("COPY runtime-launcher", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-frontend.sh", controlplane_dockerfile)
+        self.assertIn("ARG CONTROLPLANE_IMAGE=yr-controlplane", runtime_dockerfile)
+        self.assertIn("FROM ${CONTROLPLANE_IMAGE}", runtime_dockerfile)
+        self.assertIn('--build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"', build_script)
         self.assertNotIn("images/Dockerfile.master", build_script)
         self.assertNotIn("images/Dockerfile.frontend", build_script)
         self.assertNotIn("yr-controlplane-base", build_script)
@@ -217,7 +234,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("supervisor", node_dockerfile)
         self.assertIn("docker.io", node_dockerfile)
         self.assertIn("supervisord-node-entrypoint.sh", node_dockerfile)
-        self.assertIn("[program:runtime-launcher]", node_supervisord)
+        self.assertNotIn("[program:runtime-launcher]", node_supervisord)
         self.assertIn("[program:yr-node]", node_supervisord)
         self.assertIn("dockerd", node_entrypoint)
         self.assertIn("docker info", node_entrypoint)
@@ -234,6 +251,8 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "--enable_function_scheduler true",
                 "--enable_meta_service true",
                 "--enable_iam_server true",
+                "--cpu_num",
+                "controlplane_cpu_num",
             ],
             "bin/start-frontend.sh": [
                 "/usr/local/bin/yr start",
@@ -242,6 +261,8 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "--port_policy FIX",
                 "--etcd_mode outter",
                 "--enable_faas_frontend true",
+                "--cpu_num",
+                "controlplane_cpu_num",
             ],
             "bin/start-node.sh": [
                 "/usr/local/bin/yr start",
@@ -249,6 +270,7 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "-e",
                 "--port_policy FIX",
                 "--etcd_mode outter",
+                "--enable_runtime_launcher true",
             ],
         }
         for relative_path, tokens in expectations.items():
@@ -260,6 +282,7 @@ class YrK8sLayoutTests(unittest.TestCase):
                 self.assertTrue(text.startswith("#!/usr/bin/env bash"))
                 self.assertIn("set -euo pipefail", text)
                 self.assertNotIn("python3 -m yr.cli.main", text)
+                self.assertNotIn("--runtime_launcher_sock", text)
                 for token in tokens:
                     self.assertIn(token, text)
 
@@ -275,7 +298,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(values["global"]["externalEtcd"]["addrList"], "")
         self.assertTrue(values["etcd"]["enabled"])
         self.assertFalse(values["etcd"]["persistence"]["enabled"])
-        self.assertEqual(sorted(values["global"]["images"].keys()), ["controlplane", "node", "traefik"])
+        self.assertEqual(sorted(values["global"]["images"].keys()), ["controlplane", "node", "runtime", "traefik"])
+        self.assertIn("global.images.runtime", values["global"]["services"]["servicesYaml"])
+        self.assertIn("imageurl", values["global"]["services"]["servicesYaml"])
         self.assertEqual(
             sorted(values["node"]["ports"].keys()),
             ["dsWorker", "functionProxy", "functionProxyGrpc"],
@@ -343,6 +368,7 @@ class YrK8sLayoutTests(unittest.TestCase):
             ],
         )
         self.assertIn("services.yaml", services_cm["data"])
+        self.assertIn(expected_image(values, "runtime"), services_cm["data"]["services.yaml"])
 
         master_container = find_container(master_sts, "master")
         controlplane_image = expected_image(values, "controlplane")
@@ -424,6 +450,74 @@ class YrK8sLayoutTests(unittest.TestCase):
         override_frontend = find_manifest(override_manifests, "Deployment", frontend_name)
         override_frontend_container = find_container(override_frontend, "frontend")
         self.assertEqual(find_env(override_frontend_container, "IAM_SERVER_ADDRESS"), "iam.example.com:31112")
+
+    def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
+        bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
+        pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()
+        deploy_script = (ROOT.parents[2] / ".buildkite/test_sandbox_k8s.sh").read_text()
+        yuanrong_ci_values = load_yaml_file(ROOT.parents[2] / "deploy/helm/yuanrong-ci/values.yaml")
+        agent_stack_values = load_yaml_file(ROOT.parents[2] / "deploy/helm/agent-stack-k8s-values.yaml")
+        deploy_script_k8s = (ROOT / "deploy.sh").read_text()
+
+        self.assertIn("Initialize", bootstrap_pipeline)
+        self.assertIn("Build X86", pipeline)
+        self.assertIn("Build Image", pipeline)
+        self.assertIn("publish-sandbox-release-amd64", pipeline)
+        self.assertIn("Test K8S", pipeline)
+        self.assertIn('key: "test-k8s"', pipeline)
+        self.assertIn("Build arm", pipeline)
+        self.assertIn("Build macOS", pipeline)
+        self.assertIn("depends_on: \"publish-sandbox-release-amd64\"", pipeline)
+        self.assertIn("test_sandbox_k8s.sh", pipeline)
+        self.assertNotIn("deploy_sandbox_beijing4.sh", pipeline)
+        self.assertNotIn("sandbox-target-kubeconfig", pipeline)
+        self.assertNotIn("YR_K8S_KUBECONFIG", pipeline)
+        self.assertNotIn("Initialize and Load", bootstrap_pipeline)
+        self.assertNotIn("Build All", pipeline)
+        self.assertNotIn("Publish sandbox release", pipeline)
+        self.assertNotIn("Deploy sandbox to Beijing4", pipeline)
+        self.assertNotIn("Build macOS SDK", pipeline)
+        self.assertIn("deploy.sh", deploy_script)
+        self.assertNotIn("deploy-beijing4.sh", deploy_script)
+        self.assertIn('KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"', deploy_script)
+        self.assertNotIn("YR_K8S_KUBECONFIG:-", deploy_script)
+        self.assertIn("YR_K8S_ROLLOUT_TIMEOUT:-20m", deploy_script_k8s)
+        self.assertIn("prepull_runtime_image", deploy_script_k8s)
+        self.assertIn("docker pull", deploy_script_k8s)
+        self.assertIn("run_off_cluster_test.sh", deploy_script)
+        self.assertIn("artifacts/release/openyuanrong-*.whl", deploy_script)
+        self.assertIn("artifacts/release/openyuanrong_sdk*.whl", deploy_script)
+        self.assertNotIn('artifact download "artifacts/release/*"', deploy_script)
+        self.assertIn("YR_K8S_SMOKE_PIP_INDEX_URL", deploy_script)
+        self.assertIn("-m smoke", deploy_script)
+        self.assertIn("cp output/*.whl artifacts/release/", pipeline)
+        self.assertNotIn("cp datasystem/output/*.whl artifacts/release/", pipeline)
+        self.assertNotIn("cp datasystem/output/sdk/*.whl artifacts/release/", pipeline)
+        self.assertNotIn("cp functionsystem/output/*.whl artifacts/release/", pipeline)
+        self.assertIn("TEST_PYPI_API_TOKEN", pipeline)
+        self.assertIn("test-pypi-credentials", pipeline)
+        self.assertIn("openyuanrong_sdk*.whl", pipeline)
+        self.assertIn("https://test.pypi.org/legacy/", pipeline)
+        self.assertNotIn("twine upload artifacts/release/*.whl", pipeline)
+        self.assertEqual(
+            yuanrong_ci_values["agentStack"]["targetKubeconfig"]["secretName"],
+            "sandbox-target-kubeconfig",
+        )
+        self.assertEqual(
+            yuanrong_ci_values["agentStack"]["targetKubeconfig"]["mountPath"],
+            "/var/run/yr-k8s/target",
+        )
+        self.assertEqual(
+            yuanrong_ci_values["secrets"]["targetKubeconfig"]["secretName"],
+            "sandbox-target-kubeconfig",
+        )
+        self.assertIn("testPypiCredentials", yuanrong_ci_values["secrets"])
+        self.assertIn("secrets.targetKubeconfig.create", (ROOT.parents[2] / "deploy/helm/yuanrong-ci/README.md").read_text())
+        self.assertIn("secrets.testPypiCredentials.create", (ROOT.parents[2] / "deploy/helm/yuanrong-ci/README.md").read_text())
+        self.assertIn("/var/run/yr-k8s/target/kubeconfig", str(yuanrong_ci_values["agentStack"]["podSpecPatch"]))
+        self.assertIn("sandbox-target-kubeconfig", str(agent_stack_values["config"]["pod-spec-patch"]))
+        self.assertIn("/var/run/yr-k8s/target/kubeconfig", str(agent_stack_values["config"]["pod-spec-patch"]))
+        self.assertIn("yr-runtime", (ROOT / "push-images-swr.sh").read_text())
 
 
 if __name__ == "__main__":

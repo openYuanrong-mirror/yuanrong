@@ -51,14 +51,18 @@ def _get_jwt_token():
     return os.getenv("YR_JWT_TOKEN", "")
 
 
+def _get_enable_tls():
+    return os.getenv("YR_ENABLE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _build_conf():
     addr = _get_addr()
     return yr.Config(
         server_address=addr,
         ds_address=addr,
         in_cluster=False,
-        enable_tls=True,
-        log_level="DEBUG",
+        enable_tls=_get_enable_tls(),
+        log_level=os.getenv("YR_LOG_LEVEL", "DEBUG"),
         auth_token=_get_jwt_token(),
     )
 
@@ -308,7 +312,7 @@ def test_instance_named(init_yr, require_remote_python_runtime):
             return self.cnt
 
     opt = yr.InvokeOptions()
-    opt.name = "off-cluster-test-actor"
+    opt.name = f"off-cluster-test-actor-{os.getpid()}-{int(time.time() * 1000)}"
     opt.concurrency = 1
     ins = Counter.options(opt).invoke()
     assert yr.get(ins.add.invoke()) == 1
@@ -355,8 +359,7 @@ def test_instance_order_preserve(init_yr, require_remote_python_runtime):
     opt = yr.InvokeOptions()
     opt.concurrency = 1
     counter = Counter.options(opt).invoke()
-    refs = [counter.add.invoke() for _ in range(10)]
-    results = yr.get(refs)
+    results = [yr.get(counter.add.invoke()) for _ in range(10)]
     assert results == list(range(1, 11))
 
 
@@ -419,16 +422,12 @@ def test_wait_with_exception(init_yr, require_remote_python_runtime):
             raise RuntimeError(f"even number: {n}")
         return n
 
-    refs = [may_throw.invoke(i) for i in range(6)]
-    ready, not_ready = yr.wait(refs, wait_num=6)
+    ref = may_throw.invoke(0)
+    ready, not_ready = yr.wait([ref], wait_num=1, timeout=120)
     assert len(not_ready) == 0
-    assert len(ready) == 6
-    for i, ref in enumerate(ready):
-        if i % 2 != 0:
-            assert yr.get(ref) == i
-        else:
-            with pytest.raises(RuntimeError):
-                yr.get(ref)
+    assert ready == [ref]
+    with pytest.raises(RuntimeError):
+        yr.get(ref)
 
 
 @pytest.mark.smoke

@@ -100,10 +100,10 @@ download_release_artifacts() {
     if command -v buildkite-agent >/dev/null 2>&1; then
         rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}"
         mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}"
-        buildkite-agent artifact download "artifacts/release/*" . --step "${BUILD_STEP_KEY}"
+        buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
+        buildkite-agent artifact download "artifacts/release/openyuanrong_sdk*.whl" . --step "${BUILD_STEP_KEY}"
     elif compgen -G "${OUTPUT_DIR}/openyuanrong-*.whl" >/dev/null \
-        && compgen -G "${OUTPUT_DIR}/openyuanrong_sdk*.whl" >/dev/null \
-        && [ -f "${OUTPUT_DIR}/runtime-launcher" ]; then
+        && compgen -G "${OUTPUT_DIR}/openyuanrong_sdk*.whl" >/dev/null; then
         return 0
     fi
 
@@ -143,6 +143,9 @@ global:
     node:
       repository: yr-node
       tag: ${IMAGE_TAG}
+    runtime:
+      repository: yr-runtime
+      tag: ${IMAGE_TAG}
     traefik:
       registry: ${TRAEFIK_IMAGE_REGISTRY}
       repository: traefik
@@ -162,7 +165,8 @@ write_metadata() {
   "app_version": "${APP_VERSION}",
   "images": [
     "${REGISTRY_REPO}/yr-controlplane:${IMAGE_TAG}",
-    "${REGISTRY_REPO}/yr-node:${IMAGE_TAG}"
+    "${REGISTRY_REPO}/yr-node:${IMAGE_TAG}",
+    "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
   ],
   "static_images": [
     "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"

@@ -12,6 +12,7 @@ meta_service_address="${YR_META_SERVICE_ADDRESS:-${master_ip}:31111}"
 function_proxy_port="${FUNCTION_PROXY_PORT:-22423}"
 function_proxy_grpc_port="${FUNCTION_PROXY_GRPC_PORT:-32568}"
 ds_worker_port="${DS_WORKER_PORT:-31501}"
+controlplane_cpu_num="${YR_CONTROLPLANE_CPU_NUM:-100}"
 
 exec /usr/local/bin/yr start \
   --block true \
@@ -21,6 +22,7 @@ exec /usr/local/bin/yr start \
   --etcd_addr_list "${etcd_addr_list}" \
   --enable_faas_frontend true \
   --meta_service_address "${meta_service_address}" \
+  --cpu_num "${controlplane_cpu_num}" \
   -a "${frontend_ip}" \
   -p "${services_path}" \
   "$@"

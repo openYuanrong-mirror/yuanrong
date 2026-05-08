@@ -11,6 +11,8 @@ global:
       tag: stable
     node:
       tag: stable
+    runtime:
+      tag: stable
     traefik:
       registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
       repository: traefik

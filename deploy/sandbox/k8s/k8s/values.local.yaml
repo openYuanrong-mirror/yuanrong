@@ -11,6 +11,8 @@ global:
       tag: local
     node:
       tag: local
+    runtime:
+      tag: local
     traefik:
       registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
       repository: traefik
@@ -32,3 +34,12 @@ frontend:
     annotations:
       kubernetes.io/elb.class: union
       kubernetes.io/elb.autocreate: '{"type":"public","bandwidth_name":"yr-frontend-elb","bandwidth_chargemode":"traffic","bandwidth_sharetype":"PER","bandwidth_size":5,"eip_type":"5_bgp"}'
+
+master:
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi

@@ -13,6 +13,7 @@ exec /usr/local/bin/yr start \
   --port_policy FIX \
   --etcd_mode outter \
   --etcd_addr_list "${etcd_addr_list}" \
+  --enable_runtime_launcher true \
   -a "${node_ip}" \
   -p "${services_path}" \
   "$@"

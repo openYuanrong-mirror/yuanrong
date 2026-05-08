@@ -413,7 +413,13 @@ fi
 
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
-BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOMODCACHE=$(go env GOMODCACHE) --action_env=GOENV=$(go env GOENV) --action_env=GOFLAGS=$(go env GOFLAGS) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
+export GOPATH="$(go env GOPATH)"
+export GOMODCACHE="$(go env GOMODCACHE)"
+export GOENV="$(go env GOENV)"
+export GOFLAGS="$(go env GOFLAGS)"
+export GOEXPERIMENT="$(go env GOEXPERIMENT)"
+export GOCACHE="$(go env GOCACHE)"
+BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH --action_env=GOMODCACHE --action_env=GOENV --action_env=GOFLAGS --action_env=GOEXPERIMENT --action_env=GOCACHE --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
 if [[ -n "${MACOS_DEPLOYMENT_TARGET}" ]]; then
     BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET} --repo_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET}"
 fi

@@ -1,32 +1,11 @@
-# syntax=docker/dockerfile:1.4
-
-FROM docker:27.5.1-dind
+FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
 
 ARG HELM_VERSION=3.15.4
 ARG KUBECTL_VERSION=1.30.8
 ARG TARGETARCH
 
-ENV DOCKER_DRIVER=overlay2 \
-    DOCKER_TLS_CERTDIR="" \
-    PIP_BREAK_SYSTEM_PACKAGES=1 \
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
     PYTHONUNBUFFERED=1
-
-RUN apk upgrade --no-cache && \
-    apk add --no-cache \
-    bash \
-    ca-certificates \
-    coreutils \
-    curl \
-    expat \
-    findutils \
-    git \
-    gzip \
-    py3-packaging \
-    py3-pip \
-    py3-setuptools \
-    py3-wheel \
-    python3 \
-    tar
 
 RUN set -e; \
     case "${TARGETARCH}" in \
@@ -42,10 +21,6 @@ RUN set -e; \
       "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" \
       -o /usr/local/bin/kubectl; \
     chmod +x /usr/local/bin/kubectl; \
+    /opt/buildtools/python3.9/bin/python3.9 --version; \
     kubectl version --client=true; \
     helm version --short
-
-RUN python3 -m pip install --no-cache-dir \
-      -i https://mirrors.huaweicloud.com/repository/pypi/simple \
-      --trusted-host mirrors.huaweicloud.com \
-      esdk-obs-python

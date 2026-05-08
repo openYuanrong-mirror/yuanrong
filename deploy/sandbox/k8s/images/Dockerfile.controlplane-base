@@ -122,7 +122,6 @@ WORKDIR /openyuanrong
 
 COPY openyuanrong-*.whl /tmp/pkg/
 COPY openyuanrong_sdk*.whl /tmp/pkg/
-COPY runtime-launcher /openyuanrong/runtime-launcher
 COPY --from=deploy bin/start-master.sh /usr/local/bin/start-master.sh
 COPY --from=deploy bin/start-frontend.sh /usr/local/bin/start-frontend.sh
 
@@ -150,6 +149,5 @@ RUN set -euo pipefail \
         "${YR_CONTROLPLANE_HELPER_DIR}" /home/sn /home/sn/config /home/sn/iam-config \
         /home/sn/log /home/sn/upload /etc/yuanrong \
     && install -m 0644 /dev/null /home/sn/.bashrc \
-    && install -m 0755 /openyuanrong/runtime-launcher /usr/local/bin/runtime-launcher \
     && chmod +x /usr/local/bin/start-master.sh /usr/local/bin/start-frontend.sh \
     && rm -rf /tmp/pkg

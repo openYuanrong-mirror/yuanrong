@@ -7,11 +7,11 @@ OUTPUT_DIR="${REPO_ROOT}/output"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
 NODE_IMAGE="${YR_NODE_IMAGE:-yr-node}"
+RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-yr-runtime}"
 
 required_patterns=(
   "openyuanrong-*.whl"
   "openyuanrong_sdk*.whl"
-  "runtime-launcher"
 )
 
 artifact_candidate_dirs=()
@@ -137,10 +137,13 @@ main() {
   build_image "${CONTROLPLANE_IMAGE}" "images/Dockerfile.controlplane-base"
   build_image "${NODE_IMAGE}" "images/Dockerfile.node" \
     --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
+  build_image "${RUNTIME_IMAGE}" "images/Dockerfile.runtime" \
+    --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
 
-  printf 'Image builds completed: %s, %s\n' \
+  printf 'Image builds completed: %s, %s, %s\n' \
     "${CONTROLPLANE_IMAGE}" \
-    "${NODE_IMAGE}" >&2
+    "${NODE_IMAGE}" \
+    "${RUNTIME_IMAGE}" >&2
 }
 
 main "$@"

@@ -3,6 +3,7 @@
 One-click deployment of the CI infrastructure:
 
 - **bazel-remote** cache (hostPath on the target cluster node or scheduler-selected node)
+- **build-cache aging** DaemonSet for node-local `/mnt/paas/build-cache`
 - **agent-stack-k8s** (Buildkite agent for K8s, upstream chart)
 - **gitcode-webhook-relay** (optional GitCode -> Buildkite API bridge)
 - **Secrets** templates (obs-credentials, swr-credentials, gitcode-webhook-relay-auth)
@@ -11,10 +12,18 @@ One-click deployment of the CI infrastructure:
 
 1. `kubectl` access to the CCE cluster
 2. `helm` ≥ 3.10
-3. Secrets already exist (or set `secrets.*.create=true` + fill values)
-   - `obs-credentials` for artifact/chart upload
-   - `swr-credentials` for sandbox image push jobs, or an existing `swr-pull-secret`
-     Docker config secret with push permission
+3. Required Secrets already exist. Use
+   `deploy/helm/yuanrong-ci/examples/runtime-secrets.example.yaml` as the
+   deployment checklist; fill the blank values before applying it.
+   - `obs-credentials` in `default` for artifact/chart upload
+   - `swr-credentials` in `default` for sandbox image push jobs, or an existing
+     `swr-pull-secret` Docker config secret with push permission
+   - `swr-pull-secret` in `default` for Buildkite job `imagePullSecrets`
+   - `swr-pull-secret` in `build-tools` for yuanrong-ci pod `imagePullSecrets`
+   - `sandbox-target-kubeconfig` in `default` for Test K8S deployment,
+     mounted by the agent-stack podSpec patch at `/var/run/yr-k8s/target/kubeconfig`
+   - `test-pypi-credentials` in `default` for publishing `openyuanrong_sdk` wheels to TestPyPI
+   - `gitcode-webhook-relay-auth` in `build-tools` for webhook relay API/auth
 4. bazel-remote image mirrored to SWR (see NOTES.txt)
 
 ## Install
@@ -48,6 +57,59 @@ helm upgrade --install agent-stack-k8s-arm64 oci://ghcr.io/buildkite/helm/agent-
 | `bazelRemote.maxSizeGb` | `200` | Max cache size |
 | `bazelRemote.hostPath` | `/mnt/paas` | Host directory for cache |
 | `bazelRemote.image` | SWR mirror | Must be accessible without Docker Hub |
+| `cacheAging.enabled` | `true` | Run one cache-aging pod on each node |
+| `cacheAging.paths` | `go-cache`, `opensource` under `/cache/build-cache` | Cache roots aged under the mounted hostPath; bazel-remote cache is intentionally excluded |
+| `cacheAging.retentionDays` | `7` | Delete build-cache files older than this |
+| `cacheAging.pressureMinAgeHours` | `24` | Minimum file age eligible for high-watermark pressure pruning |
+| `cacheAging.highWatermarkPercent` | `85` | Start pressure pruning when `/mnt/paas` reaches this usage |
+| `cacheAging.lowWatermarkPercent` | `75` | Stop pressure pruning after usage drops to this level |
+| `agentStack.targetKubeconfig.secretName` | `sandbox-target-kubeconfig` | Secret mounted into Buildkite job pods for fixed target K8S deploy kubeconfig |
+| `secrets.targetKubeconfig.create` | `false` | Let this chart create the target kubeconfig Secret from values |
+| `secrets.testPypiCredentials.create` | `false` | Let this chart create the TestPyPI token Secret from values |
+
+## Runtime Secret checklist
+
+The Buildkite Kubernetes plugin references image and registry Secrets directly
+from job pod specs. The target K8S kubeconfig mount is part of the
+agent-stack-k8s podSpec patch recorded in this chart and mirrored in
+`deploy/helm/agent-stack-k8s-values.yaml`. Missing required Secrets can leave
+jobs stuck in `Pending`/`Init` before the build command starts.
+
+| Secret | Namespace | Keys | Used by |
+|-----|-----|-----|-----|
+| `obs-credentials` | `default` | `AK`, `SK`, `access-key-id`, `secret-access-key` | Build artifact upload |
+| `swr-credentials` | `default` | `username`, `password` | Build Image and Test K8S registry auth |
+| `swr-pull-secret` | `default` | `.dockerconfigjson` | Build Image/Test K8S image pulls and Docker config fallback |
+| `swr-pull-secret` | `build-tools` | `.dockerconfigjson` | Webhook relay, cache-aging, and chart-managed pod image pulls |
+| `sandbox-target-kubeconfig` | `default` | `kubeconfig` | Test K8S mounted kubeconfig |
+| `test-pypi-credentials` | `default` | `api-token` | Build X86 upload of `openyuanrong_sdk*.whl` to TestPyPI |
+| `gitcode-webhook-relay-auth` | `build-tools` | `buildkite-api-token`, `webhook-token`, `webhook-signature-secret` | GitCode webhook relay |
+
+Before enabling the pipeline on a fresh cluster, fill and apply:
+
+```bash
+kubectl apply -f deploy/helm/yuanrong-ci/examples/runtime-secrets.example.yaml
+kubectl get secret obs-credentials swr-credentials swr-pull-secret sandbox-target-kubeconfig test-pypi-credentials -n default
+kubectl get secret swr-pull-secret gitcode-webhook-relay-auth -n build-tools
+```
+
+The upstream `agent-stack-k8s` chart also creates `agent-stack-k8s-secrets`
+from `--set agentToken="${BUILDKITE_AGENT_TOKEN}"`; deploy both amd64 and arm64
+agent stacks with the token before triggering builds.
+
+The Test K8S script always reads the target kubeconfig from the fixed path
+`/var/run/yr-k8s/target/kubeconfig`. Keep the agent-stack podSpec patch and
+`sandbox-target-kubeconfig` secret in sync instead of overriding kubeconfig
+paths in pipeline YAML.
+
+To let Helm create the kubeconfig Secret instead of applying the example
+manifest, pass `--set secrets.targetKubeconfig.create=true` and provide the
+kubeconfig content through a private values file or equivalent secret manager
+workflow.
+
+TestPyPI publishing is limited to `openyuanrong_sdk*.whl` from the X86 build
+release artifacts. If `test-pypi-credentials` is missing, the pipeline skips
+this upload without failing the build.
 
 ## GitCode webhook relay
 

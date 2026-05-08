@@ -13,11 +13,28 @@ YuanRong CI Infrastructure deployed!
 {{- end }}
 {{- end }}
 
+{{- if .Values.cacheAging.enabled }}
+[OK] build-cache aging
+     Namespace : {{ .Values.namespaces.buildTools }}
+     HostPath  : {{ .Values.cacheAging.hostPath }}
+     Paths     : {{ join ", " .Values.cacheAging.paths }}
+     Retention : {{ .Values.cacheAging.retentionDays }}d
+     Watermark : {{ .Values.cacheAging.highWatermarkPercent }}% -> {{ .Values.cacheAging.lowWatermarkPercent }}%
+{{- end }}
+
 === Secrets (must exist before build pods run) ===
 
 Check:
   kubectl get secret obs-credentials -n {{ .Release.Namespace }}
   kubectl get secret swr-credentials -n {{ .Release.Namespace }}
+  kubectl get secret swr-pull-secret -n {{ .Release.Namespace }}
+  kubectl get secret sandbox-target-kubeconfig -n {{ .Release.Namespace }}
+  kubectl get secret test-pypi-credentials -n {{ .Release.Namespace }}
+  kubectl get secret swr-pull-secret -n {{ .Values.namespaces.buildTools }}
+  kubectl get secret {{ .Values.gitcodeWebhookRelay.secretName }} -n {{ .Values.namespaces.buildTools }}
+
+Checklist manifest with blank values:
+  deploy/helm/yuanrong-ci/examples/runtime-secrets.example.yaml
 
 Create if missing:
   kubectl create secret generic obs-credentials \
@@ -31,6 +48,40 @@ Create if missing:
     --from-literal=username=<SWR_USERNAME> \
     --from-literal=password=<SWR_PASSWORD> \
     -n {{ .Release.Namespace }}
+
+  kubectl create secret docker-registry swr-pull-secret \
+    --docker-server=<SWR_REGISTRY> \
+    --docker-username=<SWR_USERNAME> \
+    --docker-password=<SWR_PASSWORD> \
+    -n {{ .Release.Namespace }}
+
+  kubectl create secret docker-registry swr-pull-secret \
+    --docker-server=<SWR_REGISTRY> \
+    --docker-username=<SWR_USERNAME> \
+    --docker-password=<SWR_PASSWORD> \
+    -n {{ .Values.namespaces.buildTools }}
+
+  kubectl create secret generic sandbox-target-kubeconfig \
+    --from-file=kubeconfig=<TARGET_KUBECONFIG_FILE> \
+    -n {{ .Release.Namespace }}
+
+  Or let this chart create it with:
+    --set secrets.targetKubeconfig.create=true
+
+  The Test K8S job reads this file only from:
+    {{ .Values.agentStack.targetKubeconfig.mountPath }}/{{ .Values.agentStack.targetKubeconfig.fileName }}
+  Keep the agent-stack-k8s podSpec patch in this chart values and
+  deploy/helm/agent-stack-k8s-values.yaml in sync when changing the mount.
+
+  kubectl create secret generic test-pypi-credentials \
+    --from-literal=api-token=<TEST_PYPI_API_TOKEN> \
+    -n {{ .Release.Namespace }}
+
+  kubectl create secret generic {{ .Values.gitcodeWebhookRelay.secretName }} \
+    --from-literal=buildkite-api-token=<BUILDKITE_API_TOKEN> \
+    --from-literal=webhook-token=<GITCODE_WEBHOOK_TOKEN> \
+    --from-literal=webhook-signature-secret=<GITCODE_WEBHOOK_SIGNATURE_SECRET> \
+    -n {{ .Values.namespaces.buildTools }}
 
 === agent-stack-k8s (deployed separately via upstream chart) ===
 

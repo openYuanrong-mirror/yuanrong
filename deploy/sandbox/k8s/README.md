@@ -4,7 +4,7 @@
 
 This directory currently contains:
 
-- image build scaffolding for `yr-controlplane` and `yr-node`
+- image build scaffolding for `yr-controlplane`, `yr-node`, and `yr-runtime`
 - `yr start --block` entrypoint wrappers for `master`, `frontend`, and `node`
 - a Helm chart for the three active workloads plus support objects and Traefik
 - local and production values overlays
@@ -13,13 +13,12 @@ This directory currently contains:
 
 Run `make all` from the repository root before invoking `deploy/sandbox/k8s/build-images.sh`.
 
-The build script validates artifacts in the repository root `output/` directory, then builds the local `yr-controlplane` and `yr-node` images. Master and frontend share `yr-controlplane`; their behavior is selected by the Helm command. It still fails fast when required artifacts are missing.
+The build script validates artifacts in the repository root `output/` directory, then builds the local `yr-controlplane`, `yr-node`, and `yr-runtime` images. Master and frontend share `yr-controlplane`; their behavior is selected by the Helm command. Runtime function containers use `yr-runtime` through the generated `services.yaml`. It still fails fast when required artifacts are missing.
 
 Required `output/` artifacts:
 
 - `openyuanrong-*.whl`
 - `openyuanrong_sdk*.whl`
-- `runtime-launcher`
 
 ## Current workflow
 
@@ -61,10 +60,16 @@ helm template yr-k8s deploy/sandbox/k8s/charts/yr-k8s -f deploy/sandbox/k8s/k8s/
 helm template yr-k8s deploy/sandbox/k8s/charts/yr-k8s -f deploy/sandbox/k8s/k8s/values.prod.yaml
 ```
 
-7. Deploy to the Beijing4 cluster when ready:
+7. Deploy to the target cluster when ready:
 
 ```bash
-bash deploy/sandbox/k8s/deploy-beijing4.sh
+bash deploy/sandbox/k8s/deploy.sh
+```
+
+8. Run the off-cluster smoke checks:
+
+```bash
+YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:18888 -- -m smoke
 ```
 
 ## Values overlays
@@ -88,6 +93,7 @@ bash deploy/sandbox/k8s/deploy-beijing4.sh
 - `master` uses `yr start --master --block true -e` and additionally enables scheduler, meta-service, and iam-server
 - `frontend` uses `yr start --block true -e --enable_faas_frontend true`
 - `node` uses `yr start --block true -e`
+- `yr-runtime` is pushed as its own image and referenced by the `py39` runtime rootfs
 - `etcd` is external in this model and is passed in through `global.externalEtcd`
 - `datasystem` validates `etcd_address` strictly, so local deployments should use an IP or full service FQDN such as `yr-etcd.yr.svc.cluster.local:2379`, not a bare short service name
 - `helm` is required locally for linting and rendering. If `helm` is missing, chart verification is incomplete.
