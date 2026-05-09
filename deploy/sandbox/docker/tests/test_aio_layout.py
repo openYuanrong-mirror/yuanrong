@@ -11,7 +11,7 @@ def read_text(relative_path: str) -> str:
 
 
 def python_builder_section(text: str) -> str:
-    return text.split("FROM ubuntu:22.04", 2)[1]
+    return (ROOT.parent / "images" / "Dockerfile.base").read_text()
 
 
 class AioLayoutTests(unittest.TestCase):
@@ -19,29 +19,45 @@ class AioLayoutTests(unittest.TestCase):
         runtime_dockerfile = ROOT / "Dockerfile.runtime"
         self.assertTrue(runtime_dockerfile.exists(), "Dockerfile.runtime should exist")
         runtime_text = runtime_dockerfile.read_text()
+        base_text = python_builder_section(runtime_text)
+        self.assertIn("ARG BASE_IMAGE=yr-base", runtime_text)
+        self.assertIn("FROM ${BASE_IMAGE}", runtime_text)
         self.assertIn("openyuanrong_sdk", runtime_text)
-        self.assertIn("ca-certificates", python_builder_section(runtime_text))
+        self.assertIn("ca-certificates", base_text)
+        self.assertIn("python3-pip", base_text)
+        self.assertIn("uv==0.11.11", base_text)
+        self.assertIn("mirrors.huaweicloud.com/repository/pypi/simple", base_text)
+        self.assertIn('uv python install "${PYTHON_VERSION}"', base_text)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_text)
+        self.assertIn('ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli', runtime_text)
         self.assertNotIn("COPY pkg/", runtime_text)
         self.assertNotIn("openyuanrong-", runtime_text)
         self.assertNotIn("runtime-launcher", runtime_text)
+        self.assertNotIn(" AS python-builder", runtime_text)
+        self.assertNotIn(" AS python-builder", base_text)
+        self.assertNotIn("build-essential", base_text)
+        self.assertNotIn("Python-${PYTHON_VERSION}", base_text)
 
     def test_runtime_image_includes_libcurl(self):
-        runtime_text = read_text("Dockerfile.runtime")
-        self.assertIn("libcurl4", runtime_text)
+        base_text = (ROOT.parent / "images" / "Dockerfile.base").read_text()
+        self.assertIn("libcurl4", base_text)
 
     def test_main_image_is_split_out(self):
         main_dockerfile = ROOT / "Dockerfile.aio-yr"
         self.assertTrue(main_dockerfile.exists(), "Dockerfile.aio-yr should exist")
         main_text = main_dockerfile.read_text()
+        self.assertIn("ARG CONTROLPLANE_IMAGE=yr-controlplane", main_text)
+        self.assertIn("FROM ${CONTROLPLANE_IMAGE}", main_text)
         self.assertIn("dockerd", main_text)
         self.assertIn("ca-certificates", python_builder_section(main_text))
-        self.assertIn("COPY openyuanrong_sdk*.whl", main_text)
-        self.assertIn("COPY openyuanrong-*.whl", main_text)
+        self.assertNotIn("COPY openyuanrong_sdk*.whl", main_text)
+        self.assertNotIn("COPY openyuanrong-*.whl", main_text)
+        self.assertIn("COPY runtime-launcher /openyuanrong/runtime-launcher", main_text)
         self.assertIn("COPY --from=deploy services.yaml", main_text)
         self.assertNotIn("COPY pkg/", main_text)
         self.assertNotIn("openclaw", main_text)
         self.assertNotIn("claude-code", main_text)
+        self.assertNotIn(" AS python-builder", main_text)
 
     def test_services_use_runtime_image(self):
         services_text = read_text("services.yaml")
@@ -119,6 +135,9 @@ class AioLayoutTests(unittest.TestCase):
         script_text = read_text("build-images.sh")
         self.assertIn('"${OUTPUT_DIR}"', script_text)
         self.assertIn('--build-context deploy="${SCRIPT_DIR}"', script_text)
+        self.assertIn("yr-base", script_text)
+        self.assertIn("yr-runtime", script_text)
+        self.assertIn("yr-controlplane", script_text)
         self.assertNotIn('"${REPO_ROOT}"', script_text)
         self.assertNotIn("/pkg/", script_text)
 

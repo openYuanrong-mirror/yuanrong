@@ -36,9 +36,11 @@ make image
 `build-images.sh` 不再负责打包或拷贝产物，只负责：
 
 1. 校验 `output/` 中的必需产物是否已存在
-2. 构建 `Dockerfile.runtime`
-3. 导出 runtime tar
-4. 构建 `Dockerfile.aio-yr`
+2. 构建共享 `yr-base` 和可选编译工具层 `yr-compile`
+3. 基于 `yr-base` 构建 `aio-yr-runtime`
+4. 基于 `yr-base` 构建 `yr-controlplane`
+5. 导出 runtime tar
+6. 基于 `yr-controlplane` 构建 `Dockerfile.aio-yr`
 
 ## 手动构建
 

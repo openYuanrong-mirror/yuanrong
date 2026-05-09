@@ -8,12 +8,17 @@ REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/open
 IMAGE_TAG="${YR_K8S_IMAGE_TAG:-$(date +%Y%m%d-%H%M%S)-$(git -C "${REPO_ROOT}" rev-parse --short HEAD)}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 IMAGE_PLATFORM="${YR_K8S_IMAGE_PLATFORM:-}"
-local_images=(yr-controlplane yr-node yr-runtime)
+CACHE_REGISTRY_REPO="${YR_K8S_CACHE_REGISTRY_REPO:-${REGISTRY_REPO}}"
+IMAGE_CACHE_ENABLED="${YR_K8S_IMAGE_CACHE:-0}"
+CACHE_TAG="${YR_K8S_IMAGE_CACHE_TAG:-build-cache}"
+local_images=(yr-base yr-compile yr-runtime yr-controlplane yr-node)
 
 declare -A LOCAL_TO_REMOTE=(
+  ["yr-base"]="${REGISTRY_REPO}/yr-base:${IMAGE_TAG}"
+  ["yr-compile"]="${REGISTRY_REPO}/yr-compile:${IMAGE_TAG}"
+  ["yr-runtime"]="${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
   ["yr-controlplane"]="${REGISTRY_REPO}/yr-controlplane:${IMAGE_TAG}"
   ["yr-node"]="${REGISTRY_REPO}/yr-node:${IMAGE_TAG}"
-  ["yr-runtime"]="${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
 )
 
 require_local_image() {
@@ -37,6 +42,17 @@ push_image() {
     "${DOCKER_BIN}" push --platform "${IMAGE_PLATFORM}" "${remote_image}"
   else
     "${DOCKER_BIN}" push "${remote_image}"
+  fi
+
+  if [ "${IMAGE_CACHE_ENABLED}" = "1" ]; then
+    local cache_image="${CACHE_REGISTRY_REPO}/${local_image}:${CACHE_TAG}"
+    printf 'Updating image cache %s:latest -> %s\n' "${local_image}" "${cache_image}" >&2
+    "${DOCKER_BIN}" tag "${local_image}:latest" "${cache_image}"
+    if [ -n "${IMAGE_PLATFORM}" ]; then
+      "${DOCKER_BIN}" push --platform "${IMAGE_PLATFORM}" "${cache_image}"
+    else
+      "${DOCKER_BIN}" push "${cache_image}"
+    fi
   fi
 }
 

@@ -3,11 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${ROOT_DIR}/../../.." && pwd)"
+SANDBOX_DIR="$(cd "${ROOT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+BASE_IMAGE="${YR_BASE_IMAGE:-yr-base}"
+COMPILE_IMAGE="${YR_COMPILE_IMAGE:-yr-compile}"
+RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-yr-runtime}"
 CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
 NODE_IMAGE="${YR_NODE_IMAGE:-yr-node}"
-RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-yr-runtime}"
+CACHE_REGISTRY_REPO="${YR_K8S_CACHE_REGISTRY_REPO:-${YR_K8S_REGISTRY_REPO:-}}"
+IMAGE_CACHE_ENABLED="${YR_K8S_IMAGE_CACHE:-0}"
+CACHE_TAG="${YR_K8S_IMAGE_CACHE_TAG:-build-cache}"
 
 required_patterns=(
   "openyuanrong-*.whl"
@@ -107,15 +113,27 @@ set_python_build_args() {
 build_image() {
   local image_name="$1"
   local dockerfile_path="$2"
+  local cache_args=()
   shift 2
 
   printf 'Building %s from %s\n' "${image_name}" "${dockerfile_path}" >&2
+  if [ "${IMAGE_CACHE_ENABLED}" = "1" ] && [ -n "${CACHE_REGISTRY_REPO}" ]; then
+    local cache_image="${CACHE_REGISTRY_REPO}/${image_name}:${CACHE_TAG}"
+    if "${DOCKER_BIN}" pull "${cache_image}" >/dev/null 2>&1; then
+      printf 'Using image cache: %s\n' "${cache_image}" >&2
+      cache_args+=(--cache-from "${cache_image}")
+    else
+      printf 'Image cache unavailable, continuing without it: %s\n' "${cache_image}" >&2
+    fi
+  fi
   DOCKER_BUILDKIT=1 "${DOCKER_BIN}" build \
     -t "${image_name}" \
+    "${cache_args[@]}" \
+    --build-arg BUILDKIT_INLINE_CACHE=1 \
     --build-arg PYTHON_VERSION="${python_build_args[0]}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_build_args[1]}" \
     --build-context deploy="${ROOT_DIR}" \
-    -f "${ROOT_DIR}/${dockerfile_path}" \
+    -f "${dockerfile_path}" \
     "$@" \
     "${OUTPUT_DIR}"
 }
@@ -134,13 +152,19 @@ main() {
   validate_required_artifacts
   set_python_build_args
 
-  build_image "${CONTROLPLANE_IMAGE}" "images/Dockerfile.controlplane-base"
-  build_image "${NODE_IMAGE}" "images/Dockerfile.node" \
+  build_image "${BASE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.base"
+  build_image "${COMPILE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.compile" \
+    --build-arg BASE_IMAGE="${BASE_IMAGE}"
+  build_image "${CONTROLPLANE_IMAGE}" "${ROOT_DIR}/images/Dockerfile.controlplane-base" \
+    --build-arg BASE_IMAGE="${BASE_IMAGE}"
+  build_image "${NODE_IMAGE}" "${ROOT_DIR}/images/Dockerfile.node" \
     --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
-  build_image "${RUNTIME_IMAGE}" "images/Dockerfile.runtime" \
+  build_image "${RUNTIME_IMAGE}" "${ROOT_DIR}/images/Dockerfile.runtime" \
     --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
 
-  printf 'Image builds completed: %s, %s, %s\n' \
+  printf 'Image builds completed: %s, %s, %s, %s, %s\n' \
+    "${BASE_IMAGE}" \
+    "${COMPILE_IMAGE}" \
     "${CONTROLPLANE_IMAGE}" \
     "${NODE_IMAGE}" \
     "${RUNTIME_IMAGE}" >&2

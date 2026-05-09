@@ -1,83 +1,15 @@
-# syntax=docker/dockerfile:1.4
-
-FROM ubuntu:22.04 AS python-builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_VERSION=3.9.18
-ARG PYTHON_MAJOR_MINOR=3.9
-
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.tuna.tsinghua.edu.cn/ubuntu/|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.tuna.tsinghua.edu.cn/ubuntu/|g' /etc/apt/sources.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    ca-certificates \
-    libbz2-dev \
-    libffi-dev \
-    libgdbm-dev \
-    liblzma-dev \
-    libncurses5-dev \
-    libnss3-dev \
-    libreadline-dev \
-    libsqlite3-dev \
-    libssl-dev \
-    wget \
-    zlib1g-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN wget --timeout=30 --tries=3 \
-        https://repo.huaweicloud.com/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz || \
-    wget --timeout=30 --tries=3 \
-        https://mirrors.tuna.tsinghua.edu.cn/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz || \
-    wget --timeout=30 --tries=3 \
-        https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz && \
-    tar -xzf /tmp/python.tgz -C /tmp && \
-    cd /tmp/Python-${PYTHON_VERSION} && \
-    ./configure --prefix=/usr/local --enable-shared --without-ensurepip LDFLAGS="-Wl,-rpath=/usr/local/lib" && \
-    make -j"$(nproc)" && \
-    make install && \
-    rm -rf /tmp/Python-${PYTHON_VERSION} /tmp/python.tgz
-
-RUN wget --timeout=30 --tries=3 https://bootstrap.pypa.io/get-pip.py -O /tmp/get-pip.py && \
-    /usr/local/bin/python${PYTHON_MAJOR_MINOR} /tmp/get-pip.py -i https://pypi.tuna.tsinghua.edu.cn/simple && \
-    rm /tmp/get-pip.py
-
-RUN find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type f -name '*.pyc' -delete && \
-    find /usr/local -type f -name '*.pyo' -delete
-
-FROM ubuntu:22.04
+ARG CONTROLPLANE_IMAGE=yr-controlplane
+FROM ${CONTROLPLANE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_MAJOR_MINOR=3.9
 ARG TRAEFIK_VERSION=v3.1.2
 
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.tuna.tsinghua.edu.cn/ubuntu/|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.tuna.tsinghua.edu.cn/ubuntu/|g' /etc/apt/sources.list
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    gnupg \
-    iproute2 \
-    iptables \
-    libbz2-1.0 \
-    libffi8 \
-    liblzma5 \
-    libreadline8 \
-    libsqlite3-0 \
-    libssl3 \
-    procps \
-    supervisor \
-    tini \
-    uidmap \
-    wget && \
-    rm -rf /var/lib/apt/lists/*
+        gnupg \
+        iptables \
+        supervisor \
+        uidmap \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && \
@@ -91,27 +23,11 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
         docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=python-builder /usr/local /usr/local
-
-ENV PATH="/usr/local/bin:${PATH}" \
-    LD_LIBRARY_PATH="/usr/local/lib" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    CONTAINER_EP="unix:///var/run/runtime-launcher.sock" \
+ENV CONTAINER_EP="unix:///var/run/runtime-launcher.sock" \
     DOCKER_HOST="unix:///var/run/docker.sock"
 
-RUN pip${PYTHON_MAJOR_MINOR} config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip${PYTHON_MAJOR_MINOR} config set global.timeout 100 && \
-    ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
-    ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip
-
-COPY openyuanrong-*.whl /tmp/
-COPY openyuanrong_sdk*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/openyuanrong-*.whl /tmp/openyuanrong_sdk*.whl && \
-    rm -f /tmp/openyuanrong_sdk*.whl /tmp/openyuanrong-*.whl
-
-COPY runtime-launcher /openyuanrong/runtime-launcher
 COPY aio-yr-runtime.tar /opt/runtime-images/aio-yr-runtime.tar
+COPY runtime-launcher /openyuanrong/runtime-launcher
 COPY --from=deploy services.yaml /openyuanrong/services.yaml
 COPY --from=deploy traefik /openyuanrong/traefik/
 COPY --from=deploy docs/TRAEFIK_ETCD.md /openyuanrong/docs/TRAEFIK_ETCD.md

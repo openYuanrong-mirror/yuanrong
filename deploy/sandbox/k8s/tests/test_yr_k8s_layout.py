@@ -153,6 +153,8 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "build-images.sh",
                 "push-images-swr.sh",
                 "deploy.sh",
+                "../images/Dockerfile.base",
+                "../images/Dockerfile.compile",
                 "images/Dockerfile.controlplane-base",
                 "images/Dockerfile.node",
                 "images/Dockerfile.runtime",
@@ -179,6 +181,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         build_script = (ROOT / "build-images.sh").read_text()
         package_script = (ROOT.parents[2] / ".buildkite/package_sandbox_release.sh").read_text()
         pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()
+        push_script = (ROOT / "push-images-swr.sh").read_text()
         controlplane_dockerfile = (ROOT / "images/Dockerfile.controlplane-base").read_text()
         runtime_dockerfile = (ROOT / "images/Dockerfile.runtime").read_text()
         readme = (ROOT / "README.md").read_text().lower()
@@ -187,13 +190,21 @@ class YrK8sLayoutTests(unittest.TestCase):
             "output",
             "--build-context deploy",
             "docker build",
+            "yr-base",
+            "yr-runtime",
+            "yr-compile",
             "yr-controlplane",
             "yr-node",
             "yr-runtime",
+            "--cache-from",
+            "BUILDKIT_INLINE_CACHE=1",
         ]:
             with self.subTest(token=token):
                 self.assertIn(token, build_script)
 
+        self.assertIn('YR_K8S_IMAGE_CACHE: "1"', pipeline)
+        self.assertIn("build-cache", push_script)
+        self.assertIn("Updating image cache", push_script)
         self.assertIn("bash deploy/sandbox/k8s/build-images.sh", readme)
         self.assertIn("push-images-swr.sh", readme)
         self.assertIn("deploy.sh", readme)
@@ -213,6 +224,10 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("COPY openyuanrong-*.whl", controlplane_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", controlplane_dockerfile)
         self.assertNotIn("COPY runtime-launcher", controlplane_dockerfile)
+        self.assertIn("ARG BASE_IMAGE=yr-base", controlplane_dockerfile)
+        self.assertIn("FROM ${BASE_IMAGE}", controlplane_dockerfile)
+        self.assertIn('ln -sf "${python_bin_dir}/yr" /usr/local/bin/yr', controlplane_dockerfile)
+        self.assertIn('ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli', controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-frontend.sh", controlplane_dockerfile)
         self.assertIn("ARG CONTROLPLANE_IMAGE=yr-controlplane", runtime_dockerfile)
@@ -221,6 +236,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertNotIn("images/Dockerfile.master", build_script)
         self.assertNotIn("images/Dockerfile.frontend", build_script)
         self.assertNotIn("yr-controlplane-base", build_script)
+        self.assertNotIn(" AS python-builder", controlplane_dockerfile)
 
     def test_container_ep_only_lives_in_node_image(self):
         controlplane_base = (ROOT / "images/Dockerfile.controlplane-base").read_text()

@@ -1,120 +1,11 @@
-ARG UBUNTU_BASE_IMAGE=docker.m.daocloud.io/ubuntu:22.04
-FROM ${UBUNTU_BASE_IMAGE} AS python-builder
+ARG BASE_IMAGE=yr-base
+FROM ${BASE_IMAGE}
 
-ENV DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_VERSION=3.9.18
-ARG PYTHON_MAJOR_MINOR=3.9
-
-RUN if [ -f /etc/apt/sources.list ]; then \
-        sed -i \
-            -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.aliyun.com/ubuntu-ports|g' \
-            /etc/apt/sources.list; \
-    fi; \
-    if ls /etc/apt/sources.list.d/* >/dev/null 2>&1; then \
-        sed -i \
-            -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.aliyun.com/ubuntu-ports|g' \
-            /etc/apt/sources.list.d/*; \
-    fi; \
-    apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    ca-certificates \
-    libbz2-dev \
-    libffi-dev \
-    libgdbm-dev \
-    liblzma-dev \
-    libncurses5-dev \
-    libnss3-dev \
-    libreadline-dev \
-    libsqlite3-dev \
-    libssl-dev \
-    wget \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN wget --timeout=30 --tries=3 \
-        https://repo.huaweicloud.com/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz || \
-    wget --timeout=30 --tries=3 \
-        https://mirrors.tuna.tsinghua.edu.cn/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz || \
-    wget --timeout=30 --tries=3 \
-        https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-        -O /tmp/python.tgz && \
-    tar -xzf /tmp/python.tgz -C /tmp && \
-    cd /tmp/Python-${PYTHON_VERSION} && \
-    ./configure --prefix=/usr/local --enable-shared LDFLAGS="-Wl,-rpath=/usr/local/lib" && \
-    make -j"$(nproc)" && \
-    make install && \
-    rm -rf /tmp/Python-${PYTHON_VERSION} /tmp/python.tgz
-
-RUN /usr/local/bin/python${PYTHON_MAJOR_MINOR} -m ensurepip --upgrade && \
-    /usr/local/bin/python${PYTHON_MAJOR_MINOR} -m pip install --no-cache-dir --upgrade \
-        -i https://mirrors.huaweicloud.com/repository/pypi/simple \
-        --trusted-host mirrors.huaweicloud.com \
-        pip setuptools wheel
-
-RUN find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type f -name '*.pyc' -delete && \
-    find /usr/local -type f -name '*.pyo' -delete
-
-FROM ${UBUNTU_BASE_IMAGE}
-
-ENV DEBIAN_FRONTEND=noninteractive
-ARG PYTHON_MAJOR_MINOR=3.9
-
-RUN if [ -f /etc/apt/sources.list ]; then \
-        sed -i \
-            -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.aliyun.com/ubuntu-ports|g' \
-            /etc/apt/sources.list; \
-    fi; \
-    if ls /etc/apt/sources.list.d/* >/dev/null 2>&1; then \
-        sed -i \
-            -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
-            -e 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.aliyun.com/ubuntu-ports|g' \
-            /etc/apt/sources.list.d/*; \
-    fi; \
-    apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    ca-certificates \
-    curl \
-    iproute2 \
-    libbz2-1.0 \
-    libffi8 \
-    liblzma5 \
-    libreadline8 \
-    libsqlite3-0 \
-    libssl3 \
-    procps \
-    tini \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=python-builder /usr/local /usr/local
-
-ENV PATH="/usr/local/bin:${PATH}" \
-    LD_LIBRARY_PATH="/usr/local/lib" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    HOME="/home/sn" \
+ENV HOME="/home/sn" \
     YR_CONTROLPLANE_HELPER_DIR="/home/sn/bin/alias" \
     YR_PRIVATE_KEY_FILE="/openyuanrong/cert/module.key" \
     YR_CERT_FILE="/openyuanrong/cert/module.crt" \
     YR_VERIFY_FILE="/openyuanrong/cert/ca.crt"
-
-RUN pip${PYTHON_MAJOR_MINOR} config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip${PYTHON_MAJOR_MINOR} config set global.timeout 100 && \
-    ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
-    ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python3 && \
-    ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip && \
-    ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip3
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -144,6 +35,11 @@ RUN set -euo pipefail \
     && SDK_WHEEL="$(resolve_single_wheel 'openyuanrong_sdk*.whl')" \
     && OPENYUANRONG_WHEEL="$(resolve_single_wheel 'openyuanrong-*.whl')" \
     && python3 -m pip install --no-cache-dir "${SDK_WHEEL}" "${OPENYUANRONG_WHEEL}" \
+    && python_bin_dir="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" \
+    && test -x "${python_bin_dir}/yr" \
+    && test -x "${python_bin_dir}/yrcli" \
+    && ln -sf "${python_bin_dir}/yr" /usr/local/bin/yr \
+    && ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli \
     && python3 -c 'from pathlib import Path; exec("""import sysconfig\npatches = {\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n  HEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\" \\\\\\n\",\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\nHEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\"\\n\",\n}\nbase = Path(sysconfig.get_paths()[\"purelib\"]) / \"yr\"\nfor pattern in (\"install.sh\", \"config.toml.jinja\"):\n    for path in base.rglob(pattern):\n        text = path.read_text()\n        new_text = text\n        for before, after in patches.items():\n            new_text = new_text.replace(before, after)\n        if new_text != text:\n            path.write_text(new_text)\n""")' \
     && install -d /openyuanrong/bin /openyuanrong/cert /openyuanrong/config \
         "${YR_CONTROLPLANE_HELPER_DIR}" /home/sn /home/sn/config /home/sn/iam-config \

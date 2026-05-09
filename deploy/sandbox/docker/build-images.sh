@@ -4,7 +4,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+SANDBOX_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output"
+BASE_IMAGE="${YR_BASE_IMAGE:-yr-base}"
+COMPILE_IMAGE="${YR_COMPILE_IMAGE:-yr-compile}"
+CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
+RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-aio-yr-runtime}"
+AIO_IMAGE="${YR_AIO_IMAGE:-aio-yr}"
 RUNTIME_TAR="${OUTPUT_DIR}/aio-yr-runtime.tar"
 required_files=(
     "${OUTPUT_DIR}/runtime-launcher"
@@ -85,14 +91,37 @@ mkdir -p "${OUTPUT_DIR}"
 DOCKER_BUILDKIT=1 docker build \
     --build-arg PYTHON_VERSION="${python_version}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
-    -f "${SCRIPT_DIR}/Dockerfile.runtime" \
-    -t aio-yr-runtime:latest \
+    -f "${SANDBOX_DIR}/images/Dockerfile.base" \
+    -t "${BASE_IMAGE}:latest" \
     "${OUTPUT_DIR}"
-docker save aio-yr-runtime:latest -o "${RUNTIME_TAR}"
 DOCKER_BUILDKIT=1 docker build \
     --build-arg PYTHON_VERSION="${python_version}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
+    --build-arg BASE_IMAGE="${BASE_IMAGE}:latest" \
+    -f "${SANDBOX_DIR}/images/Dockerfile.compile" \
+    -t "${COMPILE_IMAGE}:latest" \
+    "${OUTPUT_DIR}"
+DOCKER_BUILDKIT=1 docker build \
+    --build-arg PYTHON_VERSION="${python_version}" \
+    --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
+    --build-arg BASE_IMAGE="${BASE_IMAGE}:latest" \
+    --build-context deploy="${SANDBOX_DIR}/k8s" \
+    -f "${SANDBOX_DIR}/k8s/images/Dockerfile.controlplane-base" \
+    -t "${CONTROLPLANE_IMAGE}:latest" \
+    "${OUTPUT_DIR}"
+DOCKER_BUILDKIT=1 docker build \
+    --build-arg PYTHON_VERSION="${python_version}" \
+    --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
+    --build-arg BASE_IMAGE="${BASE_IMAGE}:latest" \
+    -f "${SCRIPT_DIR}/Dockerfile.runtime" \
+    -t "${RUNTIME_IMAGE}:latest" \
+    "${OUTPUT_DIR}"
+docker save "${RUNTIME_IMAGE}:latest" -o "${RUNTIME_TAR}"
+DOCKER_BUILDKIT=1 docker build \
+    --build-arg PYTHON_VERSION="${python_version}" \
+    --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
+    --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}:latest" \
     --build-context deploy="${SCRIPT_DIR}" \
     -f "${SCRIPT_DIR}/Dockerfile.aio-yr" \
-    -t aio-yr:latest \
+    -t "${AIO_IMAGE}:latest" \
     "${OUTPUT_DIR}"

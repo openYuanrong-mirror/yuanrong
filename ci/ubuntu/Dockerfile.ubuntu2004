@@ -1,38 +1,144 @@
-# Dockerfile.ubuntu2004 - compile image overlay
-#
-# Keep the known-good compile image as the toolchain base and only replace
-# CMake. Rebuilding the full toolchain pulls Python/Go/JDK assets again and is
-# much less stable than layering the required tool upgrade.
+# Dockerfile.ubuntu2004 - multi-arch Ubuntu 20.04 build tool image
+# Supports amd64 and arm64 by selecting architecture-specific tool archives.
 
-ARG BASE_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260427_obs_sdk
-FROM ${BASE_IMAGE}
+ARG BASE_IMAGE=docker.m.daocloud.io/ubuntu:20.04
+FROM ${BASE_IMAGE} AS builder
 
 ARG TARGETARCH
 ARG CMAKE_VERSION=3.31.10
 
-ENV CMAKE_HOME=/opt/buildtools/cmake
-ENV PATH=/opt/buildtools/cmake/bin:${PATH}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) \
+        -exec sed -i \
+        -e 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' \
+        -e 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' {} +; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-10 g++-10 make wget ca-certificates \
+    zlib1g-dev libssl-dev libffi-dev libsqlite3-dev libbz2-dev \
+    libexpat1-dev liblzma-dev xz-utils unzip python3 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+
+RUN mkdir -p /opt/buildtools /opt/buildtools/go_workspace /tmp/build
 
 RUN set -e; \
-    if [ "$TARGETARCH" = "amd64" ]; then CMAKE_ARCH="x86_64"; else CMAKE_ARCH="aarch64"; fi; \
-    tmp_dir="$(mktemp -d)"; \
-    cd "$tmp_dir"; \
-    curl -fsSL \
-        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz" \
-        -o cmake.tar.gz; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        JDK_ARCH="x64"; GO_ARCH="amd64"; NODE_ARCH="x64"; BAZEL_ARCH="x86_64"; PROTOC_ARCH="x86_64"; CMAKE_ARCH="x86_64"; \
+    else \
+        JDK_ARCH="aarch64"; GO_ARCH="arm64"; NODE_ARCH="arm64"; BAZEL_ARCH="arm64"; PROTOC_ARCH="aarch_64"; CMAKE_ARCH="aarch64"; \
+    fi; \
+    cd /tmp/build; \
+    wget -q "https://mirrors.huaweicloud.com/eclipse/temurin-compliance/temurin/8/jdk8u382-b05/OpenJDK8U-jdk_${JDK_ARCH}_linux_hotspot_8u382b05.tar.gz" -O jdk8.tar.gz; \
+    tar -xf jdk8.tar.gz -C /opt/buildtools && mv /opt/buildtools/jdk8u382-b05 /opt/buildtools/jdk8; \
+    wget -q "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz" -O maven.tar.gz; \
+    tar -xf maven.tar.gz -C /opt/buildtools; \
+    wget -q "https://dl.google.com/go/go1.24.1.linux-${GO_ARCH}.tar.gz" -O go.tar.gz; \
+    tar -xzf go.tar.gz -C /opt/buildtools && mv /opt/buildtools/go /opt/buildtools/golang_go-1.24.1; \
+    wget -q "https://mirrors.huaweicloud.com/bazel/6.5.0/bazel-6.5.0-linux-${BAZEL_ARCH}" -O bazel; \
+    chmod +x bazel && mv bazel /usr/local/bin/; \
+    wget -q -L "https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-${PROTOC_ARCH}.zip" -O protoc.zip; \
+    unzip -q protoc.zip -d /usr/local; \
+    wget -q "https://mirrors.huaweicloud.com/nodejs/v20.19.0/node-v20.19.0-linux-${NODE_ARCH}.tar.gz" -O node.tar.gz; \
+    tar -xzf node.tar.gz -C /opt/buildtools && mv /opt/buildtools/node-v20.19.0-linux-${NODE_ARCH} /opt/buildtools/nodejs; \
+    wget -q "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/Kitware/CMake/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz" -O cmake.tar.gz; \
     tar -xzf cmake.tar.gz -C /opt/buildtools; \
-    rm -rf /opt/buildtools/cmake; \
     mv "/opt/buildtools/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}" /opt/buildtools/cmake; \
-    ln -sf /opt/buildtools/cmake/bin/cmake /usr/local/bin/cmake; \
-    ln -sf /opt/buildtools/cmake/bin/ctest /usr/local/bin/ctest; \
-    ln -sf /opt/buildtools/cmake/bin/cpack /usr/local/bin/cpack; \
+    rm -rf /tmp/build/*
+
+RUN set -e; mkdir -p /tmp/build && cd /tmp/build; \
+    for v in 3.9.11 3.10.2 3.11.4 3.12.0 3.13.0; do \
+        minor=$(echo "$v" | cut -d. -f1-2); \
+        wget -q "https://mirrors.huaweicloud.com/python/${v}/Python-${v}.tgz" -O "py${minor}.tar.gz"; \
+        tar -xzf "py${minor}.tar.gz" && cd "Python-${v}"; \
+        ./configure --prefix="/opt/buildtools/python${minor}" --enable-shared --enable-loadable-sqlite-extensions; \
+        make -j$(nproc) && make install; \
+        cd /tmp/build && rm -rf "Python-${v}" "py${minor}.tar.gz"; \
+    done
+
+FROM ${BASE_IMAGE}
+ARG TARGETARCH
+ARG CMAKE_VERSION=3.31.10
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) \
+        -exec sed -i \
+        -e 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' \
+        -e 's|http://security.ubuntu.com|http://mirrors.aliyun.com|g' {} +; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-10 g++-10 git make curl libtool zip vim ccache \
+    binutils binutils-dev libcurl4-openssl-dev zlib1g zlib1g-dev automake \
+    python3-pip python3-mock patch openssl libssl-dev libssh-dev libffi-dev \
+    libsqlite3-dev bison gawk texinfo libc6 libc6-dev wget libbz2-dev sudo \
+    rsync nfs-common xz-utils libuuid1 unzip cpio libcap-dev libatomic1 \
+    chrpath libnuma-dev dos2unix net-tools pigz pkg-config \
+    libibverbs-dev libibverbs1 libmount-dev libblkid-dev ca-certificates && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/buildtools /opt/buildtools
+COPY --from=builder /usr/local/bin/bazel /usr/local/bin/
+COPY --from=builder /usr/local/bin/protoc /usr/local/bin/
+COPY --from=builder /usr/local/include/google /usr/local/include/google
+
+ENV JAVA_HOME=/opt/buildtools/jdk8
+ENV MAVEN_HOME=/opt/buildtools/apache-maven-3.9.11
+ENV GOROOT=/opt/buildtools/golang_go-1.24.1
+ENV GOPATH=/opt/buildtools/go_workspace
+ENV CMAKE_HOME=/opt/buildtools/cmake
+ENV NODE_HOME=/opt/buildtools/nodejs
+ENV PYTHON_PATH_3911=/opt/buildtools/python3.9
+ENV PYTHON_PATH_3102=/opt/buildtools/python3.10
+ENV PYTHON_PATH_3114=/opt/buildtools/python3.11
+ENV PYTHON_PATH_3120=/opt/buildtools/python3.12
+ENV PYTHON_PATH_3130=/opt/buildtools/python3.13
+ENV CGO_ENABLED=1
+ENV GO111MODULE=on
+ENV GOPROXY=https://goproxy.cn,direct
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV PATH=/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV LD_LIBRARY_PATH=/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64
+
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100 && \
+    ln -sf /usr/bin/gcc /usr/bin/cc && \
+    ln -sf /opt/buildtools/cmake/bin/cmake /usr/local/bin/cmake && \
+    ln -sf /opt/buildtools/cmake/bin/ctest /usr/local/bin/ctest && \
+    ln -sf /opt/buildtools/cmake/bin/cpack /usr/local/bin/cpack
+
+RUN for v in 3.9 3.10 3.11 3.12 3.13; do \
+        pip_v=$(ls /opt/buildtools/python${v}/bin/pip${v}* 2>/dev/null | head -1); \
+        ln -sf /opt/buildtools/python${v}/bin/python${v} /usr/local/bin/python${v}; \
+        [ -n "$pip_v" ] && $pip_v install --no-cache-dir setuptools wheel packaging; \
+        echo "/opt/buildtools/python${v}/lib" > /etc/ld.so.conf.d/python${v}.conf; \
+    done && ldconfig
+
+RUN { \
+        echo '#!/bin/bash'; \
+        echo 'export JAVA_HOME=/opt/buildtools/jdk8'; \
+        echo 'export MAVEN_HOME=/opt/buildtools/apache-maven-3.9.11'; \
+        echo 'export GOROOT=/opt/buildtools/golang_go-1.24.1'; \
+        echo 'export GOPATH=/opt/buildtools/go_workspace'; \
+        echo 'export CMAKE_HOME=/opt/buildtools/cmake'; \
+        echo 'export NODE_HOME=/opt/buildtools/nodejs'; \
+        echo 'export PYTHON_PATH_3911=/opt/buildtools/python3.9'; \
+        echo 'export PYTHON_PATH_3102=/opt/buildtools/python3.10'; \
+        echo 'export PYTHON_PATH_3114=/opt/buildtools/python3.11'; \
+        echo 'export PYTHON_PATH_3120=/opt/buildtools/python3.12'; \
+        echo 'export PYTHON_PATH_3130=/opt/buildtools/python3.13'; \
+        echo 'export CGO_ENABLED=1'; \
+        echo 'export GO111MODULE=on'; \
+        echo 'export GOPROXY=https://goproxy.cn,direct'; \
+        echo 'export PIP_BREAK_SYSTEM_PACKAGES=1'; \
+        echo 'export PATH=/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:$PATH'; \
+        echo 'export LD_LIBRARY_PATH=/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64'; \
+    } > /etc/profile.d/buildtools.sh; \
     { \
         echo '#!/bin/bash'; \
         echo 'export CMAKE_HOME=/opt/buildtools/cmake'; \
         echo 'export PATH=$CMAKE_HOME/bin:$PATH'; \
     } > /etc/profile.d/cmake.sh; \
-    chmod 0644 /etc/profile.d/cmake.sh; \
-    cmake --version | grep -q "version ${CMAKE_VERSION}"; \
-    rm -rf "$tmp_dir"
+    chmod 0644 /etc/profile.d/buildtools.sh /etc/profile.d/cmake.sh; \
+    cmake --version | grep -q "version ${CMAKE_VERSION}"
 
 CMD ["/bin/bash"]
