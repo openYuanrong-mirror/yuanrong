@@ -32,7 +32,7 @@ import traceback
 from urllib.parse import urlencode
 
 import yr
-from yr.cli.exec import run_client
+from yr.cli.exec import copy_from_remote, copy_to_remote, run_client
 
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
@@ -517,6 +517,38 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         return True, resp["data"]
     else:
         return False, resp
+
+
+def parse_cp_targets(src: str, dst: str) -> Dict[str, Any]:
+    """Resolve cp operands where exactly one side is remote."""
+
+    def parse_remote(spec: str) -> Optional[Dict[str, str]]:
+        if ":" not in spec:
+            return None
+        instance, remote_path = spec.split(":", 1)
+        if not instance or not remote_path:
+            raise ValueError("remote path must use INSTANCE:/path format")
+        return {"instance": instance, "path": remote_path}
+
+    src_remote = parse_remote(src)
+    dst_remote = parse_remote(dst)
+    if (src_remote is None) == (dst_remote is None):
+        raise ValueError("exactly one side must be remote, format INSTANCE:/path")
+
+    if dst_remote is not None:
+        return {
+            "upload": True,
+            "instance": dst_remote["instance"],
+            "local_path": src,
+            "remote_path": dst_remote["path"],
+        }
+
+    return {
+        "upload": False,
+        "instance": src_remote["instance"],
+        "local_path": dst,
+        "remote_path": src_remote["path"],
+    }
 
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -1481,6 +1513,61 @@ def exec(stdin, tty, verify_server, instance, command):
         )
     except KeyboardInterrupt:
         print("\nDisconnected", file=sys.stderr)
+
+
+@cli.command("cp")
+@click.argument("src")
+@click.argument("dst")
+def cp(src, dst):
+    """Copy a file to or from an instance via the exec websocket channel."""
+    if not __server_address:
+        click.echo("Error: --server-address is required", err=True)
+        sys.exit(1)
+
+    try:
+        target = parse_cp_targets(src, dst)
+    except ValueError as err:
+        click.echo(f"Error: {err}", err=True)
+        sys.exit(1)
+
+    if target["upload"] and not os.path.exists(target["local_path"]):
+        click.echo(f"Error: local file not found: {target['local_path']}", err=True)
+        sys.exit(1)
+
+    use_ssl = __client_cert is not None and __client_key is not None
+    host, port = __server_address.split(":")
+    common_kwargs = {
+        "instance": target["instance"],
+        "user": __user,
+        "use_ssl": use_ssl,
+        "cert_file": __client_cert,
+        "key_file": __client_key,
+        "ca_file": __ca_cert,
+        "verify_server": not __insecure,
+        "token": __jwt_token,
+    }
+
+    if target["upload"]:
+        asyncio.run(
+            copy_to_remote(
+                host,
+                port,
+                local_path=target["local_path"],
+                remote_path=target["remote_path"],
+                **common_kwargs,
+            )
+        )
+        return
+
+    asyncio.run(
+        copy_from_remote(
+            host,
+            port,
+            remote_path=target["remote_path"],
+            local_path=target["local_path"],
+            **common_kwargs,
+        )
+    )
 
 
 @cli.command(

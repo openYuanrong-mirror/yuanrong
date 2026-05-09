@@ -18,12 +18,18 @@
 
 import asyncio
 import os
+import shlex
 import signal
 import shutil
 import ssl
 import sys
+import tarfile
+import tempfile
 import termios
 import tty
+from pathlib import Path
+from urllib.parse import quote
+
 import websockets
 
 
@@ -235,6 +241,250 @@ async def send_terminal_resize(ws, rows=None, cols=None):
             pass
 
 
+def build_exec_uri(
+    host, port, instance=None, command=None, tty=None, rows=None, cols=None, user=None, token=None, use_ssl=False
+):
+    """Build exec websocket URI."""
+    query_params = []
+    if instance:
+        query_params.append(f"instance={quote(instance)}")
+    if command:
+        query_params.append(f"command={quote(command)}")
+    if tty is not None:
+        query_params.append(f"tty={str(tty).lower()}")
+    if rows:
+        query_params.append(f"rows={rows}")
+    if cols:
+        query_params.append(f"cols={cols}")
+    if user:
+        query_params.append(f"tenant_id={quote(user)}")
+    if token:
+        query_params.append(f"token={quote(token)}")
+
+    query_string = "&".join(query_params)
+    protocol = "wss" if use_ssl else "ws"
+    uri = f"{protocol}://{host}:{port}/terminal/ws"
+    if query_string:
+        uri += f"?{query_string}"
+    return uri
+
+
+def build_exec_ssl_context(
+    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, quiet=False
+):
+    """Build SSL context for exec websocket when TLS is enabled."""
+    if not use_ssl:
+        return None
+    return create_ssl_context(
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=quiet,
+    )
+
+
+async def _drain_websocket(ws, should_exit, quiet=False, writer=None):
+    """Read websocket messages until the process exits or the socket closes."""
+    try:
+        async for message in ws:
+            if should_exit.is_set():
+                break
+            if isinstance(message, str):
+                if quiet and message.strip() == "[Process exited]":
+                    should_exit.set()
+                    break
+                if writer is not None:
+                    writer.write(message.encode("utf-8"))
+                continue
+
+            if writer is not None:
+                writer.write(message)
+    except Exception:
+        pass
+    finally:
+        should_exit.set()
+
+
+def _create_tar_archive(source_path: Path, root_name: str) -> str:
+    """Create a tar archive for a file or directory and return the temp path."""
+    archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
+    archive_file.close()
+    with tarfile.open(archive_file.name, mode="w:") as archive:
+        archive.add(str(source_path), arcname=root_name)
+    return archive_file.name
+
+
+def _restore_from_tar(archive_path: str, local_path: str) -> None:
+    """Restore a tar stream into the requested local path."""
+    target = Path(local_path)
+    target_parent = target.parent
+    target_parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as unpack_dir:
+        unpack_root = Path(unpack_dir)
+        with tarfile.open(archive_path, mode="r:") as archive:
+            archive.extractall(unpack_root)
+
+        entries = list(unpack_root.iterdir())
+        if len(entries) != 1:
+            raise RuntimeError("unexpected archive layout: expected a single top-level entry")
+        source_root = entries[0]
+
+        if source_root.is_dir():
+            if target.exists():
+                if not target.is_dir():
+                    raise RuntimeError(f"cannot overwrite non-directory target: {target}")
+                shutil.copytree(source_root, target, dirs_exist_ok=True)
+                return
+            shutil.move(str(source_root), str(target))
+            return
+
+        target_parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if target.is_dir():
+                raise RuntimeError(f"cannot overwrite directory target with file: {target}")
+            target.unlink()
+        shutil.move(str(source_root), str(target))
+
+
+async def copy_to_remote(
+    host,
+    port,
+    instance,
+    local_path,
+    remote_path,
+    user=None,
+    use_ssl=False,
+    cert_file=None,
+    key_file=None,
+    ca_file=None,
+    verify_server=True,
+    token=None,
+):
+    """Upload a local file into an instance via the exec websocket."""
+    source = Path(local_path)
+    archive_path = _create_tar_archive(source, Path(remote_path).name)
+    archive_size = Path(archive_path).stat().st_size
+    remote_arg = shlex.quote(remote_path)
+    size_arg = shlex.quote(str(archive_size))
+    command = (
+        "sh -c 'mkdir -p \"$(dirname \"$1\")\" && "
+        "head -c \"$2\" | tar -xmf - -C \"$(dirname \"$1\")\"' "
+        f"sh {remote_arg} {size_arg}"
+    )
+    uri = build_exec_uri(
+        host,
+        port,
+        instance=instance,
+        command=command,
+        tty=False,
+        user=user,
+        token=token,
+        use_ssl=use_ssl,
+    )
+    ssl_context = build_exec_ssl_context(
+        use_ssl=use_ssl,
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=True,
+    )
+
+    try:
+        async with websockets.connect(uri, ssl=ssl_context) as ws:
+            should_exit = asyncio.Event()
+            tasks = [
+                asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True)),
+                asyncio.create_task(heartbeat_loop(ws, should_exit)),
+            ]
+            try:
+                with open(archive_path, "rb") as file_obj:
+                    while True:
+                        chunk = file_obj.read(64 * 1024)
+                        if not chunk:
+                            break
+                        await ws.send(chunk)
+                await should_exit.wait()
+            finally:
+                for task in tasks:
+                    if task.done():
+                        continue
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+    finally:
+        Path(archive_path).unlink(missing_ok=True)
+
+
+async def copy_from_remote(
+    host,
+    port,
+    instance,
+    remote_path,
+    local_path,
+    user=None,
+    use_ssl=False,
+    cert_file=None,
+    key_file=None,
+    ca_file=None,
+    verify_server=True,
+    token=None,
+):
+    """Download a file from an instance via the exec websocket."""
+    command = (
+        "sh -c 'tar -cf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"' "
+        f"sh {shlex.quote(remote_path)}"
+    )
+    uri = build_exec_uri(
+        host,
+        port,
+        instance=instance,
+        command=command,
+        tty=False,
+        user=user,
+        token=token,
+        use_ssl=use_ssl,
+    )
+    ssl_context = build_exec_ssl_context(
+        use_ssl=use_ssl,
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=True,
+    )
+
+    archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
+    archive_file.close()
+    try:
+        async with websockets.connect(uri, ssl=ssl_context) as ws:
+            should_exit = asyncio.Event()
+            with open(archive_file.name, "wb") as file_obj:
+                tasks = [
+                    asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, writer=file_obj)),
+                    asyncio.create_task(heartbeat_loop(ws, should_exit)),
+                ]
+                try:
+                    await should_exit.wait()
+                finally:
+                    for task in tasks:
+                        if task.done():
+                            continue
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+
+        _restore_from_tar(archive_file.name, local_path)
+    finally:
+        Path(archive_file.name).unlink(missing_ok=True)
+
+
 async def run_client(
     host, port, instance=None, command=None, tty=None, stdin=None, rows=None, cols=None, user=None,
     use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None, quiet=False
@@ -251,32 +501,18 @@ async def run_client(
             # 如果无法获取，使用服务端默认值
             pass
 
-    # 构建 URL query 参数
-    query_params = []
-    if instance:
-        query_params.append(f"instance={instance}")
-    if command:
-        from urllib.parse import quote
-
-        query_params.append(f"command={quote(command)}")
-    if tty is not None:
-        query_params.append(f"tty={str(tty).lower()}")
-    if rows:
-        query_params.append(f"rows={rows}")
-    if cols:
-        query_params.append(f"cols={cols}")
-    if user:
-        query_params.append(f"tenant_id={quote(user)}")
-    if token:
-        query_params.append(f"token={quote(token)}")
-
-    query_string = "&".join(query_params)
-    
-    # Determine protocol based on SSL usage
-    protocol = "wss" if use_ssl else "ws"
-    uri = f"{protocol}://{host}:{port}/terminal/ws"
-    if query_string:
-        uri += f"?{query_string}"
+    uri = build_exec_uri(
+        host,
+        port,
+        instance=instance,
+        command=command,
+        tty=tty,
+        rows=rows,
+        cols=cols,
+        user=user,
+        token=token,
+        use_ssl=use_ssl,
+    )
 
     if tty:
         if instance:
@@ -285,15 +521,15 @@ async def run_client(
             print("Connecting...\nPress Ctrl+] to disconnect", file=sys.stderr)
     
     # Create SSL context if needed
-    ssl_context = None
+    ssl_context = build_exec_ssl_context(
+        use_ssl=use_ssl,
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=quiet,
+    )
     if use_ssl:
-        ssl_context = create_ssl_context(
-            cert_file=cert_file,
-            key_file=key_file,
-            ca_file=ca_file,
-            verify_server=verify_server,
-            quiet=quiet
-        )
         if ssl_context and tty:
             print("Using mutual TLS authentication", file=sys.stderr)
         elif not ssl_context and tty:
