@@ -71,11 +71,46 @@ python_formula_bin() {
     local prefix
     prefix="$(brew --prefix "$formula")"
     case "$formula" in
+        python@3.12) echo "${prefix}/bin/python3.12" ;;
         python@3.11) echo "${prefix}/bin/python3.11" ;;
         python@3.10) echo "${prefix}/bin/python3.10" ;;
         python@3.9) echo "${prefix}/bin/python3.9" ;;
         *) return 1 ;;
     esac
+}
+
+sdk_python_bin() {
+    local py_version="$1"
+    local py_minor="${py_version#python}"
+    local py_env="py${py_minor//./}"
+    local conda_root="${CONDA_PREFIX:-${HOME}/miniforge3}"
+    local candidate
+
+    for candidate in \
+        "${py_version}" \
+        "${conda_root}/bin/${py_version}" \
+        "${conda_root}/envs/${py_env}/bin/${py_version}" \
+        "${conda_root}/envs/yuanrong/bin/${py_version}" \
+        "/opt/homebrew/opt/python@${py_minor}/bin/${py_version}" \
+        "/usr/local/opt/python@${py_minor}/bin/${py_version}"; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            command -v "${candidate}"
+            return 0
+        fi
+        if [[ -x "${candidate}" ]]; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    if [[ -d "${conda_root}/envs" ]]; then
+        candidate="$(find "${conda_root}/envs" -maxdepth 3 -type f -path "*/bin/${py_version}" 2>/dev/null | sort | head -1)"
+        if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+            echo "${candidate}"
+            return 0
+        fi
+    fi
+
+    return 1
 }
 
 ensure_bazel() {
@@ -98,13 +133,13 @@ pick_python() {
     local py
     local candidates=()
 
-    for py in python3.11 python3.10 python3.9 python3; do
+    for py in python3.12 python3.11 python3.10 python3.9 python3; do
         if command -v "${py}" >/dev/null 2>&1; then
             candidates+=("$(command -v "${py}")")
         fi
     done
 
-    for py in python@3.11 python@3.10 python@3.9; do
+    for py in python@3.12 python@3.11 python@3.10 python@3.9; do
         if py_path="$(python_formula_bin "${py}" 2>/dev/null)"; then
             candidates+=("${py_path}")
         fi
@@ -145,6 +180,17 @@ ensure_python() {
     fi
 }
 
+ensure_sdk_python_versions() {
+    local py_version
+    for py_version in python3.12 python3.11 python3.10 python3.9; do
+        if sdk_python_bin "${py_version}" >/dev/null 2>&1; then
+            log_info "${py_version} already available"
+            continue
+        fi
+        brew_install "python@${py_version#python}"
+    done
+}
+
 ensure_python_packages() {
     local python_bin
     python_bin="$(pick_python)"
@@ -173,10 +219,13 @@ main() {
     log_step "Checking minimal macOS SDK build prerequisites"
     if [[ "${SKIP_BREW_UPDATE:-0}" != "1" ]]; then
         brew update
+    else
+        export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
     fi
 
     brew_install_if_missing wget wget
     ensure_python
+    ensure_sdk_python_versions
     brew_install_if_missing go go
     ensure_bazel
 

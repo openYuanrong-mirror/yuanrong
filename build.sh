@@ -48,9 +48,9 @@ BASE_DIR=$(
     cd "$(dirname "$0")"
     pwd
 )
-BUILD_BASE="${BASE_DIR}/build"
+BUILD_BASE="${BAZEL_OUTPUT_USER_ROOT:-${BASE_DIR}/build}"
 OUTPUT_DIR="${BASE_DIR}/output"
-OUTPUT_BASE="${BASE_DIR}/build/output"
+OUTPUT_BASE="${BAZEL_OUTPUT_BASE:-${BUILD_BASE}/output}"
 BAZEL_COMMAND="build"
 BUILD_VERSION="v0.0.1"
 BAZEL_OPTIONS="--experimental_cc_shared_library=true --verbose_failures --strategy=CcStrip=standalone --@opentelemetry_cpp//api:with_abseil=true"
@@ -281,10 +281,10 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
         BAZEL_OPTIONS_CONFIG=" --config=debug "
         ;;
     m)
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --local_ram_resources=${OPTARG} "
+        BAZEL_OPTIONS_ENV="$BAZEL_OPTIONS_ENV --local_ram_resources=${OPTARG} "
         ;;
     j)
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --jobs=${OPTARG} "
+        BAZEL_OPTIONS_ENV="$BAZEL_OPTIONS_ENV --jobs=${OPTARG} "
         ;;
     c)
         BAZEL_COMMAND="coverage"

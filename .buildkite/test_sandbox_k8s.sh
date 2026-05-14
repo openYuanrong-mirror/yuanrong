@@ -5,9 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
+SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp39}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
+SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl}"
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
+SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 HELM_BIN="${HELM_BIN:-helm}"
 KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"
@@ -107,11 +110,14 @@ require_bin() {
 }
 
 download_artifacts() {
-    mkdir -p "${RELEASE_ARTIFACT_DIR}" "$(dirname "${SANDBOX_METADATA}")"
+    mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "$(dirname "${SANDBOX_METADATA}")"
     if command -v buildkite-agent >/dev/null 2>&1; then
         buildkite-agent artifact download "artifacts/sandbox/metadata/sandbox-release.json" . --step "${PACKAGE_STEP_KEY}"
         buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
-        buildkite-agent artifact download "artifacts/release/openyuanrong_sdk*.whl" . --step "${BUILD_STEP_KEY}"
+        buildkite-agent artifact download "artifacts/openyuanrong-sdk/${SMOKE_SDK_WHEEL_PATTERN}" . --step "${SDK_STEP_KEY}"
+    fi
+    if compgen -G "${SDK_ARTIFACT_DIR}/${SMOKE_SDK_WHEEL_PATTERN}" >/dev/null; then
+        cp -af "${SDK_ARTIFACT_DIR}"/${SMOKE_SDK_WHEEL_PATTERN} "${RELEASE_ARTIFACT_DIR}/"
     fi
     if [ ! -f "${SANDBOX_METADATA}" ]; then
         printf 'Missing sandbox metadata artifact: %s\n' "${SANDBOX_METADATA}" >&2
@@ -135,6 +141,7 @@ resolve_smoke_python() {
         *-cp39-*) python_minor="3.9" ;;
         *-cp310-*) python_minor="3.10" ;;
         *-cp311-*) python_minor="3.11" ;;
+        *-cp312-*) python_minor="3.12" ;;
         *) python_minor="" ;;
     esac
 
@@ -159,7 +166,7 @@ install_smoke_wheels() {
     local pip_index_url
     local pip_trusted_host
     local -a pip_args
-    sdk_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name 'openyuanrong_sdk*.whl' | sort -V | tail -1)"
+    sdk_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name "${SMOKE_SDK_WHEEL_PATTERN}" | sort -V | tail -1)"
     core_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name 'openyuanrong-*.whl' | sort -V | tail -1)"
     if [ -z "${sdk_wheel}" ] || [ -z "${core_wheel}" ]; then
         printf 'Missing smoke wheels under %s\n' "${RELEASE_ARTIFACT_DIR}" >&2

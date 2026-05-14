@@ -5,8 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
+SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp39}"
+IMAGE_SDK_WHEEL_PATTERN="${YR_K8S_IMAGE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl}"
+RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
 OUTPUT_DIR="${ROOT_DIR}/output"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
+SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
 SANDBOX_ARTIFACT_DIR="${ROOT_DIR}/artifacts/sandbox"
 HELM_DIR="${SANDBOX_ARTIFACT_DIR}/helm"
 MANIFEST_DIR="${SANDBOX_ARTIFACT_DIR}/manifests"
@@ -14,7 +18,7 @@ METADATA_DIR="${SANDBOX_ARTIFACT_DIR}/metadata"
 CHART_DIR="${ROOT_DIR}/deploy/sandbox/k8s/charts/yr-k8s"
 VALUES_FILE="${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.prod.yaml"
 REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/openyuanrong}"
-REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-swr.cn-southwest-2.myhuaweicloud.com}"
+REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-${REGISTRY_REPO%%/*}}"
 TRAEFIK_IMAGE_REGISTRY="${YR_K8S_TRAEFIK_IMAGE_REGISTRY:-${REGISTRY_REPO}}"
 TRAEFIK_IMAGE_TAG="${YR_K8S_TRAEFIK_IMAGE_TAG:-v2.11.14}"
 COMMIT_SHA="${BUILDKITE_COMMIT:-$(git rev-parse HEAD)}"
@@ -24,9 +28,19 @@ BRANCH_NAME="${BUILDKITE_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 SANITIZED_BRANCH="$(printf '%s' "${BRANCH_NAME}" | tr '/:_@' '----' | tr -cd '[:alnum:].-' | cut -c1-64)"
 [ -n "${SANITIZED_BRANCH}" ] || SANITIZED_BRANCH="build"
 IMAGE_TAG="${YR_K8S_IMAGE_TAG:-${SANITIZED_BRANCH}-${BUILD_NUMBER}-${SHORT_SHA}}"
+IMAGE_ARCH="${YR_K8S_IMAGE_ARCH:-}"
+IMAGE_TAG_SUFFIX="${YR_K8S_IMAGE_TAG_SUFFIX:-${IMAGE_ARCH:+-${IMAGE_ARCH}}}"
+PUSH_IMAGE_TAG="${YR_K8S_PUSH_IMAGE_TAG:-${IMAGE_TAG}${IMAGE_TAG_SUFFIX}}"
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKERD_PID=""
+
+is_enabled() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 require_bin() {
     local bin_name="$1"
@@ -95,21 +109,49 @@ start_dockerd() {
 }
 
 download_release_artifacts() {
-    mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}"
+    mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
 
     if command -v buildkite-agent >/dev/null 2>&1; then
-        rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}"
-        mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}"
-        buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
-        buildkite-agent artifact download "artifacts/release/openyuanrong_sdk*.whl" . --step "${BUILD_STEP_KEY}"
+        rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
+        mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
+        if ! is_enabled "${RUNTIME_ONLY}"; then
+            buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
+        fi
+        buildkite-agent artifact download "artifacts/openyuanrong-sdk/${IMAGE_SDK_WHEEL_PATTERN}" . --step "${SDK_STEP_KEY}"
+    elif is_enabled "${RUNTIME_ONLY}" \
+        && compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
+        return 0
     elif compgen -G "${OUTPUT_DIR}/openyuanrong-*.whl" >/dev/null \
-        && compgen -G "${OUTPUT_DIR}/openyuanrong_sdk*.whl" >/dev/null; then
+        && compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
         return 0
     fi
 
-    if compgen -G "${RELEASE_ARTIFACT_DIR}/*" >/dev/null; then
-        cp -af "${RELEASE_ARTIFACT_DIR}/." "${OUTPUT_DIR}/"
+    if compgen -G "${RELEASE_ARTIFACT_DIR}/openyuanrong-*.whl" >/dev/null; then
+        cp -af "${RELEASE_ARTIFACT_DIR}"/openyuanrong-*.whl "${OUTPUT_DIR}/"
     fi
+    if compgen -G "${SDK_ARTIFACT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
+        cp -af "${SDK_ARTIFACT_DIR}"/${IMAGE_SDK_WHEEL_PATTERN} "${OUTPUT_DIR}/"
+    fi
+}
+
+write_runtime_metadata() {
+    mkdir -p "${METADATA_DIR}" "${SANDBOX_ARTIFACT_DIR}/runtime-images"
+    cat >"${METADATA_DIR}/sandbox-runtime-image.json" <<EOF
+{
+  "commit": "${COMMIT_SHA}",
+  "branch": "${BRANCH_NAME}",
+  "build_number": "${BUILD_NUMBER}",
+  "registry": "${REGISTRY_REPO}",
+  "image": "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}",
+  "image_tag": "${IMAGE_TAG}",
+  "pushed_image_tag": "${PUSH_IMAGE_TAG}",
+  "image_arch": "${IMAGE_ARCH}",
+  "sdk_step": "${SDK_STEP_KEY}",
+  "sdk_wheel_pattern": "${IMAGE_SDK_WHEEL_PATTERN}"
+}
+EOF
+    printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}" \
+        >"${SANDBOX_ARTIFACT_DIR}/runtime-images/${PUSH_IMAGE_TAG}.txt"
 }
 
 docker_login_if_configured() {
@@ -139,13 +181,13 @@ global:
   images:
     controlplane:
       repository: yr-controlplane
-      tag: ${IMAGE_TAG}
+      tag: ${PUSH_IMAGE_TAG}
     node:
       repository: yr-node
-      tag: ${IMAGE_TAG}
+      tag: ${PUSH_IMAGE_TAG}
     runtime:
       repository: yr-runtime
-      tag: ${IMAGE_TAG}
+      tag: ${PUSH_IMAGE_TAG}
     traefik:
       registry: ${TRAEFIK_IMAGE_REGISTRY}
       repository: traefik
@@ -161,12 +203,14 @@ write_metadata() {
   "build_number": "${BUILD_NUMBER}",
   "registry": "${REGISTRY_REPO}",
   "image_tag": "${IMAGE_TAG}",
+  "pushed_image_tag": "${PUSH_IMAGE_TAG}",
+  "image_arch": "${IMAGE_ARCH}",
   "chart_version": "${CHART_VERSION}",
   "app_version": "${APP_VERSION}",
   "images": [
-    "${REGISTRY_REPO}/yr-controlplane:${IMAGE_TAG}",
-    "${REGISTRY_REPO}/yr-node:${IMAGE_TAG}",
-    "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
+    "${REGISTRY_REPO}/yr-controlplane:${PUSH_IMAGE_TAG}",
+    "${REGISTRY_REPO}/yr-node:${PUSH_IMAGE_TAG}",
+    "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}"
   ],
   "static_images": [
     "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"
@@ -197,17 +241,29 @@ main() {
     mkdir -p "${HELM_DIR}" "${MANIFEST_DIR}" "${METADATA_DIR}"
 
     require_bin docker
-    require_bin helm
+    if ! is_enabled "${RUNTIME_ONLY}"; then
+        require_bin helm
+    fi
     require_bin python3
 
     download_release_artifacts
     start_dockerd
     docker_login_if_configured
 
-    export YR_K8S_IMAGE_TAG="${IMAGE_TAG}"
+    export YR_K8S_IMAGE_TAG="${PUSH_IMAGE_TAG}"
     export YR_K8S_REGISTRY_REPO="${REGISTRY_REPO}"
     bash deploy/sandbox/k8s/build-images.sh
     bash deploy/sandbox/k8s/push-images-swr.sh
+
+    if is_enabled "${RUNTIME_ONLY}"; then
+        write_runtime_metadata
+        if command -v buildkite-agent >/dev/null 2>&1; then
+            buildkite-agent artifact upload "${SANDBOX_ARTIFACT_DIR}/**/*" || true
+            buildkite-agent annotate --style "success" --context "sandbox-runtime-image" \
+                "Sandbox runtime image pushed: ${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}."
+        fi
+        return 0
+    fi
 
     write_values_override
     write_metadata
@@ -227,7 +283,7 @@ main() {
     if command -v buildkite-agent >/dev/null 2>&1; then
         buildkite-agent artifact upload "${SANDBOX_ARTIFACT_DIR}/**/*" || true
         buildkite-agent annotate --style "success" --context "sandbox-release" \
-            "Sandbox images pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}."
+            "Sandbox images pushed with tag ${PUSH_IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}."
     fi
 }
 

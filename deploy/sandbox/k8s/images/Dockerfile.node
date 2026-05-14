@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Shared node-plane image:
 # - node uses the default start-node.sh entrypoint
-COPY --from=deploy bin/start-node.sh /usr/local/bin/start-node.sh
-COPY --from=deploy bin/supervisord-node-entrypoint.sh /usr/local/bin/supervisord-node-entrypoint.sh
-COPY --from=deploy images/supervisord-node.conf /etc/supervisor/supervisord.conf
+COPY .yr-k8s-deploy/bin/start-node.sh /usr/local/bin/start-node.sh
+COPY .yr-k8s-deploy/bin/supervisord-node-entrypoint.sh /usr/local/bin/supervisord-node-entrypoint.sh
+COPY .yr-k8s-deploy/images/supervisord-node.conf /etc/supervisor/supervisord.conf
 
 RUN install -d /home/snuser/config /home/snuser/runtime/java /openyuanrong/node-state \
     && chmod +x /usr/local/bin/start-node.sh /usr/local/bin/supervisord-node-entrypoint.sh

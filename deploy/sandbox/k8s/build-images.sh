@@ -11,14 +11,18 @@ COMPILE_IMAGE="${YR_COMPILE_IMAGE:-yr-compile}"
 RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-yr-runtime}"
 CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
 NODE_IMAGE="${YR_NODE_IMAGE:-yr-node}"
+RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
 CACHE_REGISTRY_REPO="${YR_K8S_CACHE_REGISTRY_REPO:-${YR_K8S_REGISTRY_REPO:-}}"
 IMAGE_CACHE_ENABLED="${YR_K8S_IMAGE_CACHE:-0}"
 CACHE_TAG="${YR_K8S_IMAGE_CACHE_TAG:-build-cache}"
+DOCKER_BUILDKIT_MODE="${YR_K8S_DOCKER_BUILDKIT:-1}"
+DEPLOY_CONTEXT_DIR="${OUTPUT_DIR}/.yr-k8s-deploy"
 
-required_patterns=(
-  "openyuanrong-*.whl"
-  "openyuanrong_sdk*.whl"
-)
+required_patterns=("openyuanrong_sdk*.whl")
+case "${RUNTIME_ONLY}" in
+  1|true|TRUE|yes|YES|on|ON) ;;
+  *) required_patterns=("openyuanrong-*.whl" "openyuanrong_sdk*.whl") ;;
+esac
 
 artifact_candidate_dirs=()
 python_build_args=()
@@ -97,6 +101,9 @@ python_build_args_from_wheel() {
     cp311)
       printf '%s\n' "3.11.9" "3.11"
       ;;
+    cp312)
+      printf '%s\n' "3.12.10" "3.12"
+      ;;
     *)
       printf 'Unsupported Python ABI tag in wheel: %s\n' "${python_tag}" >&2
       exit 1
@@ -108,6 +115,18 @@ set_python_build_args() {
   local sdk_wheel
   sdk_wheel="$(resolve_artifact_path "openyuanrong_sdk*.whl")"
   mapfile -t python_build_args < <(python_build_args_from_wheel "${sdk_wheel}")
+}
+
+stage_deploy_context() {
+  rm -rf "${DEPLOY_CONTEXT_DIR}"
+  mkdir -p "${DEPLOY_CONTEXT_DIR}/bin" "${DEPLOY_CONTEXT_DIR}/images"
+  cp \
+    "${ROOT_DIR}/bin/start-master.sh" \
+    "${ROOT_DIR}/bin/start-frontend.sh" \
+    "${ROOT_DIR}/bin/start-node.sh" \
+    "${ROOT_DIR}/bin/supervisord-node-entrypoint.sh" \
+    "${DEPLOY_CONTEXT_DIR}/bin/"
+  cp "${ROOT_DIR}/images/supervisord-node.conf" "${DEPLOY_CONTEXT_DIR}/images/"
 }
 
 build_image() {
@@ -126,13 +145,12 @@ build_image() {
       printf 'Image cache unavailable, continuing without it: %s\n' "${cache_image}" >&2
     fi
   fi
-  DOCKER_BUILDKIT=1 "${DOCKER_BIN}" build \
+  DOCKER_BUILDKIT="${DOCKER_BUILDKIT_MODE}" "${DOCKER_BIN}" build \
     -t "${image_name}" \
     "${cache_args[@]}" \
     --build-arg BUILDKIT_INLINE_CACHE=1 \
     --build-arg PYTHON_VERSION="${python_build_args[0]}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_build_args[1]}" \
-    --build-context deploy="${ROOT_DIR}" \
     -f "${dockerfile_path}" \
     "$@" \
     "${OUTPUT_DIR}"
@@ -151,8 +169,18 @@ main() {
   build_candidate_dirs
   validate_required_artifacts
   set_python_build_args
+  stage_deploy_context
 
   build_image "${BASE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.base"
+  case "${RUNTIME_ONLY}" in
+    1|true|TRUE|yes|YES|on|ON)
+      build_image "${RUNTIME_IMAGE}" "${ROOT_DIR}/images/Dockerfile.runtime" \
+        --build-arg BASE_IMAGE="${BASE_IMAGE}"
+      printf 'Runtime image build completed: %s\n' "${RUNTIME_IMAGE}" >&2
+      return 0
+      ;;
+  esac
+
   build_image "${COMPILE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.compile" \
     --build-arg BASE_IMAGE="${BASE_IMAGE}"
   build_image "${CONTROLPLANE_IMAGE}" "${ROOT_DIR}/images/Dockerfile.controlplane-base" \

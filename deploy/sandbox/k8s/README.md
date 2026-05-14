@@ -40,6 +40,8 @@ bash deploy/sandbox/k8s/build-images.sh
 bash deploy/sandbox/k8s/push-images-swr.sh
 ```
 
+Buildkite pushes per-architecture image tags first, then `package_sandbox_manifest.sh` publishes the final multi-architecture manifest tag used by the Helm values.
+
 4. Run the focused scaffold and chart tests:
 
 ```bash

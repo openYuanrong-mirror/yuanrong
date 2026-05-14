@@ -11,7 +11,13 @@ IMAGE_PLATFORM="${YR_K8S_IMAGE_PLATFORM:-}"
 CACHE_REGISTRY_REPO="${YR_K8S_CACHE_REGISTRY_REPO:-${REGISTRY_REPO}}"
 IMAGE_CACHE_ENABLED="${YR_K8S_IMAGE_CACHE:-0}"
 CACHE_TAG="${YR_K8S_IMAGE_CACHE_TAG:-build-cache}"
+RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
 local_images=(yr-base yr-compile yr-runtime yr-controlplane yr-node)
+push_supports_platform=""
+
+case "${RUNTIME_ONLY}" in
+  1|true|TRUE|yes|YES|on|ON) local_images=(yr-runtime) ;;
+esac
 
 declare -A LOCAL_TO_REMOTE=(
   ["yr-base"]="${REGISTRY_REPO}/yr-base:${IMAGE_TAG}"
@@ -30,6 +36,31 @@ require_local_image() {
   fi
 }
 
+docker_push_supports_platform() {
+  if [ -z "${push_supports_platform}" ]; then
+    if "${DOCKER_BIN}" push --help 2>&1 | grep -q -- '--platform'; then
+      push_supports_platform=1
+    else
+      push_supports_platform=0
+    fi
+  fi
+  [ "${push_supports_platform}" = "1" ]
+}
+
+push_remote_image() {
+  local remote_image="$1"
+
+  if [ -n "${IMAGE_PLATFORM}" ] && docker_push_supports_platform; then
+    "${DOCKER_BIN}" push --platform "${IMAGE_PLATFORM}" "${remote_image}"
+  else
+    if [ -n "${IMAGE_PLATFORM}" ] && ! docker_push_supports_platform; then
+      printf 'Docker push does not support --platform; pushing local image for %s without platform flag.\n' \
+        "${IMAGE_PLATFORM}" >&2
+    fi
+    "${DOCKER_BIN}" push "${remote_image}"
+  fi
+}
+
 push_image() {
   local local_image="$1"
   local remote_image="$2"
@@ -38,21 +69,13 @@ push_image() {
   "${DOCKER_BIN}" tag "${local_image}:latest" "${remote_image}"
 
   printf 'Pushing %s\n' "${remote_image}" >&2
-  if [ -n "${IMAGE_PLATFORM}" ]; then
-    "${DOCKER_BIN}" push --platform "${IMAGE_PLATFORM}" "${remote_image}"
-  else
-    "${DOCKER_BIN}" push "${remote_image}"
-  fi
+  push_remote_image "${remote_image}"
 
   if [ "${IMAGE_CACHE_ENABLED}" = "1" ]; then
     local cache_image="${CACHE_REGISTRY_REPO}/${local_image}:${CACHE_TAG}"
     printf 'Updating image cache %s:latest -> %s\n' "${local_image}" "${cache_image}" >&2
     "${DOCKER_BIN}" tag "${local_image}:latest" "${cache_image}"
-    if [ -n "${IMAGE_PLATFORM}" ]; then
-      "${DOCKER_BIN}" push --platform "${IMAGE_PLATFORM}" "${cache_image}"
-    else
-      "${DOCKER_BIN}" push "${cache_image}"
-    fi
+    push_remote_image "${cache_image}"
   fi
 }
 

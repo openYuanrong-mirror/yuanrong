@@ -13,8 +13,8 @@ WORKDIR /openyuanrong
 
 COPY openyuanrong-*.whl /tmp/pkg/
 COPY openyuanrong_sdk*.whl /tmp/pkg/
-COPY --from=deploy bin/start-master.sh /usr/local/bin/start-master.sh
-COPY --from=deploy bin/start-frontend.sh /usr/local/bin/start-frontend.sh
+COPY .yr-k8s-deploy/bin/start-master.sh /usr/local/bin/start-master.sh
+COPY .yr-k8s-deploy/bin/start-frontend.sh /usr/local/bin/start-frontend.sh
 
 RUN set -euo pipefail \
     && resolve_single_wheel() { \

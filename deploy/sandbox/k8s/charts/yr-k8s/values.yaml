@@ -43,7 +43,7 @@ global:
             timeout: 900
             cpu: 500
             memory: 500
-            runtime: python3.9
+            runtime: python3.10
             concurrentNum: 20
           py39:
             timeout: 900
