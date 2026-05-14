@@ -31,6 +31,8 @@ from requests.exceptions import RequestException
 from typing import Any, Dict, Optional
 import traceback
 from urllib.parse import urlencode
+import urllib.error
+import urllib.request
 
 import yr
 from yr.cli.exec import copy_from_remote, copy_to_remote, run_client
@@ -616,7 +618,103 @@ def should_fallback_to_frontend_for_sandbox_create(error):
     return any(marker in error_text for marker in fallback_markers)
 
 
-def create_sandbox_via_frontend(namespace, name, runtime):
+def parse_sandbox_port_forwardings(ports):
+    port_forwardings = []
+    for port_forward in ports or ():
+        parts = port_forward.split(":")
+        if len(parts) == 1:
+            protocol = "TCP"
+            port_str = parts[0]
+        elif len(parts) == 2:
+            protocol, port_str = parts
+            protocol = protocol.upper()
+        else:
+            raise ValueError(
+                f"invalid port forwarding format: {port_forward}. Expected PORT or PROTOCOL:PORT"
+            )
+
+        try:
+            port = int(port_str)
+        except ValueError as e:
+            raise ValueError(f"invalid port number: {port_str}") from e
+        if port < 1 or port > 65535:
+            raise ValueError(f"port must be in [1, 65535], got {port}")
+        if protocol not in ("TCP", "UDP"):
+            raise ValueError(f"protocol must be TCP or UDP, got {protocol}")
+        port_forwardings.append(yr.PortForwarding(port=port, protocol=protocol))
+    return port_forwardings
+
+
+def build_sandbox_rootfs_option(image):
+    return json.dumps(
+        {
+            "runtime": "runsc",
+            "type": "image",
+            "imageurl": image,
+        }
+    )
+
+
+def build_sandbox_network_option(port_forwardings):
+    return json.dumps(
+        {
+            "portForwardings": [
+                {"port": pf.port, "protocol": pf.protocol} for pf in port_forwardings
+            ]
+        }
+    )
+
+
+def print_sandbox_port_forwarding_urls(instance_id, port_forwardings):
+    if not port_forwardings:
+        return
+    from yr.sandbox.sandbox import _print_gateway_urls
+
+    _print_gateway_urls(instance_id, port_forwardings)
+
+
+def wait_sandbox_gateway_route(url, timeout=30):
+    deadline = time.time() + timeout
+    last_error = None
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=2).close()
+            return True
+        except urllib.error.HTTPError as err:
+            if err.code != 404:
+                return True
+            last_error = err
+        except Exception as err:
+            last_error = err
+        time.sleep(1)
+    logging.debug("sandbox gateway route is not ready: url=%s, error=%s", url, last_error)
+    return False
+
+
+def setup_sandbox_tunnel(sandbox, instance_id, upstream, proxy_port):
+    tunnel_port = proxy_port - 1
+    yr.get(sandbox.start_tunnel_server.invoke(tunnel_port, proxy_port))
+
+    from yr.sandbox.sandbox import _build_gateway_url, _get_gateway_host
+    from yr.sandbox.tunnel_client import TunnelClient
+
+    gateway_host = _get_gateway_host()
+    tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
+    tunnel_ws_url = tunnel_url.replace("https://", "wss://").replace("http://", "ws://")
+    wait_sandbox_gateway_route(tunnel_url, timeout=30)
+    tunnel_client = TunnelClient(upstream)
+    connected = tunnel_client.start(tunnel_ws_url, timeout=30.0)
+    return {
+        "tunnel_client": tunnel_client,
+        "tunnel_ws_url": tunnel_ws_url,
+        "proxy_url": f"http://127.0.0.1:{proxy_port}",
+        "connected": connected,
+    }
+
+
+def create_sandbox_via_frontend(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+    if upstream:
+        return False, "", {"error": "frontend sandbox create fallback does not support --upstream tunnel"}
     http_client = HTTPClient(
         timeout=SANDBOX_CREATE_HTTP_TIMEOUT,
         client_cert=__client_cert,
@@ -630,12 +728,12 @@ def create_sandbox_via_frontend(namespace, name, runtime):
     headers = {}
     if __user:
         headers["X-Tenant-ID"] = __user
-    resp = http_client.request(
-        url,
-        {"name": name, "namespace": namespace, "runtime": runtime},
-        headers=headers,
-        method="POST",
-    )
+    payload = {"name": name, "namespace": namespace, "runtime": runtime}
+    if image:
+        payload["rootfs"] = image
+    if ports:
+        payload["ports"] = builtins.list(ports)
+    resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         data = resp["data"]
         return True, decode_frontend_sandbox_instance_id(data), data
@@ -658,7 +756,7 @@ def build_sandbox_sdk_config(runtime):
     return cfg
 
 
-def create_sandbox_via_sdk(namespace, name, runtime):
+def create_sandbox_via_sdk(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
     cfg = build_sandbox_sdk_config(runtime)
     yr.init(cfg)
     try:
@@ -670,9 +768,24 @@ def create_sandbox_via_sdk(namespace, name, runtime):
         opt.name = name
         opt.namespace = namespace
         opt.skip_serialize = True
+        if image:
+            opt.custom_extensions["rootfs"] = build_sandbox_rootfs_option(image)
+        port_forwardings = parse_sandbox_port_forwardings(ports)
+        if upstream:
+            tunnel_port = proxy_port - 1
+            port_forwardings.append(yr.PortForwarding(port=tunnel_port, protocol="TCP"))
+        opt.port_forwardings = port_forwardings
+        if port_forwardings:
+            opt.custom_extensions["network"] = build_sandbox_network_option(port_forwardings)
 
         sandbox = yr.sandbox.SandboxInstance.options(opt).invoke()
-        return sandbox.real_id
+        instance_id = resolve_created_sandbox_instance_id(namespace, name, sandbox.real_id)
+        if port_forwardings:
+            print_sandbox_port_forwarding_urls(instance_id, port_forwardings)
+        tunnel_info = None
+        if upstream:
+            tunnel_info = setup_sandbox_tunnel(sandbox, instance_id, upstream, proxy_port)
+        return instance_id, tunnel_info
     finally:
         yr.finalize()
 
@@ -695,20 +808,39 @@ def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30
     return instance_id
 
 
-def create_sandbox_auto(namespace, name, runtime):
+def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
     try:
-        instance_id = create_sandbox_via_sdk(namespace, name, runtime)
-        return resolve_created_sandbox_instance_id(namespace, name, instance_id), None
+        instance_id, tunnel_info = create_sandbox_via_sdk(
+            namespace,
+            name,
+            runtime,
+            image=image,
+            ports=ports,
+            upstream=upstream,
+            proxy_port=proxy_port,
+        )
+        resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
+        return resolved_id, tunnel_info
     except Exception as sdk_error:
         if not should_fallback_to_frontend_for_sandbox_create(sdk_error):
             raise
+        if upstream:
+            raise RuntimeError("SDK sandbox create is required for --upstream tunnel") from sdk_error
 
-    supported, instance_id, data = create_sandbox_via_frontend(namespace, name, runtime)
+    supported, instance_id, data = create_sandbox_via_frontend(
+        namespace,
+        name,
+        runtime,
+        image=image,
+        ports=ports,
+        upstream=upstream,
+        proxy_port=proxy_port,
+    )
     if supported:
         resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
         ret, instance = query_instance(resolved_id, __user)
         if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
-            return resolved_id, data
+            return resolved_id, None
         raise RuntimeError(
             f"frontend sandbox create produced incompatible instance: {json.dumps(instance if ret else data, ensure_ascii=False)}"
         )
@@ -1145,16 +1277,58 @@ def sandbox():
     show_default=True,
     help="Runtime for sandbox instance",
 )
-def sandbox_create(namespace, name, runtime):
+@click.option(
+    "--image",
+    "--rootfs",
+    "image",
+    required=False,
+    type=str,
+    help="Custom sandbox rootfs/container image",
+)
+@click.option(
+    "--port",
+    "--port-forward",
+    "ports",
+    multiple=True,
+    type=str,
+    help="Forward sandbox port through gateway, format PORT or PROTOCOL:PORT",
+)
+@click.option(
+    "--upstream",
+    required=False,
+    type=str,
+    default=None,
+    help="Local upstream address for reverse tunnel, for example 127.0.0.1:8000",
+)
+@click.option(
+    "--proxy-port",
+    required=False,
+    type=int,
+    default=8766,
+    show_default=True,
+    help="HTTP proxy port inside sandbox when --upstream is set",
+)
+def sandbox_create(namespace, name, runtime, image=None, ports=(), upstream=None, proxy_port=8766):
     """Create a detached sandbox instance."""
     if not __server_address:
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        sys.exit(1)
+    if upstream and (proxy_port < 2 or proxy_port > 65535):
+        print("Error: --proxy-port must be in [2, 65535].")
         sys.exit(1)
     namespace = namespace or DEFAULT_SANDBOX_NAMESPACE
     name = name or uuid.uuid4().hex
 
     try:
-        instance_id, data = create_sandbox_auto(namespace, name, runtime)
+        instance_id, data = create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=image,
+            ports=ports,
+            upstream=upstream,
+            proxy_port=proxy_port,
+        )
     except Exception as e:
         print(f"sandbox create failed, name={name}, namespace={namespace}, runtime={runtime}, error={e}")
         sys.exit(1)
@@ -1162,6 +1336,24 @@ def sandbox_create(namespace, name, runtime):
         print(f"sandbox created, instance_id={instance_id}")
     else:
         print(f"sandbox created, response={json.dumps(data, ensure_ascii=False)}")
+    if data and data.get("tunnel_client"):
+        print(f"tunnel websocket: {data['tunnel_ws_url']}")
+        print(f"sandbox upstream proxy: {data['proxy_url']}")
+        if data.get("connected"):
+            print("tunnel connected, press Ctrl+C to stop the local tunnel client")
+        else:
+            print("tunnel connecting in background, press Ctrl+C to stop the local tunnel client")
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            tunnel_client = data.get("tunnel_client")
+            if tunnel_client:
+                try:
+                    tunnel_client.stop()
+                except Exception as e:
+                    print(f"failed to stop tunnel client: {e}")
+            print("tunnel disconnected")
 
 
 @sandbox.command("list")
@@ -1753,10 +1945,12 @@ def exec(stdin, tty, verify_server, instance, command):
                 ca_file=__ca_cert,
                 verify_server=verify_server and not __insecure,
                 token=__jwt_token,
+                quiet=not tty,
             )
         )
     except KeyboardInterrupt:
-        print("\nDisconnected", file=sys.stderr)
+        if tty:
+            print("\nDisconnected", file=sys.stderr)
 
 
 @cli.command("cp")

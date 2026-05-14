@@ -2,10 +2,13 @@ ARG BASE_IMAGE=yr-base
 FROM ${BASE_IMAGE}
 
 COPY openyuanrong_sdk*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl && \
+COPY openyuanrong-*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl /tmp/openyuanrong-*.whl && \
     python_bin_dir="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" && \
+    python -c 'from pathlib import Path; import yr; runtime = Path(yr.__file__).parent / "inner/runtime/service"; target = Path("/openyuanrong/runtime"); target.mkdir(parents=True, exist_ok=True); link = target / "service"; link.unlink(missing_ok=True); link.symlink_to(runtime)' && \
+    test -L /openyuanrong/runtime/service && test -e /openyuanrong/runtime/service && \
     test -x "${python_bin_dir}/yrcli" && \
     ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli && \
-    rm -f /tmp/openyuanrong_sdk*.whl
+    rm -f /tmp/openyuanrong_sdk*.whl /tmp/openyuanrong-*.whl
 
 WORKDIR /root

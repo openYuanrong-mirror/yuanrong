@@ -64,16 +64,19 @@ def create_ssl_context(
         # Load client certificate and key for mutual authentication
         if cert_file and key_file:
             if not os.path.exists(cert_file):
-                print(f"Warning: Client certificate file not found: {cert_file}", file=sys.stderr)
+                if not quiet:
+                    print(f"Warning: Client certificate file not found: {cert_file}", file=sys.stderr)
             elif not os.path.exists(key_file):
-                print(f"Warning: Client key file not found: {key_file}", file=sys.stderr)
+                if not quiet:
+                    print(f"Warning: Client key file not found: {key_file}", file=sys.stderr)
             else:
                 ssl_context.load_cert_chain(cert_file, key_file)
         
         # Load CA certificate for server verification
         if ca_file:
             if not os.path.exists(ca_file):
-                print(f"Warning: CA certificate file not found: {ca_file}", file=sys.stderr)
+                if not quiet:
+                    print(f"Warning: CA certificate file not found: {ca_file}", file=sys.stderr)
             else:
                 ssl_context.load_verify_locations(ca_file)
         else:
@@ -89,7 +92,8 @@ def create_ssl_context(
         
         return ssl_context
     except Exception as e:
-        print(f"Error creating SSL context: {e}", file=sys.stderr)
+        if not quiet:
+            print(f"Error creating SSL context: {e}", file=sys.stderr)
         return None
 
 
@@ -108,7 +112,7 @@ class RawTerminal:
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
 
 
-async def read_stdin(ws, should_exit):
+async def read_stdin(ws, should_exit, quiet=False):
     """读取标准输入并发送到 WebSocket"""
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader(loop=loop)
@@ -116,7 +120,8 @@ async def read_stdin(ws, should_exit):
     try:
         await loop.connect_read_pipe(lambda: protocol, sys.stdin)
     except Exception as e:
-        print(f"Warning: failed to attach stdin pipe: {e}", file=sys.stderr)
+        if not quiet:
+            print(f"Warning: failed to attach stdin pipe: {e}", file=sys.stderr)
         return
 
     try:
@@ -138,7 +143,7 @@ async def read_stdin(ws, should_exit):
         pass
 
 
-async def heartbeat_loop(ws, should_exit, ping_interval=30, ping_timeout=10):
+async def heartbeat_loop(ws, should_exit, ping_interval=30, ping_timeout=10, quiet=False):
     """定期发送 WebSocket ping，超时则退出。"""
     while not should_exit.is_set():
         await asyncio.sleep(ping_interval)
@@ -148,7 +153,8 @@ async def heartbeat_loop(ws, should_exit, ping_interval=30, ping_timeout=10):
             pong = await ws.ping()
             await asyncio.wait_for(pong, timeout=ping_timeout)
         except (asyncio.TimeoutError, websockets.ConnectionClosed):
-            print("\r\n[Connection lost: heartbeat timeout]", file=sys.stderr)
+            if not quiet:
+                print("\r\n[Connection lost: heartbeat timeout]", file=sys.stderr)
             should_exit.set()
             return
 
@@ -542,19 +548,21 @@ async def run_client(
 
             interactive = tty and sys.stdin.isatty()
 
+            if tty:
+                await send_terminal_resize(ws, rows=rows, cols=cols)
+
             if interactive:
                 raw_term = RawTerminal(sys.stdin.fileno())
                 raw_term.__enter__()
-                await send_terminal_resize(ws, rows=rows, cols=cols)
 
             try:
                 # 同时处理输入和输出
                 tasks = [
                     asyncio.create_task(read_websocket(ws, should_exit, quiet=quiet)),
-                    asyncio.create_task(heartbeat_loop(ws, should_exit)),
+                    asyncio.create_task(heartbeat_loop(ws, should_exit, quiet=quiet)),
                 ]
                 if stdin or interactive:
-                    tasks.append(asyncio.create_task(read_stdin(ws, should_exit)))
+                    tasks.append(asyncio.create_task(read_stdin(ws, should_exit, quiet=quiet)))
                 if interactive:
                     tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))
 
@@ -573,6 +581,8 @@ async def run_client(
                 if interactive:
                     raw_term.__exit__(None, None, None)
     except KeyboardInterrupt:
-        print("\n[Interrupted]", file=sys.stderr)
+        if not quiet:
+            print("\n[Interrupted]", file=sys.stderr)
     except Exception as e:
-        print(f"\nConnection error: {e}", file=sys.stderr)
+        if not quiet:
+            print(f"\nConnection error: {e}", file=sys.stderr)

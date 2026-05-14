@@ -5,7 +5,7 @@ import io
 from pathlib import Path
 import sys
 import types
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 import unittest
 
@@ -259,8 +259,8 @@ class TestCliScripts(unittest.TestCase):
 
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime):
-            create_calls.append((namespace, name, runtime))
+        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
             return f"{namespace}-{name}", None
 
         with (
@@ -270,7 +270,10 @@ class TestCliScripts(unittest.TestCase):
         ):
             scripts.sandbox_create(None, None, scripts.DEFAULT_SANDBOX_RUNTIME)
 
-        self.assertEqual(create_calls, [(scripts.DEFAULT_SANDBOX_NAMESPACE, "name-id", scripts.DEFAULT_SANDBOX_RUNTIME)])
+        self.assertEqual(
+            create_calls,
+            [(scripts.DEFAULT_SANDBOX_NAMESPACE, "name-id", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766)],
+        )
         self.assertIn("sandbox created, instance_id=default-name-id", output.getvalue())
         uuid4_mock.assert_called_once_with()
 
@@ -280,8 +283,8 @@ class TestCliScripts(unittest.TestCase):
 
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime):
-            create_calls.append((namespace, name, runtime))
+        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
             return f"{namespace}-{name}", None
 
         with (
@@ -291,8 +294,89 @@ class TestCliScripts(unittest.TestCase):
         ):
             scripts.sandbox_create("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME)
 
-        self.assertEqual(create_calls, [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME)])
+        self.assertEqual(create_calls, [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766)])
         uuid4_mock.assert_not_called()
+
+    def test_sandbox_create_passes_custom_image_to_create_flow(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        create_calls = []
+
+        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+            return f"{namespace}-{name}", None
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto", fake_create_sandbox_auto),
+            redirect_stdout(io.StringIO()),
+        ):
+            scripts.sandbox_create("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, "python:3.12-slim")
+
+        self.assertEqual(
+            create_calls,
+            [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, "python:3.12-slim", (), None, 8766)],
+        )
+
+    def test_sandbox_create_passes_ports_and_tunnel_to_create_flow(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        create_calls = []
+
+        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+            return f"{namespace}-{name}", None
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto", fake_create_sandbox_auto),
+            redirect_stdout(io.StringIO()),
+        ):
+            scripts.sandbox_create(
+                "custom-ns",
+                "custom-name",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                None,
+                ("8080", "udp:9090"),
+                "127.0.0.1:8000",
+                9000,
+            )
+
+        self.assertEqual(
+            create_calls,
+            [
+                (
+                    "custom-ns",
+                    "custom-name",
+                    scripts.DEFAULT_SANDBOX_RUNTIME,
+                    None,
+                    ("8080", "udp:9090"),
+                    "127.0.0.1:8000",
+                    9000,
+                )
+            ],
+        )
+
+    def test_sandbox_create_rejects_invalid_proxy_port_upper_bound(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto") as create_sandbox_auto,
+            self.assertRaises(SystemExit) as ctx,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.sandbox_create(
+                "custom-ns",
+                "custom-name",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                None,
+                (),
+                "127.0.0.1:8000",
+                65536,
+            )
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("--proxy-port must be in [2, 65535]", output.getvalue())
+        create_sandbox_auto.assert_not_called()
 
     def test_sandbox_runtime_function_id_uses_py310_suffix(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -318,6 +402,11 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self):
                 self.custom_extensions = {}
 
+        class FakePortForwarding:
+            def __init__(self, port, protocol="TCP"):
+                self.port = port
+                self.protocol = protocol
+
         fake_sandbox_instance = mock.Mock()
         fake_sandbox_instance.instance_id = "default-name-id"
         fake_sandbox_instance.real_id = "real-instance-id"
@@ -329,13 +418,45 @@ class TestCliScripts(unittest.TestCase):
         fake_yr = mock.Mock()
         fake_yr.Config = FakeConfig
         fake_yr.InvokeOptions = FakeInvokeOptions
+        fake_yr.PortForwarding = FakePortForwarding
         fake_yr.sandbox.SandboxInstance = fake_sandbox_instance_class
 
-        with mock.patch.object(scripts, "yr", fake_yr):
-            instance_id = scripts.create_sandbox_via_sdk("default", "name-id", scripts.DEFAULT_SANDBOX_RUNTIME)
+        with (
+            mock.patch.object(scripts, "yr", fake_yr),
+            mock.patch.object(scripts, "print_sandbox_port_forwarding_urls") as print_urls,
+            mock.patch.object(scripts, "resolve_created_sandbox_instance_id", return_value="real-instance-id") as resolve_id,
+        ):
+            instance_id, tunnel_info = scripts.create_sandbox_via_sdk(
+                "default",
+                "name-id",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                image="python:3.12-slim",
+                ports=("8080", "udp:9090"),
+            )
 
         self.assertEqual(instance_id, "real-instance-id")
+        self.assertIsNone(tunnel_info)
+        invoke_opt = fake_options.call_args.args[0]
+        self.assertEqual(
+            scripts.json.loads(invoke_opt.custom_extensions["rootfs"]),
+            {"runtime": "runsc", "type": "image", "imageurl": "python:3.12-slim"},
+        )
+        self.assertEqual(
+            [(pf.port, pf.protocol) for pf in invoke_opt.port_forwardings],
+            [(8080, "TCP"), (9090, "UDP")],
+        )
+        self.assertEqual(
+            scripts.json.loads(invoke_opt.custom_extensions["network"]),
+            {
+                "portForwardings": [
+                    {"port": 8080, "protocol": "TCP"},
+                    {"port": 9090, "protocol": "UDP"},
+                ]
+            },
+        )
+        print_urls.assert_called_once_with("real-instance-id", invoke_opt.port_forwardings)
         fake_yr.get.assert_not_called()
+        resolve_id.assert_called_once_with("default", "name-id", "real-instance-id")
         fake_yr.init.assert_called_once()
         fake_yr.finalize.assert_called_once()
 
@@ -344,7 +465,7 @@ class TestCliScripts(unittest.TestCase):
         setattr(scripts, "__server_address", "frontend.example")
 
         with (
-            mock.patch.object(scripts, "create_sandbox_via_sdk", return_value="sdk-real-id") as sdk_create,
+            mock.patch.object(scripts, "create_sandbox_via_sdk", return_value=("sdk-real-id", None)) as sdk_create,
             mock.patch.object(scripts, "create_sandbox_via_frontend") as frontend_create,
             mock.patch.object(scripts, "query_instance", return_value=(True, {"id": "actual-sdk-id"})),
         ):
@@ -352,7 +473,15 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(instance_id, "actual-sdk-id")
         self.assertIsNone(data)
-        sdk_create.assert_called_once_with("default", "box", "python3.10")
+        sdk_create.assert_called_once_with(
+            "default",
+            "box",
+            "python3.10",
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+        )
         frontend_create.assert_not_called()
 
     def test_create_sandbox_auto_uses_frontend_api_when_sdk_is_unsupported(self):
@@ -386,15 +515,68 @@ class TestCliScripts(unittest.TestCase):
                 ),
             ),
         ):
-            instance_id, data = scripts.create_sandbox_auto("tenant-a", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+            instance_id, data = scripts.create_sandbox_auto(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                image="python:3.12-slim",
+            )
 
         self.assertEqual(instance_id, "actual-tenant-a-box")
-        self.assertEqual(data, {"data": encoded})
+        self.assertIsNone(data)
         self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/create")
-        self.assertEqual(FakeHTTPClient.data, {"name": "box", "namespace": "tenant-a", "runtime": "python3.10"})
+        self.assertEqual(
+            FakeHTTPClient.data,
+            {
+                "name": "box",
+                "namespace": "tenant-a",
+                "runtime": "python3.10",
+                "rootfs": "python:3.12-slim",
+            },
+        )
         self.assertEqual(FakeHTTPClient.headers, {"X-Tenant-ID": "tenant-a"})
         self.assertEqual(FakeHTTPClient.method, "POST")
-        sdk_create.assert_called_once_with("tenant-a", "box", "python3.10")
+        sdk_create.assert_called_once_with(
+            "tenant-a",
+            "box",
+            "python3.10",
+            image="python:3.12-slim",
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+        )
+
+    def test_create_sandbox_via_frontend_passes_ports(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        setattr(scripts, "__user", "tenant-a")
+        encoded = scripts.base64.b64encode(
+            scripts.json.dumps({"instance_id": "tenant-a-box"}).encode()
+        ).decode()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                self.__class__.data = data
+                return {"success": True, "data": {"data": encoded}}
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            supported, instance_id, data = scripts.create_sandbox_via_frontend(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                ports=("8080", "udp:9090"),
+            )
+
+        self.assertTrue(supported)
+        self.assertEqual(instance_id, "tenant-a-box")
+        self.assertEqual(data, {"data": encoded})
+        self.assertEqual(
+            FakeHTTPClient.data,
+            {"name": "box", "namespace": "tenant-a", "runtime": "python3.10", "ports": ["8080", "udp:9090"]},
+        )
 
     def test_create_sandbox_auto_does_not_fallback_for_duplicate_sdk_error(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -432,7 +614,15 @@ class TestCliScripts(unittest.TestCase):
         ):
             scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
 
-        sdk_create.assert_called_once_with("default", "box", "python3.10")
+        sdk_create.assert_called_once_with(
+            "default",
+            "box",
+            "python3.10",
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+        )
 
     def test_sandbox_list_prints_header_and_status(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -579,6 +769,41 @@ class TestCliScripts(unittest.TestCase):
         self.assertIsNone(captured["kwargs"]["cert_file"])
         self.assertIsNone(captured["kwargs"]["key_file"])
         self.assertEqual(captured["kwargs"]["token"], "token")
+        self.assertTrue(captured["kwargs"]["quiet"])
+
+    def test_exec_keeps_tty_mode_verbose(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "124.70.166.142:443")
+        setattr(scripts, "__client_cert", None)
+        setattr(scripts, "__client_key", None)
+        setattr(scripts, "__ca_cert", None)
+        setattr(scripts, "__insecure", True)
+        captured = {}
+
+        async def fake_run_client(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+        with mock.patch.object(scripts, "run_client", fake_run_client):
+            scripts.exec(False, True, True, "instance-id", "bash")
+
+        self.assertFalse(captured["kwargs"]["quiet"])
+
+    def test_exec_without_tty_suppresses_keyboard_interrupt_message(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "124.70.166.142:443")
+        setattr(scripts, "__client_cert", None)
+        setattr(scripts, "__client_key", None)
+        setattr(scripts, "__ca_cert", None)
+        setattr(scripts, "__insecure", True)
+        stderr = io.StringIO()
+
+        async def fake_run_client(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(scripts, "run_client", fake_run_client), redirect_stderr(stderr):
+            scripts.exec(False, False, True, "instance-id", "bash")
+
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
