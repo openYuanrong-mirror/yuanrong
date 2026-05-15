@@ -378,7 +378,12 @@ if [ -n "${REMOTE_CACHE}" ]; then
     fi
 fi
 
-if [ "$BAZEL_COMMAND" != "clean" ]; then
+if [ -n "${BAZEL_REPOSITORY_CACHE:-}" ]; then
+    mkdir -p "${BAZEL_REPOSITORY_CACHE}"
+    BAZEL_OPTIONS="$BAZEL_OPTIONS --repository_cache=${BAZEL_REPOSITORY_CACHE}"
+fi
+
+if [ "$BAZEL_COMMAND" != "clean" ] && [ "${SKIP_RUNTIME_DEPENDENCY_DOWNLOAD:-0}" != "1" ]; then
    bash ${BASE_DIR}/tools/download_dependency.sh
 fi
 

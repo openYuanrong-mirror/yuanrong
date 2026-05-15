@@ -4,8 +4,10 @@ set -e
 BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
 SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260506_kubectl}"
 SANDBOX_DEPLOYER_IMAGE="${SANDBOX_DEPLOYER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-deployer:v20260506_kubectl_py39}"
-ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-true}"
+ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"
 ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
+ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"
+ENABLE_RUNTIME_ARM="${ENABLE_RUNTIME_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
 ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
 ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
@@ -14,6 +16,7 @@ FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanro
 FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
 BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
+ENABLE_TEST_PYPI_PUBLISH="${ENABLE_TEST_PYPI_PUBLISH:-${PUBLISH_TEST_PYPI:-true}}"
 SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"
 SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"
 
@@ -281,6 +284,7 @@ YAML
 }
 
 echo "steps:"
+if is_enabled "${ENABLE_RUNTIME_X86}"; then
 cat << YAML
   - label: ":rocket: Build X86"
     key: "build-all-amd64"
@@ -494,6 +498,13 @@ cat << YAML
       else
         python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
+        OBS_UPLOAD_CHANNEL="daily"
+        OBS_UPLOAD_VERSION_ARGS=""
+        if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+          OBS_UPLOAD_CHANNEL="release"
+          OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
+        fi
+        echo "OBS upload channel: \$\$OBS_UPLOAD_CHANNEL"
         UPLOAD_OK=0
         UPLOAD_FAIL=0
         OBS_URLS_FILE=artifacts/release/obs-urls.txt
@@ -504,7 +515,8 @@ cat << YAML
           if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
               --file "\$\$f" \
               --kind build \
-              --channel daily \
+              --channel "\$\$OBS_UPLOAD_CHANNEL" \
+              \$\$OBS_UPLOAD_VERSION_ARGS \
               --arch "\$\${BUILD_ARCH:-x86_64}" \
               --platform linux \
               --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
@@ -581,6 +593,7 @@ cat << YAML
     artifact_paths:
       - "artifacts/release/**/*"
 YAML
+fi
 
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
@@ -609,6 +622,11 @@ cat << YAML
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
       export GOCACHE=\$\$CACHE_BASE/go-cache/amd64
       export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
+      mkdir -p \$\$CACHE_BASE/bazel-repository-cache/amd64
+      export BAZEL_REPOSITORY_CACHE=\$\$CACHE_BASE/bazel-repository-cache/amd64
+      export BUILD_ARCH=amd64
+      bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
+      export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
@@ -756,6 +774,7 @@ esac
 
 case "${ENABLE_LINUX_ARM}" in
   1|true|TRUE|yes|YES|on|ON)
+if is_enabled "${ENABLE_RUNTIME_ARM}"; then
 cat << YAML
   - label: ":penguin: Build arm"
     key: "build-all-arm64"
@@ -942,6 +961,13 @@ cat << YAML
       else
         python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
+        OBS_UPLOAD_CHANNEL="daily"
+        OBS_UPLOAD_VERSION_ARGS=""
+        if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+          OBS_UPLOAD_CHANNEL="release"
+          OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
+        fi
+        echo "OBS upload channel: \$\$OBS_UPLOAD_CHANNEL"
         UPLOAD_OK=0
         UPLOAD_FAIL=0
         OBS_URLS_FILE=artifacts/release/obs-urls.txt
@@ -952,7 +978,8 @@ cat << YAML
           if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
               --file "\$\$f" \
               --kind build \
-              --channel daily \
+              --channel "\$\$OBS_UPLOAD_CHANNEL" \
+              \$\$OBS_UPLOAD_VERSION_ARGS \
               --arch arm64 \
               --platform linux \
               --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
@@ -1032,6 +1059,7 @@ cat << YAML
     artifact_paths:
       - "artifacts/release/**/*"
 YAML
+fi
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
 cat << YAML
@@ -1060,6 +1088,10 @@ cat << YAML
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
       export GOCACHE=\$\$CACHE_BASE/go-cache/arm64
       export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
+      mkdir -p \$\$CACHE_BASE/bazel-repository-cache/arm64
+      export BAZEL_REPOSITORY_CACHE=\$\$CACHE_BASE/bazel-repository-cache/arm64
+      bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
+      export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
@@ -1316,4 +1348,6 @@ done
 ;;
 esac
 
-emit_test_pypi_publish
+if is_enabled "${ENABLE_TEST_PYPI_PUBLISH}"; then
+  emit_test_pypi_publish
+fi

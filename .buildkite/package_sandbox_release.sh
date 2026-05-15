@@ -228,10 +228,23 @@ upload_helm_to_obs_if_configured() {
     python3 -c "from obs import ObsClient"
     local chart_pkg
     chart_pkg="$(find "${HELM_DIR}" -maxdepth 1 -type f -name 'yr-k8s-*.tgz' | sort | tail -1)"
+    local obs_channel="daily"
+    local release_tag="${YR_RELEASE_TAG:-${BUILDKITE_TAG:-}}"
+    release_tag="${release_tag#refs/tags/}"
+    case "${release_tag}" in
+        v[0-9]*) release_tag="${release_tag#v}" ;;
+    esac
+    local version_args=()
+    if [ -n "${release_tag}" ]; then
+        obs_channel="release"
+        version_args=(--version "${release_tag}")
+    fi
+    printf 'OBS upload channel: %s\n' "${obs_channel}"
     python3 tools/upload_build_artifact.py \
         --file "${chart_pkg}" \
         --kind build \
-        --channel daily \
+        --channel "${obs_channel}" \
+        "${version_args[@]}" \
         --platform helm \
         --arch noarch \
         --timestamp "$(date '+%Y%m%d%H%M%S')"
