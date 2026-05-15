@@ -12,6 +12,7 @@ exec /usr/local/bin/yr start \
   --faas_frontend_http_port 8889 \
   --enable_traefik_registry true \
   --traefik_http_entrypoint web \
+  --traefik_enable_tls false \
   --enable_function_scheduler true \
   --function_scheduler_lease_port 8890 \
   --enable_meta_service true \

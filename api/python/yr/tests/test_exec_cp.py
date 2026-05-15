@@ -8,6 +8,7 @@ import tempfile
 import tarfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stderr
 from urllib.parse import parse_qs, unquote, urlparse
 from unittest.mock import patch
 
@@ -337,6 +338,27 @@ class TestDeployCLI(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         self.assertEqual(package_calls, [("ds", ".", "zip", "tenant-0")])
+
+
+class TestExecQuietMode(unittest.TestCase):
+
+    def test_run_client_quiet_suppresses_local_connection_error(self):
+        stderr = io.StringIO()
+
+        with patch.object(exec_cli.websockets, "connect", side_effect=RuntimeError("boom")), \
+                redirect_stderr(stderr):
+            asyncio.run(
+                exec_cli.run_client(
+                    "127.0.0.1",
+                    "30123",
+                    instance="inst-1",
+                    command="pwd",
+                    tty=False,
+                    quiet=True,
+                )
+            )
+
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
