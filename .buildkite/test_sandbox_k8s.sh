@@ -11,6 +11,7 @@ SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp3
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
 SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
+OBS_URL_DIR="${ROOT_DIR}/artifacts/obs-urls"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 HELM_BIN="${HELM_BIN:-helm}"
 KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"
@@ -110,11 +111,22 @@ require_bin() {
 }
 
 download_artifacts() {
-    mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "$(dirname "${SANDBOX_METADATA}")"
+    mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}" "$(dirname "${SANDBOX_METADATA}")"
     if command -v buildkite-agent >/dev/null 2>&1; then
-        buildkite-agent artifact download "artifacts/sandbox/metadata/sandbox-release.json" . --step "${PACKAGE_STEP_KEY}"
-        buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/${SMOKE_SDK_WHEEL_PATTERN}" . --step "${SDK_STEP_KEY}"
+        buildkite-agent meta-data get "sandbox-release.${PACKAGE_STEP_KEY}" >"${SANDBOX_METADATA}"
+        mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}" "${OBS_URL_DIR}/${SDK_STEP_KEY}"
+        buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}" \
+            >"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
+        buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
+            >"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
+        python3 .buildkite/download_obs_artifacts.py \
+            --urls-root "${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
+            --output-dir "${RELEASE_ARTIFACT_DIR}" \
+            --pattern "openyuanrong-*.whl"
+        python3 .buildkite/download_obs_artifacts.py \
+            --urls-root "${OBS_URL_DIR}/${SDK_STEP_KEY}" \
+            --output-dir "${SDK_ARTIFACT_DIR}" \
+            --pattern "${SMOKE_SDK_WHEEL_PATTERN}"
     fi
     if compgen -G "${SDK_ARTIFACT_DIR}/${SMOKE_SDK_WHEEL_PATTERN}" >/dev/null; then
         cp -af "${SDK_ARTIFACT_DIR}"/${SMOKE_SDK_WHEEL_PATTERN} "${RELEASE_ARTIFACT_DIR}/"
@@ -128,6 +140,22 @@ download_artifacts() {
 json_field() {
     local field_name="$1"
     python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "${SANDBOX_METADATA}" "${field_name}"
+}
+
+runtime_image_tag() {
+    python3 -c '
+import json
+import sys
+
+metadata = json.load(open(sys.argv[1]))
+image_tag = metadata["image_tag"]
+for image in metadata.get("images", []):
+    if "/yr-runtime:" in image:
+        print(image.rsplit(":", 1)[1])
+        break
+else:
+    print(f"{image_tag}-cp310")
+' "${SANDBOX_METADATA}"
 }
 
 resolve_smoke_python() {
@@ -233,9 +261,11 @@ run_smoke() {
     printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
     YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
     YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
+    YR_OFF_CLUSTER_USE_UV_VENV=false \
     YR_OFF_CLUSTER_TEST_TIMEOUT="${YR_OFF_CLUSTER_TEST_TIMEOUT:-1200}" \
+    UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
     YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
-    bash test/st/run_off_cluster_test.sh -a "${server_address}" -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
+    bash test/st/run_off_cluster_test.sh -a "${server_address}" --no-uv-venv -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
         2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
 }
 
@@ -256,6 +286,11 @@ main() {
     download_artifacts
     export YR_K8S_KUBECONFIG="${KUBECONFIG_PATH}"
     export YR_K8S_IMAGE_TAG="${YR_K8S_IMAGE_TAG:-$(json_field image_tag)}"
+    export YR_K8S_RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-$(runtime_image_tag)}"
+    export YR_K8S_RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${YR_K8S_IMAGE_TAG}-cp39}"
+    export YR_K8S_RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${YR_K8S_RUNTIME_IMAGE_TAG}}"
+    export YR_K8S_RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${YR_K8S_IMAGE_TAG}-cp311}"
+    export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${YR_K8S_IMAGE_TAG}-cp312}"
     export YR_K8S_REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-$(json_field registry)}"
     export HELM_BIN
 
@@ -266,7 +301,6 @@ main() {
     fi
 
     if command -v buildkite-agent >/dev/null 2>&1; then
-        buildkite-agent artifact upload "${SMOKE_LOG_DIR}/**/*" || true
         buildkite-agent annotate --style "success" --context "sandbox-k8s" \
             "Deployed sandbox image tag ${YR_K8S_IMAGE_TAG} to the target K8S cluster and ran smoke checks."
     fi

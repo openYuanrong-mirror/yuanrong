@@ -103,13 +103,10 @@ cat << YAML
     depends_on: "${SANDBOX_FINAL_PACKAGE_STEP}"
     command: |
       set -e
-      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
-      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
       export PATH="/workspace:\$\$PATH"
       bash .buildkite/test_sandbox_k8s.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
-      BUILDKITE_SKIP_CHECKOUT: "true"
       SANDBOX_PACKAGE_STEP_KEY: "${SANDBOX_FINAL_PACKAGE_STEP}"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_AMD64_SDK_STEP}"
     agents:
@@ -146,24 +143,24 @@ cat << YAML
                         key: .dockerconfigjson
                         optional: true
     timeout_in_minutes: 60
-    artifact_paths:
-      - "artifacts/sandbox-smoke/**/*"
 YAML
 }
 
 emit_test_pypi_publish() {
 cat << YAML
-  - label: ":snake: Publish Wheels TestPyPI"
+  - label: ":snake: Publish Wheels PyPI"
     key: "publish-wheels-testpypi"
     depends_on:
 ${SANDBOX_TEST_PYPI_DEPENDS}
     command: |
       set -e
-      rm -rf artifacts/test-pypi-wheels
-      mkdir -p artifacts/test-pypi-wheels
+      rm -rf artifacts/test-pypi-wheels artifacts/test-pypi-urls
+      mkdir -p artifacts/test-pypi-wheels artifacts/test-pypi-urls
       for step_key in ${SANDBOX_SDK_STEPS}; do
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/openyuanrong_sdk*.whl" artifacts/test-pypi-wheels --step "\$\$step_key" || true
+        mkdir -p "artifacts/test-pypi-urls/\$\$step_key"
+        buildkite-agent meta-data get "obs-urls.\$\$step_key" > "artifacts/test-pypi-urls/\$\$step_key/obs-urls.txt" || true
       done
+      python3 .buildkite/download_obs_artifacts.py --urls-root artifacts/test-pypi-urls --output-dir artifacts/test-pypi-wheels --pattern 'openyuanrong_sdk*.whl' --all
       find artifacts/test-pypi-wheels -type f -name 'openyuanrong_sdk*.whl' -print | sort
       bash .buildkite/upload_test_pypi_wheels.sh artifacts/test-pypi-wheels
     env:
@@ -188,9 +185,13 @@ ${SANDBOX_TEST_PYPI_DEPENDS}
                         name: test-pypi-credentials
                         key: api-token
                         optional: true
+                  - name: PYPI_API_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: pypi-credentials
+                        key: api-token
+                        optional: true
     timeout_in_minutes: 30
-    artifact_paths:
-      - "artifacts/test-pypi-wheels/**/*"
 YAML
 }
 
@@ -219,13 +220,10 @@ cat << YAML
       - "${sdk_step}"
     command: |
       set -e
-      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
-      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
       export PATH="/workspace:\$\$PATH"
       bash .buildkite/package_sandbox_release.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
-      BUILDKITE_SKIP_CHECKOUT: "true"
       SANDBOX_SDK_STEP_KEY: "${sdk_step}"
       YR_K8S_RUNTIME_ONLY: "1"
       YR_K8S_IMAGE_ARCH: "${image_arch}"
@@ -278,8 +276,6 @@ ${node_selector}
               - name: docker-graph
                 emptyDir: {}
     timeout_in_minutes: 90
-    artifact_paths:
-      - "artifacts/sandbox/**/*"
 YAML
 }
 
@@ -342,7 +338,6 @@ cat << YAML
           tar -czf "\$\$_LOG_DIR/internal-logs.tar.gz" -T "\$\$_LOG_DIR/file-list.txt" || true
         fi
         ls -lh "\$\$_LOG_DIR" || true
-        buildkite-agent artifact upload "\$\$_LOG_DIR/**/*" || true
       }
       # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)
       # Use bash /dev/tcp (built-in, no nc required) to test connectivity
@@ -407,11 +402,6 @@ cat << YAML
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
-
-      echo "=== [3.6/6] Package CI source snapshot ==="
-      mkdir -p artifacts/ci-source
-      git archive --format=tar HEAD | gzip > artifacts/ci-source/yuanrong-ci-source.tgz
-      buildkite-agent artifact upload "artifacts/ci-source/yuanrong-ci-source.tgz"
 
       (
         set +e
@@ -493,56 +483,19 @@ cat << YAML
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
       echo "=== [6/6] Upload Artifacts to OBS ==="
-      if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
-        echo "WARNING: OBS credentials not set, skipping OBS upload"
-      else
-        python3 -c "from obs import ObsClient"
-        UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
-        OBS_UPLOAD_CHANNEL="daily"
-        OBS_UPLOAD_VERSION_ARGS=""
-        if [ -n "\$\$TAG_BUILD_VERSION" ]; then
-          OBS_UPLOAD_CHANNEL="release"
-          OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
-        fi
-        echo "OBS upload channel: \$\$OBS_UPLOAD_CHANNEL"
-        UPLOAD_OK=0
-        UPLOAD_FAIL=0
-        OBS_URLS_FILE=artifacts/release/obs-urls.txt
-        : > "\$\$OBS_URLS_FILE"
-        for f in artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl; do
-          [ -f "\$\$f" ] || continue
-          echo "Uploading: \$\$f"
-          if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
-              --file "\$\$f" \
-              --kind build \
-              --channel "\$\$OBS_UPLOAD_CHANNEL" \
-              \$\$OBS_UPLOAD_VERSION_ARGS \
-              --arch "\$\${BUILD_ARCH:-x86_64}" \
-              --platform linux \
-              --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
-            printf '%s\n' "\$\$UPLOAD_OUTPUT"
-            UPLOAD_OK=\$\$((UPLOAD_OK + 1))
-            OBS_URL=\$\$(printf '%s\n' "\$\$UPLOAD_OUTPUT" | sed -n 's/^url: //p' | tail -n 1)
-            if [ -n "\$\$OBS_URL" ]; then
-              printf '%s\t%s\n' "\$\$(basename "\$\$f")" "\$\$OBS_URL" >> "\$\$OBS_URLS_FILE"
-            else
-              echo "WARNING: Uploaded \$\$f but did not find public OBS URL in uploader output"
-            fi
-          else
-            printf '%s\n' "\$\$UPLOAD_OUTPUT"
-            echo "WARNING: Failed to upload \$\$f"
-            UPLOAD_FAIL=\$\$((UPLOAD_FAIL + 1))
-          fi
-        done
-        if [ -s "\$\$OBS_URLS_FILE" ]; then
-          buildkite-agent artifact upload "\$\$OBS_URLS_FILE"
-          rm -f "\$\$OBS_URLS_FILE"
-        else
-          rm -f "\$\$OBS_URLS_FILE"
-        fi
-        echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
-        [ "\$\$UPLOAD_FAIL" -eq 0 ]
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
       fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/release/obs-urls.txt \
+        --platform linux \
+        --arch "\$\${BUILD_ARCH:-x86_64}" \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl
 
     agents:
       queue: "default"
@@ -584,14 +537,24 @@ cat << YAML
                         name: buildkite-package-credentials
                         key: api-token
                         optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
             volumes:
               - name: build-cache
                 hostPath:
                   path: /mnt/paas
                   type: DirectoryOrCreate
     timeout_in_minutes: 180
-    artifact_paths:
-      - "artifacts/release/**/*"
 YAML
 fi
 
@@ -639,9 +602,22 @@ cat << YAML
 
       rm -rf artifacts/openyuanrong-sdk
       mkdir -p artifacts/openyuanrong-sdk
-      cp "output/openyuanrong_sdk-\$\$BUILD_VERSION"-*.whl artifacts/openyuanrong-sdk/
+      cp output/openyuanrong_sdk-*.whl artifacts/openyuanrong-sdk/
       ls -lh artifacts/openyuanrong-sdk/
       bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-sdk/*.whl
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$BUILD_VERSION"
+      fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/openyuanrong-sdk/obs-urls.txt \
+        --platform linux \
+        --arch amd64 \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/openyuanrong-sdk/*.whl
     agents:
       queue: "default"
       os: "linux"
@@ -670,14 +646,24 @@ cat << YAML
                         name: buildkite-package-credentials
                         key: api-token
                         optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
             volumes:
               - name: build-cache
                 hostPath:
                   path: /mnt/paas
                   type: DirectoryOrCreate
     timeout_in_minutes: 120
-    artifact_paths:
-      - "artifacts/openyuanrong-sdk/**/*"
 YAML
 done
 
@@ -691,8 +677,6 @@ cat << YAML
       - "${SANDBOX_AMD64_SDK_STEP}"
     command: |
       set -e
-      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
-      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
       export PATH="/workspace:\$\$PATH"
       case "\$\${ENABLE_SANDBOX_MANIFEST:-}" in
         1|true|TRUE|yes|YES|on|ON)
@@ -704,7 +688,6 @@ cat << YAML
       bash .buildkite/package_sandbox_release.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
-      BUILDKITE_SKIP_CHECKOUT: "true"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_AMD64_SDK_STEP}"
       YR_K8S_IMAGE_CACHE: "1"
       ENABLE_SANDBOX_MANIFEST: "${ENABLE_SANDBOX_MANIFEST}"
@@ -762,8 +745,6 @@ cat << YAML
               - name: docker-graph
                 emptyDir: {}
     timeout_in_minutes: 120
-    artifact_paths:
-      - "artifacts/sandbox/**/*"
 YAML
 for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
@@ -833,7 +814,6 @@ cat << YAML
           tar -czf "\$\$_LOG_DIR/internal-logs.tar.gz" -T "\$\$_LOG_DIR/file-list.txt" || true
         fi
         ls -lh "\$\$_LOG_DIR" || true
-        buildkite-agent artifact upload "\$\$_LOG_DIR/**/*" || true
       }
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
@@ -956,56 +936,19 @@ cat << YAML
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
       echo "=== [6/6] Upload Artifacts to OBS ==="
-      if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
-        echo "WARNING: OBS credentials not set, skipping OBS upload"
-      else
-        python3 -c "from obs import ObsClient"
-        UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
-        OBS_UPLOAD_CHANNEL="daily"
-        OBS_UPLOAD_VERSION_ARGS=""
-        if [ -n "\$\$TAG_BUILD_VERSION" ]; then
-          OBS_UPLOAD_CHANNEL="release"
-          OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
-        fi
-        echo "OBS upload channel: \$\$OBS_UPLOAD_CHANNEL"
-        UPLOAD_OK=0
-        UPLOAD_FAIL=0
-        OBS_URLS_FILE=artifacts/release/obs-urls.txt
-        : > "\$\$OBS_URLS_FILE"
-        for f in artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl; do
-          [ -f "\$\$f" ] || continue
-          echo "Uploading: \$\$f"
-          if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
-              --file "\$\$f" \
-              --kind build \
-              --channel "\$\$OBS_UPLOAD_CHANNEL" \
-              \$\$OBS_UPLOAD_VERSION_ARGS \
-              --arch arm64 \
-              --platform linux \
-              --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
-            printf '%s\n' "\$\$UPLOAD_OUTPUT"
-            UPLOAD_OK=\$\$((UPLOAD_OK + 1))
-            OBS_URL=\$\$(printf '%s\n' "\$\$UPLOAD_OUTPUT" | sed -n 's/^url: //p' | tail -n 1)
-            if [ -n "\$\$OBS_URL" ]; then
-              printf '%s\t%s\n' "\$\$(basename "\$\$f")" "\$\$OBS_URL" >> "\$\$OBS_URLS_FILE"
-            else
-              echo "WARNING: Uploaded \$\$f but did not find public OBS URL in uploader output"
-            fi
-          else
-            printf '%s\n' "\$\$UPLOAD_OUTPUT"
-            echo "WARNING: Failed to upload \$\$f"
-            UPLOAD_FAIL=\$\$((UPLOAD_FAIL + 1))
-          fi
-        done
-        if [ -s "\$\$OBS_URLS_FILE" ]; then
-          buildkite-agent artifact upload "\$\$OBS_URLS_FILE"
-          rm -f "\$\$OBS_URLS_FILE"
-        else
-          rm -f "\$\$OBS_URLS_FILE"
-        fi
-        echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
-        [ "\$\$UPLOAD_FAIL" -eq 0 ]
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
       fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/release/obs-urls.txt \
+        --platform linux \
+        --arch arm64 \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl
     agents:
       queue: "default"
       os: "linux"
@@ -1050,14 +993,24 @@ cat << YAML
                         name: buildkite-package-credentials
                         key: api-token
                         optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
             volumes:
               - name: build-cache
                 hostPath:
                   path: /mnt/paas
                   type: DirectoryOrCreate
     timeout_in_minutes: 180
-    artifact_paths:
-      - "artifacts/release/**/*"
 YAML
 fi
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
@@ -1104,9 +1057,22 @@ cat << YAML
 
       rm -rf artifacts/openyuanrong-sdk
       mkdir -p artifacts/openyuanrong-sdk
-      cp "output/openyuanrong_sdk-\$\$BUILD_VERSION"-*.whl artifacts/openyuanrong-sdk/
+      cp output/openyuanrong_sdk-*.whl artifacts/openyuanrong-sdk/
       ls -lh artifacts/openyuanrong-sdk/
       bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-sdk/*.whl
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$BUILD_VERSION"
+      fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/openyuanrong-sdk/obs-urls.txt \
+        --platform linux \
+        --arch arm64 \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/openyuanrong-sdk/*.whl
     agents:
       queue: "default"
       os: "linux"
@@ -1139,14 +1105,24 @@ cat << YAML
                         name: buildkite-package-credentials
                         key: api-token
                         optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
             volumes:
               - name: build-cache
                 hostPath:
                   path: /mnt/paas
                   type: DirectoryOrCreate
     timeout_in_minutes: 120
-    artifact_paths:
-      - "artifacts/openyuanrong-sdk/**/*"
 YAML
 done
 if is_enabled "${ENABLE_SANDBOX_PACKAGE}" && is_enabled "${ENABLE_SANDBOX_MANIFEST}"; then
@@ -1158,13 +1134,10 @@ cat << YAML
       - "${SANDBOX_ARM64_SDK_STEP}"
     command: |
       set -e
-      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
-      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
       export PATH="/workspace:\$\$PATH"
       bash .buildkite/package_sandbox_release.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
-      BUILDKITE_SKIP_CHECKOUT: "true"
       SANDBOX_BUILD_STEP_KEY: "build-all-arm64"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_ARM64_SDK_STEP}"
       YR_K8S_IMAGE_ARCH: "arm64"
@@ -1228,8 +1201,6 @@ cat << YAML
               - name: docker-graph
                 emptyDir: {}
     timeout_in_minutes: 120
-    artifact_paths:
-      - "artifacts/sandbox/**/*"
 YAML
 for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
@@ -1246,13 +1217,10 @@ ${SANDBOX_MANIFEST_SDK_DEPENDS}
 ${SANDBOX_MANIFEST_RUNTIME_DEPENDS}
     command: |
       set -e
-      buildkite-agent artifact download "artifacts/ci-source/yuanrong-ci-source.tgz" . --step "build-all-amd64"
-      tar -xzf artifacts/ci-source/yuanrong-ci-source.tgz
       export PATH="/workspace:\$\$PATH"
       bash .buildkite/package_sandbox_manifest.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
-      BUILDKITE_SKIP_CHECKOUT: "true"
       SANDBOX_RUNTIME_IMAGE_STEPS: "${SANDBOX_RUNTIME_IMAGE_STEPS}"
     agents:
       queue: "default"
@@ -1287,9 +1255,19 @@ ${SANDBOX_MANIFEST_RUNTIME_DEPENDS}
                         name: swr-pull-secret
                         key: .dockerconfigjson
                         optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
     timeout_in_minutes: 30
-    artifact_paths:
-      - "artifacts/sandbox/**/*"
 YAML
 fi
 ;;
@@ -1333,16 +1311,27 @@ cat << YAML
       echo "=== [4/4] Collect openyuanrong-sdk artifacts ==="
       rm -rf artifacts/openyuanrong-sdk
       mkdir -p artifacts/openyuanrong-sdk
-      cp "output/openyuanrong_sdk-\$\$BUILD_VERSION"-*.whl artifacts/openyuanrong-sdk/
+      cp output/openyuanrong_sdk-*.whl artifacts/openyuanrong-sdk/
       ls -lh artifacts/openyuanrong-sdk/
       bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-sdk/*.whl
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$BUILD_VERSION"
+      fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/openyuanrong-sdk/obs-urls.txt \
+        --platform macos \
+        --arch arm64 \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/openyuanrong-sdk/*.whl
     agents:
       queue: "default"
       os: "macos"
       arch: "arm64"
     timeout_in_minutes: 120
-    artifact_paths:
-      - "artifacts/openyuanrong-sdk/**/*"
 YAML
 done
 ;;

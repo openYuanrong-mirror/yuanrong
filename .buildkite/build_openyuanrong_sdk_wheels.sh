@@ -83,7 +83,7 @@ build_sdk_wheel() {
         BAZEL_OUTPUT_BASE="${output_root}/output" \
         bash "${ROOT_DIR}/build.sh" -p "${python_bin}" -v "${BUILD_VERSION}" -j "${SDK_BAZEL_JOBS}"
     if [ "${OUTPUT_DIR}" != "${ROOT_DIR}/output" ]; then
-        cp -R "${ROOT_DIR}"/output/openyuanrong_sdk-"${BUILD_VERSION}"-*.whl "${OUTPUT_DIR}/"
+        cp -R "${ROOT_DIR}"/output/openyuanrong_sdk-*.whl "${OUTPUT_DIR}/"
     fi
 }
 

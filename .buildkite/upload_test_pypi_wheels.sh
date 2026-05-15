@@ -2,7 +2,9 @@
 set -euo pipefail
 
 TEST_PYPI_URL="${TEST_PYPI_REPOSITORY_URL:-https://test.pypi.org/legacy/}"
+PYPI_URL="${PYPI_REPOSITORY_URL:-https://upload.pypi.org/legacy/}"
 PUBLISH_TO_TEST_PYPI="${PUBLISH_TEST_PYPI:-}"
+PUBLISH_TO_PYPI="${PUBLISH_PYPI:-}"
 
 is_enabled() {
     case "$1" in
@@ -11,22 +13,63 @@ is_enabled() {
     esac
 }
 
-if [ -z "${PUBLISH_TO_TEST_PYPI}" ] && [ -n "${BUILDKITE_TAG:-}" ]; then
-    PUBLISH_TO_TEST_PYPI=1
+tag_version="${YR_RELEASE_TAG:-${BUILDKITE_TAG:-}}"
+tag_version="${tag_version#refs/tags/}"
+case "${tag_version}" in
+    v[0-9]*) tag_version="${tag_version#v}" ;;
+esac
+
+is_prerelease_version() {
+    local version
+    version="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+    case "${version}" in
+        *a[0-9]*|*alpha[0-9]*|*b[0-9]*|*beta[0-9]*|*rc[0-9]*|*dev[0-9]*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+if [ -z "${PUBLISH_TO_TEST_PYPI}" ] && [ -z "${PUBLISH_TO_PYPI}" ] && [ -n "${tag_version}" ]; then
+    if is_prerelease_version "${tag_version}"; then
+        PUBLISH_TO_TEST_PYPI=1
+    else
+        PUBLISH_TO_PYPI=1
+    fi
 fi
 
-if ! is_enabled "${PUBLISH_TO_TEST_PYPI}"; then
-    printf 'PUBLISH_TEST_PYPI not enabled, skipping TestPyPI upload.\n' >&2
+if is_enabled "${PUBLISH_TO_TEST_PYPI}" && is_enabled "${PUBLISH_TO_PYPI}"; then
+    printf 'ERROR: PUBLISH_TEST_PYPI and PUBLISH_PYPI cannot both be enabled.\n' >&2
+    exit 1
+fi
+
+if ! is_enabled "${PUBLISH_TO_TEST_PYPI}" && ! is_enabled "${PUBLISH_TO_PYPI}"; then
+    printf 'PyPI publishing is not enabled, skipping wheel upload.\n' >&2
     exit 0
 fi
 
-if [ -z "${TEST_PYPI_API_TOKEN:-}" ]; then
-    printf 'TEST_PYPI_API_TOKEN is required when TestPyPI publishing is enabled.\n' >&2
+repository_name="PyPI"
+repository_url="${PYPI_URL}"
+api_token="${PYPI_API_TOKEN:-}"
+if is_enabled "${PUBLISH_TO_TEST_PYPI}"; then
+    repository_name="TestPyPI"
+    repository_url="${TEST_PYPI_URL}"
+    api_token="${TEST_PYPI_API_TOKEN:-}"
+fi
+
+if [ -z "${api_token}" ]; then
+    if is_enabled "${PUBLISH_TO_TEST_PYPI}"; then
+        printf 'TEST_PYPI_API_TOKEN is required when TestPyPI publishing is enabled.\n' >&2
+        exit 1
+    fi
+    printf 'PYPI_API_TOKEN is required when PyPI publishing is enabled.\n' >&2
     exit 1
 fi
 
 if [ "$#" -eq 0 ]; then
-    printf 'No wheel paths were requested for TestPyPI upload.\n' >&2
+    printf 'No wheel paths were requested for PyPI upload.\n' >&2
     exit 1
 fi
 
@@ -54,7 +97,7 @@ fi
 for file in "${files[@]}"; do
     case "$(basename "${file}")" in
         *+*.whl)
-            printf 'ERROR: %s uses a local version; PyPI/TestPyPI reject local versions.\n' "${file}" >&2
+            printf 'ERROR: %s uses a local version; PyPI repositories reject local versions.\n' "${file}" >&2
             exit 1
             ;;
     esac
@@ -77,16 +120,16 @@ if ! python3 -m pip show twine >/dev/null 2>&1; then
 fi
 
 attempt=1
-until TWINE_USERNAME=__token__ TWINE_PASSWORD="${TEST_PYPI_API_TOKEN}" \
+until TWINE_USERNAME=__token__ TWINE_PASSWORD="${api_token}" \
     python3 -m twine upload \
-        --repository-url "${TEST_PYPI_URL}" \
+        --repository-url "${repository_url}" \
         --skip-existing \
         "${files[@]}"; do
     if [ "${attempt}" -ge 3 ]; then
-        printf 'ERROR: TestPyPI upload failed after %s attempts.\n' "${attempt}" >&2
+        printf 'ERROR: %s upload failed after %s attempts.\n' "${repository_name}" "${attempt}" >&2
         exit 1
     fi
     attempt=$((attempt + 1))
-    printf 'WARNING: TestPyPI upload failed; retrying attempt %s/3.\n' "${attempt}" >&2
+    printf 'WARNING: %s upload failed; retrying attempt %s/3.\n' "${repository_name}" "${attempt}" >&2
     sleep 15
 done

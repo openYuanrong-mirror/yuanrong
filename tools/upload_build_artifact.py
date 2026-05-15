@@ -5,7 +5,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import urlretrieve
 
 
@@ -185,7 +185,7 @@ def build_object_path(
 
 
 def build_public_url(server, bucket, object_path):
-    return f"https://{bucket}.{server}/{object_path}"
+    return f"https://{bucket}.{server}/{quote(object_path, safe='/')}"
 
 
 def create_obs_client(access_key_id, secret_access_key, server):

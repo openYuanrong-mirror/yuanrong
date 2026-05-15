@@ -17,6 +17,9 @@ spec:
       labels:
         {{- include "yr-k8s.labels" . | nindent 8 }}
         app.kubernetes.io/component: node
+      annotations:
+        checksum/components: {{ include (print $.Template.BasePath "/components-configmap.yaml") . | sha256sum }}
+        checksum/services: {{ tpl .Values.global.services.servicesYaml . | sha256sum }}
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

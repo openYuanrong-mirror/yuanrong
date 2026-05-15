@@ -6,10 +6,21 @@ import unittest
 SCRIPT_PATH = (
     pathlib.Path(__file__).resolve().parents[2] / "tools" / "upload_build_artifact.py"
 )
+DOWNLOAD_SCRIPT_PATH = (
+    pathlib.Path(__file__).resolve().parents[2] / ".buildkite" / "download_obs_artifacts.py"
+)
 
 
 def load_module():
     spec = importlib.util.spec_from_file_location("upload_build_artifact", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_download_module():
+    spec = importlib.util.spec_from_file_location("download_obs_artifacts", DOWNLOAD_SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -77,6 +88,21 @@ class BuildObjectPathTests(unittest.TestCase):
             "thirdparty/github.com/open-telemetry/opentelemetry-cpp/v1.13.0.tar.gz",
         )
 
+    def test_public_url_escapes_local_version_separator(self):
+        module = load_module()
+
+        url = module.build_public_url(
+            "obs.cn-southwest-2.myhuaweicloud.com",
+            "openyuanrong",
+            "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0+bf164f0-cp310.whl",
+        )
+
+        self.assertEqual(
+            url,
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/"
+            "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0%2Bbf164f0-cp310.whl",
+        )
+
 
 class ThirdpartyUrlResolutionTests(unittest.TestCase):
     def test_default_target_is_derived_from_upstream_url(self):
@@ -113,6 +139,28 @@ class ThirdpartyUrlResolutionTests(unittest.TestCase):
         self.assertEqual(
             rewritten,
             "https://codeload.github.com/open-telemetry/opentelemetry-cpp/tar.gz/refs/tags/v1.13.0",
+        )
+
+
+class ObsDownloadUrlTests(unittest.TestCase):
+    def test_download_url_normalization_escapes_plus_once(self):
+        module = load_download_module()
+
+        self.assertEqual(
+            module.normalize_url(
+                "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/"
+                "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0+bf164f0-cp310.whl"
+            ),
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/"
+            "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0%2Bbf164f0-cp310.whl",
+        )
+        self.assertEqual(
+            module.normalize_url(
+                "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/"
+                "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0%2Bbf164f0-cp310.whl"
+            ),
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/"
+            "daily/20260515093904/linux/amd64/openyuanrong_sdk-0.7.0%2Bbf164f0-cp310.whl",
         )
 
 

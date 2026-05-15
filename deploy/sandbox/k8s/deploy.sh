@@ -14,6 +14,11 @@ VALUES_FILE="${YR_K8S_VALUES_FILE:-${SCRIPT_DIR}/k8s/values.local.yaml}"
 REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-swr.cn-southwest-2.myhuaweicloud.com}"
 REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/openyuanrong}"
 IMAGE_TAG="${YR_K8S_IMAGE_TAG:?Set YR_K8S_IMAGE_TAG to the pushed image tag}"
+RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}}"
+RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${IMAGE_TAG}-cp39}"
+RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${RUNTIME_IMAGE_TAG}}"
+RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${IMAGE_TAG}-cp311}"
+RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${IMAGE_TAG}-cp312}"
 PULL_SECRET_NAME="${YR_K8S_PULL_SECRET_NAME:-yr-swr-pull}"
 
 require_bin() {
@@ -180,7 +185,11 @@ helm_deploy() {
     --set global.images.node.repository="yr-node" \
     --set global.images.node.tag="${IMAGE_TAG}" \
     --set global.images.runtime.repository="yr-runtime" \
-    --set global.images.runtime.tag="${IMAGE_TAG}" \
+    --set global.images.runtime.tag="${RUNTIME_IMAGE_TAG_CP310}" \
+    --set global.runtimeImages.cp39.tag="${RUNTIME_IMAGE_TAG_CP39}" \
+    --set global.runtimeImages.cp310.tag="${RUNTIME_IMAGE_TAG_CP310}" \
+    --set global.runtimeImages.cp311.tag="${RUNTIME_IMAGE_TAG_CP311}" \
+    --set global.runtimeImages.cp312.tag="${RUNTIME_IMAGE_TAG_CP312}" \
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
@@ -212,6 +221,31 @@ wait_for_rollout() {
   done < <(workload_resources)
 }
 
+frontend_deployment() {
+  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
+    --namespace "${NAMESPACE}" \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=frontend \
+    -o name
+}
+
+restart_frontend_after_master_ready() {
+  local deployments deployment count
+  deployments="$(frontend_deployment)"
+  count="$(printf '%s\n' "${deployments}" | sed '/^$/d' | wc -l)"
+  if [ "${count}" -ne 1 ]; then
+    printf 'Expected exactly one frontend deployment for release %s in namespace %s, found %s.\n' \
+      "${RELEASE_NAME}" "${NAMESPACE}" "${count}" >&2
+    exit 1
+  fi
+
+  deployment="${deployments}"
+  printf 'Restarting %s after master rollout to refresh the frontend driver.\n' "${deployment}" >&2
+  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout restart "${deployment}" --namespace "${NAMESPACE}"
+  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${deployment}" \
+    --namespace "${NAMESPACE}" \
+    --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"
+}
+
 node_pods() {
   "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get pods \
     --namespace "${NAMESPACE}" \
@@ -225,8 +259,13 @@ prepull_runtime_image() {
     return 0
   fi
 
-  local runtime_image="${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}"
-  local pods pod username password
+  local pods pod username password runtime_image
+  local -a runtime_images=(
+    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP39}"
+    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP310}"
+    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP311}"
+    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP312}"
+  )
   pods="$(node_pods)"
   if [ -z "${pods}" ]; then
     printf 'No node pods found for release %s in namespace %s.\n' "${RELEASE_NAME}" "${NAMESPACE}" >&2
@@ -237,12 +276,14 @@ prepull_runtime_image() {
   password="$(resolve_swr_password)"
   while IFS= read -r pod; do
     [ -n "${pod}" ] || continue
-    printf 'Pre-pulling runtime image %s on %s.\n' "${runtime_image}" "${pod}" >&2
-    printf '%s' "${password}" | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
-      --namespace "${NAMESPACE}" -i "${pod}" -c node -- sh -eu -c '
-        docker login "$1" -u "$2" --password-stdin >/dev/null
-        docker pull "$3"
-      ' sh "${REGISTRY_SERVER}" "${username}" "${runtime_image}"
+    for runtime_image in "${runtime_images[@]}"; do
+      printf 'Pre-pulling runtime image %s on %s.\n' "${runtime_image}" "${pod}" >&2
+      printf '%s' "${password}" | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
+        --namespace "${NAMESPACE}" -i "${pod}" -c node -- sh -eu -c '
+          docker login "$1" -u "$2" --password-stdin >/dev/null
+          docker pull "$3"
+        ' sh "${REGISTRY_SERVER}" "${username}" "${runtime_image}"
+    done
   done <<<"${pods}"
 }
 
@@ -267,6 +308,7 @@ main() {
   helm_deploy
   patch_workloads_with_pull_secret
   wait_for_rollout
+  restart_frontend_after_master_ready
   prepull_runtime_image
   show_status
 }
