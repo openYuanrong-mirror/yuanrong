@@ -15,6 +15,7 @@ SERVER_ADDRESS=""
 PYTHON_BIN=""
 USE_UV_VENV="${YR_OFF_CLUSTER_USE_UV_VENV:-true}"
 VERIFY_VENV="${YR_OFF_CLUSTER_VENV:-/tmp/yr-offcluster-venv}"
+WHEEL_DIR="${YR_OFF_CLUSTER_WHEEL_DIR:-${REPO_ROOT}/output}"
 JWT_TOKEN="${YR_JWT_TOKEN:-}"
 ENABLE_TLS="${YR_ENABLE_TLS:-true}"
 
@@ -31,6 +32,8 @@ Options:
         Use the selected Python directly instead of creating a uv venv from output wheels.
     YR_ENABLE_TLS=false may be used for non-TLS off-cluster endpoints.
     YR_OFF_CLUSTER_VENV may override the uv venv path (default: ${VERIFY_VENV}).
+    YR_OFF_CLUSTER_WHEEL_DIR may override the wheel directory used by uv
+        (default: ${REPO_ROOT}/output).
     -h  Show this help
 
 Examples:
@@ -141,8 +144,8 @@ prepare_uv_venv() {
         exit 1
     fi
 
-    sdk_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong_sdk*.whl")"
-    runtime_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong-*.whl")"
+    sdk_wheel="$(resolve_single_file "${WHEEL_DIR}/openyuanrong_sdk*.whl")"
+    runtime_wheel="$(resolve_single_file "${WHEEL_DIR}/openyuanrong-*.whl")"
 
     rm -rf "${VERIFY_VENV}"
     uv venv --python "${base_python}" "${VERIFY_VENV}"

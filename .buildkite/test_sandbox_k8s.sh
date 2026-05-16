@@ -232,6 +232,7 @@ run_smoke() {
 
     printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
     YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
+    YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
     YR_OFF_CLUSTER_TEST_TIMEOUT="${YR_OFF_CLUSTER_TEST_TIMEOUT:-1200}" \
     YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
     bash test/st/run_off_cluster_test.sh -a "${server_address}" -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
