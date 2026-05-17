@@ -316,8 +316,6 @@ class TunnelServer:
                     await task
                 except (asyncio.CancelledError, RuntimeError, Exception):
                     pass
-                except Exception:
-                    pass
             # Propagate RuntimeError from completed tasks as a graceful close
             for task in done:
                 exc = task.exception()

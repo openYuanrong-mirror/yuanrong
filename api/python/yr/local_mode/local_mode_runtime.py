@@ -58,10 +58,17 @@ class LocalModeRuntime(Runtime, ABC):
         """
         self.__enable_flag = True
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         raise RuntimeError("not support in local mode")
 
     def snapstart_instance(self, checkpoint_id: str) -> str:
+        raise RuntimeError("not support in local mode")
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        raise RuntimeError("not support in local mode")
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
         raise RuntimeError("not support in local mode")
 
     def put(self, obj, create_param: CreateParam) -> str:

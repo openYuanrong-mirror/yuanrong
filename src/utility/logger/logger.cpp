@@ -16,6 +16,7 @@
 
 #include "logger.h"
 
+#include <cstring>
 #include <fstream>
 #if __has_include(<filesystem>)
 #include <filesystem>
@@ -67,6 +68,13 @@ void FailureSignalWriter(const char *data)
         SpdLogger::GetInstance().Flush();
         return;
     }
+
+    if (SpdLogger::GetInstance().IsOnlyStdout()) {
+        // When YR_ONLY_STDOUT is true, no file sinks exist; write exceptions to stderr.
+        if (write(STDERR_FILENO, data, strlen(data)) < 0) {} // suppress warn_unused_result
+        return;
+    }
+
     auto logDir = SpdLogger::GetInstance().GetLogDir();
     auto exceptionDir = fspath(logDir) / fspath(exceptionLogSubdir);
     if (!ExistPath(exceptionDir.string())) {

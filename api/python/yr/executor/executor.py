@@ -76,6 +76,8 @@ class Executor:
         Raises:
             RuntimeError: If the instance has not been initialized.
         """
+        if HANDLER is None:
+            return ErrorInfo()
         return HANDLER.before_snapshot()
 
     @staticmethod
@@ -92,6 +94,8 @@ class Executor:
         Raises:
             RuntimeError: If the instance has not been initialized.
         """
+        if HANDLER is None:
+            return ErrorInfo()
         return HANDLER.after_snapstart()
 
     @staticmethod

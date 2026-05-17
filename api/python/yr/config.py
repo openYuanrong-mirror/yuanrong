@@ -623,6 +623,10 @@ class InvokeOptions:
 
     idle_timeout: int = 300
     is_delete_remote_tensor: bool = False
+    #: Whether to bypass datasystem for the return path. When True, all return values
+    #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.
+    #: Return values exceeding 5MB will be truncated.
+    bypass_datasystem: bool = False
 
     #: Whether to bypass datasystem for the return path. When True, all return values
     #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.

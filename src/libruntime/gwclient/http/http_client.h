@@ -23,6 +23,8 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
 #include "absl/synchronization/mutex.h"
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"

@@ -1340,6 +1340,8 @@ cdef class Fnruntime:
         config.isDriver = ConfigManager().is_driver
         config.jobId = ConfigManager().job_id
         config.runtimeId = ConfigManager().runtime_id
+        if ConfigManager().is_driver:
+            config.instanceId = f"driver-{ConfigManager().job_id}".encode()
         config.functionIds.insert(pair[CLanguageType, string](CLanguageType.LANGUAGE_PYTHON,
                                                               ConfigManager().meta_config.functionID.python))
         config.functionIds.insert(pair[CLanguageType, string](CLanguageType.LANGUAGE_CPP,
@@ -2008,6 +2010,53 @@ cdef class Fnruntime:
                 node_id=ret.second.snapstartInfo.nodeID.decode(),
                 namespace=ret.second.snapstartInfo.namespace_.decode(),
             ))
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+        cdef:
+            pair[CErrorInfo, string] ret
+            string c_checkpoint_id = checkpoint_id
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().DeleteCheckpoint(c_checkpoint_id)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to delete checkpoint, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoint IDs for the given function type, or all for the current tenant if empty.
+        :param function_type: moduleName.className (e.g. "mymodule.Counter"). Empty = all tenant checkpoints.
+        :param namespace: namespace filter (empty = default namespace)
+        :return: list of checkpoint ID strings
+        """
+        cdef:
+            pair[CErrorInfo, vector[string]] ret
+            string c_function_type = function_type.encode()
+            string c_ns = namespace.encode()
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().ListCheckpoints(c_function_type, c_ns)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to list checkpoints, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+        return [cp.decode() for cp in ret.second]
 
     def terminate_group(self, group_name: str) -> None:
         """

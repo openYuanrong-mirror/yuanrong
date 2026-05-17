@@ -73,6 +73,11 @@ std::string SpdLogger::GetModelName(void) const
     return this->modelName;
 }
 
+bool SpdLogger::IsOnlyStdout(void) const
+{
+    return this->onlyStdout_;
+}
+
 std::pair<std::shared_ptr<yr_spdlog::logger>, std::string> SpdLogger::GetLogger()
 {
     std::string loggerName = this->getLoggerNameFunc ? getLoggerNameFunc() : LOGGER_NAME;
@@ -94,6 +99,7 @@ void SpdLogger::ConstructLoggerInfo(const LogParam &logParam)
     this->logDir = logParam.logDir;
     this->nodeName = logParam.nodeName;
     this->modelName = logParam.modelName;
+    this->onlyStdout_ = logParam.onlyStdout;
 }
 
 std::string SpdLogger::GetLogFile(const LogParam &logParam)

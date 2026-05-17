@@ -26,6 +26,7 @@
 #include "general_execution_manager.h"
 #include "ordered_execution_manager.h"
 #include "src/libruntime/fsclient/protobuf/common.pb.h"
+#include "src/libruntime/fsclient/protobuf/message.pb.h"
 #include "src/libruntime/fsclient/protobuf/runtime_service.pb.h"
 #include "src/libruntime/groupmanager/function_group.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
@@ -634,8 +635,10 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     functionMeta.tensorTransportTarget = metaData.functionmeta().tensortransporttarget();
     std::string proto_bytes = metaData.functionmeta().code();
     functionMeta.code.assign(proto_bytes.begin(), proto_bytes.end());
-    if (functionMeta.apiType != libruntime::ApiType::Function) {
-        returnObjects[0]->alwaysNative = true;
+    if (functionMeta.apiType != libruntime::ApiType::Function || req.bypass_datasystem()) {
+        for (auto &obj : returnObjects) {
+            obj->alwaysNative = true;
+        }
     }
 
     if (functionMeta.IsServiceApiType() && rawArgs.size() > SCHEDULER_DATA_INDEX && req.iscreate()) {
@@ -660,10 +663,22 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     for (size_t i = 0; i < returnObjects.size(); i++) {
         if (returnObjects[i]->buffer != nullptr && returnObjects[i]->buffer->IsNative() &&
             returnObjects[i]->putDone == false) {
-            auto smallObject = callResult.add_smallobjects();
-            smallObject->set_id(returnObjects[i]->id);
-            smallObject->set_value(returnObjects[i]->buffer->ImmutableData(), returnObjects[i]->buffer->GetSize());
-        } else {
+            auto bufSize = returnObjects[i]->buffer->GetSize();
+            if (req.bypass_datasystem() && bufSize > BYPASS_DS_TRUNCATION_THRESHOLD) {
+                auto msg = fmt::format(
+                    "bypass_datasystem: return value size ({} bytes) exceeds the {} bytes limit. "
+                    "Use invoke() instead of invoke_direct() for large return values.",
+                    bufSize, BYPASS_DS_TRUNCATION_THRESHOLD);
+                YRLOG_WARN(msg);
+                callResult.set_code(common::ERR_PARAM_INVALID);
+                callResult.set_message(msg);
+                return callResult;
+            } else {
+                auto smallObject = callResult.add_smallobjects();
+                smallObject->set_id(returnObjects[i]->id);
+                smallObject->set_value(returnObjects[i]->buffer->ImmutableData(), bufSize);
+            }
+        } else if (!req.bypass_datasystem()) {
             objectsInDs.emplace_back(returnObjects[i]->id);
         }
     }
@@ -1816,8 +1831,10 @@ std::pair<ErrorInfo, KillResponse> InvokeAdaptor::KillWithResponse(const std::st
 void InvokeAdaptor::KillAsync(const std::string &instanceId, const std::string &payload, int signal)
 {
     this->KillAsyncCB(instanceId, payload, signal, [instanceId, signal](const ErrorInfo &err) -> void {
-        if (!err.OK()) {
-            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err: ", instanceId, signal, err.CodeAndMsg());
+        if (!err.OK() && err.Code() != ErrorCode::ERR_INSTANCE_NOT_FOUND &&
+            err.Code() != ErrorCode::ERR_INSTANCE_EXITED) {
+            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err: {}",
+                       instanceId, signal, err.CodeAndMsg());
         }
     });
 }
@@ -2325,6 +2342,101 @@ std::pair<ErrorInfo, QueryNamedInsResponse> InvokeAdaptor::QueryNamedInstances()
 {
     auto ret = functionMasterClient_->QueryNamedInstances();
     return ret;
+}
+
+std::pair<ErrorInfo, std::string> InvokeAdaptor::DeleteCheckpoint(const std::string &checkpointId)
+{
+    auto targetInstanceId = librtConfig->instanceId;
+    if (targetInstanceId.empty()) {
+        targetInstanceId = Config::Instance().INSTANCE_ID();
+    }
+    if (targetInstanceId.empty()) {
+        targetInstanceId = librtConfig->GetInstanceId();
+    }
+    messages::DeleteSnapshotRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    req.set_checkpointid(checkpointId);
+    std::string payload;
+    if (!req.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to serialize DeleteSnapshotRequest"), ""};
+    }
+    auto [err, killRsp] = KillWithResponse(targetInstanceId, payload, libruntime::Signal::DeleteCheckpoint);
+    if (!err.OK()) {
+        return {err, ""};
+    }
+    messages::DeleteSnapshotResponse rsp;
+    if (!rsp.ParseFromString(killRsp.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to parse DeleteSnapshotResponse"), ""};
+    }
+    if (rsp.code() != common::ERR_NONE) {
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), ""};
+    }
+    return {ErrorInfo(), ""};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpoints(
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    auto targetInstanceId = librtConfig->instanceId;
+    if (targetInstanceId.empty()) {
+        targetInstanceId = Config::Instance().INSTANCE_ID();
+    }
+    if (targetInstanceId.empty()) {
+        targetInstanceId = librtConfig->GetInstanceId();
+    }
+    std::string payload;
+    std::vector<std::string> checkpointIds;
+    if (functionType.empty()) {
+        messages::ListSnapshotsByTenantRequest req;
+        req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+        req.set_tenantid(tenantID);
+        if (!req.SerializeToString(&payload)) {
+            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                              "failed to serialize ListSnapshotsByTenantRequest"), {}};
+        }
+        auto [err, killRsp] =
+            KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByTenant);
+        if (!err.OK()) {
+            return {err, {}};
+        }
+        messages::ListSnapshotsByTenantResponse rsp;
+        if (!rsp.ParseFromString(killRsp.payload())) {
+            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                              "failed to parse ListSnapshotsByTenantResponse"), {}};
+        }
+        if (rsp.code() != common::ERR_NONE) {
+            return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
+        }
+        checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
+        return {ErrorInfo(), checkpointIds};
+    }
+    messages::ListSnapshotsByFunctionKeyRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    auto *functionKey = req.mutable_functionkey();
+    functionKey->set_tenantid(tenantID);
+    functionKey->set_functiontype(functionType);
+    functionKey->set_namespace_(ns);
+    if (!req.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to serialize ListSnapshotsByFunctionKeyRequest"), {}};
+    }
+    auto [err, killRsp] =
+        KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByFunctionKey);
+    if (!err.OK()) {
+        return {err, {}};
+    }
+    messages::ListSnapshotsByFunctionKeyResponse rsp;
+    if (!rsp.ParseFromString(killRsp.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to parse ListSnapshotsByFunctionKeyResponse"), {}};
+    }
+    if (rsp.code() != common::ERR_NONE) {
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
+    }
+    checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
+    return {ErrorInfo(), checkpointIds};
 }
 
 void InvokeAdaptor::SubscribeActiveMaster()

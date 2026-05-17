@@ -290,7 +290,9 @@ std::pair<std::shared_ptr<ClientManager>, ErrorInfo> ClientsManager::InitHttpCli
     const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &config)
 {
     auto httpClient = std::make_shared<ClientManager>(config);
-    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port), config->httpIdleTime});
+
+    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port), config->httpIdleTime,
+                                                       YR::Libruntime::Config::Instance().INITIAL_HTTP_CONNECT_SEC()});
     if (!error.OK()) {
         return std::make_pair(nullptr, error);
     }

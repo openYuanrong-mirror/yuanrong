@@ -1,0 +1,16 @@
+- service: defaultservice
+  kind: yrlib
+  description: invoke-direct smoke test service
+  functions:
+    default:
+      cpu: 0
+      memory: 0
+      runtime: python3.11
+    py311:
+      cpu: 0
+      memory: 0
+      runtime: python3.11
+    py39:
+      cpu: 0
+      memory: 0
+      runtime: python3.9

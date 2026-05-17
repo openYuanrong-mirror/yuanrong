@@ -696,6 +696,9 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     if (cInvokeOpts->forceInvoke != 0) {
         invokeOpts.forceInvoke = true;
     }
+    if (cInvokeOpts->bypassDatasystem != 0) {
+        invokeOpts.bypassDatasystem = true;
+    }
     for (int i = 0; i < cInvokeOpts->size_invokeLabels; i++) {
         invokeOpts.invokeLabels.emplace(cInvokeOpts->invokeLabels[i].key, cInvokeOpts->invokeLabels[i].value);
     }

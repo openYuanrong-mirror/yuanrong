@@ -1,7 +1,7 @@
 .PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard image all clean
 
 # Bazel remote cache server (optional, can be set via environment variable)
-# Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
+# Example: REMOTE_CACHE=https://192.0.2.1:9090 make yuanrong
 REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 JOBS ?= $(NPROCS)
@@ -23,7 +23,7 @@ help:
 	@echo ""
 	@echo "Parameters (optional):"
 	@echo "  REMOTE_CACHE       - Remote cache server address"
-	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092"
+	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.0.2.1:9092"
 	@echo "                      If not provided, build will proceed without remote cache"
 	@echo "  JOBS               - Default parallelism for datasystem and runtime builds"
 	@echo "                      Example: make all JOBS=8"
@@ -74,7 +74,7 @@ frontend:
 
 datasystem:
 	@rm -rf datasystem/output/*
-	bash datasystem/build.sh -j $(JOBS) -X off -G on -i on $(BUILD_VERSION_ARG)
+	bash datasystem/build.sh -X off -P on -G on -i on -j $(JOBS) $(BUILD_VERSION_ARG)
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem-*.tar.gz output/
 	@mkdir -p functionsystem/vendor/src

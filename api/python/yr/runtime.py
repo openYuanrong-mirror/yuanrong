@@ -373,21 +373,40 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot with signal 18
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
 
     @abstractmethod
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot with signal 19
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
+        """
+
+    @abstractmethod
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+
+    @abstractmethod
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoint IDs for the given function type, or all for the current tenant if empty.
+        :param function_type: moduleName.className (empty = all tenant checkpoints)
+        :param namespace: namespace filter
+        :return: list of checkpoint ID strings
         """
 
     @abstractmethod

@@ -130,7 +130,7 @@ public:                                                \
     CONFIG_DECLARE(uint32_t, YR_HTTP_CONNECTION_NUM, 10);
     CONFIG_DECLARE(bool, YR_LOG_COMPRESS, true);
     CONFIG_DECLARE(std::string, HOST_IP, "");
-    CONFIG_DECLARE(uint16_t, YR_MAX_GRPC_SIZE, 11);  // value could be 1-500 MB
+    CONFIG_DECLARE(uint16_t, YR_MAX_GRPC_SIZE, 128);  // value could be 1-500 MB
     CONFIG_DECLARE(uint64_t, GRACEFUL_SHUTDOWN_TIME, 60);
     CONFIG_DECLARE(uint64_t, STREAM_RECEIVE_LIMIT, 0);
     CONFIG_DECLARE(bool, ENABLE_METRICS, false);
@@ -157,7 +157,9 @@ public:                                                \
     });
     CONFIG_DECLARE(std::string, YR_TENANT_ID, "");
     CONFIG_DECLARE(int64_t, DS_DELAY_FLUSH_TIME, 0);
-    CONFIG_DECLARE(size_t, MEM_STORE_SIZE_THRESHOLD, 100 * 1024);
+    CONFIG_DECLARE(size_t, MEM_STORE_SIZE_THRESHOLD, 2 * 1024 * 1024);
+    CONFIG_DECLARE_VALID(size_t, YR_OBJECT_ID_POOL_SIZE, 1,
+                         [](const size_t &val) -> bool { return val > 0; });
     CONFIG_DECLARE(size_t, FASS_SCHEDULE_TIMEOUT, 120);  // 120 seconds
     CONFIG_DECLARE(int, YR_ASYNCIO_MAX_CONCURRENCY, 1000); // 1k
     CONFIG_DECLARE(bool, ENABLE_CLEAN_STREAM_PRODUCER, true);
@@ -165,7 +167,7 @@ public:                                                \
     CONFIG_DECLARE(bool, ENABLE_DS_HEALTH_CHECK, false);
     CONFIG_DECLARE(int, MAX_HTTP_RETRY_TIME, 1);
     CONFIG_DECLARE(int, MAX_HTTP_TIMEOUT_SEC, -1);
-    CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, -1);
+    CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, 5);
     CONFIG_DECLARE(int, YR_HTTP_IDLE_TIME, 30);
     CONFIG_DECLARE(int, YR_NOTIFY_THREAD_POOL_SIZE, 5);
     CONFIG_DECLARE_VALID(std::string, RUN_MODE, "integrated",  // integrated or standalone
@@ -178,6 +180,12 @@ public:                                                \
 
     CONFIG_DECLARE(std::string, YR_ENV_FILE, ""); // environment variable file path
     CONFIG_DECLARE(std::string, YR_SEED_FILE, ""); // environment seed file path
+
+    // WebSocket configuration
+    CONFIG_DECLARE(bool, YR_ENABLE_WEBSOCKET, false);        // Enable WebSocket for create/invoke
+    CONFIG_DECLARE(std::string, YR_WEBSOCKET_ENDPOINT, "");  // Deprecated: use YR_SERVER_ADDRESS + YR_SSL_ENABLE
+    CONFIG_DECLARE(int, YR_WEBSOCKET_TIMEOUT, 30);           // WebSocket request timeout in seconds
+    CONFIG_DECLARE(int, YR_WEBSOCKET_RECONNECT_INTERVAL, 5); // WebSocket reconnect interval in seconds
 public:
     bool IsRunModeStandalone()
     {

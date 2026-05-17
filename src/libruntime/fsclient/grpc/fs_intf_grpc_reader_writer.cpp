@@ -264,6 +264,7 @@ std::shared_ptr<StreamingMessage> FSIntfGrpcReaderWriter::TransDirectInvokeReque
     callreq->set_iscreate(false);
     *callreq->mutable_args() = std::move(*invokereq->mutable_args());
     *callreq->mutable_createoptions() = std::move(*invokereq->mutable_invokeoptions()->mutable_customtag());
+    callreq->set_bypass_datasystem(invokereq->invokeoptions().bypass_datasystem());
     *callreq->mutable_returnobjectids() = std::move(*invokereq->mutable_returnobjectids());
     callreq->set_senderid(dstInstance);
     return msg;

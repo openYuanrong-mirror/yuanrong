@@ -1458,7 +1458,7 @@ def resources() -> List[dict]:
         >>>
         >>> res = yr.resources()
         >>> print(res)
-        [{'id': 'function-agent-172.17.0.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},
+        [{'id': 'function-agent-192.0.2.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},
         'allocatable': {'CPU': 500.0, 'Memory': 4096.0}}]
         >>>
         >>> yr.finalize()

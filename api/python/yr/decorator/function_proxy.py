@@ -32,7 +32,7 @@ from yr.common import utils
 from yr.common.utils import CrossLanguageInfo, ObjectDescriptor
 from yr.config import InvokeOptions
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
-from yr.object_ref import ObjectRef
+from yr.object_ref import ObjectRef, ObjectRefDirect
 from yr.runtime_holder import global_runtime
 from yr.generator import ObjectRefGenerator
 from yr.serialization import Serialization
@@ -107,6 +107,12 @@ class FunctionProxy:
                 return self._invoke(func, args=args, kwargs=kwargs)
 
             self.invoke = _invoke_proxy
+
+        @wraps(func)
+        def _invoke_direct_proxy(*args, **kwargs):
+            return self._invoke_direct(func, args=args, kwargs=kwargs)
+
+        self.invoke_direct = _invoke_direct_proxy
 
     def __call__(self, *args, **kwargs):
         """
@@ -264,10 +270,13 @@ class FunctionProxy:
         """
         return self._options_wrapper(opts)
 
-    def _invoke_function(self, opts: InvokeOptions, func, args=None, kwargs=None) -> Union[
+    def _invoke_function(self, opts: InvokeOptions, func, args=None, kwargs=None, ref_cls=None) -> Union[
             "yr.ObjectRef", List["yr.ObjectRef"]]:
         """
         The real realization of the invoke function
+
+        Args:
+            ref_cls: The class to wrap return object IDs. Defaults to ObjectRef with need_incre=False.
 
         Returns:
             A reference to the data object.
@@ -327,8 +336,12 @@ class FunctionProxy:
         if self.return_nums == 0:
             return None
         objref_list = []
-        for i in obj_list:
-            objref_list.append(ObjectRef(i, need_incre=False))
+        if ref_cls is not None:
+            for i in obj_list:
+                objref_list.append(ref_cls(i))
+        else:
+            for i in obj_list:
+                objref_list.append(ObjectRef(i, need_incre=False))
 
         if self._is_generator:
             return ObjectRefGenerator(objref_list[0])
@@ -359,6 +372,12 @@ class FunctionProxy:
         Calls the _invoke_function method to perform the function invocation.
         """
         return self._invoke_function(self.invoke_options, func, args, kwargs)
+
+    def _invoke_direct(self, func, args=None, kwargs=None):
+        """Invoke bypassing datasystem. Returns ObjectRefDirect (no ref counting)."""
+        from dataclasses import replace
+        opts = replace(self.invoke_options, bypass_datasystem=True)
+        return self._invoke_function(opts, func, args, kwargs, ref_cls=ObjectRefDirect)
 
 
 def make_decorator(invoke_options=None, return_nums=None, initializer=None) -> callable:

@@ -470,6 +470,163 @@ std::pair<ErrorInfo, QueryNamedInsResponse> FMClient::QueryNamedInstances()
                           QueryNamedInsResponse{});
 }
 
+static std::pair<ErrorInfo, std::string> DeleteSnapshotByHttpClient(std::shared_ptr<HttpClient> c,
+    const std::string &checkpointId)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/octet-stream"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto err = std::make_shared<ErrorInfo>();
+
+    c->SubmitInvokeRequest(
+        DELETE, SNAP_MANAGER_DELETE_SNAPSHOT, headers, checkpointId, reqId,
+        [err, asyncNotify, reqId, isExit](const std::string &result, const boost::beast::error_code &errorCode,
+                                          const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            *err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            asyncNotify->Notify(*err);
+        });
+
+    std::stringstream ss;
+    ss << "delete snapshot request timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    return {notifyErr, ""};
+}
+
+std::pair<ErrorInfo, std::string> FMClient::DeleteSnapshot(const std::string &checkpointId)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK())
+        return std::make_pair(errInfo, "");
+    auto [err, res] = DeleteSnapshotByHttpClient(activeMasterHttpClient_, checkpointId);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), "");
+    }
+    return std::make_pair(err, res);
+}
+
+static std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByFunctionKeyByHttpClient(
+    std::shared_ptr<HttpClient> c,
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    ListSnapshotsByFunctionKeyRequest req;
+    req.set_requestid(*reqId);
+    auto *fk = req.mutable_functionkey();
+    fk->set_tenantid(tenantID);
+    fk->set_functiontype(functionType);
+    fk->set_namespace_(ns);
+    std::string body;
+    req.SerializeToString(&body);
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/protobuf"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto resp = std::make_shared<ListSnapshotsByFunctionKeyResponse>();
+
+    c->SubmitInvokeRequest(
+        POST, SNAP_MANAGER_LIST_BY_FUNCTION_KEY, headers, body, reqId,
+        [resp, asyncNotify, reqId, isExit](const std::string &result,
+                                           const boost::beast::error_code &errorCode,
+                                           const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            if (err.OK() && !resp->ParseFromString(result)) {
+                asyncNotify->Notify(
+                    ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to parse ListSnapshotsByFunctionKey response"));
+                return;
+            }
+            asyncNotify->Notify(err);
+        });
+
+    std::stringstream ss;
+    ss << "list snapshots by function key timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    if (!notifyErr.OK()) {
+        return {notifyErr, {}};
+    }
+    std::vector<std::string> ids(resp->checkpointids().begin(), resp->checkpointids().end());
+    return {notifyErr, ids};
+}
+
+static std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByTenantByHttpClient(
+    std::shared_ptr<HttpClient> c, const std::string &tenantID)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    ListSnapshotsByTenantRequest req;
+    req.set_requestid(*reqId);
+    req.set_tenantid(tenantID);
+    std::string body;
+    req.SerializeToString(&body);
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/protobuf"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto resp = std::make_shared<ListSnapshotsByTenantResponse>();
+
+    c->SubmitInvokeRequest(
+        POST, SNAP_MANAGER_LIST_BY_TENANT, headers, body, reqId,
+        [resp, asyncNotify, reqId, isExit](const std::string &result,
+                                           const boost::beast::error_code &errorCode,
+                                           const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            if (err.OK() && !resp->ParseFromString(result)) {
+                asyncNotify->Notify(
+                    ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to parse ListSnapshotsByTenant response"));
+                return;
+            }
+            asyncNotify->Notify(err);
+        });
+
+    std::stringstream ss;
+    ss << "list snapshots by tenant timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    if (!notifyErr.OK()) {
+        return {notifyErr, {}};
+    }
+    std::vector<std::string> ids(resp->checkpointids().begin(), resp->checkpointids().end());
+    return {notifyErr, ids};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> FMClient::ListSnapshotsByFunctionKey(
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK()) {
+        return {errInfo, {}};
+    }
+    auto [err, res] = ListSnapshotsByFunctionKeyByHttpClient(activeMasterHttpClient_, tenantID, functionType, ns);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return {ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), {}};
+    }
+    return {err, res};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> FMClient::ListSnapshotsByTenant(const std::string &tenantID)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK()) {
+        return {errInfo, {}};
+    }
+    auto [err, res] = ListSnapshotsByTenantByHttpClient(activeMasterHttpClient_, tenantID);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return {ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), {}};
+    }
+    return {err, res};
+}
+
 void FMClient::SetSubscribeActiveMasterCb(SubscribeActiveMasterCb cb)
 {
     cb_ = cb;

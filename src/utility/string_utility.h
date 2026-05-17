@@ -82,6 +82,14 @@ inline std::string DecodedToString(const std::string &inStr)
     return reinterpret_cast<const char *>(data.data());
 }
 
+inline std::string EncodedToString(const std::string &inStr)
+{
+    auto len = boost::beast::detail::base64::encoded_size(inStr.size());
+    std::string result(len, '\0');
+    boost::beast::detail::base64::encode(result.data(), inStr.data(), inStr.size());
+    return result;
+}
+
 inline std::vector<std::string> SplitToStr(const std::string &info, const std::string &pattern)
 {
     if (info.empty()) {

@@ -18,6 +18,7 @@
 
 #include "src/libruntime/gwclient/gw_client.h"
 #include "src/libruntime/gwclient/gw_datasystem_client_wrapper.h"
+#include "src/libruntime/gwclient/transport/http_transport.h"
 #include "src/libruntime/utils/http_utils.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/notification_utility.h"
@@ -58,6 +59,8 @@ ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t co
     }
     this->httpClient_ = std::move(httpClient);
     this->authToken_ = authToken;
+    // Initialize HTTP transport wrapper
+    this->httpTransport_ = std::make_shared<HttpTransport>(this->httpClient_);
     return Init("", 0, connectTimeout);
 }
 
@@ -72,7 +75,14 @@ void GwClient::Init(std::shared_ptr<HttpClient> httpClient)
         return;
     }
     this->httpClient_ = std::move(httpClient);
+    // Initialize HTTP transport wrapper
+    this->httpTransport_ = std::make_shared<HttpTransport>(this->httpClient_);
     init_ = true;
+}
+
+void GwClient::SetWsTransport(std::shared_ptr<TransportClient> ws)
+{
+    wsTransport_ = std::move(ws);
 }
 
 ErrorInfo GwClient::Init(const std::string &addr, int port, std::int32_t connectTimeout)
@@ -104,6 +114,7 @@ ErrorInfo GwClient::Start(const std::string &jobID, const std::string &instanceI
     if (start_) {
         return ErrorInfo();
     }
+
     auto error = Lease();
     if (!error.OK()) {
         return error;
@@ -135,6 +146,11 @@ void GwClient::Stop(void)
     Clear();
     if (timer_ != nullptr) {
         timer_->cancel();
+    }
+    // Close WebSocket transport
+    if (wsTransport_) {
+        wsTransport_->Stop();
+        wsTransport_.reset();
     }
     Release();
     init_ = false;
@@ -211,16 +227,15 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
     std::string body;
     req.SerializeToString(&body);
     YRLOG_DEBUG("create request, requestId :{}", *requestId);
-    httpClient_->SubmitInvokeRequest(
-        POST, POSIX_CREATE, headers, body, requestId,
-        [requestId, createRespCallback, callback](const std::string &result, const boost::beast::error_code &errorCode,
-                                                  const uint statusCode) {
+
+    selectTransport()->SubmitRequest(
+        POSIX_CREATE, headers, body, requestId,
+        [requestId, createRespCallback, callback](const std::string &result, const ErrorInfo &err, uint statusCode) {
             CreateResponse createRsp;
             NotifyRequest notifyReq;
             std::stringstream ss;
-            if (errorCode) {
-                ss << "network error between client and frontend, error_code: " << errorCode.message()
-                   << ", requestId: " << *requestId;
+            if (!err.OK()) {
+                ss << "transport error: " << err.Msg() << ", requestId: " << *requestId;
                 createRsp.set_code(common::ERR_INNER_COMMUNICATION);
                 createRsp.set_message(ss.str());
             } else if (!IsResponseSuccessful(statusCode)) {
@@ -252,15 +267,14 @@ void GwClient::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invoke
     std::string body;
     req->Immutable().SerializeToString(&body);
     YRLOG_DEBUG("invoke request, requestId :{}, instanceId: {}", *requestId, req->Immutable().instanceid());
-    httpClient_->SubmitInvokeRequest(
-        POST, POSIX_INVOKE, headers, body, requestId,
-        [requestId, callback](const std::string &result, const boost::beast::error_code &errorCode,
-                              const uint statusCode) {
+
+    selectTransport()->SubmitRequest(
+        POSIX_INVOKE, headers, body, requestId,
+        [requestId, callback](const std::string &result, const ErrorInfo &err, uint statusCode) {
             NotifyRequest notifyReq;
             std::stringstream ss;
-            if (errorCode) {
-                ss << "network error between client and frontend, error_code: " << errorCode.message()
-                   << ", requestId: " << *requestId;
+            if (!err.OK()) {
+                ss << "transport error: " << err.Msg() << ", requestId: " << *requestId;
                 notifyReq.set_requestid(*requestId);
                 notifyReq.set_code(common::ERR_INNER_COMMUNICATION);
                 notifyReq.set_message(ss.str());

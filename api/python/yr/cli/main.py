@@ -29,6 +29,7 @@ from yr.cli.const import (
     StartMode,
 )
 from yr.cli.system_launcher import SystemLauncher
+from yr.cli.checkpoint import CheckpointClient, get_frontend_address_from_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +67,9 @@ def print_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
     "--config",
     "config_opt",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help=(f"Path to config.toml. If omitted, uses the default path ({DEFAULT_CONFIG_PATH})."),
+    help=(
+        f"Path to config.toml. If omitted, uses the default path ({DEFAULT_CONFIG_PATH})."
+    ),
 )
 @click.option(
     "-v",
@@ -126,8 +129,8 @@ Common patterns:\n
         Examples:\n
           - Override a string: -s 'etcd.bin_path=\"/custom/etcd\"'\n
           - Override an int: -s 'values.ds_master.port=12123'\n
-          - Override a table: -s 'values.ds_master={ip=\"10.88.0.9\",port=12123}'\n
-          - Override a list: -s 'values.etcd.address=[{ip=\"10.88.0.9\",peer_port=32380,port=32379}]'
+          - Override a table: -s 'values.ds_master={ip=\"192.0.2.9\",port=12123}'\n
+          - Override a list: -s 'values.etcd.address=[{ip=\"192.0.2.9\",peer_port=32380,port=32379}]'
     """,
 )
 @click.option(
@@ -142,7 +145,9 @@ Common patterns:\n
     """,
 )
 @click.pass_context
-def start(ctx: click.Context, overrides: tuple[str, ...], master_mode: Optional[bool]) -> None:
+def start(
+    ctx: click.Context, overrides: tuple[str, ...], master_mode: Optional[bool]
+) -> None:
     """Start the YuanRong system in master or agent mode."""
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
@@ -183,7 +188,9 @@ def start(ctx: click.Context, overrides: tuple[str, ...], master_mode: Optional[
 )
 @click.argument("component")
 @click.pass_context
-def launch(ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], component: str) -> None:
+def launch(
+    ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], component: str
+) -> None:
     from yr.cli.component.registry import LAUNCHER_CLASSES
 
     config_path: Path = ctx.obj["config_path"]
@@ -193,7 +200,9 @@ def launch(ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], co
     for item in env_subst:
         env_subst_keys.extend([k.strip() for k in item.split(",") if k.strip()])
 
-    cfg = ConfigResolver(config_path, cli_dir, render=False, env_subst_keys=tuple(env_subst_keys))
+    cfg = ConfigResolver(
+        config_path, cli_dir, render=False, env_subst_keys=tuple(env_subst_keys)
+    )
     launcher_cls = LAUNCHER_CLASSES.get(component)
     if launcher_cls is None:
         logger.error(f"Unknown component: {component}")
@@ -218,7 +227,9 @@ def health(ctx: click.Context, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
 
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     ok = launcher.health()
     ctx.exit(0 if ok else 1)
 
@@ -239,7 +250,9 @@ def status(ctx: click.Context, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
 
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     ok = launcher.status()
     ctx.exit(0 if ok else 1)
 
@@ -265,7 +278,9 @@ def stop(ctx: click.Context, force: bool, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
     logger.info("Stopping yr system components...")
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     if force:
         logger.warning("Force stopping components...")
         daemon_ok = launcher.stop_daemon_from_session(force)
@@ -315,6 +330,125 @@ def config_template(ctx: click.Context) -> None:
     values_path = cli_dir.parent / DEFAULT_VALUES_TOML
     template_path = cli_dir.parent / DEFAULT_CONFIG_TEMPLATE_PATH
     cfg.print_default_config(values_path, template_path)
+
+
+@cli.group(help="Checkpoint management commands")
+@click.option(
+    "-f",
+    "--file",
+    "session_file",
+    type=click.Path(dir_okay=False, path_type=Path, exists=True),
+    help=(
+        f"Path to session file (default: {SESSION_JSON_PATH}). "
+        "This file is created when `yr start` succeeds."
+    ),
+)
+@click.pass_context
+def checkpoint(ctx: click.Context, session_file: Optional[str]) -> None:
+    pass
+
+
+def _get_checkpoint_client(
+    session_file: Optional[str],
+) -> tuple[Optional[CheckpointClient], Optional[str]]:
+    """Get checkpoint client and return error message if failed."""
+    session_path = Path(session_file) if session_file else Path(SESSION_JSON_PATH)
+    addr = get_frontend_address_from_session(session_path)
+    if not addr:
+        return None, "Failed to get frontend address from session file"
+    return CheckpointClient(addr[0], addr[1]), None
+
+
+@checkpoint.command(name="list", help="List checkpoints by function key or tenant")
+@click.option(
+    "--tenant-id",
+    "tenant_id",
+    required=True,
+    help="Tenant ID",
+)
+@click.option(
+    "--function-type",
+    "function_type",
+    help="Function type (e.g., moduleName.className for actors)",
+)
+@click.option(
+    "--namespace",
+    "namespace",
+    help="Optional namespace",
+)
+@click.option(
+    "--by-tenant",
+    "by_tenant",
+    is_flag=True,
+    help="List checkpoints by tenant instead of by function key",
+)
+@click.pass_context
+def checkpoint_list(
+    ctx: click.Context,
+    tenant_id: str,
+    function_type: Optional[str],
+    namespace: Optional[str],
+    by_tenant: bool,
+    session_file: Optional[str],
+) -> None:
+    client, err = _get_checkpoint_client(session_file)
+    if err:
+        print_logger.error(err)
+        ctx.exit(1)
+
+    if by_tenant:
+        if function_type or namespace:
+            print_logger.error(
+                "Cannot specify --function-type or --namespace with --by-tenant"
+            )
+            ctx.exit(1)
+        result = client.list_by_tenant(tenant_id)
+    else:
+        if not function_type:
+            print_logger.error("--function-type is required when not using --by-tenant")
+            ctx.exit(1)
+        result = client.list_by_function_key(tenant_id, function_type, namespace)
+
+    if result.get("code") != 0:
+        print_logger.error(f"Error: {result.get('message', 'unknown error')}")
+        ctx.exit(1)
+
+    checkpoint_ids = result.get("checkpointIDs", [])
+    if checkpoint_ids:
+        print_logger.info(f"Found {len(checkpoint_ids)} checkpoint(s):")
+        for cid in checkpoint_ids:
+            print_logger.info(f"  {cid}")
+    else:
+        print_logger.info("No checkpoints found")
+    ctx.exit(0)
+
+
+@checkpoint.command(name="delete", help="Delete a checkpoint")
+@click.option(
+    "--checkpoint-id",
+    "checkpoint_id",
+    required=True,
+    help="Checkpoint ID to delete",
+)
+@click.pass_context
+def checkpoint_delete(
+    ctx: click.Context,
+    checkpoint_id: str,
+    session_file: Optional[str],
+) -> None:
+    client, err = _get_checkpoint_client(session_file)
+    if err:
+        print_logger.error(err)
+        ctx.exit(1)
+
+    result = client.delete(checkpoint_id)
+
+    if result.get("code") != 0:
+        print_logger.error(f"Error: {result.get('message', 'unknown error')}")
+        ctx.exit(1)
+
+    print_logger.info(f"Checkpoint {checkpoint_id} deleted successfully")
+    ctx.exit(0)
 
 
 def main(cmdargs: Optional[list[str]] = None) -> None:

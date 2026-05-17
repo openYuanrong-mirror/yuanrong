@@ -155,6 +155,82 @@ class TestStartTunnelServer(unittest.TestCase):
         self.assertIn("asyncio.new_event_loop", src)
         self.assertIn("daemon=True", src)
 
+    def test_no_tcp_probe_in_readiness_check(self):
+        """Readiness check must NOT use socket.create_connection (causes WS handshake errors)."""
+        import inspect
+        import yr.sandbox.sandbox as sb_module
+        cls = sb_module.SandboxInstance.__user_class__
+        src = inspect.getsource(cls)
+        self.assertNotIn("create_connection", src)
+
+    def test_uses_threading_event_for_readiness(self):
+        """Readiness check should use threading.Event instead of TCP polling."""
+        import inspect
+        import yr.sandbox.sandbox as sb_module
+        cls = sb_module.SandboxInstance.__user_class__
+        src = inspect.getsource(cls)
+        self.assertIn("threading.Event", src)
+        self.assertIn("ready.set()", src)
+        self.assertIn("ready.wait(", src)
+
+
+class TestStartTunnelServerBehavior(unittest.TestCase):
+    """Behavioral tests for start_tunnel_server using mocked TunnelServer."""
+
+    def _make_instance(self):
+        """Create a minimal SandboxInstance bypassing @yr.instance wrapper."""
+        import yr.sandbox.sandbox as sb_module
+        cls = sb_module.SandboxInstance.__user_class__
+        return object.__new__(cls)
+
+    @patch("yr.sandbox.tunnel_server.TunnelServer")
+    def test_successful_startup(self, MockServer):
+        """Server starts successfully: no error, thread launched."""
+        async def fake_start():
+            pass
+
+        mock_server = MagicMock()
+        mock_server.start = fake_start
+        MockServer.return_value = mock_server
+
+        inst = self._make_instance()
+        inst.start_tunnel_server(ws_port=19765, http_port=19766)
+        MockServer.assert_called_once_with(ws_port=19765, http_port=19766)
+
+    @patch("yr.sandbox.tunnel_server.TunnelServer")
+    def test_port_conflict_raises_runtime_error(self, MockServer):
+        """Port conflict in server.start() should propagate as RuntimeError."""
+        async def failing_start():
+            raise OSError(98, "Address already in use")
+
+        mock_server = MagicMock()
+        mock_server.start = failing_start
+        MockServer.return_value = mock_server
+
+        inst = self._make_instance()
+        with self.assertRaises(RuntimeError) as ctx:
+            inst.start_tunnel_server(ws_port=19765, http_port=19766)
+        self.assertIn("failed to start", str(ctx.exception))
+
+    @patch("threading.Thread")
+    @patch("threading.Event")
+    @patch("yr.sandbox.sandbox.logger")
+    @patch("yr.sandbox.tunnel_server.TunnelServer")
+    def test_timeout_logs_warning_not_exception(self, MockServer, mock_logger, MockEvent, MockThread):
+        """If server doesn't become ready within timeout, log warning but don't raise."""
+        mock_event = MagicMock()
+        mock_event.wait.return_value = False  # simulate timeout
+        MockEvent.return_value = mock_event
+
+        mock_thread = MagicMock()  # start() is no-op, thread never runs
+        MockThread.return_value = mock_thread
+
+        inst = self._make_instance()
+        inst.start_tunnel_server(ws_port=19765, http_port=19766)
+
+        mock_logger.warning.assert_called_once()
+        self.assertIn("not ready within 5s", mock_logger.warning.call_args[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()

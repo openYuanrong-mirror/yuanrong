@@ -18,6 +18,7 @@
 
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/libruntime/gwclient/http/client_manager.h"
+#include "src/libruntime/gwclient/transport/transport_client.h"
 #include "src/libruntime/heterostore/hetero_store.h"
 #include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/objectstore/async_decre_ref.h"
@@ -103,6 +104,7 @@ public:
     ErrorInfo Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout,
         const std::string &authToken = "");
     void Init(std::shared_ptr<HttpClient> httpClient);
+    void SetWsTransport(std::shared_ptr<TransportClient> ws);
     ErrorInfo Init(const std::string &ip, int port) override;
     ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout) override;
     ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
@@ -330,6 +332,8 @@ private:
 
 private:
     std::shared_ptr<HttpClient> httpClient_;
+    std::shared_ptr<TransportClient> httpTransport_;   // HTTP transport layer
+    std::shared_ptr<TransportClient> wsTransport_;     // WebSocket transport layer (optional)
     bool init_ = false;
     bool start_ = false;
     std::string funcName_;
@@ -346,6 +350,14 @@ private:
     std::shared_ptr<Security> security_;
     std::string authToken_;
     std::string tenantId_;
+
+    // Select transport: WebSocket if enabled and connected, otherwise HTTP
+    TransportClient* selectTransport() {
+        if (Config::Instance().YR_ENABLE_WEBSOCKET() && wsTransport_ && wsTransport_->IsConnected()) {
+            return wsTransport_.get();
+        }
+        return httpTransport_ ? httpTransport_.get() : nullptr;
+    }
 };
 
 class ClientBuffer : public NativeBuffer {

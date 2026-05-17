@@ -366,7 +366,7 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     lr->Init(fsClient, dsclients);
 
     std::string testObjId("fake_id");
-    size_t testDataSize = 200000;
+    size_t testDataSize = 3 * 1024 * 1024;  // 3MB, above 2MB MEM_STORE_SIZE_THRESHOLD
     char testData[18] = {"a"};
     auto returnObjs = std::make_shared<SharedBuffer>(static_cast<void *>(testData), 18);
     EXPECT_CALL(*this->objectStore_, CreateBuffer(_, _, _, _))
