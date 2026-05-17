@@ -21,6 +21,7 @@
 #include "src/libruntime/utils/constants.h"
 #include "src/utility/logger/log_handler.h"
 #include "src/utility/timer_worker.h"
+#include "src/libruntime/gwclient/transport/ws_transport.h"
 #include "src/libruntime/traceadaptor/trace_adapter.h"
 namespace YR {
 namespace Libruntime {
@@ -342,6 +343,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
                          "inCluster runtime requires ENABLE_DATASYSTEM to be enabled");
 #endif
     } else {
+        librtConfig->httpIdleTime = YR::Libruntime::Config::Instance().YR_HTTP_IDLE_TIME();
         FSIntfHandlers handlers;
         auto [httpClient, err] = clientsMgr->GetOrNewHttpClient(librtConfig->functionSystemIpAddr,
                                                                 librtConfig->functionSystemPort, librtConfig);
@@ -351,6 +353,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
         }
         auto gwClient = std::make_shared<GwClient>(librtConfig->functionIds[librtConfig->selfLanguage], handlers);
         gwClient->Init(httpClient, Config::Instance().DS_CONNECT_TIMEOUT_SEC(), librtConfig->authToken);
+        gwClient->SetWsTransport(CreateWsTransportFromConfig(librtConfig));
         auto fsClient = std::make_shared<FSClient>(gwClient);
         DatasystemClients dsClients{gwClient, gwClient, gwClient, gwClient};
         return librt->Init(fsClient, dsClients);

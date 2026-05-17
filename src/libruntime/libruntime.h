@@ -455,6 +455,22 @@ public:
                                                               const SnapStartOptions &snapStartOpts);
 
     /*!
+      @brief 删除指定快照
+      @param checkpointId 要删除的快照 ID
+      @return pair<ErrorInfo, string> 错误信息（成功时 string 为空）
+     */
+    virtual std::pair<ErrorInfo, std::string> DeleteCheckpoint(const std::string &checkpointId);
+
+    /*!
+      @brief List checkpoint IDs for the given function type, or all for the current tenant if empty.
+      @param functionType moduleName.className (empty = list all for current tenant)
+      @param ns namespace filter
+      @return pair<ErrorInfo, vector<string>> error info and list of checkpoint IDs
+     */
+    virtual std::pair<ErrorInfo, std::vector<std::string>> ListCheckpoints(
+        const std::string &functionType, const std::string &ns);
+
+    /*!
       @brief 结束当前上下文
       @param isDriver 如果设置为 True，将会退出当前任务对应的所有函数实例
       @throw Exception if the finalize operation fails

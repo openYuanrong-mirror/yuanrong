@@ -280,3 +280,13 @@ class ObjectRef:
             global_thread_local.object_refs = set()
         global_thread_local.object_refs.add(self)
         return _object_ref_deserializer, (self._id,)
+
+
+class ObjectRefDirect(ObjectRef):
+    """ObjectRefDirect bypasses datasystem — no IncreaseRef/DecreaseRef.
+
+    Return values exceeding the truncation threshold (5MB) will be truncated.
+    """
+
+    def __init__(self, object_id: str, task_id=None, exception=None):
+        super().__init__(object_id, task_id=task_id, need_incre=False, need_decre=False, exception=exception)

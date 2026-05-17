@@ -1,6 +1,7 @@
 # Sandbox Reverse Tunnel — Design Spec
 
-**Date:** 2026-03-26  
+**Date:** 2026-03-26
+**Updated:** 2026-03-31
 **Status:** Approved
 
 ---
@@ -9,7 +10,7 @@
 
 Sandbox instances run inside the yuanrong cloud platform. User code
 executing in a sandbox cannot directly reach services on the user's local
-machine, for example a local HTTP API at `192.168.3.45:8000`. We need a
+machine, for example a local HTTP API at `upstream.example.com:8000`. We need a
 reverse tunnel so sandbox code can transparently call local services through
 a WebSocket-based bidirectional channel.
 
@@ -18,12 +19,13 @@ a WebSocket-based bidirectional channel.
 ## Goals
 
 - Sandbox code calls a local proxy URL
-  (`http://127.0.0.1:{portB}/...`) and transparently reaches a local service
+  (`https://127.0.0.1:{portB}/...`) and transparently reaches a local service
 - Supports HTTP, HTTPS, and WebSocket proxying
 - Single API call from the user (`yr.sandbox.create(upstream=...)`) with no
   separate server to start
 - Reuses existing Traefik/JWT auth — no new auth layer
 - Concurrent HTTP and WebSocket requests
+- Support inter-sandbox communication via internal URLs
 
 ---
 
@@ -31,12 +33,12 @@ a WebSocket-based bidirectional channel.
 
 ```text
 [Local Machine]
-  yr.sandbox.create(upstream="192.168.3.45:8000")
+  yr.sandbox.create(upstream="upstream.example.com:8000")
     ├── creates sandbox in cloud (Port A + Port B)
     └── starts TunnelClient in background thread
               └── connects to Port A via WSS (through Traefik)
 
-  Local Service C: 192.168.3.45:8000
+  Local Service C: upstream.example.com:8000
 
          ▲ HTTP / HTTPS / WS
          │
@@ -48,7 +50,7 @@ a WebSocket-based bidirectional channel.
   Port B (:8766)  127.0.0.1 HTTP ← internal proxy for sandbox code
 
   sandbox code:
-    curl http://127.0.0.1:8766/api/data
+    curl https://127.0.0.1:8766/api/data
          ↓ Port B receives
          ↓ sends request frame over WS tunnel (Port A)
          ↓ awaits response frame
@@ -159,33 +161,120 @@ TunnelClient
 ### `sandbox.py` extensions
 
 ```python
-def create(upstream: str = None, proxy_port: int = 8766, ...) -> SandBox:
+@yr.instance
+class SandboxInstance:
+    """Underlying instance class decorated with @yr.instance."""
+
+    def start_tunnel_server(self, ws_port: int = 8765, http_port: int = 8766) -> None:
+        """Start TunnelServer in a background thread within this sandbox instance."""
+        import asyncio
+        import threading
+        from yr.sandbox.tunnel_server import TunnelServer
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            server = TunnelServer(ws_port=ws_port, http_port=http_port)
+            loop.run_until_complete(server.start())
+            loop.run_forever()
+
+        t = threading.Thread(target=_run, name="tunnel-server", daemon=True)
+        t.start()
+
+    def get_internal_urls(self) -> Dict[int, str]:
+        """Return internal cluster URLs for port-forwarded services.
+
+        Reads YR_INTERNAL_HOST_IP and YR_PORT_FORWARDINGS environment variables
+        injected by Runtime Manager. Other sandbox instances can call this method
+        via RPC to discover how to reach this sandbox's forwarded ports.
+
+        Returns:
+            Dict[int, str]: Mapping from container port to internal URL.
+                e.g. {8080: "https://192.0.2.1:40001", 9090: "https://192.0.2.1:40002"}
+        """
+        host_ip = os.environ.get("YR_INTERNAL_HOST_IP", "")
+        pf_str = os.environ.get("YR_PORT_FORWARDINGS", "")
+        if not host_ip or not pf_str:
+            return {}
+
+        result = {}
+        for mapping in pf_str.split(";"):
+            parts = mapping.split(":")
+            if len(parts) >= 3:
+                protocol = parts[0].lower()
+                host_port = parts[1]
+                container_port = int(parts[2])
+                scheme = "https" if protocol == "https" else "https"
+                result[container_port] = f"https://{host_ip}:{host_port}"
+        return result
+
+
+def create(upstream: str = None, proxy_port: int = 8766, ...) -> Sandbox:
+    """Factory function to create a Sandbox with optional reverse tunnel."""
     # Port B = proxy_port (user-facing, loopback-only)
     # Port A = proxy_port - 1 (WS tunnel endpoint, Traefik-registered)
     tunnel_port = proxy_port - 1
     opt = yr.InvokeOptions()
-    opt.port_forwardings = [
-        yr.PortForwarding(port=tunnel_port),  # Port A only; Port B is loopback
-    ]
-    sb = SandBoxInstance.options(opt).invoke()
-    sb.execute_bg(
-        f"python -m yr.sandbox.tunnel_server "
-        f"--ws-port {tunnel_port} --http-port {proxy_port}"
-    )
-    if upstream:
-        client = TunnelClient(upstream)
-        tunnel_ws_url = sb.get_gateway_url(tunnel_port)
-        client.start(tunnel_ws_url)   # background thread
-        sb._tunnel_client = client
-    return SandBox(sb, proxy_port=proxy_port)
+    opt.skip_serialize = True
 
-class SandBox:
+    if upstream is not None:
+        tunnel_pf = yr.PortForwarding(port=tunnel_port)
+        opt.port_forwardings = [tunnel_pf]
+        instance = SandboxInstance.options(opt).invoke(working_dir, env)
+
+        # Start tunnel server inside sandbox as background thread
+        yr.get(instance.start_tunnel_server.invoke(tunnel_port, proxy_port))
+
+        # Build WSS URL for tunnel Port A via Traefik
+        instance_id = yr.get(instance.get_name.invoke())
+        gateway_host = _get_gateway_host()
+        tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
+        tunnel_ws_url = tunnel_url.replace("https://", "wss://")
+
+        # Start local TunnelClient in background thread
+        from yr.sandbox.tunnel_client import TunnelClient
+        tunnel_client = TunnelClient(upstream)
+        tunnel_client.start(tunnel_ws_url)
+
+        sb = Sandbox(...)
+        sb._tunnel_client = tunnel_client
+        return sb
+
+    return Sandbox(...)
+
+
+class Sandbox:
+    """Wrapper class for convenient sandbox operations."""
+
     def get_tunnel_url(self) -> str:
-        return f"http://127.0.0.1:{self._proxy_port}"
+        """Return the internal HTTP proxy URL for sandbox code to call.
 
-    def close(self):
-        if self._tunnel_client:
+        Returns:
+            str: e.g. "https://127.0.0.1:8766"
+
+        Raises:
+            RuntimeError: if no upstream was configured.
+        """
+        if self._tunnel_client is None:
+            raise RuntimeError("No upstream configured. Pass upstream= to create().")
+        return f"https://127.0.0.1:{self._proxy_port}"
+
+    def get_internal_urls(self) -> Dict[int, str]:
+        """Return internal cluster URLs for port-forwarded services.
+
+        Other sandbox instances can use these URLs to reach this sandbox's
+        forwarded ports on the internal network.
+
+        Returns:
+            Dict[int, str]: Mapping from container port to internal URL.
+        """
+        return yr.get(self._instance.get_internal_urls.invoke())
+
+    def terminate(self):
+        """Stop tunnel client (if any) and terminate the sandbox instance."""
+        if self._tunnel_client is not None:
             self._tunnel_client.stop()
+            self._tunnel_client = None
         self._instance.terminate()
 ```
 
@@ -193,25 +282,66 @@ class SandBox:
 
 ## User API
 
+### Reverse Tunnel for Local Services
+
 ```python
 import yr
+
+yr.init()
 
 # proxy_port = Port B (default 8766, user-facing)
 # Port A = proxy_port - 1 (default 8765, internal, Traefik-registered)
 sb = yr.sandbox.create(
-    upstream="192.168.3.45:8000",
+    upstream="upstream.example.com:8000",
     proxy_port=8766,   # optional, default 8766
 )
 
 # Get the internal proxy URL for use inside sandbox
-url = sb.get_tunnel_url()  # → "http://127.0.0.1:8766"
+url = sb.get_tunnel_url()  # → "https://127.0.0.1:8766"
 
 # Sandbox code accesses local service C transparently
-result = yr.get(sb.execute(f"curl {url}/api/v1/data"))
+tunnel_url = sb.get_tunnel_url()
+result = yr.get(sb.exec(["curl", tunnel_url + "/api/v1/data"]))
 print(result)
 
-sb.close()
+sb.terminate()
+yr.finalize()
 ```
+
+### Inter-Sandbox Communication
+
+Sandbox instances can discover each other's internal URLs via `get_internal_urls()`:
+
+```python
+import yr
+
+yr.init()
+
+# Create sandbox A with port forwarding
+sb_a = yr.sandbox.create(ports=["tcp:8080"])
+
+# Get internal URLs that other sandboxes can use to reach sb_a
+internal_urls = sb_a.get_internal_urls()
+# Returns: {8080: "https://192.0.2.1:40001"}
+
+# Create sandbox B that needs to call sb_a
+sb_b = yr.sandbox.create()
+
+# sb_b can now call sb_a via the internal URL
+target_url = internal_urls[8080]
+result = yr.get(sb_b.exec(["curl", target_url + "/api/data"]))
+
+sb_a.terminate()
+sb_b.terminate()
+yr.finalize()
+```
+
+**Environment Variables (injected by Runtime Manager):**
+
+| Variable | Format | Example |
+|----------|--------|---------|
+| `YR_INTERNAL_HOST_IP` | IP address | `192.0.2.1` |
+| `YR_PORT_FORWARDINGS` | `protocol:host_port:container_port;...` | `tcp:40001:8080;https:40002:443` |
 
 ---
 
@@ -236,3 +366,5 @@ All are pure Python, no new system dependencies.
   MITM/certificate inspection.
 - WS-over-WS: supported via channel multiplexing, but each channel is independent.
 - No request size limit in v1 — large bodies buffered fully in memory.
+- Inter-sandbox communication requires Runtime Manager to inject
+  `YR_INTERNAL_HOST_IP` and `YR_PORT_FORWARDINGS` environment variables.

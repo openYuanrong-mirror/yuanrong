@@ -250,6 +250,7 @@ typedef struct tagCInvokeOptions {
     CInstanceSession *instanceSession;
     int64_t scheduleTimeoutMs;
     char forceInvoke;
+    char bypassDatasystem;
 } CInvokeOptions;
 
 typedef struct tagCErrorObject {

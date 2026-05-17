@@ -457,8 +457,11 @@ function start_control_plane() {
   fi
   # function master
   log_info "Deploying function master..."
-  if ! restart_control_plane_component "function_master" $CONTROL_PLANE_RETRY_TIMES; then
-    return 98
+  if [ "X${ENABLE_FUNCTION_MASTER:-true}" != "Xfalse" ] && [ "X${ENABLE_FUNCTION_MASTER:-true}" != "XFALSE" ]; then
+    log_info "Deploying function master..."
+    if ! restart_control_plane_component "function_master" $CONTROL_PLANE_RETRY_TIMES; then
+      return 98
+    fi
   fi
   # iam_server
   if [ "X${ENABLE_IAM_SERVER}" = "Xtrue" ] || [ "X${ENABLE_IAM_SERVER}" = "XTRUE" ]; then

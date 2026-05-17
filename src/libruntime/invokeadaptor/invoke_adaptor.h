@@ -199,6 +199,9 @@ public:
     virtual std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResources(void);
     virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
+    virtual std::pair<ErrorInfo, std::string> DeleteCheckpoint(const std::string &checkpointId);
+    virtual std::pair<ErrorInfo, std::vector<std::string>> ListCheckpoints(
+        const std::string &tenantID, const std::string &functionType, const std::string &ns);
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
     std::string GetActiveMasterAddr();

@@ -71,8 +71,8 @@ class TunnelClient:
     ):
         """
         Args:
-            upstream: upstream service address, e.g. "192.168.3.45:8000" or
-                      "http://192.168.3.45:8000" or "https://...".
+            upstream: upstream service address, e.g. "192.0.2.1:8000" or
+                      "https://192.0.2.1:8000" or "https://...".
             ping_interval: seconds between heartbeat PingFrames.
             ping_timeout: seconds to wait for PongFrame before closing.
             reconnect_base_delay: base delay for exponential backoff (Task 4).
@@ -227,6 +227,9 @@ class TunnelClient:
         done, pending = await asyncio.wait(
             [recv_task, hb_task], return_when=asyncio.FIRST_COMPLETED
         )
+        for t in done:
+            if t.exception() is not None:
+                logger.debug("Recv loop task finished with error: %s", t.exception())
         for t in pending:
             t.cancel()
             try:
@@ -236,22 +239,27 @@ class TunnelClient:
 
     async def _recv_frames(self, ws, http: httpx.AsyncClient) -> None:
         """Receive frames and dispatch them."""
-        async for message in ws:
-            try:
-                frame = parse_frame(message)
-            except Exception as e:
-                logger.warning("Dropping malformed tunnel frame: %s", e)
-                continue
-            if isinstance(frame, PongFrame) and frame.id == self._current_ping_id:
-                self._pong_event.set()
-            elif isinstance(frame, HttpReqFrame):
-                asyncio.create_task(self._handle_http(ws, http, frame))
-            elif isinstance(frame, WsConnectFrame):
-                asyncio.create_task(self._handle_ws_connect(ws, frame))
-            elif isinstance(frame, (WsMessageFrame, WsCloseFrame)):
-                q = self._ws_channels.get(frame.id)
-                if q is not None:
-                    await q.put(frame)
+        try:
+            async for message in ws:
+                try:
+                    frame = parse_frame(message)
+                except Exception as e:
+                    logger.warning("Dropping malformed tunnel frame: %s", e)
+                    continue
+                if isinstance(frame, PongFrame) and frame.id == self._current_ping_id:
+                    self._pong_event.set()
+                elif isinstance(frame, HttpReqFrame):
+                    asyncio.create_task(self._handle_http(ws, http, frame))
+                elif isinstance(frame, WsConnectFrame):
+                    asyncio.create_task(self._handle_ws_connect(ws, frame))
+                elif isinstance(frame, (WsMessageFrame, WsCloseFrame)):
+                    q = self._ws_channels.get(frame.id)
+                    if q is not None:
+                        await q.put(frame)
+        except websockets.ConnectionClosedError as e:
+            logger.warning("Connection closed unexpectedly during recv: %s", e)
+        except websockets.ConnectionClosedOK:
+            logger.debug("Connection closed normally during recv")
 
     async def _heartbeat_loop(self, ws) -> None:
         """Send PingFrame periodically. Close ws on pong timeout."""
@@ -269,8 +277,8 @@ class TunnelClient:
                 logger.warning("Heartbeat timeout, closing connection")
                 try:
                     await ws.close()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.debug("Failed to close ws cleanly: %s", _e)
                 return
             except websockets.ConnectionClosedOK:
                 logger.debug("Connection closed normally during heartbeat")
@@ -282,8 +290,41 @@ class TunnelClient:
                 logger.warning("Unexpected error during heartbeat: %s", e)
                 try:
                     await ws.close()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.debug("Failed to close ws cleanly: %s", _e)
+                return
+
+    async def _heartbeat_loop(self, ws) -> None:
+        """Send PingFrame periodically. Close ws on pong timeout."""
+        while True:
+            await asyncio.sleep(self._ping_interval)
+            if self._stop_event.is_set():
+                return
+            self._current_ping_id = make_id()
+            self._pong_event.clear()
+            ping = PingFrame(id=self._current_ping_id, timestamp=time.time())
+            try:
+                await ws.send(ping.to_json())
+                await asyncio.wait_for(self._pong_event.wait(), timeout=self._ping_timeout)
+            except asyncio.TimeoutError:
+                logger.warning("Heartbeat timeout, closing connection")
+                try:
+                    await ws.close()
+                except Exception as _e:
+                    logger.debug("Failed to close ws cleanly: %s", _e)
+                return
+            except websockets.ConnectionClosedOK:
+                logger.debug("Connection closed normally during heartbeat")
+                return
+            except websockets.ConnectionClosedError as e:
+                logger.warning("Connection closed unexpectedly during heartbeat: %s", e)
+                return
+            except Exception as e:
+                logger.warning("Unexpected error during heartbeat: %s", e)
+                try:
+                    await ws.close()
+                except Exception as _e:
+                    logger.debug("Failed to close ws cleanly: %s", _e)
                 return
 
     async def _handle_http(self, ws, http: httpx.AsyncClient, frame: HttpReqFrame) -> None:

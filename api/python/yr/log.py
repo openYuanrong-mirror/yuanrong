@@ -63,19 +63,30 @@ class RuntimeLogger:
         """get runtime log location"""
         return self.__runtime_log_location
 
-    def init(self, is_driver: bool, runtime_id: str, log_level: str) -> None:
+    def init(self, is_driver: bool, runtime_id: str, log_level: str,
+             logger: Logger = None) -> None:
         """Initializes logger for on cloud logging or local logging."""
         if self.__logger is not None:
+            return
+
+        self.__runtime_id = runtime_id
+
+        if logger is not None:
+            self.__logger = logger
+            # Sync handlers to "yr" namespace so module loggers (yr.*)
+            # propagate to the user-supplied handler.
+            yr_root = logging.getLogger(_BASE_LOG_NAME)
+            yr_root.setLevel(logger.level or logging.DEBUG)
+            yr_root.handlers = list(logger.handlers)
+            yr_root.propagate = False
             return
 
         # Check if YR_ONLY_STDOUT is set to enable stdout-only logging
         only_stdout = os.getenv("YR_ONLY_STDOUT", "true").lower() in ("true", "1")
 
         if only_stdout or is_driver:
-            self.__runtime_id = runtime_id
             self.__init_stream_logger(log_level)
         else:
-            self.__runtime_id = runtime_id
             self.__init_file_logger()
 
     def get_logger(self) -> Logger:
@@ -154,9 +165,10 @@ class RuntimeLogger:
         return log_file_name
 
 
-def init_logger(on_cloud: bool, runtime_id: str = "", log_level: str = "DEBUG") -> None:
+def init_logger(on_cloud: bool, runtime_id: str = "", log_level: str = "DEBUG",
+                logger: Logger = None) -> None:
     """init log handler"""
-    RuntimeLogger().init(on_cloud, runtime_id, log_level)
+    RuntimeLogger().init(on_cloud, runtime_id, log_level, logger=logger)
 
 
 def get_logger() -> Logger:

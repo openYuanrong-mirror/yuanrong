@@ -362,7 +362,7 @@ private:
     absl::Mutex mu;
     absl::CondVar cv_;
     std::atomic<bool> isShutdownDone{false};
-    std::unordered_set<std::string> processingRequestIds;
+    std::unordered_set<std::string> processingRequestIds ABSL_GUARDED_BY(mu);
     std::atomic<bool> needReInit_{false};  // checkpoint restore 后需要重新初始化
 
     class InstanceStatus {

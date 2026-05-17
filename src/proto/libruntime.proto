@@ -70,6 +70,9 @@ enum Signal {
     ErasePendingThread = 73;
     GetInstance = 74;
     UpdateEventInfo = 75;
+    ListCheckpointsByFunctionKey = 20;
+    ListCheckpointsByTenant = 21;
+    DeleteCheckpoint = 22;
 }
 
 enum SubscriptionType {

@@ -18,6 +18,7 @@ import asyncio
 import base64
 import builtins
 import os
+import tempfile
 import uuid
 import shutil
 import sys
@@ -247,7 +248,7 @@ class YRContext:
             cfg.in_cluster = True
             return yr.init(cfg)
         cfg = yr.Config()
-        cfg.log_dir = "/tmp/yr_sessions/driver"
+        cfg.log_dir = os.path.join(tempfile.gettempdir(), "yr_sessions", "driver")
         if self.__user:
             cfg.tenant_id = self.__user
         if self.__server_address and self.__ds_address:
@@ -493,7 +494,7 @@ def install_requirements(requirements_file, target_dir):
 def package(backend, code_path, format, user=None):
     real_code_path = os.path.realpath(code_path)
     file_name = f"code-{uuid.uuid4().hex}"
-    archive_file = os.path.join("/tmp", file_name)
+    archive_file = os.path.join(tempfile.gettempdir(), file_name)
     if format == "zip":
         shutil.make_archive(archive_file, format, real_code_path)
     elif format == "img":
@@ -1598,8 +1599,7 @@ def async_invoke(function_name, payload, timeout, header, webhook):
         jwt_token=__jwt_token,
         accept_status=(200, 202),  # Accept 202 for async invoke
     )
-    # Parse function name for short URL format
-    # Format: [tenant-id@]namespace@function-name[:version]
+    # Parse function name for short URL format: [tenant-id@]namespace@function-name[:version]
     func_str = str(function_name)
     parts = func_str.split('@')
 
@@ -1608,7 +1608,6 @@ def async_invoke(function_name, payload, timeout, header, webhook):
         namespace = parts[1]
         function_name_only = parts[2].split(':')[0]
     elif len(parts) == 2:
-        # Format: namespace@function-name[:version]
         tenant_id = __user  # Use the user as tenant
         namespace = parts[0]
         function_name_only = parts[1].split(':')[0]

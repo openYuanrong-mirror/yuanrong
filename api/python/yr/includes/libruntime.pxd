@@ -420,6 +420,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         int timeout
         bool isGetInstance
         bool isDeleteRemoteTensor
+        bool bypassDatasystem
         string traceId
         string workingDir
         bool preemptedAllowed
@@ -843,6 +844,4 @@ cdef extern from "src/libruntime/fmclient/fm_client.h" namespace "YR::Libruntime
         QueryNamedInsResponse() except +
         int names_size() const
         string names(int idx) const
-
-
 

@@ -47,6 +47,7 @@ public:
     std::string GetLogDir(void) const;
     std::string GetNodeName(void) const;
     std::string GetModelName(void) const;
+    bool IsOnlyStdout(void) const;
     void SetGetLoggerNameFunc(GetLoggerNameFunc func);
 
 private:
@@ -68,6 +69,7 @@ private:
     std::unordered_map<std::string, std::string> logPrefixMap_;
     absl::Mutex mu_;
     GetLoggerNameFunc getLoggerNameFunc = nullptr;
+    bool onlyStdout_ = false;
     absl::Mutex spdLoggerMu_;
 };
 }  // namespace utility

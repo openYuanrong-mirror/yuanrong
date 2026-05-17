@@ -59,7 +59,7 @@ from yr.apis import (  # noqa: E402
     query_global_producers_num, query_global_consumers_num, save_state, load_state,
     cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
     go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
-    list_named_instances, kill_instance
+    list_named_instances, kill_instance, restore_from_checkpoint, delete_checkpoint, list_checkpoints
 )
 
 from yr.fcc import (  # noqa: E402
@@ -75,6 +75,7 @@ from yr.config import (  # noqa: E402
     FunctionGroupContext, ServerInfo, DeviceInfo, ResourceGroupOptions, GroupOptions,
     PortForwarding,
 )
+from yr.checkpoint import SnapstartInfo, SnapstartResponse  # noqa: E402
 
 from yr.group import Group
 from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
@@ -109,5 +110,6 @@ __all__ = [
     "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
     "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
     "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances", "Group",  "GroupOptions",
-    "sandbox", "kill_instance"
+    "sandbox", "kill_instance", "restore_from_checkpoint", "delete_checkpoint", "list_checkpoints",
+    "SnapstartInfo", "SnapstartResponse"
 ]

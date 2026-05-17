@@ -193,15 +193,19 @@ ErrorInfo ClientManager::Init(const ConnectionParam &param)
     connectedClientsCnt_ = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
     YRLOG_INFO("http initial connection num {}", connectedClientsCnt_);
     for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
-        for (int _ = 0; _ < RETRY_TIME; _++) {
+        for (int j = 0; j < RETRY_TIME; j++) {
             error = clients[i]->Init(param);
-            clients[i]->SetAvailable();
             if (error.OK()) {
+                clients[i]->SetAvailable();
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(INTERVAL_TIME));
+            YRLOG_WARN("http connection {} init failed (attempt {}/{}): {}", i, j + 1, RETRY_TIME, error.Msg());
+            if (j < RETRY_TIME - 1) {
+                std::this_thread::sleep_for(std::chrono::seconds(INTERVAL_TIME));
+            }
         }
         if (!error.OK()) {
+            clients[i]->SetAvailable();
             return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, error.Msg());
         }
     }

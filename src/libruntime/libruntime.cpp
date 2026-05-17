@@ -108,7 +108,7 @@ ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::D
     this->memStore->Init(dsClients.dsObjectStore, waitingObjectManager);
     this->waitingObjectManager->SetMemoryStore(this->memStore);
     this->dependencyResolver = std::make_shared<DependencyResolver>(memStore);
-    this->objectIdPool = std::make_shared<ObjectIdPool>(memStore);
+    this->objectIdPool = std::make_shared<ObjectIdPool>(memStore, Config::Instance().YR_OBJECT_ID_POOL_SIZE());
     auto mapper = std::make_shared<GeneratorIdMap>();
     this->generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(datasystemClients.dsStreamStore, mapper);
     this->generatorReceiver_ =
@@ -489,7 +489,7 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
     }
 
     memStore->AddReturnObject(returnObjs);
-    if (!this->config->inCluster) {
+    if (!this->config->inCluster && !opts.bypassDatasystem) {
         std::vector<std::string> objIds;
         for (const auto &obj : returnObjs) {
             if (!obj.id.empty()) {
@@ -636,7 +636,7 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
         memStore->AddEventTimer(requestId, opts.timeout);
     }
     memStore->AddReturnObject(returnObjs);
-    if (!this->config->inCluster) {
+    if (!this->config->inCluster && !opts.bypassDatasystem) {
         std::vector<std::string> objIds;
         for (const auto &obj : returnObjs) {
             if (!obj.id.empty()) {
@@ -1454,6 +1454,9 @@ std::pair<ErrorInfo, std::string> Libruntime::Snapshot(const std::string &instan
     protoSnapOpts.set_type(snapOpts.type);
     protoSnapOpts.set_ttl(snapOpts.ttl);
     protoSnapOpts.set_leaverunning(snapOpts.leaveRunning);
+    if (!snapOpts.functionType.empty()) {
+        protoSnapOpts.set_functiontype(snapOpts.functionType);
+    }
 
     // Serialize protobuf message to string
     std::string payload;
@@ -1547,6 +1550,38 @@ std::pair<ErrorInfo, SnapstartResponse> Libruntime::Snapstart(const std::string 
     return {ErrorInfo(), response};
 }
 
+std::pair<ErrorInfo, std::string> Libruntime::DeleteCheckpoint(const std::string &checkpointId)
+{
+    if (checkpointId.empty()) {
+        return {ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "checkpointId is empty"), ""};
+    }
+    YRLOG_INFO("Deleting checkpoint: {}", checkpointId);
+    auto [err, res] = invokeAdaptor->DeleteCheckpoint(checkpointId);
+    if (!err.OK()) {
+        YRLOG_ERROR("Failed to delete checkpoint {}: {}", checkpointId, err.Msg());
+        return {err, ""};
+    }
+    YRLOG_INFO("Checkpoint deleted successfully: {}", checkpointId);
+    return {ErrorInfo(), ""};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> Libruntime::ListCheckpoints(
+    const std::string &functionType, const std::string &ns)
+{
+    if (!invokeAdaptor) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "invokeAdaptor is null"), {}};
+    }
+    const std::string &tenantID = this->config->tenantId;
+    YRLOG_INFO("Listing checkpoints, functionType: {}, ns: {}, tenantID: {}", functionType, ns, tenantID);
+    auto [err, ids] = invokeAdaptor->ListCheckpoints(tenantID, functionType, ns);
+    if (!err.OK()) {
+        YRLOG_ERROR("Failed to list checkpoints: {}", err.Msg());
+        return {err, {}};
+    }
+    YRLOG_INFO("Listed {} checkpoints", ids.size());
+    return {ErrorInfo(), ids};
+}
+
 void Libruntime::Finalize(bool isDriver)
 {
     if (generatorNotifier_ != nullptr) {
@@ -1596,10 +1631,10 @@ void Libruntime::Finalize(bool isDriver)
 
 void Libruntime::ReInit()
 {
-    YRLOG_INFO("Libruntime::ReInit - start");
+    YRLOG_INFO("Libruntime::ReInit - start, old dsAddr={}:{}", config->dataSystemIpAddr, config->dataSystemPort);
 
 #ifdef ENABLE_DATASYSTEM
-    // Save old datasystem address before updating config
+    // Save old datasystem address for releasing old dsClients
     std::string oldDsIpAddr = config->dataSystemIpAddr;
     int oldDsPort = config->dataSystemPort;
 #endif  // ENABLE_DATASYSTEM
@@ -1619,8 +1654,7 @@ void Libruntime::ReInit()
     // Reinitialize dsClients
     if (config->inCluster) {
         // First, release the old dsClients using OLD address to ensure we get fresh connections
-        if (std::atomic_load(&dsClients.dsObjectStore) || std::atomic_load(&dsClients.dsStateStore) ||
-            std::atomic_load(&dsClients.dsStreamStore) || std::atomic_load(&dsClients.dsHeteroStore)) {
+        if (dsClients.dsObjectStore || dsClients.dsStateStore || dsClients.dsStreamStore || dsClients.dsHeteroStore) {
             auto err = clientsMgr->ReleaseDsClient(oldDsIpAddr, oldDsPort);
             if (!err.OK()) {
                 YRLOG_WARN("Failed to release old dsClients ({}:{}): {}", oldDsIpAddr, oldDsPort, err.Msg());
@@ -1634,10 +1668,7 @@ void Libruntime::ReInit()
         security_->GetAKSK(ak, sk);
         auto [newDsClients, err] = clientsMgr->GetOrNewDsClient(config, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
         if (err.OK()) {
-            std::atomic_store(&dsClients.dsObjectStore, newDsClients.dsObjectStore);
-            std::atomic_store(&dsClients.dsStateStore, newDsClients.dsStateStore);
-            std::atomic_store(&dsClients.dsStreamStore, newDsClients.dsStreamStore);
-            std::atomic_store(&dsClients.dsHeteroStore, newDsClients.dsHeteroStore);
+            dsClients = newDsClients;
             YRLOG_INFO("dsClients reinitialized successfully (new address: {}:{})", config->dataSystemIpAddr, config->dataSystemPort);
         } else {
             YRLOG_ERROR("failed to reinitialize dsClients, message({})", err.Msg());
@@ -1645,30 +1676,21 @@ void Libruntime::ReInit()
     }
 
     // Reinitialize generatorNotifier_
-    {
-        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
-        if (streamStore) {
-            auto mapper = std::make_shared<GeneratorIdMap>();
-            generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(streamStore, mapper);
-        }
+    if (dsClients.dsStreamStore) {
+        auto mapper = std::make_shared<GeneratorIdMap>();
+        generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(dsClients.dsStreamStore, mapper);
     }
 
     // Reinitialize generatorReceiver_
-    {
-        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
-        if (streamStore && memStore) {
-            generatorReceiver_ = std::make_shared<StreamGeneratorReceiver>(config, streamStore, memStore);
-            generatorReceiver_->Initialize();
-        }
+    if (dsClients.dsStreamStore && memStore) {
+        generatorReceiver_ = std::make_shared<StreamGeneratorReceiver>(config, dsClients.dsStreamStore, memStore);
+        generatorReceiver_->Initialize();
     }
 
     // Reinitialize driverLogReceiver_
-    {
-        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
-        if (config->logToDriver && streamStore) {
-            driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
-            driverLogReceiver_->Init(streamStore, config->jobId, config->dedupLogs);
-        }
+    if (config->logToDriver && dsClients.dsStreamStore) {
+        driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
+        driverLogReceiver_->Init(dsClients.dsStreamStore, config->jobId, config->dedupLogs);
     }
 #endif  // ENABLE_DATASYSTEM
 
@@ -2146,7 +2168,7 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> Libruntime::GetInstance(const
     if (!err.OK() &&
         (err.Code() == ErrorCode::ERR_INSTANCE_NOT_FOUND || err.Code() == ErrorCode::ERR_INSTANCE_EXITED)) {
         auto insId = nameSpace.empty() ? this->config->ns + "-" + name : nameSpace + "-" + name;
-        YRLOG_WARN("instance： {} not exist, need kill directly", insId);
+        YRLOG_DEBUG("instance： {} not exist, need kill directly", insId);
         this->invokeAdaptor->KillAsync(nameSpace.empty() ? this->config->ns + "-" + name : nameSpace + "-" + name, "",
                                        libruntime::Signal::KillInstance);
     }

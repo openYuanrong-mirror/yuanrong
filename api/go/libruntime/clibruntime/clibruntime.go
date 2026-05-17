@@ -1941,6 +1941,7 @@ func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {
 	cInvokeOpt.size_invokeLabels = cIvkLabelLen
 	cInvokeOpt.scheduleTimeoutMs = C.int64_t(invokeOpt.ScheduleTimeoutMs)
 	cInvokeOpt.forceInvoke = C.char(btoi(invokeOpt.ForceInvoke))
+	cInvokeOpt.bypassDatasystem = C.char(btoi(invokeOpt.BypassDataSystem))
 	if invokeOpt.InstanceSession != nil {
 		cCInstanceSession := (*C.CInstanceSession)(C.malloc(C.sizeof_CInstanceSession))
 		cCInstanceSession.sessionId = C.CString(invokeOpt.InstanceSession.SessionID)

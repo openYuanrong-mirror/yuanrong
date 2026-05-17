@@ -19,6 +19,7 @@
 
 namespace YR {
 namespace Libruntime {
+
 AsyncHttpsClient::AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
                                    const std::shared_ptr<asio::ssl::context> &ctx, std::string serverName)
     : ioc_(ioc), ctx_(ctx), serverName_(std::move(serverName)), resolver_(asio::make_strand(*ioc))
@@ -44,6 +45,7 @@ void AsyncHttpsClient::SubmitInvokeRequest(const http::verb &method, const std::
         req_.set(iter.first, iter.second);
     }
     req_.set("HOST", connParam_.ip + ":" + connParam_.port);
+    req_.set(http::field::connection, "keep-alive");
     req_.body() = body;
     req_.prepare_payload();
     resParser_ = std::make_shared<http::response_parser<http::string_body>>();
@@ -168,7 +170,6 @@ void AsyncHttpsClient::GracefulExit() noexcept
         YRLOG_DEBUG("start shutdown ssl stream.");
         stream_->shutdown(ec);
         if (ec) {
-            YRLOG_WARN("SSL shutdown failed: {}", ec.message().c_str());
             return;
         }
         auto &sock = stream_->next_layer().socket();

@@ -95,9 +95,16 @@ message QueryResourceGroupResponse {
 }
 
 // Snapshot metadata stored in etcd
+message FunctionKey {
+  string tenantID     = 1;
+  string functionType = 2;  // moduleName.className for actors; functionName for FaaS
+  string namespace    = 3;
+}
+
 message SnapshotMetadata {
   resources.InstanceInfo instanceInfo = 1; // 实例信息
   resources.SnapshotInfo snapshotInfo = 2; // 快照信息
+  FunctionKey functionKey = 3;
 }
 
 message SnapshotRuntimeRequest {
@@ -121,20 +128,65 @@ message RestoreSnapshotRequest {
   core_service.SnapStartOptions snapStartOptions = 3;
 }
 
+message SnapstartInfo {
+  string routeAddress = 1;
+  string portMappings = 2;
+  string functionProxyID = 3;
+  string nodeID = 4;
+  string namespace = 5;
+}
+
 message RestoreSnapshotResponse {
   int32 code = 1;
   string message = 2;
   string requestID = 3;
   string instanceID = 4;
+  SnapstartInfo snapstartInfo = 5;
 }
 
 message RecordSnapshotRequest {
   string requestID = 1;
   resources.SnapshotInfo snapshotInfo = 2;
   resources.InstanceInfo instanceInfo = 3;
+  FunctionKey functionKey = 4;
 }
 
 message RecordSnapshotResponse {
+  int32 code = 1;
+  string message = 2;
+  string requestID = 3;
+}
+
+message ListSnapshotsByFunctionKeyRequest {
+  string requestID        = 1;
+  FunctionKey functionKey = 2;
+}
+
+message ListSnapshotsByFunctionKeyResponse {
+  int32  code                    = 1;
+  string message                 = 2;
+  string requestID               = 3;
+  repeated string checkpointIDs  = 4;
+}
+
+message ListSnapshotsByTenantRequest {
+  string requestID = 1;
+  string tenantID  = 2;
+}
+
+message ListSnapshotsByTenantResponse {
+  int32  code                    = 1;
+  string message                 = 2;
+  string requestID               = 3;
+  repeated string checkpointIDs  = 4;
+}
+
+message DeleteSnapshotRequest {
+  string requestID = 1;
+  string checkpointID = 2;
+}
+
+message DeleteSnapshotResponse {
   int32 code = 1;
   string message = 2;
   string requestID = 3;

@@ -508,6 +508,18 @@ cc_test(
 )
 
 cc_test(
+  name = "ws_transport_test",
+  size = "small",
+  srcs = [
+    "libruntime/ws_transport_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+  ],
+  linkstatic = True,
+)
+
+cc_test(
   name = "scene_test",
   srcs = [
     "scene/downgrade_test.cpp",

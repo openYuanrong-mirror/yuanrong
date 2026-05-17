@@ -24,7 +24,8 @@ import os
 import threading
 import weakref
 import uuid
-from typing import List
+from dataclasses import replace
+from typing import List, Optional
 import yr
 from yr import signature
 from yr.code_manager import CodeManager
@@ -33,7 +34,7 @@ from yr.common import constants, utils
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions, function_group_enabled
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
-from yr.object_ref import ObjectRef
+from yr.object_ref import ObjectRef, ObjectRefDirect
 from yr.runtime_holder import global_runtime, save_real_instance_id
 from yr.serialization import register_pack_hook, register_unpack_hook
 from yr.accelerate.shm_broadcast import MessageQueue, STOP_EVENT
@@ -259,6 +260,9 @@ class InstanceCreator:
     def _invoke(self, name=None, args=None, kwargs=None, invoke_options=None):
         if invoke_options is None:
             invoke_options = self.__invoke_options__
+        if invoke_options.idle_timeout >= 0:
+            # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it 
+            invoke_options.custom_extensions["idle_timeout"] = str(invoke_options.idle_timeout)
         invoke_options.check_options_valid()
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         with self._lock:
@@ -432,7 +436,8 @@ class InstanceCreator:
         """
         _logger.info("Starting instance from snapshot: %s", checkpoint_id)
 
-        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+        snapstart_response = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+        new_instance_id = snapstart_response.instance_id
 
         # Create a new InstanceProxy for the restored instance
         restored_proxy = InstanceProxy(
@@ -448,10 +453,32 @@ class InstanceCreator:
             namespace=self.__invoke_options__.namespace,
             code_ref=self._code_ref
         )
+        restored_proxy._checkpoint_id = checkpoint_id
+        restored_proxy._snapstart_info = replace(snapstart_response.snapstart_info)
 
         _logger.info("Instance restored from snapshot %s: %s",
                      checkpoint_id, new_instance_id)
         return restored_proxy
+
+    def list_checkpoints(self, namespace: str = "") -> list:
+        """
+        List all checkpoints created from instances of this class.
+
+        Args:
+            namespace (str): Namespace filter. Default is empty string.
+
+        Returns:
+            list: List of checkpoint ID strings.
+
+        Example:
+            >>> @yr.instance
+            ... class Counter:
+            ...     def __init__(self): self.count = 0
+            ...
+            >>> checkpoints = Counter.list_checkpoints()
+        """
+        function_type = f"{utils.get_module_name(self.__user_class__)}.{self.__user_class__.__qualname__}"
+        return global_runtime.get_runtime().list_checkpoints(function_type, namespace)
 
 
 class InstanceProxy:
@@ -487,6 +514,8 @@ class InstanceProxy:
         self._instance_name = instance_name
         self._ns = namespace
         self._code_ref = code_ref
+        self._checkpoint_id: Optional[str] = None
+        self._snapstart_info = None
 
 
         if self._class_methods is not None:
@@ -724,12 +753,16 @@ class InstanceProxy:
         _logger.info("Creating snapshot for instance %s, leave_running=%s",
                      self.instance_id, leave_running)
 
+        function_type = (
+            f"{self._class_descriptor.module_name}.{self._class_descriptor.class_name}"
+        )
         checkpoint_id = global_runtime.get_runtime().snapshot_instance(
-            self.instance_id, ttl, leave_running)
+            self.instance_id, ttl, leave_running, function_type)
 
         if not leave_running:
             self.__instance_activate__ = False
 
+        self._checkpoint_id = checkpoint_id
         _logger.info("Snapshot created for instance %s: %s",
                      self.instance_id, checkpoint_id)
         return checkpoint_id
@@ -782,7 +815,8 @@ class InstanceProxy:
         """
         _logger.info("Starting instance from snapshot: %s", checkpoint_id)
 
-        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+        snapstart_response = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+        new_instance_id = snapstart_response.instance_id
 
         # Create a new InstanceProxy for the restored instance
         restored_proxy = InstanceProxy(
@@ -798,10 +832,68 @@ class InstanceProxy:
             namespace=self._ns,
             code_ref=self._code_ref
         )
+        restored_proxy._checkpoint_id = checkpoint_id
+        restored_proxy._snapstart_info = replace(snapstart_response.snapstart_info)
 
         _logger.info("Instance restored from snapshot %s: %s",
                      checkpoint_id, new_instance_id)
         return restored_proxy
+
+    @property
+    def checkpoint_id(self) -> Optional[str]:
+        """The checkpoint_id associated with this instance.
+
+        Returns the checkpoint_id from the last snapshot() call,
+        or the template checkpoint_id if this instance was created via snapstart().
+
+        Returns:
+            Optional[str]: The checkpoint ID, or None if no checkpoint is associated.
+        """
+        return self._checkpoint_id
+
+    @property
+    def snapstart_info(self):
+        """The restore metadata returned when this instance was created via snapstart()."""
+        return self._snapstart_info
+
+    def delete_checkpoint(self, checkpoint_id: Optional[str] = None) -> None:
+        """Delete a checkpoint.
+
+        Args:
+            checkpoint_id (str, optional): The checkpoint ID to delete.
+                If None, deletes the last checkpoint associated with this instance.
+
+        Raises:
+            ValueError: If no checkpoint_id is provided and no checkpoint is associated.
+        """
+        cp_id = checkpoint_id or self._checkpoint_id
+        if not cp_id:
+            raise ValueError(
+                "No checkpoint_id provided and no checkpoint is associated with this instance. "
+                "Call snapshot() first or provide a checkpoint_id explicitly.")
+        global_runtime.get_runtime().delete_checkpoint(cp_id)
+        if cp_id == self._checkpoint_id:
+            self._checkpoint_id = None
+
+    def list_checkpoints(self, namespace: str = "") -> list:
+        """
+        List all checkpoints for this instance's function type.
+
+        Args:
+            namespace (str): Namespace filter. Default is empty string.
+
+        Returns:
+            list: List of checkpoint ID strings.
+
+        Example:
+            >>> ins = Counter.invoke()
+            >>> ins.snapshot(leave_running=False)
+            >>> checkpoints = ins.list_checkpoints()
+        """
+        function_type = (
+            f"{self._class_descriptor.module_name}.{self._class_descriptor.class_name}"
+        )
+        return global_runtime.get_runtime().list_checkpoints(function_type, namespace)
 
 
 @register_pack_hook
@@ -923,7 +1015,7 @@ class MethodProxy:
 
         return FuncWrapper()
 
-    def _invoke(self, args, kwargs, invoke_options=InvokeOptions()):
+    def _invoke(self, args, kwargs, invoke_options=InvokeOptions(), ref_cls=None):
         if not self._instance_ref().is_activate():
             raise RuntimeError("this instance is terminated")
         if self._method_descriptor.target_language == LanguageType.Python:
@@ -953,12 +1045,22 @@ class MethodProxy:
         if self._return_nums == 0:
             return None
         objref_list = []
-        for i in obj_list:
-            objref_list.append(ObjectRef(i, need_incre=False, enable_tensor_transport=self._enable_tensor_transport))
+        if ref_cls is not None:
+            for i in obj_list:
+                objref_list.append(ref_cls(i))
+        else:
+            for i in obj_list:
+                objref_list.append(ObjectRef(i, need_incre=False,
+                                             enable_tensor_transport=self._enable_tensor_transport))
 
         if self._method_descriptor.is_generator:
             return ObjectRefGenerator(objref_list[0])
         return objref_list[0] if self._return_nums == 1 else objref_list
+
+    def invoke_direct(self, *args, **kwargs):
+        """Invoke bypassing datasystem. Returns ObjectRefDirect (no ref counting)."""
+        opts = replace(InvokeOptions(), bypass_datasystem=True)
+        return self._invoke(args, kwargs, invoke_options=opts, ref_cls=ObjectRefDirect)
 
 
 def make_decorator(invoke_options=None):

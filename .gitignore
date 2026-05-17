@@ -6,6 +6,7 @@ bazel-*
 .clwb
 .ijwb
 .claude
+.ccb
 .specify
 specs/
 external

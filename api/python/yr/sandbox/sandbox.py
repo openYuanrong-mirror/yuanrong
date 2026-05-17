@@ -17,6 +17,7 @@
 """Sandbox implementation for isolated code execution."""
 
 import argparse
+import logging
 import subprocess
 import tempfile
 import os
@@ -27,6 +28,8 @@ import yr
 from yr.config import InvokeOptions, PortForwarding
 from yr.runtime_holder import global_runtime
 from yr.config_manager import ConfigManager
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_instance_id(instance_id: str) -> str:
@@ -257,29 +260,31 @@ class SandboxInstance:
         """Start TunnelServer in a background thread within this sandbox instance."""
         import asyncio
         import threading
-        import time
 
         from yr.sandbox.tunnel_server import TunnelServer
+
+        ready = threading.Event()
+        error = [None]
 
         def _run():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             server = TunnelServer(ws_port=ws_port, http_port=http_port)
-            loop.run_until_complete(server.start())
+            try:
+                loop.run_until_complete(server.start())
+            except Exception as e:
+                error[0] = e
+                ready.set()
+                return
+            ready.set()
             loop.run_forever()
 
         t = threading.Thread(target=_run, name="tunnel-server", daemon=True)
         t.start()
-        # Wait until both ports are actually bound (up to 5s)
-        import socket as _socket
-        deadline = time.time() + 5.0
-        for port in (ws_port, http_port):
-            while time.time() < deadline:
-                try:
-                    _socket.create_connection(("127.0.0.1", port), timeout=0.1).close()
-                    break
-                except OSError:
-                    time.sleep(0.1)
+        if not ready.wait(timeout=5.0):
+            logger.warning("TunnelServer not ready within 5s, continuing anyway")
+        if error[0] is not None:
+            raise RuntimeError(f"TunnelServer failed to start: {error[0]}") from error[0]
 
     def get_internal_urls(self) -> Dict[int, str]:
         """Return internal cluster URLs for port-forwarded services.
@@ -291,7 +296,7 @@ class SandboxInstance:
 
         Returns:
             Dict[int, str]: Mapping from container port to internal URL.
-                e.g. {8080: "http://10.0.0.1:40001", 9090: "http://10.0.0.1:40002"}.
+                e.g. {8080: "https://192.0.2.1:40001", 9090: "https://192.0.2.1:40002"}.
                 Returns an empty dict if no port forwarding is configured.
         """
         host_ip = os.environ.get("YR_INTERNAL_HOST_IP", "")
@@ -345,7 +350,7 @@ def create(
         working_dir: Working directory for sandbox execution.
         env: Environment variables for the sandbox.
         port: Additional port forwarding rules.
-        upstream: Local service address to tunnel to, e.g. "192.168.3.45:8000".
+        upstream: Local service address to tunnel to, e.g. "upstream.example.com:8000".
             When set, starts a reverse tunnel so sandbox code can reach the
             local service via http://127.0.0.1:{proxy_port}.
         proxy_port: Port B — the HTTP proxy port inside the sandbox
@@ -436,7 +441,7 @@ class Sandbox:
         >>> print(result['stdout'])
         >>>
         >>> # Sandbox with reverse tunnel to local service
-        >>> sb = yr.sandbox.create(upstream="192.168.3.45:8000")
+        >>> sb = yr.sandbox.create(upstream="upstream.example.com:8000")
         >>> url = sb.get_tunnel_url()   # "http://127.0.0.1:8766"
         >>> result = yr.get(sb.exec(f"curl {url}/api/data"))
         >>>
@@ -762,7 +767,7 @@ class Sandbox:
 
         Returns:
             Dict[int, str]: Mapping from container port to internal URL.
-                e.g. {8080: "http://10.0.0.1:40001", 9090: "http://10.0.0.1:40002"}
+                e.g. {8080: "https://192.0.2.1:40001", 9090: "https://192.0.2.1:40002"}
                 Returns an empty dict if no port forwarding is configured.
         """
         return yr.get(self._instance.get_internal_urls.invoke())

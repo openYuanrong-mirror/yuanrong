@@ -317,23 +317,42 @@ class ClusterModeRuntime(Runtime):
         """
         self.libruntime.terminate_group(group_name)
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot with signal 18
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
-        return self.libruntime.snapshot_instance(instance_id, ttl, leave_running)
+        return self.libruntime.snapshot_instance(instance_id, ttl, leave_running, function_type)
 
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot with signal 19
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
         """
         return self.libruntime.snapstart_instance(checkpoint_id)
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+        self.libruntime.delete_checkpoint(checkpoint_id)
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoints by function type or all for current tenant.
+        :param function_type: moduleName.className (empty = all tenant checkpoints)
+        :param namespace: namespace filter
+        :return: list of checkpoint ID strings
+        """
+        return self.libruntime.list_checkpoints(function_type, namespace)
 
     def exit(self) -> None:
         """

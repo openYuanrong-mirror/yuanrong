@@ -108,6 +108,7 @@ message GroupOptions {
 
 message InvokeOptions {
   map<string, string>	customTag = 1;
+  bool                bypass_datasystem = 2;
 }
 
 message InvokeRequest {
@@ -187,6 +188,7 @@ message SnapOptions {
   common.SnapType type = 1;
   int32           ttl  = 2;  // seconds
   bool            leaveRunning = 3;
+  string          functionType = 4;  // moduleName.className for actors
 }
 
 message SnapStartOptions {

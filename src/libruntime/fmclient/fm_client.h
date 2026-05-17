@@ -37,11 +37,19 @@ using QueryResourceGroupRequest = ::messages::QueryResourceGroupRequest;
 using QueryResourceGroupResponse = ::messages::QueryResourceGroupResponse;
 using ResourceGroupInfo = ::messages::ResourceGroupInfo;
 using SubscribeActiveMasterCb = std::function<void()>;
+using ListSnapshotsByFunctionKeyRequest = ::messages::ListSnapshotsByFunctionKeyRequest;
+using ListSnapshotsByFunctionKeyResponse = ::messages::ListSnapshotsByFunctionKeyResponse;
+using ListSnapshotsByTenantRequest = ::messages::ListSnapshotsByTenantRequest;
+using ListSnapshotsByTenantResponse = ::messages::ListSnapshotsByTenantResponse;
+using FunctionKey = ::messages::FunctionKey;
 ErrorInfo CheckResponseCode(const boost::beast::error_code &errorCode, const uint statusCode, const std::string &result,
                             const std::string &requestId);
 const std::string GLOBAL_SCHEDULER_QUERY_RESOURCES = "/global-scheduler/resources";
 const std::string INSTANCE_MANAGER_QUERY_NAMED_INSTANCES = "/instance-manager/named-ins";
 const std::string GLOBAL_QUERY_RESOURCE_GROUP_TABLE = "/resource-group/rgroup";
+const std::string SNAP_MANAGER_DELETE_SNAPSHOT = "/delete-snapshot";
+const std::string SNAP_MANAGER_LIST_BY_FUNCTION_KEY = "/list-snapshots-by-function-key";
+const std::string SNAP_MANAGER_LIST_BY_TENANT = "/list-snapshots-by-tenant";
 
 class FMClient {
 public:
@@ -69,6 +77,10 @@ public:
     std::pair<ErrorInfo, ResourceGroupUnit> GetResourcesGroupWithRetry(const std::string &resourceGroupId);
     std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstancesWithRetry();
     std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
+    std::pair<ErrorInfo, std::string> DeleteSnapshot(const std::string &checkpointId);
+    std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByFunctionKey(
+        const std::string &tenantID, const std::string &functionType, const std::string &ns);
+    std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByTenant(const std::string &tenantID);
     void SetSubscribeActiveMasterCb(SubscribeActiveMasterCb cb);
     void UpdateActiveMaster(const std::string activeMasterAddr);
     void CleanActiveMaster();

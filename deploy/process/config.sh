@@ -44,7 +44,7 @@ ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
 ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,enable_function_token_auth:,\
+enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
@@ -74,14 +74,14 @@ dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboar
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
 user_log_auto_flush_interval_ms:,user_log_buffer_flush_threshold:,\
 user_log_rolling_size_limit_mb:,user_log_rolling_file_count_limit:,\
-fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
+fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,fc_agent_mgr_retry_times:,fc_agent_mgr_retry_cycle:,disable_nc_check,\
 runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
 etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,enable_runtime_launcher:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
-enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_enable_tls:,traefik_servers_transport:,\
+enable_traefik_registry:,enable_traefik_provider:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_http_entry_point:,traefik_enable_tls:,traefik_servers_transport:,traefik_forward_timeout_ms:,\
 meta_service_address:,\
 system_tenant_id:,\
 help"
@@ -138,12 +138,15 @@ STATUS_COLLECT_INTERVAL=300
 ENABLE_TRACE=false
 TRACE_CONFIG=""
 ENABLE_TRAEFIK_REGISTRY=false
+ENABLE_TRAEFIK_PROVIDER=false
 TRAEFIK_DOMAIN=""
 TRAEFIK_ETCD_PREFIX="traefik"
 TRAEFIK_LEASE_TTL=300000
 TRAEFIK_HTTP_ENTRYPOINT="websecure"
+TRAEFIK_HTTP_ENTRY_POINT="websecure"
 TRAEFIK_ENABLE_TLS="true"
 TRAEFIK_SERVERS_TRANSPORT="yr-backend-tls@file"
+TRAEFIK_FORWARD_TIMEOUT_MS=3000
 RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
@@ -157,6 +160,8 @@ ELECTION_MODE="standalone"
 FS_HEALTH_CHECK_RETRY_TIMES=60
 FS_HEALTH_CHECK_RETRY_INTERVAL=0
 FS_HEALTH_CHECK_TIMEOUT=1
+FC_AGENT_MGR_RETRY_TIMES=9
+FC_AGENT_MGR_RETRY_CYCLE=20000
 DISABLE_NC_CHECK="false"
 ETCD_TABLE_PREFIX=""
 ETCD_TARGET_NAME_OVERRIDE=""
@@ -280,6 +285,7 @@ FAAS_FRONTEND_HTTP_PORT=8888
 FAAS_FRONTEND_GRPC_PORT=31223
 ENABLE_FUNCTION_SCHEDULER="false"
 ENABLE_EVENT="false"
+FRONTEND_LEASE_BYPASS="false"
 ENABLE_FUNCTION_TOKEN_AUTH="false"
 # Data System Configuration
 DS_MASTER_IP=""
@@ -391,7 +397,7 @@ ENCRYPT_DS_PUBLIC_KEY_CONTEXT=""
 USER_LOG_AUTO_FLUSH_INTERVAL_MS=10000
 USER_LOG_BUFFER_FLUSH_THRESHOLD=1048576
 USER_LOG_MAX_ROLLING_FILE_SIZE_MB=100
-USER_LOG_MAX_ROLLING_LOG_FILE_NUM=100
+USER_LOG_MAX_ROLLING_LOG_FILE_NUM=0
 
 LOG_EXPIRATION_ENABLE="true"
 LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
@@ -541,6 +547,8 @@ function usage() {
   echo -e "     --fs_health_check_timeout                           timeout of function system component health check, unit s (default 1)"
   echo -e "     --fs_health_check_retry_interval                    retry interval of function system component health check, unit s (default 0)"
   echo -e "     --fs_health_check_retry_times                       retry times of function system component health check (default 60)"
+  echo -e "     --fc_agent_mgr_retry_times                          retry times of function agent manager (default 9)"
+  echo -e "     --fc_agent_mgr_retry_cycle                          retry cycle of function agent manager, unit ms (default 20000)"
   echo -e "     --enable_faas_frontend                              enable faasfrontend, options:true/false (default false)"
   echo -e "     --faas_frontend_http_port                           faas frontend http port (default 8888)"
   echo -e "     --faas_frontend_grpc_port                           faas frontend grpc port (default 31223)"
@@ -549,6 +557,7 @@ function usage() {
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
   echo -e "     --enable_event                                      faas frontend enable stream event mode"
+  echo -e "     --frontend_lease_bypass                             faas frontend bypass all lease processing, options:true/false (default false)"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
@@ -714,8 +723,11 @@ function parse_opt() {
     --fs_health_check_timeout) FS_HEALTH_CHECK_TIMEOUT=$2 && shift 2 ;;
     --fs_health_check_retry_times) FS_HEALTH_CHECK_RETRY_TIMES=$2 && shift 2 ;;
     --fs_health_check_retry_interval) FS_HEALTH_CHECK_RETRY_INTERVAL=$2 && shift 2 ;;
+    --fc_agent_mgr_retry_times) FC_AGENT_MGR_RETRY_TIMES=$2 && shift 2 ;;
+    --fc_agent_mgr_retry_cycle) FC_AGENT_MGR_RETRY_CYCLE=$2 && shift 2 ;;
     --enable_faas_frontend) ENABLE_FAAS_FRONTEND=$2 && shift 2 ;;
     --enable_event) ENABLE_EVENT=$2 && shift 2 ;;
+    --frontend_lease_bypass) FRONTEND_LEASE_BYPASS=$2 && shift 2 ;;
     --faas_frontend_http_port) FAAS_FRONTEND_HTTP_PORT=$2 && port_policy_table["faas_frontend_http_port"]="FIX" && shift 2 ;;
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
@@ -763,12 +775,15 @@ function parse_opt() {
     --domain_schedule_plugins) DOMAIN_SCHEDULE_PLUGINS=$2 && shift 2 ;;
     --enable_print_perf) ENABLE_PRINT_PERF=$2 && shift 2 ;;
     --enable_traefik_registry) ENABLE_TRAEFIK_REGISTRY=$2 && shift 2 ;;
+    --enable_traefik_provider) ENABLE_TRAEFIK_PROVIDER=$2 && shift 2 ;;
     --traefik_domain) TRAEFIK_DOMAIN=$2 && shift 2 ;;
     --traefik_etcd_prefix) TRAEFIK_ETCD_PREFIX=$2 && shift 2 ;;
     --traefik_lease_ttl) TRAEFIK_LEASE_TTL=$2 && shift 2 ;;
     --traefik_http_entrypoint) TRAEFIK_HTTP_ENTRYPOINT=$2 && shift 2 ;;
+    --traefik_http_entry_point) TRAEFIK_HTTP_ENTRY_POINT=$2 && shift 2 ;;
     --traefik_enable_tls) TRAEFIK_ENABLE_TLS=$2 && shift 2 ;;
     --traefik_servers_transport) TRAEFIK_SERVERS_TRANSPORT=$2 && shift 2 ;;
+    --traefik_forward_timeout_ms) TRAEFIK_FORWARD_TIMEOUT_MS=$2 && shift 2 ;;
     --enable_meta_store) ENABLE_META_STORE=$2 && shift 2 ;;
     --enable_dashboard) ENABLE_DASHBOARD=$2 && shift 2 ;;
     --enable_collector) ENABLE_COLLECTOR=$2 && shift 2 ;;
@@ -962,6 +977,8 @@ function check_number_input() {
   check_greater_than_zero "fs_health_check_timeout" $FS_HEALTH_CHECK_TIMEOUT
   check_greater_than_zero "fs_health_check_retry_times" $FS_HEALTH_CHECK_RETRY_TIMES
   check_greater_equal_zero "fs_health_check_retry_interval" $FS_HEALTH_CHECK_RETRY_INTERVAL
+  check_greater_than_zero "fc_agent_mgr_retry_times" $FC_AGENT_MGR_RETRY_TIMES
+  check_greater_than_zero "fc_agent_mgr_retry_cycle" $FC_AGENT_MGR_RETRY_CYCLE
   check_greater_than_zero "zmq_chunk_sz" $ZMQ_CHUNK_SZ
   check_greater_than_zero "meta_store_max_flush_concurrency" $META_STORE_MAX_FLUSH_CONCURRENCY
   check_greater_than_zero "meta_store_max_flush_batch_size" $META_STORE_MAX_FLUSH_BATCH_SIZE
@@ -1485,7 +1502,7 @@ function parse_etcd_cluster()
   # set ds-worker distributed master to true
   ENABLE_DISTRIBUTED_MASTER="true"
   ETCD_NO_FSYNC="false"
-  ELECTION_MODE="etcd"
+  ELECTION_MODE="txn"
   if [ "X${ETCD_ADDR_LIST}" = "X" ]; then
     log_warning "etcd_addr_list is empty, set it to local ip ${IP_ADDRESS}"
     ETCD_ADDR_LIST=$IP_ADDRESS
@@ -1587,7 +1604,7 @@ function export_config() {
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
   export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
-  export ENABLE_TRAEFIK_REGISTRY TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL TRAEFIK_HTTP_ENTRYPOINT TRAEFIK_ENABLE_TLS TRAEFIK_SERVERS_TRANSPORT
+  export ENABLE_TRAEFIK_REGISTRY ENABLE_TRAEFIK_PROVIDER TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL TRAEFIK_HTTP_ENTRYPOINT TRAEFIK_HTTP_ENTRY_POINT TRAEFIK_ENABLE_TLS TRAEFIK_SERVERS_TRANSPORT TRAEFIK_FORWARD_TIMEOUT_MS
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS
@@ -1598,6 +1615,8 @@ function export_config() {
   export USER_LOG_AUTO_FLUSH_INTERVAL_MS USER_LOG_BUFFER_FLUSH_THRESHOLD
   export USER_LOG_MAX_ROLLING_FILE_SIZE_MB USER_LOG_MAX_ROLLING_LOG_FILE_NUM
   export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK DS_NODE_ROLE
+  export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
+  export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
@@ -1613,7 +1632,7 @@ function export_config() {
   # meta_service
   export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
-  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH
+  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration

@@ -59,3 +59,23 @@ func (handler *InstanceFunctionHandler) Invoke(args ...any) (refs []*ObjectRef) 
 	refs = append(refs, &objRef)
 	return
 }
+
+// InvokeDirect invokes the function bypassing datasystem.
+// Returns ObjectRefDirect which does not require IncreaseRef/DecreaseRef.
+// Return values exceeding the truncation threshold will be truncated.
+func (handler *InstanceFunctionHandler) InvokeDirect(args ...any) (refs []*ObjectRefDirect) {
+	packedArgs, err := PackInvokeArgs(args...)
+	if err != nil {
+		panic(fmt.Errorf(err.Error()))
+	}
+
+	opts := api.InvokeOptions{BypassDataSystem: true}
+	objId, err := GetRuntimeHolder().GetRuntime().InvokeByInstanceId(handler.funcMeta, handler.instanceId,
+		packedArgs, opts)
+	if err != nil {
+		panic(fmt.Sprintf("invoke direct failed, err: %v", err))
+	}
+
+	refs = append(refs, NewObjectRefDirect(objId))
+	return
+}
