@@ -476,7 +476,11 @@ class TestCliScripts(unittest.TestCase):
         with (
             mock.patch.object(scripts, "create_sandbox_via_sdk", return_value=("sdk-real-id", None)) as sdk_create,
             mock.patch.object(scripts, "create_sandbox_via_frontend") as frontend_create,
-            mock.patch.object(scripts, "query_instance", return_value=(True, {"id": "actual-sdk-id"})),
+            mock.patch.object(
+                scripts,
+                "query_instance",
+                return_value=(True, {"id": "actual-sdk-id", "function": "0-defaultservice-py310", "status": "running"}),
+            ),
         ):
             instance_id, data = scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
 
@@ -550,6 +554,75 @@ class TestCliScripts(unittest.TestCase):
             "box",
             "python3.10",
             image="python:3.12-slim",
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+        )
+
+    def test_create_sandbox_auto_falls_back_when_sdk_reports_invalid_function(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(
+                scripts,
+                "create_sandbox_via_sdk",
+                side_effect=RuntimeError("failed to create sandbox: invalid function"),
+            ) as sdk_create,
+            mock.patch.object(
+                scripts,
+                "create_sandbox_via_frontend",
+                return_value=(True, "frontend-id", {"instance_id": "frontend-id"}),
+            ) as frontend_create,
+            mock.patch.object(scripts, "resolve_created_sandbox_instance_id", return_value="frontend-real-id"),
+            mock.patch.object(
+                scripts,
+                "query_instance",
+                return_value=(True, {"id": "frontend-real-id", "function": "0-defaultservice-py310", "status": "running"}),
+            ),
+        ):
+            instance_id, data = scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(instance_id, "frontend-real-id")
+        self.assertIsNone(data)
+        sdk_create.assert_called_once()
+        frontend_create.assert_called_once()
+
+    def test_create_sandbox_auto_falls_back_when_sdk_result_is_not_visible(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_via_sdk", return_value=("sdk-missing-id", None)) as sdk_create,
+            mock.patch.object(
+                scripts,
+                "create_sandbox_via_frontend",
+                return_value=(True, "frontend-id", {"instance_id": "frontend-id"}),
+            ) as frontend_create,
+            mock.patch.object(
+                scripts,
+                "resolve_created_sandbox_instance_id",
+                side_effect=["sdk-missing-id", "frontend-real-id"],
+            ),
+            mock.patch.object(
+                scripts,
+                "query_instance",
+                side_effect=[
+                    (False, {"error": "not found"}),
+                    (True, {"id": "frontend-real-id", "function": "0-defaultservice-py310", "status": "running"}),
+                ],
+            ),
+        ):
+            instance_id, data = scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(instance_id, "frontend-real-id")
+        self.assertIsNone(data)
+        sdk_create.assert_called_once()
+        frontend_create.assert_called_once_with(
+            "default",
+            "box",
+            "python3.10",
+            image=None,
             ports=None,
             upstream=None,
             proxy_port=8766,
@@ -710,7 +783,7 @@ class TestCliScripts(unittest.TestCase):
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
             mock.patch.object(scripts, "delete_sandbox_via_sdk", side_effect=RuntimeError("sdk delete failed")),
-            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", side_effect=[False, True]),
             redirect_stdout(io.StringIO()),
         ):
             scripts.sandbox_delete("sandbox-id")
@@ -719,6 +792,21 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(FakeHTTPClient.method, "DELETE")
         self.assertTrue(FakeHTTPClient.kwargs["insecure"])
         self.assertEqual(FakeHTTPClient.kwargs["jwt_token"], "token")
+
+    def test_sandbox_delete_succeeds_when_sdk_reports_already_missing(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "delete_sandbox_via_sdk", side_effect=RuntimeError("instance not found")),
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
+            mock.patch.object(scripts, "HTTPClient") as http_client,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.sandbox_delete("sandbox-id")
+
+        http_client.assert_not_called()
+        self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
 
     def test_sandbox_delete_uses_frontend_when_sdk_delete_leaves_instance(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()

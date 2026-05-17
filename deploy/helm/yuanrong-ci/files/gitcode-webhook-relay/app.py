@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -129,6 +130,10 @@ def normalize_tag_version(tag):
     return tag
 
 
+def is_prerelease_version(version):
+    return bool(re.search(r"(?i)(?:a|alpha|b|beta|rc|dev)\d+", version))
+
+
 def is_zero_commit(commit):
     return bool(commit) and set(commit) == {"0"}
 
@@ -252,6 +257,15 @@ def handle_tag_push(payload, tag):
         return skip_response("duplicate tag build trigger", {"tag": tag, "commit": commit})
 
     message = f"{SETTINGS['message_prefix']}: tag {project} {tag} {commit[:12]}"
+    publish_env = {
+        "PUBLISH_TEST_PYPI": "1",
+        "PUBLISH_PYPI": "0",
+    }
+    if not is_prerelease_version(build_version):
+        publish_env = {
+            "PUBLISH_TEST_PYPI": "0",
+            "PUBLISH_PYPI": "1",
+        }
     try:
         build = trigger_buildkite(
             branch=tag,
@@ -266,7 +280,7 @@ def handle_tag_push(payload, tag):
                 "YR_RELEASE_TAG": tag,
                 "BUILD_VERSION": build_version,
                 "YR_BUILD_VERSION": build_version,
-                "PUBLISH_TEST_PYPI": "1",
+                **publish_env,
                 "BUILDKITE_PACKAGE_UPLOAD_ENABLED": "0",
                 "GITCODE_EVENT_UUID": payload.get("uuid", ""),
             },

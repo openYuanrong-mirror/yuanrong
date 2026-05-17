@@ -628,6 +628,8 @@ def should_fallback_to_frontend_for_sandbox_create(error):
         "not found",
         "not support",
         "unsupported",
+        "invalid function",
+        "failed to create sandbox",
         "0-defaultservice-py310",
     )
     return any(marker in error_text for marker in fallback_markers)
@@ -824,6 +826,7 @@ def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30
 
 
 def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+    sdk_error = None
     try:
         instance_id, tunnel_info = create_sandbox_via_sdk(
             namespace,
@@ -835,7 +838,14 @@ def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstre
             proxy_port=proxy_port,
         )
         resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
-        return resolved_id, tunnel_info
+        ret, instance = query_instance(resolved_id, __user)
+        if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
+            return resolved_id, tunnel_info
+        sdk_error = RuntimeError(
+            f"SDK sandbox create returned an instance that is not visible or usable: {resolved_id}"
+        )
+        if upstream:
+            raise sdk_error
     except Exception as sdk_error:
         if not should_fallback_to_frontend_for_sandbox_create(sdk_error):
             raise
@@ -1453,6 +1463,9 @@ def sandbox_delete(sandbox_id):
             return
     except Exception as e:
         sdk_error = e
+        if wait_until_sandbox_deleted(sandbox_id):
+            print(f"succeed to delete sandbox: {sandbox_id}")
+            return
 
     http_client = HTTPClient(
         timeout=30,

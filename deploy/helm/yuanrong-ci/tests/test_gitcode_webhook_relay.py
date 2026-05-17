@@ -108,7 +108,7 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(second_result["reason"], "duplicate merge request build trigger")
         self.assertEqual(len(self.triggered), 1)
 
-    def test_tag_push_triggers_release_build_version_and_testpypi(self):
+    def test_stable_tag_push_triggers_release_build_version_and_pypi(self):
         code, result = relay.handle_push(
             {
                 "ref": "refs/tags/0.7.50",
@@ -130,7 +130,28 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(extra_env["BUILD_VERSION"], "0.7.50")
         self.assertEqual(extra_env["YR_BUILD_VERSION"], "0.7.50")
         self.assertEqual(extra_env["BUILDKITE_TAG"], "0.7.50")
+        self.assertEqual(extra_env["PUBLISH_TEST_PYPI"], "0")
+        self.assertEqual(extra_env["PUBLISH_PYPI"], "1")
+        self.assertEqual(extra_env["BUILDKITE_PACKAGE_UPLOAD_ENABLED"], "0")
+
+    def test_prerelease_tag_push_uses_testpypi(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.40.rc2",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "uuid": "tag-delivery-rc",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["version"], "0.7.40.rc2")
+        extra_env = self.triggered[0]["extra_env"]
+        self.assertEqual(extra_env["BUILD_VERSION"], "0.7.40.rc2")
         self.assertEqual(extra_env["PUBLISH_TEST_PYPI"], "1")
+        self.assertEqual(extra_env["PUBLISH_PYPI"], "0")
         self.assertEqual(extra_env["BUILDKITE_PACKAGE_UPLOAD_ENABLED"], "0")
 
     def test_v_prefixed_tag_push_strips_v_for_build_version(self):

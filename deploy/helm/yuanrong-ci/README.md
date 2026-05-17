@@ -22,7 +22,8 @@ One-click deployment of the CI infrastructure:
    - `swr-pull-secret` in `build-tools` for yuanrong-ci pod `imagePullSecrets`
    - `sandbox-target-kubeconfig` in `default` for Test K8S deployment,
      mounted by the agent-stack podSpec patch at `/var/run/yr-k8s/target/kubeconfig`
-   - `test-pypi-credentials` in `default` for publishing `openyuanrong_sdk` wheels to TestPyPI
+   - `test-pypi-credentials` in `default` for publishing pre-release `openyuanrong_sdk` wheels to TestPyPI
+   - `pypi-credentials` in `default` for publishing stable release `openyuanrong_sdk` wheels to PyPI
    - `gitcode-webhook-relay-auth` in `build-tools` for webhook relay API/auth
 4. bazel-remote image mirrored to SWR (see NOTES.txt)
 5. Buildkite pipeline repository configured as
@@ -70,6 +71,7 @@ helm upgrade --install agent-stack-k8s-arm64 oci://ghcr.io/buildkite/helm/agent-
 | `agentStack.targetKubeconfig.secretName` | `sandbox-target-kubeconfig` | Secret mounted into Buildkite job pods for fixed target K8S deploy kubeconfig |
 | `secrets.targetKubeconfig.create` | `false` | Let this chart create the target kubeconfig Secret from values |
 | `secrets.testPypiCredentials.create` | `false` | Let this chart create the TestPyPI token Secret from values |
+| `secrets.pypiCredentials.create` | `false` | Let this chart create the PyPI token Secret from values |
 
 ## Runtime Secret checklist
 
@@ -86,14 +88,15 @@ jobs stuck in `Pending`/`Init` before the build command starts.
 | `swr-pull-secret` | `default` | `.dockerconfigjson` | Build Image/Test K8S image pulls and Docker config fallback |
 | `swr-pull-secret` | `build-tools` | `.dockerconfigjson` | Webhook relay, cache-aging, and chart-managed pod image pulls |
 | `sandbox-target-kubeconfig` | `default` | `kubeconfig` | Test K8S mounted kubeconfig |
-| `test-pypi-credentials` | `default` | `api-token` | Tag-release upload of `openyuanrong_sdk*.whl` to TestPyPI |
+| `test-pypi-credentials` | `default` | `api-token` | Pre-release tag upload of `openyuanrong_sdk*.whl` to TestPyPI |
+| `pypi-credentials` | `default` | `api-token` | Stable release tag upload of `openyuanrong_sdk*.whl` to PyPI |
 | `gitcode-webhook-relay-auth` | `build-tools` | `buildkite-api-token`, `webhook-token`, `webhook-signature-secret` | GitCode webhook relay |
 
 Before enabling the pipeline on a fresh cluster, fill and apply:
 
 ```bash
 kubectl apply -f deploy/helm/yuanrong-ci/examples/runtime-secrets.example.yaml
-kubectl get secret obs-credentials swr-credentials swr-pull-secret sandbox-target-kubeconfig test-pypi-credentials -n default
+kubectl get secret obs-credentials swr-credentials swr-pull-secret sandbox-target-kubeconfig test-pypi-credentials pypi-credentials -n default
 kubectl get secret swr-pull-secret gitcode-webhook-relay-auth -n build-tools
 ```
 
@@ -111,9 +114,10 @@ manifest, pass `--set secrets.targetKubeconfig.create=true` and provide the
 kubeconfig content through a private values file or equivalent secret manager
 workflow.
 
-TestPyPI publishing is limited to `openyuanrong_sdk*.whl` from SDK build steps,
-and is enabled for tag-triggered release builds. When publishing is enabled,
-`test-pypi-credentials` must contain a valid TestPyPI API token.
+PyPI publishing is limited to `openyuanrong_sdk*.whl` from SDK build steps.
+Pre-release tags such as alpha, beta, rc, and dev publish to TestPyPI through
+`test-pypi-credentials`; stable release tags publish to PyPI through
+`pypi-credentials`.
 
 ## GitCode webhook relay
 
@@ -153,8 +157,9 @@ By default it is configured for merge-triggered CI and tag-triggered release bui
 - `push` events do not start builds
 - tag push events matching `gitcodeWebhookRelay.filters.tagPatterns` start
   release builds; tag `0.7.50` builds version `0.7.50`, disables Buildkite
-  Package Registry uploads, and enables TestPyPI upload for
-  `openyuanrong_sdk*.whl`
+  Package Registry uploads, and enables PyPI upload for
+  `openyuanrong_sdk*.whl`; pre-release tags such as `0.7.50rc1` keep using
+  TestPyPI
 - only merge-request action `merge` is accepted; GitCode merged PR payloads
   that report `action=update` with merged state are normalized to `merge`
 - merge events build the **target branch commit after merge**

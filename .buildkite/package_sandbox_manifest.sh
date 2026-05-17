@@ -144,6 +144,7 @@ write_metadata() {
   "build_number": "${BUILD_NUMBER}",
   "registry": "${REGISTRY_REPO}",
   "image_tag": "${IMAGE_TAG}",
+  "runtime_image_tag": "${RUNTIME_IMAGE_TAG}",
   "image_arches": "$(printf '%s' "${IMAGE_ARCHES}")",
   "chart_version": "${CHART_VERSION}",
   "app_version": "${APP_VERSION}",
@@ -173,72 +174,83 @@ collect_artifact_archive() {
         return 0
     fi
 
-    buildkite-agent artifact download "artifacts/release/*" "${ARCHIVE_DIR}/linux-amd64" \
-        --step "build-all-amd64" || true
+    buildkite-agent meta-data get "obs-urls.build-all-amd64" \
+        >"${ARCHIVE_DIR}/linux-amd64/obs-urls.txt" || true
     for step_key in ${LINUX_AMD64_SDK_STEPS}; do
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/*" "${ARCHIVE_DIR}/linux-amd64-sdk" \
-            --step "${step_key}" || true
+        mkdir -p "${ARCHIVE_DIR}/linux-amd64-sdk/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/linux-amd64-sdk/${step_key}/obs-urls.txt" || true
     done
-    buildkite-agent artifact download "artifacts/release/*" "${ARCHIVE_DIR}/linux-arm64" \
-        --step "build-all-arm64" || true
+    buildkite-agent meta-data get "obs-urls.build-all-arm64" \
+        >"${ARCHIVE_DIR}/linux-arm64/obs-urls.txt" || true
     for step_key in ${LINUX_ARM64_SDK_STEPS}; do
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/*" "${ARCHIVE_DIR}/linux-arm64-sdk" \
-            --step "${step_key}" || true
+        mkdir -p "${ARCHIVE_DIR}/linux-arm64-sdk/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/linux-arm64-sdk/${step_key}/obs-urls.txt" || true
     done
     for step_key in ${MACOS_ARM64_SDK_STEPS}; do
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/*" "${ARCHIVE_DIR}/macos-arm64-sdk" \
-            --step "${step_key}" || true
+        mkdir -p "${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}/obs-urls.txt" || true
     done
     for step_key in ${RUNTIME_IMAGE_STEPS}; do
-        buildkite-agent artifact download "artifacts/sandbox/runtime-images/*" "${ARCHIVE_DIR}/runtime-images" \
-            --step "${step_key}" || true
+        case "${step_key}" in
+            publish-runtime-amd64-*)
+                printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}-amd64-${step_key##*-}" \
+                    >"${ARCHIVE_DIR}/runtime-images/${IMAGE_TAG}-amd64-${step_key##*-}.txt"
+                ;;
+            publish-runtime-arm64-*)
+                printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}-arm64-${step_key##*-}" \
+                    >"${ARCHIVE_DIR}/runtime-images/${IMAGE_TAG}-arm64-${step_key##*-}.txt"
+                ;;
+        esac
     done
+}
+
+upload_manifest_artifacts_to_obs_if_configured() {
+    if [ -z "${OBS_ACCESS_KEY_ID:-}" ] || [ -z "${OBS_SECRET_ACCESS_KEY:-}" ]; then
+        if command -v buildkite-agent >/dev/null 2>&1; then
+            printf 'OBS credentials are required for manifest artifact upload.\n' >&2
+            exit 1
+        fi
+        printf 'OBS credentials not set; skipping manifest artifact upload to OBS.\n' >&2
+        return 0
+    fi
+
+    local release_tag="${YR_RELEASE_TAG:-${BUILDKITE_TAG:-}}"
+    release_tag="${release_tag#refs/tags/}"
+    case "${release_tag}" in
+        v[0-9]*) release_tag="${release_tag#v}" ;;
+    esac
+    local obs_channel="daily"
+    local version_args=()
+    if [ -n "${release_tag}" ]; then
+        obs_channel="release"
+        version_args=(--version "${release_tag}")
+    fi
+
+    bash .buildkite/upload_obs_artifacts.sh \
+        --output "${ARCHIVE_DIR}/sandbox/obs-urls.txt" \
+        --platform sandbox \
+        --arch noarch \
+        --channel "${obs_channel}" \
+        "${version_args[@]}" \
+        -- \
+        "${HELM_DIR}"/*.tgz \
+        "${MANIFEST_DIR}"/*.yaml \
+        "${METADATA_DIR}"/*.json \
+        "${METADATA_DIR}"/*.yaml
 }
 
 write_artifact_archive_html() {
     python3 - "${ARCHIVE_DIR}" "${SANDBOX_ARTIFACT_DIR}" "${BUILD_NUMBER}" "${BRANCH_NAME}" "${COMMIT_SHA}" <<'PY'
 import html
-import os
 import pathlib
 import sys
 
 archive_dir = pathlib.Path(sys.argv[1]).resolve()
-sandbox_dir = pathlib.Path(sys.argv[2]).resolve()
 build_number, branch_name, commit_sha = sys.argv[3:6]
 index_path = archive_dir / "index.html"
-
-sections = [
-    ("Linux x86_64 release artifacts", archive_dir / "linux-amd64"),
-    ("Linux x86_64 SDK artifacts", archive_dir / "linux-amd64-sdk"),
-    ("Linux arm64 release artifacts", archive_dir / "linux-arm64"),
-    ("Linux arm64 SDK artifacts", archive_dir / "linux-arm64-sdk"),
-    ("macOS arm64 SDK artifacts", archive_dir / "macos-arm64-sdk"),
-    ("Runtime image tags", archive_dir / "runtime-images"),
-    ("Sandbox manifests and Helm artifacts", sandbox_dir),
-]
-
-def rel_link(path: pathlib.Path) -> str:
-    return pathlib.Path(os.path.relpath(path, archive_dir)).as_posix()
-
-def display_name(path: pathlib.Path, base: pathlib.Path) -> str:
-    try:
-        return path.relative_to(base).as_posix()
-    except ValueError:
-        return path.name
-
-def iter_files(base: pathlib.Path):
-    if not base.exists():
-        return []
-    files = []
-    for path in sorted(base.rglob("*")):
-        if not path.is_file():
-            continue
-        if path.resolve() == index_path:
-            continue
-        if base == sandbox_dir and archive_dir in path.resolve().parents:
-            continue
-        files.append(path)
-    return files
 
 def read_obs_urls():
     urls = []
@@ -254,30 +266,31 @@ def read_obs_urls():
     return urls
 
 rows = []
-for title, base in sections:
-    files = iter_files(base)
-    if not files:
-        rows.append(f"<section><h2>{html.escape(title)}</h2><p>No artifacts captured.</p></section>")
-        continue
-    items = []
-    for path in files:
-        href = html.escape(rel_link(path), quote=True)
-        label = html.escape(display_name(path, base))
-        size = path.stat().st_size
-        items.append(f'<li><a href="{href}">{label}</a> <span>{size:,} bytes</span></li>')
-    rows.append(f"<section><h2>{html.escape(title)}</h2><ul>{''.join(items)}</ul></section>")
-
 obs_urls = read_obs_urls()
 if obs_urls:
-    items = []
+    grouped = {}
     for platform, name, url in obs_urls:
-        items.append(
-            '<li>'
-            f'<span>{html.escape(platform)}</span> '
-            f'<a href="{html.escape(url, quote=True)}">{html.escape(name)}</a>'
-            '</li>'
-        )
-    rows.append(f"<section><h2>OBS links</h2><ul>{''.join(items)}</ul></section>")
+        grouped.setdefault(platform, []).append((name, url))
+    for platform in sorted(grouped):
+        items = []
+        for name, url in sorted(grouped[platform]):
+            items.append(
+                '<li>'
+                f'<a href="{html.escape(url, quote=True)}">{html.escape(name)}</a>'
+                '</li>'
+            )
+        rows.append(f"<section><h2>{html.escape(platform)} OBS links</h2><ul>{''.join(items)}</ul></section>")
+else:
+    rows.append("<section><h2>OBS links</h2><p>No OBS artifact URLs captured.</p></section>")
+
+runtime_tags = []
+for tag_file in sorted((archive_dir / "runtime-images").glob("*.txt")):
+    for line in tag_file.read_text(errors="replace").splitlines():
+        if line.strip():
+            runtime_tags.append(line.strip())
+if runtime_tags:
+    items = [f"<li><code>{html.escape(tag)}</code></li>" for tag in sorted(set(runtime_tags))]
+    rows.append(f"<section><h2>Runtime image tags</h2><ul>{''.join(items)}</ul></section>")
 
 index_path.write_text(
     "<!doctype html>\n"
@@ -294,7 +307,7 @@ index_path.write_text(
     "    h1{font-size:24px;margin:0 0 8px;} h2{font-size:18px;margin:0 0 12px;}\n"
     "    p{margin:0;color:#d0d7de;} ul{list-style:none;margin:0;padding:0;} li{padding:7px 0;border-top:1px solid #eef1f4;}\n"
     "    li:first-child{border-top:0;} a{color:#0969da;text-decoration:none;} a:hover{text-decoration:underline;}\n"
-    "    span{color:#667085;font-size:13px;margin-left:8px;}\n"
+    "    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054;word-break:break-all;}\n"
     "  </style>\n"
     "</head>\n"
     "<body>\n"
@@ -342,10 +355,12 @@ main() {
         --destination "${HELM_DIR}"
 
     collect_artifact_archive
+    upload_manifest_artifacts_to_obs_if_configured
     write_artifact_archive_html
 
     if command -v buildkite-agent >/dev/null 2>&1; then
-        buildkite-agent artifact upload "${SANDBOX_ARTIFACT_DIR}/**/*" || true
+        buildkite-agent meta-data set "sandbox-release.${BUILDKITE_STEP_KEY}" "$(cat "${METADATA_DIR}/sandbox-release.json")"
+        buildkite-agent artifact upload "${ARCHIVE_DIR}/index.html" || true
         buildkite-agent annotate --style "success" --context "sandbox-manifest" \
             "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; artifact archive: artifacts/sandbox/archive/index.html."
     fi

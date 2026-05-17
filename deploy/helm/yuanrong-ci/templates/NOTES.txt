@@ -30,6 +30,7 @@ Check:
   kubectl get secret swr-pull-secret -n {{ .Release.Namespace }}
   kubectl get secret sandbox-target-kubeconfig -n {{ .Release.Namespace }}
   kubectl get secret test-pypi-credentials -n {{ .Release.Namespace }}
+  kubectl get secret pypi-credentials -n {{ .Release.Namespace }}
   kubectl get secret swr-pull-secret -n {{ .Values.namespaces.buildTools }}
   kubectl get secret {{ .Values.gitcodeWebhookRelay.secretName }} -n {{ .Values.namespaces.buildTools }}
 
@@ -75,6 +76,10 @@ Create if missing:
 
   kubectl create secret generic test-pypi-credentials \
     --from-literal=api-token=<TEST_PYPI_API_TOKEN> \
+    -n {{ .Release.Namespace }}
+
+  kubectl create secret generic pypi-credentials \
+    --from-literal=api-token=<PYPI_API_TOKEN> \
     -n {{ .Release.Namespace }}
 
   kubectl create secret generic {{ .Values.gitcodeWebhookRelay.secretName }} \

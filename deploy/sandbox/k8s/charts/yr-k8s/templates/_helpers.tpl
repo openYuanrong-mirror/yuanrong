@@ -50,6 +50,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 {{- end -}}
 
+{{- define "yr-k8s.runtimeImage" -}}
+{{- $override := get .root.Values.global.runtimeImages .suffix | default dict -}}
+{{- $image := mergeOverwrite (deepCopy .root.Values.global.images.runtime) $override -}}
+{{- include "yr-k8s.image" (dict "root" .root "image" $image) -}}
+{{- end -}}
+
 {{- define "yr-k8s.anyCoreComponentEnabled" -}}
 {{- if or .Values.etcd.enabled .Values.master.enabled .Values.frontend.enabled .Values.node.enabled .Values.traefik.enabled -}}true{{- else -}}false{{- end -}}
 {{- end -}}
