@@ -30,6 +30,11 @@ global:
       repository: traefik
       tag: v2.11.14
       pullPolicy: IfNotPresent
+  runtimeImages:
+    cp39: {}
+    cp310: {}
+    cp311: {}
+    cp312: {}
   externalEtcd:
     addrList: ""
     metaStoreAddress: ""
@@ -51,10 +56,16 @@ global:
             memory: 500
             runtime: python3.9
             concurrentNum: 20
+          py310:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.10
+            concurrentNum: 20
             rootfs:
               runtime: runc
               type: image
-              imageurl: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.runtime) | quote }}
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp310") | quote }}
               readonly: true
               mountpoint: /mnt
             bootstrap:

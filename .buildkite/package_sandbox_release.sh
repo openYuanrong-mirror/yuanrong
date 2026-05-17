@@ -11,6 +11,7 @@ RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
 OUTPUT_DIR="${ROOT_DIR}/output"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
 SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
+OBS_URL_DIR="${ROOT_DIR}/artifacts/obs-urls"
 SANDBOX_ARTIFACT_DIR="${ROOT_DIR}/artifacts/sandbox"
 HELM_DIR="${SANDBOX_ARTIFACT_DIR}/helm"
 MANIFEST_DIR="${SANDBOX_ARTIFACT_DIR}/manifests"
@@ -109,15 +110,27 @@ start_dockerd() {
 }
 
 download_release_artifacts() {
-    mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
+    mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
 
     if command -v buildkite-agent >/dev/null 2>&1; then
-        rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
-        mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}"
+        rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
+        mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
         if ! is_enabled "${RUNTIME_ONLY}"; then
-            buildkite-agent artifact download "artifacts/release/openyuanrong-*.whl" . --step "${BUILD_STEP_KEY}"
+            mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}"
+            buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}" \
+                >"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
+            python3 .buildkite/download_obs_artifacts.py \
+                --urls-root "${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
+                --output-dir "${RELEASE_ARTIFACT_DIR}" \
+                --pattern "openyuanrong-*.whl"
         fi
-        buildkite-agent artifact download "artifacts/openyuanrong-sdk/${IMAGE_SDK_WHEEL_PATTERN}" . --step "${SDK_STEP_KEY}"
+        mkdir -p "${OBS_URL_DIR}/${SDK_STEP_KEY}"
+        buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
+            >"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
+        python3 .buildkite/download_obs_artifacts.py \
+            --urls-root "${OBS_URL_DIR}/${SDK_STEP_KEY}" \
+            --output-dir "${SDK_ARTIFACT_DIR}" \
+            --pattern "${IMAGE_SDK_WHEEL_PATTERN}"
     elif is_enabled "${RUNTIME_ONLY}" \
         && compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
         return 0
@@ -271,7 +284,6 @@ main() {
     if is_enabled "${RUNTIME_ONLY}"; then
         write_runtime_metadata
         if command -v buildkite-agent >/dev/null 2>&1; then
-            buildkite-agent artifact upload "${SANDBOX_ARTIFACT_DIR}/**/*" || true
             buildkite-agent annotate --style "success" --context "sandbox-runtime-image" \
                 "Sandbox runtime image pushed: ${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}."
         fi
@@ -294,7 +306,7 @@ main() {
     upload_helm_to_obs_if_configured
 
     if command -v buildkite-agent >/dev/null 2>&1; then
-        buildkite-agent artifact upload "${SANDBOX_ARTIFACT_DIR}/**/*" || true
+        buildkite-agent meta-data set "sandbox-release.${BUILDKITE_STEP_KEY}" "$(cat "${METADATA_DIR}/sandbox-release.json")"
         buildkite-agent annotate --style "success" --context "sandbox-release" \
             "Sandbox images pushed with tag ${PUSH_IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}."
     fi

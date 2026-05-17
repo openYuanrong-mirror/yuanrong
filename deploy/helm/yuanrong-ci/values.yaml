@@ -144,6 +144,13 @@ secrets:
     create: false
     apiToken: ""
 
+  # PyPI token used to publish stable release openyuanrong_sdk wheels.
+  # kubectl create secret generic pypi-credentials \
+  #   --from-literal=api-token=<PYPI_API_TOKEN>
+  pypiCredentials:
+    create: false
+    apiToken: ""
+
   # Credentials for the GitCode -> Buildkite relay service
   # Create manually or let Helm create the secret from values below.
   # Put the GitCode WebHook password in both webhookToken and
