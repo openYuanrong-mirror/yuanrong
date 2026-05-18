@@ -54,7 +54,6 @@ const uint8_t FRAME_VERSION = 0x01;
 const uint8_t OP_CREATE = 0x01;
 const uint8_t OP_INVOKE = 0x02;
 const uint8_t STATUS_SUCCESS = 0x00;
-const uint8_t STATUS_ERROR = 0x01;
 
 const size_t FRAME_HEADER_SIZE = 4;   // version(1) + op/status(1) + id_len_be(2)
 const size_t ERROR_CODE_SIZE = 4;     // 4-byte big-endian error code in error payload
