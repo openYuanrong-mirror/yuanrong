@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buildkite CI Pipeline 文档</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --card2: #22263a;
+      --border: #2e3350;
+      --accent: #5b8dee;
+      --green: #3ecf8e;
+      --yellow: #f5a623;
+      --red: #e05252;
+      --purple: #b57bee;
+      --text: #d4d8f0;
+      --muted: #7a80a0;
+      --code-bg: #0d1021;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.6; padding: 32px 24px; }
+    h1 { font-size: 26px; color: #fff; margin-bottom: 6px; }
+    .subtitle { color: var(--muted); margin-bottom: 32px; font-size: 13px; }
+    h2 { font-size: 15px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; margin: 36px 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h3 { font-size: 14px; color: #fff; margin-bottom: 8px; }
+
+    /* flow diagram */
+    .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 28px; }
+    .flow-box { background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+    .flow-box.parallel { border-color: var(--accent); color: var(--accent); }
+    .flow-box.image  { border-color: var(--green); color: var(--green); }
+    .flow-box.test   { border-color: var(--yellow); color: var(--yellow); }
+    .flow-box.mac    { border-color: var(--purple); color: var(--purple); }
+    .flow-arrow { color: var(--muted); font-size: 16px; }
+    .flow-group { display: flex; flex-direction: column; gap: 4px; background: var(--card); border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; }
+    .flow-group-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* step cards */
+    .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 16px; }
+    .step { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .step-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .step-emoji { font-size: 22px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+    .step-title { flex: 1; }
+    .step-name { font-size: 15px; font-weight: 600; color: #fff; }
+    .step-key { font-size: 11px; color: var(--muted); font-family: monospace; margin-top: 2px; }
+    .badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+    .badge-linux  { background: #1a3a5c; color: #5b9bd5; }
+    .badge-arm    { background: #2a1a4a; color: #b57bee; }
+    .badge-mac    { background: #1a3a2a; color: #3ecf8e; }
+    .badge-k8s    { background: #1a2a3a; color: #5b8dee; }
+    .badge-multi  { background: #3a2a1a; color: #f5a623; }
+
+    .step-body p { color: var(--text); margin-bottom: 8px; font-size: 13px; }
+    .substeps { list-style: none; margin: 8px 0; }
+    .substeps li { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; border-top: 1px solid var(--border); font-size: 13px; }
+    .substeps li:first-child { border-top: none; }
+    .substep-num { color: var(--accent); font-family: monospace; font-size: 11px; flex-shrink: 0; margin-top: 2px; width: 40px; }
+    .artifacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .artifact { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-family: monospace; font-size: 11px; color: var(--green); }
+    .deps { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .deps span { color: var(--yellow); font-family: monospace; }
+
+    /* config table */
+    .config-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+    .config-table th { background: var(--card2); color: var(--muted); font-weight: 600; text-align: left; padding: 8px 12px; border: 1px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .config-table td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+    .config-table tr:nth-child(even) td { background: var(--card2); }
+    .config-table code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--yellow); }
+    .config-table .var { font-family: monospace; color: var(--accent); }
+    .config-table .impact { color: var(--red); font-weight: 600; }
+    .config-table .impact-med { color: var(--yellow); }
+
+    /* guide */
+    .guide-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 14px; margin-top: 8px; }
+    .guide-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .guide-card h3 { color: var(--accent); font-size: 13px; margin-bottom: 8px; }
+    .guide-card ol { padding-left: 18px; color: var(--text); font-size: 13px; }
+    .guide-card ol li { margin-bottom: 5px; }
+    code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--yellow); font-family: monospace; }
+    pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-size: 12px; color: var(--green); font-family: monospace; overflow-x: auto; margin: 8px 0; line-height: 1.5; }
+    .warning { background: #2a1a00; border: 1px solid #6b3d00; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--yellow); margin-top: 10px; }
+    .warning::before { content: "⚠️  "; }
+    .tip { background: #002a1a; border: 1px solid #005533; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--green); margin-top: 10px; }
+    .tip::before { content: "💡  "; }
+  </style>
+</head>
+<body>
+
+<h1>🏗️ Buildkite CI Pipeline</h1>
+<p class="subtitle">pipeline.dynamic.yml · feature/sandbox 分支 · 最后更新 2026-05-19</p>
+
+<!-- ── FLOW OVERVIEW ── -->
+<h2>总体流程</h2>
+<style>
+  .pipeline { display: flex; gap: 0; align-items: flex-start; overflow-x: auto; padding-bottom: 12px; }
+  .pipe-col { display: flex; flex-direction: column; gap: 5px; flex-shrink: 0; }
+  .pipe-col-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; text-align: center; }
+  .pipe-connector { display: flex; align-items: center; padding: 0 6px; color: var(--muted); font-size: 13px; align-self: center; flex-shrink: 0; }
+  .pipe-node { border-radius: 6px; padding: 5px 10px; font-size: 11px; white-space: nowrap; border: 1px solid var(--border); background: var(--card2); text-align: center; }
+  .pipe-node.init   { background: #1a2a3a; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .pipe-node.build  { background: #1a1d2e; border-color: #5b8dee; color: #8ab4f8; }
+  .pipe-node.sdk    { background: #1a2318; border-color: #3ecf8e; color: #3ecf8e; }
+  .pipe-node.sdk-mac{ background: #231a2e; border-color: #b57bee; color: #b57bee; }
+  .pipe-node.image  { background: #1a2318; border-color: #3ecf8e; color: #fff; }
+  .pipe-node.runtime{ background: #1d1a18; border-color: #f5a623; color: #f5a623; }
+  .pipe-node.manifest{ background: #1a2318; border-color: #3ecf8e; color: #3ecf8e; font-weight: 600; }
+  .pipe-node.test   { background: #2a1a00; border-color: #f5a623; color: #f5a623; font-weight: 600; }
+  .pipe-node.pypi   { background: #231a2e; border-color: #b57bee; color: #b57bee; }
+  .pipe-node.spacer { visibility: hidden; }
+  .pipe-connector-block { display: flex; flex-direction: column; justify-content: center; gap: 5px; align-self: stretch; padding: 0 4px; }
+  .pipe-connector-block .arrow { color: var(--muted); font-size: 11px; text-align: center; }
+  .fan-lines { color: var(--muted); font-size: 18px; align-self: center; padding: 0 4px; }
+  .dep-note { font-size: 10px; color: var(--muted); text-align: center; margin-top: 2px; font-style: italic; }
+</style>
+
+<div class="pipeline">
+  <!-- Col 1: Initialize -->
+  <div class="pipe-col" style="justify-content:center">
+    <div class="pipe-col-label">触发</div>
+    <div class="pipe-node init">🔑 Initialize</div>
+  </div>
+
+  <div class="fan-lines">→</div>
+
+  <!-- Col 2: All parallel builds from Initialize -->
+  <div class="pipe-col">
+    <div class="pipe-col-label">Initialize 触发（全并行）</div>
+    <div class="pipe-node build">🚀 Build X86</div>
+    <div class="pipe-node sdk">🐍 SDK X86 cp39</div>
+    <div class="pipe-node sdk">🐍 SDK X86 cp310</div>
+    <div class="pipe-node sdk">🐍 SDK X86 cp311</div>
+    <div class="pipe-node sdk">🐍 SDK X86 cp312</div>
+    <div class="pipe-node build">🐧 Build arm</div>
+    <div class="pipe-node sdk">🐍 SDK arm cp39</div>
+    <div class="pipe-node sdk">🐍 SDK arm cp310</div>
+    <div class="pipe-node sdk">🐍 SDK arm cp311</div>
+    <div class="pipe-node sdk">🐍 SDK arm cp312</div>
+    <div class="pipe-node sdk-mac">🍎 SDK macOS cp39</div>
+    <div class="pipe-node sdk-mac">🍎 SDK macOS cp310</div>
+    <div class="pipe-node sdk-mac">🍎 SDK macOS cp311</div>
+    <div class="pipe-node sdk-mac">🍎 SDK macOS cp312</div>
+  </div>
+
+  <div class="fan-lines">→</div>
+
+  <!-- Col 3: image / runtime / pypi -->
+  <div class="pipe-col">
+    <div class="pipe-col-label">等待依赖完成后触发</div>
+    <div class="pipe-node image">📦 Build Image<br><span class="dep-note">Build X86 + SDK X86 cp311</span></div>
+    <div class="pipe-node runtime">📦 Runtime amd64 cp39<br><span class="dep-note">Build X86 + SDK X86 cp39</span></div>
+    <div class="pipe-node runtime">📦 Runtime amd64 cp310<br><span class="dep-note">Build X86 + SDK X86 cp310</span></div>
+    <div class="pipe-node runtime">📦 Runtime amd64 cp311<br><span class="dep-note">Build X86 + SDK X86 cp311</span></div>
+    <div class="pipe-node runtime">📦 Runtime amd64 cp312<br><span class="dep-note">Build X86 + SDK X86 cp312</span></div>
+    <div class="pipe-node image">📦 Build Image arm<br><span class="dep-note">Build arm + SDK arm cp39</span></div>
+    <div class="pipe-node runtime">📦 Runtime arm64 cp39<br><span class="dep-note">Build arm + SDK arm cp39</span></div>
+    <div class="pipe-node runtime">📦 Runtime arm64 cp310<br><span class="dep-note">Build arm + SDK arm cp310</span></div>
+    <div class="pipe-node runtime">📦 Runtime arm64 cp311<br><span class="dep-note">Build arm + SDK arm cp311</span></div>
+    <div class="pipe-node runtime">📦 Runtime arm64 cp312<br><span class="dep-note">Build arm + SDK arm cp312</span></div>
+    <div class="pipe-node spacer">spacer</div>
+    <div class="pipe-node spacer">spacer</div>
+    <div class="pipe-node spacer">spacer</div>
+    <div class="pipe-node pypi">🐍 Publish PyPI<br><span class="dep-note">所有 SDK macOS</span></div>
+  </div>
+
+  <div class="fan-lines">→</div>
+
+  <!-- Col 4: manifest -->
+  <div class="pipe-col" style="justify-content:flex-start; padding-top:0">
+    <div class="pipe-col-label">等待所有 Image + Runtime</div>
+    <div style="margin-top: 2px;" class="pipe-node manifest">📦 Build Manifest<br><span class="dep-note">Build Image + Image arm<br>+ 全部 Runtime ×8</span></div>
+  </div>
+
+  <div class="fan-lines">→</div>
+
+  <!-- Col 5: test -->
+  <div class="pipe-col" style="justify-content:flex-start">
+    <div class="pipe-col-label">最终</div>
+    <div style="margin-top: 2px;" class="pipe-node test">🚀 Test K8S</div>
+  </div>
+</div>
+
+<div style="margin-top:4px; font-size:12px; color:var(--muted)">
+  ⚠️ <strong>关键</strong>：Build SDK X86/arm 与 Build X86/arm 完全并行，均直接依赖 Initialize，互不等待。Build Image 等待的是 <em>两者都完成</em>。
+</div>
+
+<!-- ── STEPS ── -->
+<style>
+  /* Wave groups */
+  .wave { margin-bottom: 28px; }
+  .wave-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .wave-num { background: var(--accent); color: #000; font-weight: 700; font-size: 11px; border-radius: 4px; padding: 2px 8px; flex-shrink: 0; }
+  .wave-title { font-size: 13px; color: var(--text); font-weight: 600; }
+  .wave-subtitle { font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .wave-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 8px; }
+
+  /* Collapsible step */
+  details.step { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color 0.15s; }
+  details.step[open] { border-color: var(--accent); }
+  details.step summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; align-items: center; gap: 10px; user-select: none; }
+  details.step summary::-webkit-details-marker { display: none; }
+  details.step summary:hover { background: var(--card2); }
+  .sum-emoji { font-size: 18px; flex-shrink: 0; }
+  .sum-main { flex: 1; min-width: 0; }
+  .sum-name { font-size: 14px; font-weight: 600; color: #fff; }
+  .sum-key  { font-size: 11px; color: var(--muted); font-family: monospace; margin-top: 1px; }
+  .sum-dep  { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .sum-dep span { color: var(--yellow); }
+  .sum-chevron { color: var(--muted); font-size: 12px; flex-shrink: 0; transition: transform 0.15s; }
+  details.step[open] .sum-chevron { transform: rotate(90deg); }
+
+  /* Step body inside details */
+  .step-body { padding: 0 16px 14px; border-top: 1px solid var(--border); }
+  .step-body p { color: var(--text); margin: 10px 0 6px; font-size: 13px; }
+  .substeps { list-style: none; margin: 6px 0; }
+  .substeps li { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .substeps li:first-child { border-top: none; }
+  .substep-num { color: var(--accent); font-family: monospace; font-size: 11px; flex-shrink: 0; margin-top: 2px; width: 44px; }
+  .artifacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .artifact { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-family: monospace; font-size: 11px; color: var(--green); }
+  .deps-inline { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .deps-inline span { color: var(--yellow); font-family: monospace; }
+</style>
+
+<h2>各 Step 详解（点击展开）</h2>
+
+<!-- ─ Wave 0: Initialize ─ -->
+<div class="wave">
+  <div class="wave-header">
+    <div class="wave-num">Wave 0</div>
+    <div class="wave-title">触发入口</div>
+    <div class="wave-subtitle">— Pipeline 启动，无前置依赖</div>
+  </div>
+  <div class="wave-grid">
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🔑</span>
+        <span class="sum-main">
+          <span class="sum-name">Initialize <span class="badge badge-k8s">K8S</span></span>
+          <span class="sum-key">key: initialize</span>
+        </span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>Pipeline 入口。读取环境变量，生成动态 pipeline YAML（pipeline.dynamic.yml），上传给 Buildkite 调度后续所有 step。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">1/1</span>执行 <code>pipeline.dynamic.yml</code>，根据 <code>SDK_PYTHON_VERSIONS</code> 展开矩阵，上传 pipeline</li>
+        </ul>
+        <div class="artifacts"><span class="artifact">（无产物，生成 pipeline 调度）</span></div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<!-- ─ Wave 1: 全并行 ─ -->
+<div class="wave">
+  <div class="wave-header">
+    <div class="wave-num">Wave 1</div>
+    <div class="wave-title">全平台并行构建</div>
+    <div class="wave-subtitle">— 均依赖 Initialize，互相不等待</div>
+  </div>
+  <div class="wave-grid">
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🚀</span>
+        <span class="sum-main">
+          <span class="sum-name">Build X86 <span class="badge badge-linux">Linux amd64</span></span>
+          <span class="sum-key">key: build-all-amd64</span>
+        </span>
+        <span class="sum-dep">依赖 <span>initialize</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>使用 Bazel 编译 yuanrong 全量产物（C++/Python/Java/Go），打包主包 whl，上传 OBS。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">[1/6]</span>环境初始化，设置 PATH 使用 <code>python3.11</code>，配置 Bazel 远程缓存</li>
+          <li><span class="substep-num">[2/6]</span>同步 git submodule（datasystem / frontend / functionsystem）</li>
+          <li><span class="substep-num">[3/6]</span>Bazel 全量构建：<code>make all</code>，输出二进制和 wheel</li>
+          <li><span class="substep-num">[3.1]</span>调用 <code>scripts/package_yuanrong.sh</code> 重新打包 whl（注入版本号）</li>
+          <li><span class="substep-num">[3.5]</span>校验 Go plugin ABI 兼容性</li>
+          <li><span class="substep-num">[4/6]</span>打印 Bazel 远程缓存命中率报告</li>
+          <li><span class="substep-num">[5/6]</span>收集 artifacts，上传 Buildkite packages</li>
+          <li><span class="substep-num">[6/6]</span>上传 whl 到华为云 OBS，写入 meta-data <code>obs-urls.build-all-amd64</code></li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">openyuanrong-*.tar.gz</span>
+          <span class="artifact">openyuanrong-*-cp311-*-linux_x86_64.whl</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🐍</span>
+        <span class="sum-main">
+          <span class="sum-name">Build SDK X86 ×4 <span class="badge badge-linux">Linux amd64</span></span>
+          <span class="sum-key">key: build-sdk-amd64-{cp39|cp310|cp311|cp312}</span>
+        </span>
+        <span class="sum-dep">依赖 <span>initialize</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>矩阵构建：对每个 Python 版本独立构建 <code>openyuanrong_sdk</code> wheel 并上传 OBS。<strong>与 Build X86 完全并行，互不依赖。</strong></p>
+        <ul class="substeps">
+          <li><span class="substep-num">1</span>同步 submodule，调用 <code>build_openyuanrong_sdk_wheels.sh</code></li>
+          <li><span class="substep-num">2</span>上传 Buildkite packages</li>
+          <li><span class="substep-num">3</span>上传 OBS，写入 meta-data <code>obs-urls.build-sdk-amd64-{suffix}</code></li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">openyuanrong_sdk-*-cp39-*-linux_x86_64.whl</span>
+          <span class="artifact">openyuanrong_sdk-*-cp311-*-linux_x86_64.whl</span>
+          <span class="artifact">（其他 cp 版本同理）</span>
+        </div>
+        <div class="deps-inline">⚙️ <code>SANDBOX_AMD64_SDK_STEP</code> 控制哪个 suffix 进入 Build Image</div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🐧</span>
+        <span class="sum-main">
+          <span class="sum-name">Build arm <span class="badge badge-arm">Linux arm64</span></span>
+          <span class="sum-key">key: build-all-arm64</span>
+        </span>
+        <span class="sum-dep">依赖 <span>initialize</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>与 Build X86 相同流程，在 arm64 agent 上运行，产出 arm64 主包 whl（cp39）。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">[1–6]</span>流程同 Build X86，PATH 使用 arm64 工具链（python3.9）</li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">openyuanrong-*-cp39-*-manylinux_*_aarch64.whl</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🐍</span>
+        <span class="sum-main">
+          <span class="sum-name">Build SDK arm ×4 <span class="badge badge-arm">Linux arm64</span></span>
+          <span class="sum-key">key: build-sdk-arm64-{cp39|cp310|cp311|cp312}</span>
+        </span>
+        <span class="sum-dep">依赖 <span>initialize</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>在 arm64 agent 上构建 SDK wheel 矩阵，流程同 Build SDK X86。<strong>与 Build arm 完全并行。</strong></p>
+        <div class="artifacts">
+          <span class="artifact">openyuanrong_sdk-*-cp39-*-linux_aarch64.whl</span>
+          <span class="artifact">（其他 cp 版本同理）</span>
+        </div>
+        <div class="deps-inline">⚙️ <code>SANDBOX_ARM64_SDK_STEP</code>（默认 cp39）控制哪个版本进入 Build Image arm</div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🍎</span>
+        <span class="sum-main">
+          <span class="sum-name">Build SDK macOS ×4 <span class="badge badge-mac">macOS arm64</span></span>
+          <span class="sum-key">key: build-sdk-macos-arm64-{cp39|cp310|cp311|cp312}</span>
+        </span>
+        <span class="sum-dep">依赖 <span>initialize</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>在物理 macOS arm64 agent 上构建 SDK wheel（同一台 Mac mini 串行执行四个版本），产出 macOS 专用 wheel 并上传 OBS。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">[2/4]</span><code>ensure-macos-build-tools.sh</code> 检查 Homebrew 工具链</li>
+          <li><span class="substep-num">[3/4]</span>构建 SDK wheel（对应 Python 版本）</li>
+          <li><span class="substep-num">[4/4]</span>上传 OBS，使用 <code>OBS_PYTHON=python3</code> 覆盖（macOS 无 /opt/buildtools 路径）</li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">openyuanrong_sdk-*-cp311-*-macosx_*_arm64.whl</span>
+          <span class="artifact">（其他 cp 版本同理）</span>
+        </div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<!-- ─ Wave 2: 依赖 Wave 1 ─ -->
+<div class="wave">
+  <div class="wave-header">
+    <div class="wave-num">Wave 2</div>
+    <div class="wave-title">镜像构建 &amp; 发布</div>
+    <div class="wave-subtitle">— 每个 step 等待其对应的 Build + SDK 都完成</div>
+  </div>
+  <div class="wave-grid">
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">📦</span>
+        <span class="sum-main">
+          <span class="sum-name">Build Image <span class="badge badge-k8s">K8S amd64</span></span>
+          <span class="sum-key">key: publish-sandbox-release-amd64</span>
+        </span>
+        <span class="sum-dep">依赖 <span>build-all-amd64</span> + <span>build-sdk-amd64-cp311</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>下载主包 whl + SDK cp311 whl，用 Docker 构建三个 K8S 镜像并推送到 SWR（华为云镜像仓库）。SDK wheel 的 cp tag 决定镜像 Python 版本。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">1</span>从 OBS 下载 <code>openyuanrong-*.whl</code>（主包 cp311，通过 meta-data <code>obs-urls.build-all-amd64</code>）</li>
+          <li><span class="substep-num">2</span>从 OBS 下载 SDK wheel（由 <code>YR_K8S_IMAGE_SDK_WHEEL_PATTERN=openyuanrong_sdk*-cp311-*.whl</code> 过滤）</li>
+          <li><span class="substep-num">3</span><code>build-images.sh</code>：<code>python_build_args_from_wheel()</code> 从 wheel 名提取 cp311 → <code>PYTHON_VERSION=3.11.9</code></li>
+          <li><span class="substep-num">4</span>构建 yr-base（Ubuntu + python 3.11.9）→ yr-controlplane（装主包+SDK）→ yr-node</li>
+          <li><span class="substep-num">5</span>构建 yr-runtime（仅 SDK），推送 SWR，输出 sandbox-release.json</li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">yr-controlplane:&lt;tag&gt;-amd64</span>
+          <span class="artifact">yr-node:&lt;tag&gt;-amd64</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-amd64</span>
+        </div>
+        <div class="deps-inline warning-inline">⚠️ <code>SANDBOX_AMD64_SDK_STEP</code>、<code>SANDBOX_AMD64_SDK_SUFFIX</code>、主包 PATH Python 版本 三者必须一致，否则 Build Image 失败</div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">📦</span>
+        <span class="sum-main">
+          <span class="sum-name">Build Runtime amd64 ×4 <span class="badge badge-k8s">K8S amd64</span></span>
+          <span class="sum-key">key: publish-runtime-amd64-{cp39|cp310|cp311|cp312}</span>
+        </span>
+        <span class="sum-dep">依赖 <span>build-all-amd64</span> + <span>build-sdk-amd64-{cpXX}</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>矩阵：对每个 Python 版本构建 yr-runtime 镜像变体（FaaS 运行时，支持多 Python 版本），推送 SWR。</p>
+        <div class="artifacts">
+          <span class="artifact">yr-runtime:&lt;tag&gt;-amd64-cp39</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-amd64-cp310</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-amd64-cp311</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-amd64-cp312</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">📦</span>
+        <span class="sum-main">
+          <span class="sum-name">Build Image arm <span class="badge badge-arm">K8S arm64</span></span>
+          <span class="sum-key">key: publish-sandbox-release-arm64</span>
+        </span>
+        <span class="sum-dep">依赖 <span>build-all-arm64</span> + <span>build-sdk-arm64-cp39</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>与 Build Image 相同流程，使用 arm64 主包（cp39）+ SDK cp39，构建 arm64 K8S 镜像（Python 3.9.18）。</p>
+        <div class="artifacts">
+          <span class="artifact">yr-controlplane:&lt;tag&gt;-arm64</span>
+          <span class="artifact">yr-node:&lt;tag&gt;-arm64</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-arm64</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">📦</span>
+        <span class="sum-main">
+          <span class="sum-name">Build Runtime arm64 ×4 <span class="badge badge-arm">K8S arm64</span></span>
+          <span class="sum-key">key: publish-runtime-arm64-{cp39|cp310|cp311|cp312}</span>
+        </span>
+        <span class="sum-dep">依赖 <span>build-all-arm64</span> + <span>build-sdk-arm64-{cpXX}</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>矩阵：对每个 Python 版本构建 arm64 yr-runtime 镜像变体，推送 SWR。</p>
+        <div class="artifacts">
+          <span class="artifact">yr-runtime:&lt;tag&gt;-arm64-cp39</span>
+          <span class="artifact">yr-runtime:&lt;tag&gt;-arm64-cp311</span>
+          <span class="artifact">（其他 cp 版本同理）</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🐍</span>
+        <span class="sum-main">
+          <span class="sum-name">Publish Wheels PyPI <span class="badge badge-k8s">K8S</span></span>
+          <span class="sum-key">key: publish-wheels-testpypi</span>
+        </span>
+        <span class="sum-dep">依赖 <span>所有 Build SDK</span>（linux + macOS）</span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>将所有平台 SDK wheel 发布到 TestPyPI。受 <code>ENABLE_PYPI_PUBLISH</code> 开关控制，默认不启用。</p>
+        <div class="deps-inline">所有 Linux amd64/arm64 + macOS SDK step 全部完成后才触发</div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<!-- ─ Wave 3: Build Manifest ─ -->
+<div class="wave">
+  <div class="wave-header">
+    <div class="wave-num">Wave 3</div>
+    <div class="wave-title">Multi-arch 合并</div>
+    <div class="wave-subtitle">— 等待所有 Build Image + Build Runtime 完成</div>
+  </div>
+  <div class="wave-grid">
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">📦</span>
+        <span class="sum-main">
+          <span class="sum-name">Build Manifest <span class="badge badge-multi">Multi-arch</span></span>
+          <span class="sum-key">key: publish-sandbox-manifest</span>
+        </span>
+        <span class="sum-dep">依赖 <span>Build Image</span> + <span>Build Image arm</span> + <span>Runtime ×8</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>合并 amd64 + arm64 镜像，创建 Docker multi-arch manifest，推送到 SWR。同时打包 Helm chart。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">1</span><code>docker manifest create</code> 合并 yr-controlplane / yr-node / yr-runtime amd64 + arm64</li>
+          <li><span class="substep-num">2</span>打包 Helm chart（<code>yr-k8s-*.tgz</code>）</li>
+          <li><span class="substep-num">3</span>推送 manifest 到 SWR</li>
+        </ul>
+        <div class="artifacts">
+          <span class="artifact">yr-controlplane:&lt;tag&gt; (multi-arch manifest)</span>
+          <span class="artifact">yr-k8s-*.tgz (Helm chart)</span>
+        </div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<!-- ─ Wave 4: Test ─ -->
+<div class="wave">
+  <div class="wave-header">
+    <div class="wave-num">Wave 4</div>
+    <div class="wave-title">集成测试</div>
+    <div class="wave-subtitle">— 等待 Build Manifest 完成</div>
+  </div>
+  <div class="wave-grid">
+
+    <details class="step">
+      <summary>
+        <span class="sum-emoji">🚀</span>
+        <span class="sum-main">
+          <span class="sum-name">Test K8S <span class="badge badge-k8s">K8S Pod</span></span>
+          <span class="sum-key">key: test-k8s</span>
+        </span>
+        <span class="sum-dep">依赖 <span>publish-sandbox-manifest</span></span>
+        <span class="sum-chevron">▶</span>
+      </summary>
+      <div class="step-body">
+        <p>在 K8S Pod 内运行 off-cluster smoke test：从 OBS 下载主包 + SDK whl，安装后用 pytest 验证 yr-k8s 基本功能。</p>
+        <ul class="substeps">
+          <li><span class="substep-num">1</span>下载主包 + SDK whl（由 <code>SMOKE_SDK_WHEEL_PATTERN=openyuanrong_sdk*-cp311-*.whl</code> 决定）</li>
+          <li><span class="substep-num">2</span><code>resolve_smoke_python()</code> 从 wheel 名推导测试用 Python（cp311 → python3.11）</li>
+          <li><span class="substep-num">3</span>pip 安装 + pytest smoke 测试</li>
+        </ul>
+        <div class="deps-inline">⚙️ <code>SMOKE_SDK_WHEEL_PATTERN</code> 须与 <code>SANDBOX_AMD64_SDK_STEP</code> cp tag 保持一致</div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<!-- ── KEY VARIABLES ── -->
+<h2>关键配置变量</h2>
+<table class="config-table">
+  <thead>
+    <tr>
+      <th>变量</th>
+      <th>位置</th>
+      <th>当前值</th>
+      <th>作用</th>
+      <th>影响</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="var">SDK_PYTHON_VERSIONS</td>
+      <td><code>pipeline.dynamic.yml:20</code></td>
+      <td><code>3.9 3.10 3.11 3.12</code></td>
+      <td>构建 SDK wheel 的 Python 版本矩阵</td>
+      <td class="impact">影响全部 Build SDK 和 Build Runtime step 数量</td>
+    </tr>
+    <tr>
+      <td class="var">SANDBOX_AMD64_SDK_STEP</td>
+      <td><code>pipeline.dynamic.yml:61</code></td>
+      <td><code>build-sdk-amd64-cp311</code></td>
+      <td>Build Image (amd64) 使用哪个 SDK step 的产物</td>
+      <td class="impact">决定 amd64 镜像内 Python 版本（须与主包 cp tag 一致）</td>
+    </tr>
+    <tr>
+      <td class="var">SANDBOX_AMD64_SDK_SUFFIX</td>
+      <td><code>pipeline.dynamic.yml:62</code></td>
+      <td><code>cp311</code></td>
+      <td>Build Image step 的 <code>YR_K8S_IMAGE_SDK_WHEEL_PATTERN</code> 来源</td>
+      <td class="impact-med">须与 SANDBOX_AMD64_SDK_STEP 后缀保持一致</td>
+    </tr>
+    <tr>
+      <td class="var">SANDBOX_ARM64_SDK_STEP</td>
+      <td><code>pipeline.dynamic.yml:63</code></td>
+      <td><code>build-sdk-arm64-cp39</code></td>
+      <td>Build Image arm 使用哪个 SDK step 的产物</td>
+      <td class="impact">决定 arm64 镜像内 Python 版本</td>
+    </tr>
+    <tr>
+      <td class="var">Build X86 PATH</td>
+      <td><code>pipeline.dynamic.yml:291</code></td>
+      <td><code>/opt/buildtools/python3.11/bin</code></td>
+      <td>编译主包使用的 Python 版本</td>
+      <td class="impact">决定主包 whl 的 cp tag（须与 SANDBOX_AMD64_SDK_STEP 一致）</td>
+    </tr>
+    <tr>
+      <td class="var">SMOKE_SDK_WHEEL_PATTERN</td>
+      <td><code>test_sandbox_k8s.sh:10</code></td>
+      <td><code>openyuanrong_sdk*-cp311-*.whl</code></td>
+      <td>K8S smoke test 安装的 SDK wheel 版本</td>
+      <td class="impact-med">须与 SANDBOX_AMD64_SDK_STEP 保持一致</td>
+    </tr>
+    <tr>
+      <td class="var">OBS_PYTHON</td>
+      <td><code>upload_obs_artifacts.sh:9</code></td>
+      <td><code>/opt/buildtools/python3.9/bin/python3</code>（默认）<br><code>python3</code>（macOS step 覆盖）</td>
+      <td>上传 OBS 使用的 Python 解释器（需有 esdk-obs-python）</td>
+      <td class="impact-med">macOS step 显式设置 <code>OBS_PYTHON=python3</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── MODIFICATION GUIDE ── -->
+<h2>修改指导</h2>
+<div class="guide-cards">
+
+  <div class="guide-card">
+    <h3>🔄 升级主包 Python 版本（如 cp311 → cp312）</h3>
+    <ol>
+      <li>修改 <code>pipeline.dynamic.yml:291</code>：<br>
+        <code>PATH=/opt/buildtools/python3.12/bin:...</code></li>
+      <li>修改 <code>pipeline.dynamic.yml:61-62</code>：<br>
+        <code>SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-cp312"</code><br>
+        <code>SANDBOX_AMD64_SDK_SUFFIX="cp312"</code></li>
+      <li>修改 <code>test_sandbox_k8s.sh:8,10</code>：<br>
+        <code>SDK_STEP_KEY=...cp312</code><br>
+        <code>SMOKE_SDK_WHEEL_PATTERN=...cp312...</code></li>
+    </ol>
+    <div class="warning">三处须同时修改，cp tag 必须一致，否则 Build Image 会因 OBS URL pattern 不匹配而失败</div>
+  </div>
+
+  <div class="guide-card">
+    <h3>➕ 新增 SDK Python 版本（如加 3.13）</h3>
+    <ol>
+      <li>在 <code>sdk_python_suffix()</code>（L48）加入 <code>python3.13) printf 'cp313' ;;</code></li>
+      <li>在 <code>build-images.sh</code> 的 <code>python_build_args_from_wheel()</code> 加入 cp313 映射</li>
+      <li><code>SDK_PYTHON_VERSIONS</code> 默认值会自动展开矩阵，无需额外改动</li>
+    </ol>
+    <div class="tip">新增版本只影响 Build SDK 和 Build Runtime 矩阵，不影响主镜像版本</div>
+  </div>
+
+  <div class="guide-card">
+    <h3>🐍 更换镜像内 Python 版本（amd64）</h3>
+    <p style="margin-bottom:8px">只需同步修改以下 3 个变量即可：</p>
+    <pre>
+# pipeline.dynamic.yml
+export PATH=/opt/buildtools/python3.XX/bin:...  # L291
+SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-cpXXX"  # L61
+SANDBOX_AMD64_SDK_SUFFIX="cpXXX"                 # L62
+
+# test_sandbox_k8s.sh
+SDK_STEP_KEY="...cpXXX"           # L8
+SMOKE_SDK_WHEEL_PATTERN="...cpXXX..." # L10</pre>
+    <div class="warning">主包 PATH Python 版本 必须 = SDK cp tag，否则 yr-controlplane 镜像无法安装主包</div>
+  </div>
+
+  <div class="guide-card">
+    <h3>📤 OBS 上传 Python 报错（ModuleNotFoundError: obs）</h3>
+    <ol>
+      <li>Linux：<code>OBS_PYTHON</code> 默认指向 <code>/opt/buildtools/python3.9/bin/python3</code>（预装 esdk-obs-python）</li>
+      <li>macOS step：已在调用处覆盖 <code>OBS_PYTHON=python3</code></li>
+      <li>如需换其他路径：在对应 step 调用前加 <code>OBS_PYTHON=/path/to/python3 bash .buildkite/upload_obs_artifacts.sh ...</code></li>
+    </ol>
+    <div class="tip">esdk-obs-python 只装在 python3.9 环境里（历史遗留），切换主包 Python 版本不影响 OBS 上传</div>
+  </div>
+
+  <div class="guide-card">
+    <h3>🍎 macOS SDK 构建失败</h3>
+    <ol>
+      <li>检查 <code>scripts/ensure-macos-build-tools.sh</code> 工具链是否完整</li>
+      <li>设置 <code>SKIP_BREW_UPDATE=1</code> 可跳过耗时的 brew update</li>
+      <li>OBS 上传失败：确认 <code>OBS_PYTHON=python3</code> 已在 macOS step 显式设置（<code>pipeline.dynamic.yml:1325</code>）</li>
+    </ol>
+  </div>
+
+  <div class="guide-card">
+    <h3>⚡ 触发单独 Step 重跑</h3>
+    <ol>
+      <li>在 Buildkite UI 点击对应 Step → Retry</li>
+      <li>或通过 API：<code>yr-bk trigger &lt;build&gt;</code></li>
+      <li>Build Image 失败：先确认 Build X86 + Build SDK 对应版本均已通过且 OBS URL meta-data 已写入</li>
+    </ol>
+    <pre>
+# 查看某次构建所有 step 状态
+yr-bk jobs &lt;build-number&gt;
+
+# 查看某个 step 的完整日志
+yr-bk log &lt;build-number&gt; &lt;job-id&gt;</pre>
+  </div>
+
+</div>
+
+<h2>镜像内容速查</h2>
+<table class="config-table">
+  <thead>
+    <tr><th>镜像</th><th>openyuanrong（主包）</th><th>openyuanrong_sdk</th><th>基础 Python 版本</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>yr-base</td><td>❌</td><td>❌</td><td>由 SDK wheel cp tag 决定（当前 3.11）</td></tr>
+    <tr><td>yr-controlplane</td><td>✅ cp311</td><td>✅ cp311</td><td>继承 yr-base（3.11）</td></tr>
+    <tr><td>yr-node</td><td>❌</td><td>❌</td><td>继承 yr-controlplane（3.11）</td></tr>
+    <tr><td>yr-runtime</td><td>❌</td><td>✅ cp311</td><td>继承 yr-base（3.11）</td></tr>
+    <tr><td>yr-runtime (各 Python 变体)</td><td>❌</td><td>✅ 对应 cp tag</td><td>由各自 SDK wheel 决定</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:24px; color:var(--muted); font-size:12px;">
+  源文件：<code>.buildkite/pipeline.dynamic.yml</code> · <code>.buildkite/package_sandbox_release.sh</code> · <code>.buildkite/test_sandbox_k8s.sh</code> · <code>deploy/sandbox/k8s/build-images.sh</code>
+</p>
+
+</body>
+</html>
