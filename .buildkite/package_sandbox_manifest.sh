@@ -229,7 +229,7 @@ upload_manifest_artifacts_to_obs_if_configured() {
         version_args=(--version "${release_tag}")
     fi
 
-    bash .buildkite/upload_obs_artifacts.sh \
+    OBS_PYTHON=python3 bash .buildkite/upload_obs_artifacts.sh \
         --output "${ARCHIVE_DIR}/sandbox/obs-urls.txt" \
         --platform sandbox \
         --arch noarch \
