@@ -58,7 +58,7 @@ sdk_python_suffix() {
   esac
 }
 
-SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-cp39"
+SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-cp311"
 SANDBOX_ARM64_SDK_STEP="build-sdk-arm64-cp39"
 SANDBOX_MANIFEST_SDK_DEPENDS=""
 SANDBOX_MANIFEST_RUNTIME_DEPENDS=""
@@ -288,7 +288,7 @@ cat << YAML
       set -e
       echo "=== [1/3] Environment Setup ==="
       
-      export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      export PATH=/opt/buildtools/python3.11/bin:/usr/local/bin:/usr/bin:\$\$PATH
       export CC=gcc-10
       export CXX=g++-10
       export PIP_BREAK_SYSTEM_PACKAGES=1
