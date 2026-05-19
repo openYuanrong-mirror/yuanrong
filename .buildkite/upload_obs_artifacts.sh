@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# obs SDK (esdk-obs-python) is only installed in python3.9; use it explicitly
+# regardless of what python3 resolves to in the current PATH.
+OBS_PYTHON="${OBS_PYTHON:-/opt/buildtools/python3.9/bin/python3}"
+
 OUTPUT_FILE=""
 PLATFORM=""
 ARCH=""
@@ -66,7 +70,7 @@ if [ -z "${OBS_ACCESS_KEY_ID:-}" ] || [ -z "${OBS_SECRET_ACCESS_KEY:-}" ]; then
     exit 1
 fi
 
-python3 -c "from obs import ObsClient"
+$OBS_PYTHON -c "from obs import ObsClient"
 mkdir -p "$(dirname "${OUTPUT_FILE}")"
 : >"${OUTPUT_FILE}"
 
@@ -76,7 +80,7 @@ for file in "$@"; do
     [ -f "${file}" ] || continue
     printf 'Uploading to OBS: %s\n' "${file}" >&2
     upload_cmd=(
-        python3 tools/upload_build_artifact.py
+        $OBS_PYTHON tools/upload_build_artifact.py
         --file "${file}"
         --kind build
         --channel "${CHANNEL}"
