@@ -231,11 +231,17 @@ struct InstanceOptions {
     bool needOrder;
 };
 
+enum class InstrumentKind {
+    METRIC = 0,
+    EVENT = 1,
+};
+
 struct DoubleCounterData {
     std::string name;
     std::string description;
     std::string unit;
     std::unordered_map<std::string, std::string> labels;
+    InstrumentKind instrumentKind = InstrumentKind::METRIC;
     double value;
 };
 
@@ -244,6 +250,7 @@ struct UInt64CounterData {
     std::string description;
     std::string unit;
     std::unordered_map<std::string, std::string> labels;
+    InstrumentKind instrumentKind = InstrumentKind::METRIC;
     uint64_t value;
 };
 
@@ -252,6 +259,7 @@ struct GaugeData {
     std::string description;
     std::string unit;
     std::unordered_map<std::string, std::string> labels;
+    InstrumentKind instrumentKind = InstrumentKind::METRIC;
     double value;
 };
 

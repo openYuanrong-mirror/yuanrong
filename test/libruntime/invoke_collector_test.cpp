@@ -23,6 +23,10 @@
 #include <thread>
 
 #define private public
+#include "metrics/api/provider.h"
+#include "metrics/exporters/exporter.h"
+#include "metrics/sdk/immediately_export_processor.h"
+#include "metrics/sdk/meter_provider.h"
 #include "src/dto/config.h"
 #include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
@@ -33,16 +37,54 @@
 using namespace testing;
 using namespace YR::utility;
 using namespace YR::Libruntime;
+namespace MetricsApi = observability::api::metrics;
+namespace MetricsSdk = observability::sdk::metrics;
+namespace MetricsExporters = observability::exporters::metrics;
 
 namespace YR {
 namespace test {
 namespace {
+class FakeExporter : public MetricsExporters::Exporter {
+public:
+    MetricsExporters::ExportResult Export(
+        const std::vector<observability::sdk::metrics::MetricData> & /* data */) noexcept override
+    {
+        return MetricsExporters::ExportResult::SUCCESS;
+    }
+
+    observability::sdk::metrics::AggregationTemporality GetAggregationTemporality(
+        observability::sdk::metrics::InstrumentType /* instrumentType */) const noexcept override
+    {
+        return observability::sdk::metrics::AggregationTemporality::CUMULATIVE;
+    }
+
+    bool ForceFlush(std::chrono::microseconds /* timeout */) noexcept override
+    {
+        return true;
+    }
+
+    bool Shutdown(std::chrono::microseconds /* timeout */) noexcept override
+    {
+        return true;
+    }
+
+    void RegisterOnHealthChangeCb(const std::function<void(bool)> & /* onChange */) noexcept override {}
+};
+
 std::shared_ptr<MetricsAdaptor> BuildSampleOnlyMetricsAdaptor()
 {
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto provider = std::make_shared<MetricsSdk::MeterProvider>(MetricsSdk::LiteBusParams{});
+    MetricsSdk::ExportConfigs exportConfigs;
+    exportConfigs.exporterName = "mock";
+    exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
+    auto exporter = std::make_shared<FakeExporter>();
+    provider->AddMetricProcessor(std::make_shared<MetricsSdk::ImmediatelyExportProcessor>(std::move(exporter),
+                                                                                          exportConfigs));
+    MetricsApi::Provider::SetMeterProvider(provider);
     metricsAdaptor->userEnable_ = true;
-    metricsAdaptor->prometheusPullExporterEnabled_ = true;
-    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
+    metricsAdaptor->Initialized_ = true;
+    metricsAdaptor->metricSampleEnabledInstruments_ = {
         "yr_custom_concurrent_num", "yr_custom_invoke_num"
     };
     return metricsAdaptor;

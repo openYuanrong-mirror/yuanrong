@@ -83,6 +83,12 @@ public:
                        const YR::Libruntime::AlarmInfo &alarmInfo);
 
 private:
+    enum class MetricOperation {
+        RECORD,
+        STATEFUL,
+        READ,
+    };
+
     struct DoubleGaugeSample {
         std::string name;
         std::string description;
@@ -125,8 +131,18 @@ private:
         const std::string &backendKey, const std::string &backendName, const nlohmann::json &exporterValue,
         const std::function<std::string(std::string)> &getFileName);
     bool MetricsEnabled() const;
+    void AddMetricSampleEnabledInstruments(const MetricsSdk::ExportConfigs &exportConfigs);
     bool IsMetricSampleEnabled(const std::string &name) const;
     ErrorInfo MetricSampleNotEnabledError(const std::string &name) const;
+    ErrorInfo EventInstrumentStateError(const std::string &name) const;
+    ErrorInfo InstrumentKindConflictError(const std::string &name) const;
+    ErrorInfo CheckInstrumentKind(const std::string &name,
+                                  YR::Libruntime::InstrumentKind instrumentKind);
+    ErrorInfo CheckAndRecordInstrumentKind(const std::string &name,
+                                           YR::Libruntime::InstrumentKind instrumentKind);
+    ErrorInfo ValidateMetricOperation(const std::string &name,
+                                      YR::Libruntime::InstrumentKind instrumentKind,
+                                      MetricOperation operation);
     std::map<std::string, std::string> BuildPlatformLabels() const;
     MetricsSdk::PointLabels BuildPointLabels(const std::unordered_map<std::string, std::string> &labels) const;
     std::map<std::string, std::string> CanonicalizeLabels(
@@ -135,17 +151,8 @@ private:
     template <typename Data, typename SampleMap, typename InstrumentMap, typename UpdateValue>
     void UpdateMetricSample(const Data &data, SampleMap &samples, InstrumentMap &instruments,
                             UpdateValue updateValue);
-    ErrorInfo SetGaugeSample(const YR::Libruntime::GaugeData &gauge);
-    ErrorInfo IncreaseGaugeSample(const YR::Libruntime::GaugeData &gauge);
-    ErrorInfo DecreaseGaugeSample(const YR::Libruntime::GaugeData &gauge);
     std::pair<ErrorInfo, double> GetGaugeSampleValue(const YR::Libruntime::GaugeData &gauge);
-    void SetUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data);
-    void ResetUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data);
-    void IncreaseUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data);
     std::pair<ErrorInfo, uint64_t> GetUInt64CounterSampleValue(const YR::Libruntime::UInt64CounterData &data);
-    void SetDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data);
-    void ResetDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data);
-    void IncreaseDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data);
     std::pair<ErrorInfo, double> GetDoubleCounterSampleValue(const YR::Libruntime::DoubleCounterData &data);
 
     void InitExport(const std::shared_ptr<observability::sdk::metrics::MeterProvider> &provider);
@@ -162,12 +169,11 @@ private:
     ErrorInfo DoIncreaseDoubleCounter(const YR::Libruntime::DoubleCounterData &data);
     std::pair<ErrorInfo, double> DoGetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data);
     ErrorInfo InitDoubleGauge(const YR::Libruntime::GaugeData &gauge);
-    ErrorInfo ReportDoubleGauge(const YR::Libruntime::GaugeData &gauge, const std::list<std::string> &contextAttrs);
+    ErrorInfo ReportDoubleGauge(const YR::Libruntime::GaugeData &gauge);
     std::string GetMetricsFilesName(const std::string &backendName);
     ErrorInfo InitAlarm(const std::string &name, const std::string &description);
     ErrorInfo ReportAlarm(const std::string &name, const std::string &description,
                           const YR::Libruntime::AlarmInfo &alarmInfo);
-
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Counter<double>>> doubleCounterMap_{};
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Counter<uint64_t>>> uInt64CounterMap_{};
     std::map<std::string, std::unique_ptr<MetricsApi::Gauge<double>>> doubleGaugeMap_{};
@@ -179,17 +185,20 @@ private:
     std::string metricsCertData_;
     SensitiveData metricsKeyData_;
     std::unordered_set<std::string> enabledBackends_;
-    std::unordered_set<std::string> prometheusPullExporterEnabledInstruments_;
+    std::unordered_set<std::string> metricSampleEnabledInstruments_;
+    std::unordered_map<std::string, YR::Libruntime::InstrumentKind> instrumentKinds_;
     MetricsContext metricsContext_;
     std::shared_ptr<MetricsExporters::Exporter> prometheusPullExporter_{};
     bool Initialized_ = false;
     bool userEnable_ = false;
-    std::atomic<bool> prometheusPullExporterEnabled_{false};
+    // Empty enabledInstruments on any exporter means metric samples are cached for every instrument.
+    std::atomic<bool> metricSampleAllowAll_{false};
     std::mutex gauge_mutex_{};
     std::mutex alarm_mutex_{};
     std::mutex uint64_counter_mutex_{};
     std::mutex double_counter_mutex_{};
     std::mutex prometheus_pull_exporter_mutex_{};
+    std::mutex instrument_kind_mutex_{};
     static std::shared_ptr<MetricsAdaptor> instance;
     static std::once_flag initFlag;
 };

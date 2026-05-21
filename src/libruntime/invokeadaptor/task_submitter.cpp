@@ -911,6 +911,7 @@ YR::Libruntime::GaugeData TaskSubmitter::ConvertToGaugeData(const std::shared_pt
 {
     YR::Libruntime::GaugeData gaugeData;
     gaugeData.name = "report_faas_invoke_data";
+    gaugeData.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
     gaugeData.labels["requestId"] = reqId;
     gaugeData.labels["businessId"] = data->businessId;
     gaugeData.labels["tenantId"] = data->tenantId;

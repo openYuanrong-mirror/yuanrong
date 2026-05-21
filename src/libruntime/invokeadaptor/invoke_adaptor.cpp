@@ -2172,6 +2172,7 @@ void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::strin
     }
     YR::Libruntime::GaugeData data;
     data.name = "call_metric";
+    data.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
     data.labels["requestid"] = requestId;
     data.labels["traceid"] = traceId;
     data.value = value;

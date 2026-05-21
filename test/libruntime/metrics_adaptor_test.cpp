@@ -275,8 +275,7 @@ std::shared_ptr<MetricsAdaptor> BuildMockInitializedMetricsAdaptor()
     MetricsApi::Provider::SetMeterProvider(provider);
     metricsAdaptor->userEnable_ = true;
     metricsAdaptor->Initialized_ = true;
-    metricsAdaptor->prometheusPullExporterEnabled_ = true;
-    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
+    metricsAdaptor->metricSampleEnabledInstruments_ = {
         "name", "yr_custom_concurrent_num", "yr_custom_invoke_num"
     };
     return metricsAdaptor;
@@ -284,12 +283,8 @@ std::shared_ptr<MetricsAdaptor> BuildMockInitializedMetricsAdaptor()
 
 std::shared_ptr<MetricsAdaptor> BuildSampleOnlyMetricsAdaptor()
 {
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
-    metricsAdaptor->userEnable_ = true;
-    metricsAdaptor->prometheusPullExporterEnabled_ = true;
-    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
-        "yr_custom_concurrent_num", "yr_custom_invoke_num"
-    };
+    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+    metricsAdaptor->metricSampleEnabledInstruments_.insert("double_counter_sample");
     return metricsAdaptor;
 }
 
@@ -439,6 +434,33 @@ TEST_F(MetricsAdaptorTest, DoubleCounterTest)
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
 }
 
+TEST_F(MetricsAdaptorTest, DoubleCounterSampleValueTest)
+{
+    Config::c = Config();
+    auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
+    YR::Libruntime::DoubleCounterData data;
+    data.name = "double_counter_sample";
+    data.description = "desc";
+    data.unit = "unit";
+    data.value = 1.25;
+
+    auto emptyValue = metricsAdaptor->GetDoubleCounterSampleValue(data);
+    ASSERT_TRUE(emptyValue.first.OK());
+    ASSERT_EQ(emptyValue.second, 0);
+
+    ASSERT_EQ(metricsAdaptor->SetDoubleCounter(data).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    data.value = 2.5;
+    ASSERT_EQ(metricsAdaptor->IncreaseDoubleCounter(data).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    auto currentValue = metricsAdaptor->GetDoubleCounterSampleValue(data);
+    ASSERT_TRUE(currentValue.first.OK());
+    ASSERT_EQ(currentValue.second, 3.75);
+
+    ASSERT_EQ(metricsAdaptor->ResetDoubleCounter(data).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    auto resetValue = metricsAdaptor->GetDoubleCounterSampleValue(data);
+    ASSERT_TRUE(resetValue.first.OK());
+    ASSERT_EQ(resetValue.second, 0);
+}
+
 TEST_F(MetricsAdaptorTest, UInt64CounterTest)
 {
     Config::c = Config();
@@ -462,6 +484,30 @@ TEST_F(MetricsAdaptorTest, UInt64CounterTest)
     EXPECT_EQ(res.second, 0);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
+}
+
+TEST_F(MetricsAdaptorTest, DecreaseGaugeSampleOnlyTest)
+{
+    Config::c = Config();
+    auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
+    YR::Libruntime::GaugeData gauge;
+    gauge.name = "yr_custom_concurrent_num";
+    gauge.description = "custom concurrent";
+    gauge.unit = "count";
+    gauge.value = 5;
+    ASSERT_EQ(metricsAdaptor->SetGauge(gauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+
+    gauge.value = 2;
+    ASSERT_EQ(metricsAdaptor->DecreaseGauge(gauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    auto decreasedValue = metricsAdaptor->GetValueGauge(gauge);
+    ASSERT_TRUE(decreasedValue.first.OK());
+    ASSERT_EQ(decreasedValue.second, 3);
+
+    gauge.value = 10;
+    ASSERT_EQ(metricsAdaptor->DecreaseGauge(gauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    auto clampedValue = metricsAdaptor->GetValueGauge(gauge);
+    ASSERT_TRUE(clampedValue.first.OK());
+    ASSERT_EQ(clampedValue.second, 0);
 }
 
 TEST_F(MetricsAdaptorTest, MetricsFailedTest)
@@ -495,6 +541,45 @@ TEST_F(MetricsAdaptorTest, MetricsFailedTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
     err = metricsAdaptor->ReportGauge(gauge);
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+}
+
+TEST_F(MetricsAdaptorTest, InitializedFalseRejectsMetricAndEventTest)
+{
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor->userEnable_ = true;
+    metricsAdaptor->metricSampleEnabledInstruments_ = { "yr_custom_concurrent_num" };
+
+    YR::Libruntime::GaugeData metricGauge;
+    metricGauge.name = "yr_custom_concurrent_num";
+    metricGauge.value = 1;
+    ASSERT_EQ(metricsAdaptor->SetGauge(metricGauge).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_TRUE(metricsAdaptor->doubleGaugeSamples_.empty());
+
+    YR::Libruntime::GaugeData eventGauge;
+    eventGauge.name = "call_metric";
+    eventGauge.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
+    eventGauge.value = 1;
+    ASSERT_EQ(metricsAdaptor->ReportMetrics(eventGauge).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_TRUE(metricsAdaptor->doubleGaugeSamples_.empty());
+}
+
+TEST_F(MetricsAdaptorTest, SameNameDifferentInstrumentKindReturnsErrorTest)
+{
+    Config::c = Config();
+    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+
+    YR::Libruntime::GaugeData eventGauge;
+    eventGauge.name = "mixed_kind";
+    eventGauge.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
+    eventGauge.value = 1;
+    ASSERT_EQ(metricsAdaptor->ReportMetrics(eventGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+
+    YR::Libruntime::GaugeData metricGauge;
+    metricGauge.name = "mixed_kind";
+    metricGauge.value = 2;
+    metricsAdaptor->metricSampleEnabledInstruments_.insert(metricGauge.name);
+    ASSERT_EQ(metricsAdaptor->SetGauge(metricGauge).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_TRUE(metricsAdaptor->doubleGaugeSamples_.empty());
 }
 
 TEST_F(MetricsAdaptorTest, contextTest)
@@ -610,12 +695,11 @@ TEST_F(MetricsAdaptorTest, GaugeDescriptionOverrideRecreatesInstrumentTest)
     YR::Libruntime::GaugeData overrideGauge = defaultGauge;
     overrideGauge.description = "override concurrent";
     overrideGauge.value = 9;
-    ASSERT_EQ(metricsAdaptor->SetGaugeSample(overrideGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_EQ(metricsAdaptor->doubleGaugeMap_.count(overrideGauge.name), 0);
-    auto sampleKey =
-        metricsAdaptor->BuildMetricSampleKey(overrideGauge.name, metricsAdaptor->CanonicalizeLabels(overrideGauge.labels));
-    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.at(sampleKey).description, "override concurrent");
     ASSERT_EQ(metricsAdaptor->SetGauge(overrideGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    auto sampleKey =
+        metricsAdaptor->BuildMetricSampleKey(overrideGauge.name,
+                                             metricsAdaptor->CanonicalizeLabels(overrideGauge.labels));
+    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.at(sampleKey).description, "override concurrent");
     ASSERT_TRUE(metricsAdaptor->doubleGaugeMap_.count(overrideGauge.name) > 0);
     ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.at(sampleKey).description, "override concurrent");
     auto gaugeValue = metricsAdaptor->GetValueGauge(overrideGauge);
@@ -626,7 +710,7 @@ TEST_F(MetricsAdaptorTest, GaugeDescriptionOverrideRecreatesInstrumentTest)
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
 }
 
-TEST_F(MetricsAdaptorTest, SampleOnlyMetricsEnabledByPullExporterFlagTest)
+TEST_F(MetricsAdaptorTest, MetricSampleWhitelistControlsCachedOperationsTest)
 {
     Config::c = Config();
     auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
@@ -662,13 +746,14 @@ TEST_F(MetricsAdaptorTest, SampleOnlyMetricsEnabledByPullExporterFlagTest)
     ASSERT_EQ(blockedValue.second, 0);
 }
 
-TEST_F(MetricsAdaptorTest, ReportMetricsOnlyCachesPullEnabledInstrumentsTest)
+TEST_F(MetricsAdaptorTest, ReportMetricsOnlyCachesMetricSampleEnabledInstrumentsTest)
 {
     Config::c = Config();
     auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
 
     YR::Libruntime::GaugeData callMetric;
     callMetric.name = "call_metric";
+    callMetric.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
     callMetric.labels["requestid"] = "request-1";
     callMetric.labels["traceid"] = "trace-1";
     callMetric.value = 1;
@@ -681,6 +766,43 @@ TEST_F(MetricsAdaptorTest, ReportMetricsOnlyCachesPullEnabledInstrumentsTest)
     enabledMetric.unit = "count";
     enabledMetric.value = 5;
     ASSERT_EQ(metricsAdaptor->ReportMetrics(enabledMetric).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.size(), 1);
+
+    metricsAdaptor->CleanMetrics();
+    EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
+}
+
+TEST_F(MetricsAdaptorTest, EventInstrumentIsNotBlockedByMetricSampleWhitelistTest)
+{
+    Config::c = Config();
+    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+
+    YR::Libruntime::GaugeData sampleMetric;
+    sampleMetric.name = "yr_custom_concurrent_num";
+    sampleMetric.description = "custom concurrent";
+    sampleMetric.unit = "count";
+    sampleMetric.value = 5;
+    ASSERT_EQ(metricsAdaptor->SetGauge(sampleMetric).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.size(), 1);
+
+    YR::Libruntime::GaugeData eventMetric;
+    eventMetric.name = "push_only_metric";
+    eventMetric.description = "push only";
+    eventMetric.unit = "count";
+    eventMetric.instrumentKind = YR::Libruntime::InstrumentKind::EVENT;
+    eventMetric.value = 9;
+    ASSERT_EQ(metricsAdaptor->SetGauge(eventMetric).Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.size(), 1);
+    auto eventValue = metricsAdaptor->GetValueGauge(eventMetric);
+    ASSERT_EQ(eventValue.first.Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+
+    YR::Libruntime::GaugeData metricNotWhitelisted;
+    metricNotWhitelisted.name = "metric_not_whitelisted";
+    metricNotWhitelisted.description = "metric not whitelisted";
+    metricNotWhitelisted.unit = "count";
+    metricNotWhitelisted.value = 10;
+    ASSERT_EQ(metricsAdaptor->SetGauge(metricNotWhitelisted).Code(),
+              YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
     ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.size(), 1);
 
     metricsAdaptor->CleanMetrics();
