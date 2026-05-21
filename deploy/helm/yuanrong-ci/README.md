@@ -160,8 +160,8 @@ By default it is configured for merge-triggered CI and tag-triggered release bui
   Package Registry uploads, and enables PyPI upload for
   `openyuanrong_sdk*.whl`; pre-release tags such as `0.7.50rc1` keep using
   TestPyPI
-- only merge-request action `merge` is accepted; GitCode merged PR payloads
-  that report `action=update` with merged state are normalized to `merge`
+- only merge-request action `merge` is accepted; `update` events remain `update`
+  and are filtered, including post-merge metadata updates such as label changes
 - merge events build the **target branch commit after merge**
 - repeated merge deliveries for the same MR target commit are deduplicated for
   `gitcodeWebhookRelay.filters.dedupTtlSeconds` seconds

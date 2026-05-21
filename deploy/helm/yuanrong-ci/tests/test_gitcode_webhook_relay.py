@@ -87,8 +87,13 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
             "git_target_branch_commit_no": "56336d2c21f5",
         }
 
-    def test_merged_update_triggers_target_branch_commit(self):
-        code, result = relay.handle_merge_request(self.merged_update_payload())
+    def merge_payload(self):
+        payload = self.merged_update_payload()
+        payload["object_attributes"]["action"] = "merge"
+        return payload
+
+    def test_merge_action_triggers_target_branch_commit(self):
+        code, result = relay.handle_merge_request(self.merge_payload())
 
         self.assertEqual(code, 200)
         self.assertEqual(result["status"], "triggered")
@@ -96,9 +101,51 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(result["commit"], "56336d2c21f5")
         self.assertEqual(self.triggered[0]["extra_env"]["GITCODE_MR_ACTION"], "merge")
 
+    def test_merged_update_is_filtered(self):
+        payload = self.merged_update_payload()
+        payload["changes"] = {
+            "state": {
+                "previous": "opened",
+                "current": "merged",
+            },
+            "updated_at": {
+                "previous": "2026-05-21T18:14:51+08:00",
+                "current": "2026-05-21T18:14:52+08:00",
+            },
+        }
+
+        code, result = relay.handle_merge_request(payload)
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "merge request action filtered")
+        self.assertEqual(result["details"]["action"], "update")
+        self.assertEqual(self.triggered, [])
+
+    def test_merged_label_update_is_filtered(self):
+        payload = self.merged_update_payload()
+        payload["object_attributes"]["update_reason"] = "update label"
+        payload["object_attributes"]["act_desc"] = "update_label"
+        payload["changes"] = {
+            "updated_at": {
+                "previous": "2026-05-21T18:36:31+08:00",
+                "current": "2026-05-21T18:36:32+08:00",
+            },
+            "enterprise_labels": {
+                "previous": [{"title": "lgtm"}],
+                "current": [{"title": "lgtm"}, {"title": "ci_failed"}],
+            },
+        }
+
+        code, result = relay.handle_merge_request(payload)
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "merge request action filtered")
+        self.assertEqual(result["details"]["action"], "update")
+        self.assertEqual(self.triggered, [])
+
     def test_duplicate_merged_update_is_skipped_by_target_commit(self):
-        first_code, first_result = relay.handle_merge_request(self.merged_update_payload())
-        second = self.merged_update_payload()
+        first_code, first_result = relay.handle_merge_request(self.merge_payload())
+        second = self.merge_payload()
         second["uuid"] = "637_second-delivery"
         second_code, second_result = relay.handle_merge_request(second)
 

@@ -305,8 +305,7 @@ def handle_merge_request(payload):
         return skip_response("merge request trigger disabled")
 
     attrs = payload.get("object_attributes", {})
-    raw_action = attrs.get("action", "")
-    action = normalize_merge_request_action(raw_action, attrs, payload)
+    action = attrs.get("action", "")
     target_branch = attrs.get("target_branch", "")
     source_branch = attrs.get("source_branch", "")
 
@@ -375,18 +374,6 @@ def handle_merge_request(payload):
         "build_url": build.get("web_url"),
         "build_number": build.get("number"),
     }
-
-
-def normalize_merge_request_action(action, attrs, payload):
-    if action == "merge":
-        return action
-
-    state = str(attrs.get("state") or payload.get("state") or "").lower()
-    if state == "merged" or attrs.get("merged_at") or payload.get("merged_at"):
-        return "merge"
-
-    return action
-
 
 def handle_event(payload):
     kind = payload.get("object_kind") or payload.get("event_type") or payload.get("event_name")
