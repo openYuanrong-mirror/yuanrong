@@ -60,7 +60,7 @@ ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_sto
 is_partial_watch_instances:,\
 ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,frontend_client_auth_type:,meta_service_ssl_enable:,\
 meta_service_client_auth_type:,\
-iam_ssl_enable:,\
+iam_ssl_enable:,iam_local_listen_port:,iam_local_ip:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
 etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key_file:,etcd_ca_file:,\
