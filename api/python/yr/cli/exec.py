@@ -516,6 +516,14 @@ async def _drain_websocket(ws, should_exit, quiet=False, writer=None, process_ex
 
             if writer is not None:
                 writer.write(message)
+    except websockets.exceptions.ConnectionClosed:
+        # Server closed the connection after the process completed.
+        # This can race with the [Process exited] text frame — if the close
+        # frame arrives before we process the text frame, we still know the
+        # process exited because all data was already sent and the remote
+        # command has finished.
+        if process_exited is not None:
+            process_exited.set()
     except Exception:
         pass
     finally:
@@ -797,7 +805,7 @@ async def copy_to_remote_streaming(
                         break
                     try:
                         await ws.send(chunk)
-                    except websockets.exceptions.ConnectionClosedOK:
+                    except websockets.exceptions.ConnectionClosed:
                         # The remote tar process may have exited after consuming a complete
                         # gzip end-of-stream marker before Python finished sending all chunks.
                         # Stop sending; wait for _drain_websocket to confirm the exit.
@@ -807,7 +815,7 @@ async def copy_to_remote_streaming(
                 # All tar data sent — signal remote tar stdin EOF
                 try:
                     await ws.send("STDIN_EOF")
-                except websockets.exceptions.ConnectionClosedOK:
+                except websockets.exceptions.ConnectionClosed:
                     server_closed_early = True
             await should_exit.wait()
             if not process_exited.is_set():
