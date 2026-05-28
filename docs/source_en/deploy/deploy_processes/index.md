@@ -17,7 +17,7 @@ This section introduces how to deploy openYuanrong cluster on Linux hosts.
 
 openYuanrong cluster consists of master nodes and worker nodes. By default, only one master node is deployed. In high reliability scenarios, multiple master nodes can also be deployed in active-standby mode. Any number of worker nodes can be deployed, and they are managed by the master node. openYuanrong components and user functions run as processes on the nodes.
 
-![](../../../images/deploy_in_process_mode_1.png)
+![](../../../images/deploy_in_process_mode_en_1.png)
 
 - For learning and development, refer to [Getting Started](single-node-deployment.md), use default configuration to deploy openYuanrong on one or more hosts.
 

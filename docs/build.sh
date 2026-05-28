@@ -93,6 +93,7 @@ function build_en() {
 function doc_build() {
   pip install -r ${BASE_DIR}/../docs/requirements_dev.txt
   build_zh_cn
+  build_en
 }
 
 doc_build

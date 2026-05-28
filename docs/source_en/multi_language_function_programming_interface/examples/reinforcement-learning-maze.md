@@ -11,7 +11,7 @@ This example demonstrates how to use openYuanrong to train a simple policy to pl
 
 We use multiple openYuanrong stateful function instances to simulate the maze game and record game experiences. These experience values are used to update the game policy. The updated policy continues to be used in the next round of simulated games, continuously iterating and optimizing.
 
-![](../../../images/reinforcement_learning_maze.png)
+![](../../../images/reinforcement_learning_maze_en.png)
 
 ## Prerequisites
 

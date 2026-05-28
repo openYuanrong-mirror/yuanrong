@@ -14,7 +14,7 @@ openYuanrong is a serverless distributed compute engine that unifies diverse wor
 ## Overview
 
 <div style="text-align: center;">
-  <img src="./docs/images/introduction_en.png" width="718" height="392">
+  <img src="./docs/images/introduction_en.png" width="70%">
 </div>
 
 openYuanrong supports modular, on-demand usage of a multi-language function runtime, function system, and data system.

@@ -16,7 +16,7 @@ This section introduces how to deploy openYuanrong cluster on Kubernetes.
 
 openYuanrong cluster consists of master node pods and worker node pods.
 
-![](../../../images/deploy_on_k8s_mode_1.png)
+![](../../../images/deploy_on_k8s_mode_en_1.png)
 
 For deployment, refer to [User Guide](production/index.md), which contains more content including configuration item introduction, security, cluster operations and maintenance, etc.
 
