@@ -40,20 +40,20 @@ class TestSandboxTypeParameter(TestCase):
             # When type is default (empty), sandbox_type should not be in custom_extensions
             self.assertNotIn("sandbox_type", opts.custom_extensions)
 
-    def test_sandbox_init_with_jiuwenbox_type(self):
-        """Test SandBox initialization with jiuwenbox type."""
+    def test_sandbox_init_with_supervisor_type(self):
+        """Test SandBox initialization with supervisor type."""
         with patch('yr.sandbox.sandbox.SandBoxInstance') as mock_instance:
             mock_options = MagicMock()
             mock_instance.options.return_value = mock_instance
 
-            sandbox = yr.sandbox.SandBox(type="jiuwenbox")
+            sandbox = yr.sandbox.SandBox(type="supervisor")
 
-            # Verify custom_extensions["sandbox_type"] is set to "jiuwenbox"
+            # Verify custom_extensions["sandbox_type"] is set to "supervisor"
             call_args = mock_instance.options.call_args
             opts = call_args[0][0]  # InvokeOptions object
 
             self.assertIn("sandbox_type", opts.custom_extensions)
-            self.assertEqual(opts.custom_extensions["sandbox_type"], "jiuwenbox")
+            self.assertEqual(opts.custom_extensions["sandbox_type"], "supervisor")
 
     def test_sandbox_init_with_empty_type(self):
         """Test SandBox initialization with explicitly empty type."""
@@ -79,14 +79,14 @@ class TestSandboxTypeParameter(TestCase):
             # Positional args: (working_dir, env, port_forwardings, type)
             self.assertEqual(call_args[0][3], "")  # type parameter
 
-    def test_sandbox_create_with_jiuwenbox_type(self):
-        """Test sandbox.create() with jiuwenbox type."""
+    def test_sandbox_create_with_supervisor_type(self):
+        """Test sandbox.create() with supervisor type."""
         with patch('yr.sandbox.sandbox.SandBox') as mock_sandbox:
-            yr.sandbox.create(type="jiuwenbox")
+            yr.sandbox.create(type="supervisor")
 
-            # Verify SandBox is called with type="jiuwenbox"
+            # Verify SandBox is called with type="supervisor"
             call_args = mock_sandbox.call_args
-            self.assertEqual(call_args[0][3], "jiuwenbox")
+            self.assertEqual(call_args[0][3], "supervisor")
 
     def test_sandbox_with_port_forwardings_and_type(self):
         """Test SandBox with both port_forwardings and type parameters."""
@@ -95,14 +95,14 @@ class TestSandboxTypeParameter(TestCase):
             mock_instance.options.return_value = mock_instance
 
             port_forwardings = [yr.PortForwarding(port=8080, protocol="TCP")]
-            sandbox = yr.sandbox.SandBox(port_forwardings=port_forwardings, type="jiuwenbox")
+            sandbox = yr.sandbox.SandBox(port_forwardings=port_forwardings, type="supervisor")
 
             # Verify both parameters are set
             call_args = mock_instance.options.call_args
             opts = call_args[0][0]  # InvokeOptions object
 
             self.assertIn("sandbox_type", opts.custom_extensions)
-            self.assertEqual(opts.custom_extensions["sandbox_type"], "jiuwenbox")
+            self.assertEqual(opts.custom_extensions["sandbox_type"], "supervisor")
             # port_forwardings should also be set
             self.assertIsNotNone(opts.port_forwardings)
 
@@ -114,7 +114,7 @@ class TestSandboxTypeParameter(TestCase):
 
             # Test different type values
             test_cases = [
-                ("jiuwenbox", "jiuwenbox"),
+                ("supervisor", "supervisor"),
                 ("", None),  # Empty string should not set sandbox_type
                 ("other", "other"),  # Future extensibility
             ]
@@ -139,7 +139,7 @@ class TestSandboxTypeParameter(TestCase):
             mock_instance.options.return_value = mock_instance
 
             working_dir = "/tmp/test"
-            sandbox = yr.sandbox.SandBox(working_dir=working_dir, type="jiuwenbox")
+            sandbox = yr.sandbox.SandBox(working_dir=working_dir, type="supervisor")
 
             # Verify invoke is called with correct parameters
             mock_invoke = MagicMock()
@@ -148,7 +148,7 @@ class TestSandboxTypeParameter(TestCase):
             call_args = mock_instance.options.call_args
             opts = call_args[0][0]
 
-            self.assertEqual(opts.custom_extensions.get("sandbox_type"), "jiuwenbox")
+            self.assertEqual(opts.custom_extensions.get("sandbox_type"), "supervisor")
             # Verify invoke is called with working_dir
             mock_invoke.assert_called_once_with(working_dir, None)
 
@@ -159,13 +159,13 @@ class TestSandboxTypeParameter(TestCase):
             mock_instance.options.return_value = mock_instance
 
             env = {"TEST_VAR": "test_value"}
-            sandbox = yr.sandbox.SandBox(env=env, type="jiuwenbox")
+            sandbox = yr.sandbox.SandBox(env=env, type="supervisor")
 
             # Verify sandbox_type is set
             call_args = mock_instance.options.call_args
             opts = call_args[0][0]
 
-            self.assertEqual(opts.custom_extensions.get("sandbox_type"), "jiuwenbox")
+            self.assertEqual(opts.custom_extensions.get("sandbox_type"), "supervisor")
             # Verify invoke is called with env
             mock_invoke = MagicMock()
             mock_instance.options.return_value.invoke = mock_invoke
@@ -177,7 +177,7 @@ class TestSandboxTypeParameter(TestCase):
             mock_options = MagicMock()
             mock_instance.options.return_value = mock_instance
 
-            sandbox = yr.sandbox.SandBox(type="jiuwenbox")
+            sandbox = yr.sandbox.SandBox(type="supervisor")
 
             call_args = mock_instance.options.call_args
             opts = call_args[0][0]
@@ -191,12 +191,12 @@ class TestSandboxTypeIntegration(TestCase):
 
     def test_sandbox_type_string_format(self):
         """Test that type parameter uses lowercase format."""
-        # Test that we use lowercase "jiuwenbox" not "JiuwenBox"
-        type_value = "jiuwenbox"
+        # Test that we use lowercase "supervisor" not "supervisor"
+        type_value = "supervisor"
 
         # Verify it's lowercase
         self.assertEqual(type_value, type_value.lower())
-        self.assertNotEqual(type_value, "JiuwenBox")
+        self.assertNotEqual(type_value, "supervisor")
 
     def test_sandbox_type_consistency(self):
         """Test consistency between SandBox and create() functions."""
@@ -206,7 +206,7 @@ class TestSandboxTypeIntegration(TestCase):
             mock_instance.options.return_value = mock_instance
 
             # Test SandBox class
-            sandbox1 = yr.sandbox.SandBox(type="jiuwenbox")
+            sandbox1 = yr.sandbox.SandBox(type="supervisor")
             call_args1 = mock_instance.options.call_args
             opts1 = call_args1[0][0]
             type1 = opts1.custom_extensions.get("sandbox_type")
@@ -215,13 +215,13 @@ class TestSandboxTypeIntegration(TestCase):
 
             # Test create() function
             with patch('yr.sandbox.sandbox.SandBox') as mock_sandbox:
-                yr.sandbox.create(type="jiuwenbox")
+                yr.sandbox.create(type="supervisor")
                 call_args2 = mock_sandbox.call_args
                 type2 = call_args2[0][3]
 
                 # Both should use the same type value
                 self.assertEqual(type1, type2)
-                self.assertEqual(type1, "jiuwenbox")
+                self.assertEqual(type1, "supervisor")
 
 
 if __name__ == "__main__":
