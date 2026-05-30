@@ -4,49 +4,45 @@ openYuanrong 提供了可视化的 dashboard，用于查看集群和函数实例
 
 ## 启动 Dashboard
 
-要访问 dashboard，需要在部署 openYuanrong 集群主节点时，加上 *`--enable_dashboard=true`* 参数以及依赖项参数。使用 dashboard 全量功能，主节点的部署命令如下：
+要访问 dashboard，需要在部署 openYuanrong 集群主节点时，加上 *`mode.master.dashboard=true`* 参数以及依赖项参数。使用 dashboard 全量功能，主节点的部署命令如下：
 
 ```bash
 # 根据实际情况替换 {} 中的信息
 yr start --master \
---enable_dashboard=true \
---enable_faas_frontend=true \
---enable_collector=true \
---enable_separated_redirect_runtime_std=true \
---prometheus_address={prometheus ip}:{prometheus port} \
---enable_metrics=true \
---metrics_config_file={absolute file path} \
---npu_collection_mode=all \
---port_policy=FIX
+-s 'mode.master.dashboard=true' \
+-s 'mode.master.collector=true' \
+-s 'mode.master.frontend=true' \
+-s 'function_agent.args.enable_metrics=true' \
+-s 'function_agent.args.metrics_config_file="{absolute file path}"' \
+-s 'values.dashboard.prometheus.address="{prometheus ip}:{prometheus port}"'
 ```
 
 您可参考[部署参数表](../deploy/deploy_processes/parameters.md)按需裁剪不需要的功能。
 
-- `enable_faas_frontend` 参数提供查询作业信息功能，影响作业页面内容的显示。
-- `enable_collector` 及 `enable_separated_redirect_runtime_std` 参数提供收集函数实例日志功能，影响日志页面内容的显示。
-- `prometheus_address`、`enable_metrics`、`metrics_config_file` 和 `npu_collection_mode` 参数提供收集指标数据功能，影响 Cluster 页面表格中 CPU、Memory、NPU、Disk 项的显示。开启该功能需部署 Prometheus 服务，请参考[部署 Prometheus](observability-prometheus)。
-- `port_policy` 参数用于固定 dashboard 的服务端口。
+- `mode.master.frontend` 参数提供查询作业信息功能，影响作业页面内容的显示。
+- `mode.master.collector` 参数提供收集函数实例日志功能，影响日志页面内容的显示。
+- `values.dashboard.prometheus.address`、`function_agent.args.enable_metrics` 和 `function_agent.args.metrics_config_file` 参数提供收集指标数据功能，影响 Cluster 页面表格中 CPU、Memory、NPU、Disk 项的显示。开启该功能需部署 Prometheus 服务，请参考[部署 Prometheus](observability-prometheus)。
 
-部署成功将打印 `local_ip` 和 `dashboard_port` 信息，如下所示：
+部署成功将生成配置文件 `/tmp/yr_sessions/latest/dashboard_config`，内容如下：
 
 ```bash
-Yuanrong deployed succeed
-Cluster master info:
-    local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashboard_port:9080,
+{
+  "ip": "192.168.3.3",
+  "port": 9080,
+  ...
+}
 ```
 
-使用 `http://local_ip:dashboard_port` 作为 dashboard 的访问 URL（默认 URL 为 `http://localhost:9080`）。
+组合 ip 和 port 作为 dashboard 的访问 URL：`http://192.168.3.3:9080`。
 
-部署从节点无需 `enable_dashboard`、`enable_faas_frontend` 和 `prometheus_address` 参数，其他参数按需配置，参考如下命令：
+部署从节点参考如下命令：
 
 ```bash
-# 使用前一步骤打印的主节点信息替换引号中的内容，根据实际情况替换 {} 中的信息
-yr start --enable_collector=true \
---enable_separated_redirect_runtime_std=true \
---enable_metrics=true \
---metrics_config_file={absolute file path} \
---npu_collection_mode=all \
---master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashboard_port:9080,"
+# 根据实际情况替换 {} 中的信息
+yr start -s 'mode.agent.collector=true' \
+-s 'function_agent.args.enable_metrics=true' \
+-s 'function_agent.args.metrics_config_file="{absolute file path}"' \
+--master_address {http://x.x.x.x:xxxx}
 ```
 
 ## 页面介绍

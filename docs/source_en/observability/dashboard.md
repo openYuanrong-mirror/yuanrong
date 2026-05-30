@@ -1,52 +1,48 @@
-﻿# Dashboard
+# Dashboard
 
 openYuanrong provides a visual dashboard for viewing the status of clusters and function instances, facilitating monitoring and quick problem troubleshooting. Currently, the dashboard supports stable loading and display of over a thousand instances.
 
 ## Starting the Dashboard
 
-To access the dashboard, you need to add the `--enable_dashboard=true` parameter and dependency parameters when deploying the openYuanrong cluster master node. The full deployment command for the master node using all dashboard features is as follows:
+To access the dashboard, you need to add the `mode.master.dashboard=true` parameter and dependency parameters when deploying the openYuanrong cluster master node. The full deployment command for the master node using all dashboard features is as follows:
 
 ```bash
 # Replace information in {} with actual values
 yr start --master \
---enable_dashboard=true \
---enable_faas_frontend=true \
---enable_collector=true \
---enable_separated_redirect_runtime_std=true \
---prometheus_address={prometheus ip}:{prometheus port} \
---enable_metrics=true \
---metrics_config_file={absolute file path} \
---npu_collection_mode=all \
---port_policy=FIX
+-s 'mode.master.dashboard=true' \
+-s 'mode.master.collector=true' \
+-s 'mode.master.frontend=true' \
+-s 'function_agent.args.enable_metrics=true' \
+-s 'function_agent.args.metrics_config_file="{absolute file path}"' \
+-s 'values.dashboard.prometheus.address="{prometheus ip}:{prometheus port}"'
 ```
 
 You can refer to the [Deployment Parameters Table](../deploy/deploy_processes/parameters.md) to trim unnecessary features.
 
-- `enable_faas_frontend` parameter provides job information query functionality, affecting the display of job page content.
-- `enable_collector` and `enable_separated_redirect_runtime_std` parameters provide function instance log collection functionality, affecting the display of log page content.
-- `prometheus_address`, `enable_metrics`, `metrics_config_file`, and `npu_collection_mode` parameters provide metrics data collection functionality, affecting the display of CPU, Memory, NPU, and Disk items in the Cluster page table. To enable this feature, you need to deploy Prometheus service. Please refer to [Deploying Prometheus](observability-prometheus).
-- `port_policy` parameter is used to fix the dashboard service port.
+- `mode.master.frontend` parameter provides job information query functionality, affecting the display of job page content.
+- `mode.master.collector` parameter provides function instance log collection functionality, affecting the display of log page content.
+- `values.dashboard.prometheus.address`, `function_agent.args.enable_metrics`, and `function_agent.args.metrics_config_file` parameters provide metrics data collection functionality, affecting the display of CPU, Memory, NPU, and Disk items in the Cluster page table. To enable this feature, you need to deploy Prometheus service. Please refer to [Deploying Prometheus](observability-prometheus).
 
-Successful deployment will print `local_ip` and `dashboard_port` information as follows:
+Successful deployment will generate a configuration file `/tmp/yr_sessions/latest/dashboard_config` with the following content:
 
 ```bash
-Yuanrong deployed succeed
-Cluster master info:
-    local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashboard_port:9080,
+{
+  "ip": "192.168.3.3",
+  "port": 9080,
+  ...
+}
 ```
 
-Use `http://local_ip:dashboard_port` as the dashboard access URL (default URL is `http://localhost:9080`).
+Combine the ip and port as the dashboard access URL: `http://192.168.3.3:9080`.
 
-Deploying worker nodes does not require `enable_dashboard`, `enable_faas_frontend`, and `prometheus_address` parameters. Configure other parameters as needed, referring to the following command:
+Deploying worker nodes, refer to the following command:
 
 ```bash
-# Replace content in quotes with master node information printed in previous step, replace {} with actual values
-yr start --enable_collector=true \
---enable_separated_redirect_runtime_std=true \
---enable_metrics=true \
---metrics_config_file={absolute file path} \
---npu_collection_mode=all \
---master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashboard_port:9080,"
+# Replace information in {} with actual values
+yr start -s 'mode.agent.collector=true' \
+-s 'function_agent.args.enable_metrics=true' \
+-s 'function_agent.args.metrics_config_file="{absolute file path}"' \
+--master_address {http://x.x.x.x:xxxx}
 ```
 
 ## Page Introduction
