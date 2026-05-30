@@ -51,6 +51,92 @@ SANDBOX_CREATE_HTTP_TIMEOUT = 180
 DEFAULT_SANDBOX_NAMESPACE = "default"
 DEFAULT_SANDBOX_RUNTIME = "python3.10"
 
+# Frontend-exposed instance kill (delete) interface. The body is a serialized
+# core_service.KillRequest protobuf; the response is a serialized KillResponse.
+FRONTEND_INSTANCE_KILL_PATH = "/frontend/v1/instance/kill"
+# libruntime Signal.KillInstance == SHUT_DOWN_SIGNAL, terminates a single instance.
+KILL_SIGNAL_INSTANCE = 1
+# KillResponse.code value that maps to common.ErrorCode.ERR_NONE (success).
+KILL_RESPONSE_CODE_OK = 0
+
+
+def _encode_varint(value: int) -> bytes:
+    """Encode an unsigned integer as a protobuf base-128 varint."""
+    out = bytearray()
+    value &= 0xFFFFFFFFFFFFFFFF
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(byte | 0x80)
+        else:
+            out.append(byte)
+            break
+    return bytes(out)
+
+
+def _read_varint(buf: bytes, pos: int):
+    """Read a protobuf varint from buf starting at pos. Returns (value, new_pos)."""
+    result = 0
+    shift = 0
+    while pos < len(buf):
+        byte = buf[pos]
+        pos += 1
+        result |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return result, pos
+        shift += 7
+    raise ValueError("truncated varint while decoding protobuf")
+
+
+def encode_kill_request(instance_id: str, signal: int = KILL_SIGNAL_INSTANCE) -> bytes:
+    """Serialize a core_service.KillRequest with instanceID(1) and signal(2).
+
+    No routing info (routeAddress/proxyID) is set, so the request is intentionally
+    "route-less": function_proxy will resolve the owner locally or forward to master.
+    """
+    buf = bytearray()
+    id_bytes = instance_id.encode("utf-8")
+    buf.append((1 << 3) | 2)  # field 1, wire type 2 (length-delimited)
+    buf += _encode_varint(len(id_bytes))
+    buf += id_bytes
+    buf.append((2 << 3) | 0)  # field 2, wire type 0 (varint)
+    buf += _encode_varint(signal)
+    return bytes(buf)
+
+
+def decode_kill_response(raw: bytes):
+    """Decode KillResponse code(1, varint) and message(2, string). Returns (code, message)."""
+    code = KILL_RESPONSE_CODE_OK
+    message = ""
+    if not raw:
+        return code, message
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", "surrogateescape")
+    pos = 0
+    while pos < len(raw):
+        tag = raw[pos]
+        pos += 1
+        field = tag >> 3
+        wire = tag & 0x7
+        if wire == 0:  # varint
+            value, pos = _read_varint(raw, pos)
+            if field == 1:
+                code = value
+        elif wire == 2:  # length-delimited
+            length, pos = _read_varint(raw, pos)
+            chunk = raw[pos:pos + length]
+            pos += length
+            if field == 2:
+                message = chunk.decode("utf-8", "replace")
+        elif wire == 5:  # 32-bit
+            pos += 4
+        elif wire == 1:  # 64-bit
+            pos += 8
+        else:
+            break
+    return code, message
+
 
 __server_address = None
 __ds_address = None
@@ -239,6 +325,74 @@ class HTTPClient:
                     if hasattr(e, "response")
                     else None
                 ),
+            }
+
+    def request_raw(
+        self,
+        url: str,
+        body: bytes,
+        headers: Optional[Dict[str, str]] = None,
+        method: str = "POST",
+    ) -> Dict[str, Any]:
+        """Send a request with a raw binary body (e.g. a serialized protobuf).
+
+        Returns a dict with success/status_code and the raw response bytes in "content".
+        """
+        default_headers = {
+            "Content-Type": "application/octet-stream",
+            "User-Agent": "DeploymentScript/1.0",
+        }
+        if self.jwt_token:
+            default_headers["X-Auth"] = self.jwt_token
+        if headers:
+            default_headers.update(headers)
+
+        logging.debug("%s (raw, %d bytes) to %s", method.lower(), len(body), url)
+
+        cert = None
+        if self.client_auth_type == "mutual":
+            if self.client_cert and self.client_key:
+                cert = (self.client_cert, self.client_key)
+            elif self.client_cert:
+                cert = self.client_cert
+        if self.insecure:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            verify = False
+            if url.startswith("http://"):
+                url = url.replace("http://", "https://", 1)
+        else:
+            verify = self.ca_cert if self.ca_cert else False
+            if url.startswith("http://") and verify:
+                url = url.replace("http://", "https://", 1)
+
+        try:
+            response = self.session.request(
+                method.upper(),
+                url,
+                data=body,
+                headers=default_headers,
+                timeout=self.timeout,
+                cert=cert,
+                verify=verify,
+            )
+            return {
+                "success": response.status_code in self.accept_status,
+                "status_code": response.status_code,
+                "content": response.content,
+                "headers": dict(response.headers),
+            }
+        except RequestException as e:
+            logging.debug("HTTP raw failed: %s", str(e))
+            return {
+                "success": False,
+                "error": str(e),
+                "status_code": (
+                    getattr(e.response, "status_code", None)
+                    if hasattr(e, "response")
+                    else None
+                ),
+                "content": b"",
             }
 
 
@@ -889,6 +1043,45 @@ def delete_sandbox_via_sdk(sandbox_id, runtime=DEFAULT_SANDBOX_RUNTIME):
         yr.finalize()
 
 
+def kill_instance_via_frontend(instance_id):
+    """Delete an instance through the frontend-exposed instance kill interface.
+
+    Sends a route-less KillRequest (no proxyID/routeAddress) to
+    ``POST /frontend/v1/instance/kill``. Returns a dict:
+        {"success": bool, "code": int, "message": str, "status_code": int}
+    ``success`` is True only when the HTTP call succeeded and KillResponse.code
+    is ERR_NONE (0). Any non-zero code (including ERR_INSTANCE_NOT_FOUND returned
+    when neither the function_proxy nor function_master can locate the instance)
+    is treated as a deletion failure.
+    """
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}{FRONTEND_INSTANCE_KILL_PATH}"
+    body = encode_kill_request(instance_id, KILL_SIGNAL_INSTANCE)
+    resp = http_client.request_raw(url, body)
+    if not resp.get("success"):
+        return {
+            "success": False,
+            "code": None,
+            "message": resp.get("error", "frontend kill request failed"),
+            "status_code": resp.get("status_code"),
+        }
+    code, message = decode_kill_response(resp.get("content", b""))
+    return {
+        "success": code == KILL_RESPONSE_CODE_OK,
+        "code": code,
+        "message": message,
+        "status_code": resp.get("status_code"),
+    }
+
+
 def get_sandbox_status(instance):
     return (
         instance.get("status")
@@ -1458,42 +1651,24 @@ def sandbox_query(sandbox_id):
 @sandbox.command("delete")
 @click.argument("sandbox_id", type=str)
 def sandbox_delete(sandbox_id):
-    """Delete (terminate) a sandbox instance via frontend API."""
+    """Delete (terminate) a sandbox instance via the frontend instance kill interface."""
     if not __server_address:
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
         sys.exit(1)
 
-    sdk_error = None
-    try:
-        delete_sandbox_via_sdk(sandbox_id)
-        if wait_until_sandbox_deleted(sandbox_id):
-            print(f"succeed to delete sandbox: {sandbox_id}")
-            return
-    except Exception as e:
-        sdk_error = e
-        if wait_until_sandbox_deleted(sandbox_id):
-            print(f"succeed to delete sandbox: {sandbox_id}")
-            return
-
-    http_client = HTTPClient(
-        timeout=30,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        insecure=__insecure,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-    )
-    url = f"http://{__server_address}/api/sandbox/{sandbox_id}"
-    resp = http_client.request(url, {}, method="DELETE")
-    if resp["success"] and wait_until_sandbox_deleted(sandbox_id):
+    # Delete directly through the frontend-exposed instance kill interface
+    # (POST /frontend/v1/instance/kill). The request carries no routing info, so
+    # function_proxy resolves the owner locally or forwards to function_master.
+    result = kill_instance_via_frontend(sandbox_id)
+    if result["success"] and wait_until_sandbox_deleted(sandbox_id):
         print(f"succeed to delete sandbox: {sandbox_id}")
         return
 
-    if sdk_error is not None:
-        print(f"failed to delete sandbox {sandbox_id}: {sdk_error}")
-    elif not resp["success"]:
-        print(f"failed to delete sandbox {sandbox_id}: {resp.get('error', resp)}")
+    if not result["success"]:
+        print(
+            f"failed to delete sandbox {sandbox_id}: "
+            f"code={result.get('code')}, {result.get('message')}"
+        )
     else:
         print(f"failed to delete sandbox {sandbox_id}: instance still exists after delete")
     sys.exit(1)

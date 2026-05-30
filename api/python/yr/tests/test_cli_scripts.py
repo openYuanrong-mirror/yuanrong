@@ -42,8 +42,11 @@ class TestCliScripts(unittest.TestCase):
         fake_yr = types.ModuleType("yr")
         fake_yr_cli = types.ModuleType("yr.cli")
         fake_yr_cli_exec = types.ModuleType("yr.cli.exec")
+        fake_yr_cli_exec.choose_cp_mode = lambda *args, **kwargs: None
         fake_yr_cli_exec.copy_from_remote = lambda *args, **kwargs: None
+        fake_yr_cli_exec.copy_from_remote_streaming = lambda *args, **kwargs: None
         fake_yr_cli_exec.copy_to_remote = lambda *args, **kwargs: None
+        fake_yr_cli_exec.copy_to_remote_streaming = lambda *args, **kwargs: None
         fake_yr_cli_exec.run_client = lambda *args, **kwargs: None
 
         with mock.patch.dict(
@@ -749,23 +752,39 @@ class TestCliScripts(unittest.TestCase):
         scripts.yr.kill_instance.assert_not_called()
         yr_finalize.assert_called_once()
 
-    def test_sandbox_delete_uses_sdk_first(self):
+    def test_sandbox_delete_uses_frontend_kill_interface(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")
 
+        captured = {}
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                self.__class__.kwargs = kwargs
+
+            def request_raw(self, url, body, method="POST", headers=None):
+                captured["url"] = url
+                captured["body"] = body
+                captured["method"] = method
+                return {"success": True, "status_code": 200, "content": b""}
+
         with (
-            mock.patch.object(scripts, "delete_sandbox_via_sdk") as sdk_delete,
+            mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
             mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
-            mock.patch.object(scripts, "HTTPClient") as http_client,
             redirect_stdout(io.StringIO()) as output,
         ):
             scripts.sandbox_delete("sandbox-id")
 
-        sdk_delete.assert_called_once_with("sandbox-id")
-        http_client.assert_not_called()
+        self.assertEqual(captured["url"], "http://frontend.example/frontend/v1/instance/kill")
+        self.assertEqual(captured["method"], "POST")
+        # body is a serialized KillRequest carrying the instance id and kill signal,
+        # and intentionally carries no routing info (no proxyID/routeAddress fields).
+        self.assertEqual(captured["body"], scripts.encode_kill_request("sandbox-id", 1))
+        self.assertNotIn(b"\x32", captured["body"])  # field 6 (proxyID) absent
+        self.assertNotIn(b"\x2a", captured["body"])  # field 5 (routeAddress) absent
         self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
 
-    def test_sandbox_delete_falls_back_to_frontend_and_passes_tls_options(self):
+    def test_sandbox_delete_passes_tls_and_jwt_options(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")
         setattr(scripts, "__insecure", True)
@@ -775,40 +794,20 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self, **kwargs):
                 self.__class__.kwargs = kwargs
 
-            def request(self, url, data, method="POST", headers=None):
-                self.__class__.url = url
-                self.__class__.method = method
-                return {"success": True, "data": {}}
+            def request_raw(self, url, body, method="POST", headers=None):
+                return {"success": True, "status_code": 200, "content": b""}
 
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
-            mock.patch.object(scripts, "delete_sandbox_via_sdk", side_effect=RuntimeError("sdk delete failed")),
-            mock.patch.object(scripts, "wait_until_sandbox_deleted", side_effect=[False, True]),
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
             redirect_stdout(io.StringIO()),
         ):
             scripts.sandbox_delete("sandbox-id")
 
-        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/sandbox-id")
-        self.assertEqual(FakeHTTPClient.method, "DELETE")
         self.assertTrue(FakeHTTPClient.kwargs["insecure"])
         self.assertEqual(FakeHTTPClient.kwargs["jwt_token"], "token")
 
-    def test_sandbox_delete_succeeds_when_sdk_reports_already_missing(self):
-        scripts = self.load_cli_scripts_with_stubbed_deps()
-        setattr(scripts, "__server_address", "frontend.example")
-
-        with (
-            mock.patch.object(scripts, "delete_sandbox_via_sdk", side_effect=RuntimeError("instance not found")),
-            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
-            mock.patch.object(scripts, "HTTPClient") as http_client,
-            redirect_stdout(io.StringIO()) as output,
-        ):
-            scripts.sandbox_delete("sandbox-id")
-
-        http_client.assert_not_called()
-        self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
-
-    def test_sandbox_delete_uses_frontend_when_sdk_delete_leaves_instance(self):
+    def test_sandbox_delete_fails_when_kill_response_has_error(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")
 
@@ -816,19 +815,32 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self, **kwargs):
                 pass
 
-            def request(self, url, data, method="POST", headers=None):
-                return {"success": True, "data": {}}
+            def request_raw(self, url, body, method="POST", headers=None):
+                # KillResponse{ code = 14, message = "instance not found" }
+                msg = b"instance not found"
+                content = bytes([0x08, 14]) + bytes([0x12, len(msg)]) + msg
+                return {"success": True, "status_code": 200, "content": content}
 
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
-            mock.patch.object(scripts, "wait_until_sandbox_deleted", side_effect=[False, True]),
-            mock.patch.object(scripts, "delete_sandbox_via_sdk") as sdk_delete,
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=False),
             redirect_stdout(io.StringIO()) as output,
+            self.assertRaises(SystemExit) as ctx,
         ):
             scripts.sandbox_delete("sandbox-id")
 
-        sdk_delete.assert_called_once_with("sandbox-id")
-        self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("failed to delete sandbox sandbox-id", output.getvalue())
+
+    def test_kill_request_roundtrip_encoding(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        body = scripts.encode_kill_request("abc-123", 1)
+        # field 1 (instanceID) tag 0x0a, len 7; field 2 (signal) tag 0x10 value 1
+        self.assertEqual(body, b"\x0a\x07abc-123\x10\x01")
+        code, message = scripts.decode_kill_response(b"")
+        self.assertEqual((code, message), (0, ""))
+        code, message = scripts.decode_kill_response(b"\x08\x0e\x12\x03err")
+        self.assertEqual((code, message), (14, "err"))
 
     def test_wait_until_sandbox_deleted_polls_until_missing(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
