@@ -51,6 +51,17 @@ SANDBOX_CREATE_HTTP_TIMEOUT = 180
 DEFAULT_SANDBOX_NAMESPACE = "default"
 DEFAULT_SANDBOX_RUNTIME = "python3.10"
 
+# Frontend-exposed instance kill (delete) interface. The frontend accepts a JSON
+# body ({"instanceID": ..., "signal": ...}) and replies with JSON
+# ({"code": <int>, "message": <str>}); the frontend transcodes JSON to/from the
+# core_service.KillRequest/KillResponse protobuf internally, so the CLI never has
+# to deal with protobuf encoding.
+FRONTEND_INSTANCE_KILL_PATH = "/frontend/v1/instance/kill"
+# libruntime Signal.KillInstance == SHUT_DOWN_SIGNAL, terminates a single instance.
+KILL_SIGNAL_INSTANCE = 1
+# KillResponse.code value that maps to common.ErrorCode.ERR_NONE (success).
+KILL_RESPONSE_CODE_OK = 0
+
 
 __server_address = None
 __ds_address = None
@@ -889,6 +900,50 @@ def delete_sandbox_via_sdk(sandbox_id, runtime=DEFAULT_SANDBOX_RUNTIME):
         yr.finalize()
 
 
+def kill_instance_via_frontend(instance_id):
+    """Delete an instance through the frontend-exposed instance kill interface.
+
+    Sends a route-less kill request (no proxyID/routeAddress) as JSON to
+    ``POST /frontend/v1/instance/kill``. The frontend transcodes the JSON body to
+    a core_service.KillRequest protobuf and replies with a JSON KillResponse, so
+    the CLI does not deal with protobuf at all. Returns a dict:
+        {"success": bool, "code": int, "message": str, "status_code": int}
+    ``success`` is True only when the HTTP call succeeded and KillResponse.code
+    is ERR_NONE (0). Any non-zero code (including ERR_INSTANCE_NOT_FOUND returned
+    when neither the function_proxy nor function_master can locate the instance)
+    is treated as a deletion failure.
+    """
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}{FRONTEND_INSTANCE_KILL_PATH}"
+    payload = {"instanceID": instance_id, "signal": KILL_SIGNAL_INSTANCE}
+    resp = http_client.request(url, payload)
+    if not resp.get("success"):
+        return {
+            "success": False,
+            "code": None,
+            "message": resp.get("error", "frontend kill request failed"),
+            "status_code": resp.get("status_code"),
+        }
+    data = resp.get("data") or {}
+    if not isinstance(data, dict):
+        data = {}
+    code = data.get("code", KILL_RESPONSE_CODE_OK)
+    return {
+        "success": code == KILL_RESPONSE_CODE_OK,
+        "code": code,
+        "message": data.get("message", ""),
+        "status_code": resp.get("status_code"),
+    }
+
+
 def get_sandbox_status(instance):
     return (
         instance.get("status")
@@ -1458,42 +1513,24 @@ def sandbox_query(sandbox_id):
 @sandbox.command("delete")
 @click.argument("sandbox_id", type=str)
 def sandbox_delete(sandbox_id):
-    """Delete (terminate) a sandbox instance via frontend API."""
+    """Delete (terminate) a sandbox instance via the frontend instance kill interface."""
     if not __server_address:
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
         sys.exit(1)
 
-    sdk_error = None
-    try:
-        delete_sandbox_via_sdk(sandbox_id)
-        if wait_until_sandbox_deleted(sandbox_id):
-            print(f"succeed to delete sandbox: {sandbox_id}")
-            return
-    except Exception as e:
-        sdk_error = e
-        if wait_until_sandbox_deleted(sandbox_id):
-            print(f"succeed to delete sandbox: {sandbox_id}")
-            return
-
-    http_client = HTTPClient(
-        timeout=30,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        insecure=__insecure,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-    )
-    url = f"http://{__server_address}/api/sandbox/{sandbox_id}"
-    resp = http_client.request(url, {}, method="DELETE")
-    if resp["success"] and wait_until_sandbox_deleted(sandbox_id):
+    # Delete directly through the frontend-exposed instance kill interface
+    # (POST /frontend/v1/instance/kill). The request carries no routing info, so
+    # function_proxy resolves the owner locally or forwards to function_master.
+    result = kill_instance_via_frontend(sandbox_id)
+    if result["success"] and wait_until_sandbox_deleted(sandbox_id):
         print(f"succeed to delete sandbox: {sandbox_id}")
         return
 
-    if sdk_error is not None:
-        print(f"failed to delete sandbox {sandbox_id}: {sdk_error}")
-    elif not resp["success"]:
-        print(f"failed to delete sandbox {sandbox_id}: {resp.get('error', resp)}")
+    if not result["success"]:
+        print(
+            f"failed to delete sandbox {sandbox_id}: "
+            f"code={result.get('code')}, {result.get('message')}"
+        )
     else:
         print(f"failed to delete sandbox {sandbox_id}: instance still exists after delete")
     sys.exit(1)
