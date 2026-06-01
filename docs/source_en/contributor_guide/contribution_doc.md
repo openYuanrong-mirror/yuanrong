@@ -16,7 +16,7 @@ openYuanrong documentation mainly includes the following categories:
 - [FAQ](../FAQ/multi_language_functional_programming.md)
 - [API Reference](../multi_language_function_programming_interface/api/distributed_programming/Python/index.rst)
 
-The openYuanrong documentation source code is stored in the `docs/en` directory of the [yuanrong](https://atomgit.com/openeuler/yuanrong/tree/master){target="_blank"} repository. You can refer to existing documentation content to supplement chapters in the corresponding documentation directories. The correspondence between first-level directories and code paths is as follows:
+The openYuanrong documentation source code is stored in the `docs` directory of the [yuanrong](https://atomgit.com/openeuler/yuanrong/tree/master){target="_blank"} repository, with Chinese documentation in `docs/source_zh_cn/` and English documentation in `docs/source_en`. You can refer to existing documentation content to supplement chapters in the corresponding documentation directories. The correspondence between first-level directories and code paths is as follows:
 
 - Overview: overview.md
 - Getting Started: getting_started.md
@@ -54,27 +54,27 @@ Documentation content is mainly divided into two types:
    - If you want to modify a Python API Chinese document, you can find the `.rst` document with the same name as the API in the Chinese document storage path [python Chinese repo](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python){target="_blank"} to modify. Similarly, following the basic principle of consistency between Chinese and English, please synchronously modify the API's English document.
    - If you want to add a new Python API, for English documentation, please find the corresponding `.py` file in the English document storage path mentioned above and write the **source code** and English documentation conforming to [Google style](https://www.sphinx-doc.org/en/master/usage/extensions/example_google.html){target="_blank"} at the appropriate position; for Chinese documentation, create a `.rst` document with the same name as the API in the Chinese document storage path mentioned above for writing. **Finally**, please find the API type to which your interface belongs in the `index.rst` files: [English index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Python){target="_blank"}, [Chinese index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python){target="_blank"}, and add your interface there. Refer to the following for adding method (taking Chinese `index.rst` as an example, two places need to be added):
 
-   ```text
-      .. toctree::
-         :glob:
-         :hidden:
-         :maxdepth: 1
+     ```text
+     .. toctree::
+        :glob:
+        :hidden:
+        :maxdepth: 1
 
-         yr.origin_API
-         yr.new_API
+        yr.origin_API
+        yr.new_API
 
-      Certain Type API
-      ---------
+     Certain Type API
+     ---------
 
-      .. list-table::
-         :header-rows: 0
-         :widths: 30 70
+     .. list-table::
+        :header-rows: 0
+        :widths: 30 70
 
-         * - :doc:`yr.origin_API`
+        * - :doc:`yr.origin_API`
            - Original API first sentence description.
-         * - :doc:`yr.is_initialized`
+        * - :doc:`yr.is_initialized`
            - New API first sentence description.
-   ```
+     ```
 
    - Reference:
    
@@ -88,21 +88,20 @@ Documentation content is mainly divided into two types:
    - If you want to modify a C++ API Chinese document, you can find the `.rst` document with the same name as the API in the [c++ Chinese document storage path](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp){target="_blank"} to modify. Similarly, following the basic principle of consistency between Chinese and English, please synchronously modify the API's English document.
    - If you want to add a new C++ API, for English documentation, please find the appropriate `.h` file in the English document storage path mentioned above, write the source code and English documentation conforming to [Doxygen style](https://www.doxygen.nl/manual/commands.html){target="_blank"} at the appropriate position, and create or find the appropriate `.cpp` file in the sample code repo mentioned above to add your sample code. Finally, create a `.md` document with the same name as the API in the sample code repo mentioned above, and use doxygen/breathe syntax such as `{doxygenfunction}`, `{doxygenclass}`, `{doxygenvariable}`, `{doxygenstruct}`, `{doxygenenum}`, `{doxygentypedef}` to add references to functions, classes, variables, structures, members, definitions, etc. Specific usage examples are as follows:
 
-  ```text
-      ```{doxygenfunction} Function_name
-      ```
-  ```
+     ```text
+         ```{doxygenfunction} Function_name
+         ```
+     ```
 
-  For Chinese documentation, please create a `.rst` document with the same name as the API in the Chinese document storage path mentioned above for writing. Finally, please find the API type to which your interface belongs in [English index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, [Chinese index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, and add your interface there. Refer to the Python API addition method shown above for adding method.
+     For Chinese documentation, please create a `.rst` document with the same name as the API in the Chinese document storage path mentioned above for writing. Finally, please find the API type to which your interface belongs in [English index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, [Chinese index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, and add your interface there. Refer to the Python API addition method shown above for adding method.
    - Reference: C++ API English `.md` document can refer to [Get.md](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/Get.md){target="_blank"}; source code can refer to 
 
-  ```c++
-  template <typename T>
+     ```C++
+     template <typename T>
+     std::shared_ptr<T> Get(const ObjectRef<T> &obj, int timeout = DEFAULT_GET_TIMEOUT_SEC);
+     ```
 
-  std::shared_ptr<T> Get(const ObjectRef<T> &obj, int timeout = DEFAULT_GET_TIMEOUT_SEC);
-  ```
-
-  in [yr.h](https://atomgit.com/openeuler/yuanrong/tree/master/api/cpp/include/yr/yr.h){target="_blank"}; sample code can refer to [get_put_example.cpp](https://atomgit.com/openeuler/yuanrong/tree/master/api/cpp/example/get_put_example.cpp){target="_blank"}. Chinese can refer to [Get.rst](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp/Get.md){target="_blank"}.
+     in [yr.h](https://atomgit.com/openeuler/yuanrong/tree/master/api/cpp/include/yr/yr.h){target="_blank"}; sample code can refer to [get_put_example.cpp](https://atomgit.com/openeuler/yuanrong/tree/master/api/cpp/example/get_put_example.cpp){target="_blank"}. Chinese can refer to [Get.rst](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp/Get.md){target="_blank"}.
 
 - Modify Java API documentation:
 
@@ -146,23 +145,19 @@ It is recommended to use [VS Code](https://code.visualstudio.com/){target="_blan
    pip install -r requirements_dev.txt
    ```
 
-### Build API
+### Install openYuanrong SDK
 
-You need to compile runtime before API-related documentation can be generated. Execute the following command in the code `yuanrong` repository:
-
-```bash
-bash build.sh
-```
+English documentation for openYuanrong Python API is generated from the source code in the installation package, so you need to [install openYuanrong](install-yuanrong-with-pip) the latest version first to generate English API documentation. If you have added new interfaces and need to supplement documentation, you need to install the source code compiled version.
 
 ### Build Documentation
 
 Execute the following command in the code `yuanrong/docs` directory:
 
 ```bash
-bash build.sh
+bash build.sh -P
 ```
 
-The generated files are in the `yuanrong/output/docs` directory. To rebuild, please delete the `yuanrong/docs/_build` directory first to avoid the impact of historical build files.
+The generated files are in the `yuanrong/output/docs` directory. To rebuild, please delete the `yuanrong/docs/source_zh_cn/_build` and `yuanrong/docs/source_en/_build` directories first to avoid the impact of historical build files.
 
 ### Local Testing
 
@@ -173,4 +168,4 @@ In the build result `output` directory, execute the following command:
 python3 -m http.server <port> -d docs
 ```
 
-Access in the browser: `http://<Your Documentation Build Host IP>:<port>/index.html`
+Access in the browser: `http://<Your Documentation Build Host IP>:<port>/en/index.html`

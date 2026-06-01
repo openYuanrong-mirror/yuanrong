@@ -12,7 +12,8 @@
     主机上部署 openYuanrong 时，您可以通过命令行参数自定义该节点的资源标签，例如：
 
     ```shell
-    yr start --master --labels="{\"Product\":\"Yuanrong\", \"NodeType\":\"worker\"}"
+    yr start --master \
+    -s 'function_agent.env.INIT_LABELS="{\"Product\":\"Yuanrong\", \"NodeType\":\"worker\"}"'
     ```
 
 ## 实例标签

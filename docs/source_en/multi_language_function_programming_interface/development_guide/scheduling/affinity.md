@@ -12,7 +12,8 @@ Resource labels are typically static labels collected when openYuanrong minimum 
     When deploying openYuanrong on a host, you can customize the node's resource labels through command-line parameters, for example:
 
     ```shell
-    yr start --master --labels="{\"Product\":\"Yuanrong\", \"NodeType\":\"worker\"}"
+    yr start --master \
+    -s 'function_agent.env.INIT_LABELS="{\"Product\":\"Yuanrong\", \"NodeType\":\"worker\"}"'
     ```
 
 ## Instance Labels
