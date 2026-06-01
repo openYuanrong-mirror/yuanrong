@@ -259,8 +259,8 @@ def create(
         >>> import yr
         >>> yr.init()
         >>>
-        >>> # Create sandbox with jiuwenbox executor
-        >>> sandbox = yr.sandbox.create(sandbox_type="jiuwenbox")
+        >>> # Create sandbox with supervisor executor
+        >>> sandbox = yr.sandbox.create(sandbox_type="supervisor")
         >>> result = yr.get(sandbox.exec("pwd"))
         >>> print(result['stdout'])
         >>>
@@ -308,7 +308,7 @@ class SandBox:
                 If set, Gateway URLs will be printed after creation.
             sandbox_type (str): Type of sandbox executor.
                 Supported values:
-                - "jiuwenbox": Uses SANDBOX executor
+                - "supervisor": Uses SUPERVISOR executor
                 - "": Use default executor (RUNTIME)
         """
         # Create InvokeOptions with skip_serialize=True for cross-version compatibility
