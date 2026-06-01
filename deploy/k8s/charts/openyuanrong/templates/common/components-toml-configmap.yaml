@@ -29,6 +29,7 @@ data:
     SCC_ENABLE={{ quote .Values.global.scc.enable }}
     RESOURCE_PATH="/home/sn/resource"
     STS_CONFIG="{}"
+    K8S_API_VERSION={{ quote .Values.global.common.k8sAPIVersion }}
 
     [function_master.args]
     ip="{RUNTIME_POD_IP}:{{ .Values.global.port.functionMasterPort }}"
@@ -99,7 +100,6 @@ data:
     enable_meta_store="false"
     meta_store_mode="local"
     etcd_address={{ quote .Values.global.etcdManagement.detcd }}
-    k8s_api_version={{ quote .Values.global.common.k8sAPIVersion }}
 
 
     [function_proxy]
