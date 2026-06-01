@@ -75,14 +75,7 @@ ErrorInfo AsyncHttpClient::Init(const ConnectionParam &param)
     idleTime_ = param.idleTime;
     // sync connection
     try {
-        auto const resolveRes = resolver_.resolve(param.ip, param.port);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            stream_.expires_after(std::chrono::seconds(param.timeoutSec));
-        }
-        stream_.connect(resolveRes);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            stream_.expires_never();
-        }
+        ConnectWithOptionalProxy(stream_, resolver_, param, false);
     } catch (const std::exception &e) {
         std::stringstream ss;
         ss << "failed to connect to cluster, target: ";

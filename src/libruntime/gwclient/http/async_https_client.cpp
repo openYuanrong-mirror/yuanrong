@@ -73,18 +73,9 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
         }
     }
     try {
-        // sync connect
-        auto const results = resolver_.resolve(param.ip, param.port);
-        auto &lowgest = beast::get_lowest_layer(*stream_);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
-        }
-        (void)lowgest.connect(results);
+        ConnectWithOptionalProxy(beast::get_lowest_layer(*stream_), resolver_, param, true);
         YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
                     param.timeoutSec);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            lowgest.expires_never();
-        }
     } catch (const std::exception &e) {
         std::stringstream ss;
         ss << "failed to connect to cluster, target: " << param.ip << ":" << param.port;

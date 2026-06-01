@@ -17,6 +17,7 @@
 #pragma once
 
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
@@ -28,6 +29,9 @@
 #include "absl/synchronization/mutex.h"
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
+#include "src/libruntime/utils/utils.h"
+#include "src/utility/logger/logger.h"
+#include "src/utility/string_utility.h"
 namespace http = boost::beast::http;
 namespace ssl = boost::asio::ssl;
 namespace beast = boost::beast;
@@ -49,6 +53,92 @@ struct ConnectionParam {
     int idleTime{120};
     int timeoutSec = CONNECTION_NO_TIMEOUT;
 };
+
+inline std::string GetProxyUrlFromEnv(bool forHttps)
+{
+    if (!Config::Instance().YR_ENABLE_HTTP_PROXY()) {
+        return "";
+    }
+    // Match curl: scheme-specific proxy first, then fallback to the other.
+    if (forHttps) {
+        for (const char *key : {"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"}) {
+            const std::string val = YR::GetEnvValue(key);
+            if (!val.empty()) {
+                return val;
+            }
+        }
+    } else {
+        for (const char *key : {"http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"}) {
+            const std::string val = YR::GetEnvValue(key);
+            if (!val.empty()) {
+                return val;
+            }
+        }
+    }
+    return "";
+}
+
+inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::resolver &resolver,
+                                     const ConnectionParam &param, bool forHttps)
+{
+    const std::string proxyUrl = GetProxyUrlFromEnv(forHttps);
+
+    if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+        stream.expires_after(std::chrono::seconds(param.timeoutSec));
+    }
+
+    if (!proxyUrl.empty()) {
+        std::string url = proxyUrl;
+        const std::string schemeDelimiter = "://";
+        const auto schemePos = url.find(schemeDelimiter);
+        if (schemePos != std::string::npos) {
+            url = url.substr(schemePos + schemeDelimiter.size());
+        }
+
+        std::string proxyAuthorization;
+        const auto authPos = url.rfind('@');
+        if (authPos != std::string::npos) {
+            proxyAuthorization = "Basic " + YR::utility::EncodedToString(url.substr(0, authPos));
+            url = url.substr(authPos + 1);
+        }
+
+        std::string proxyHost;
+        std::string proxyPort = "80";
+        const auto portPos = url.rfind(':');
+        if (portPos != std::string::npos) {
+            proxyHost = url.substr(0, portPos);
+            proxyPort = url.substr(portPos + 1);
+        } else {
+            proxyHost = url;
+        }
+
+        YRLOG_INFO("connecting to {}:{} via proxy {}:{}", param.ip, param.port, proxyHost, proxyPort);
+        stream.connect(resolver.resolve(proxyHost, proxyPort));
+
+        const std::string connectTarget = param.ip + ":" + param.port;
+        http::request<http::empty_body> req{http::verb::connect, connectTarget, 11};
+        req.set(http::field::host, connectTarget);
+        if (!proxyAuthorization.empty()) {
+            req.set(http::field::proxy_authorization, proxyAuthorization);
+        }
+        http::write(stream, req);
+
+        beast::flat_buffer buffer;
+        http::response_parser<http::empty_body> parser;
+        parser.body_limit(0);
+        http::read(stream, buffer, parser);
+        if (parser.get().result() != http::status::ok) {
+            throw std::runtime_error("HTTP CONNECT via proxy failed, status " +
+                                     std::to_string(parser.get().result_int()));
+        }
+    } else {
+        stream.connect(resolver.resolve(param.ip, param.port));
+    }
+
+    if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+        stream.expires_never();
+    }
+}
 
 class HttpClient {
 public:

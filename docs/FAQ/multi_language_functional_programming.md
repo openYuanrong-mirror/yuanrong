@@ -9,5 +9,9 @@
 解决方法：配置如下环境变量，生效 http_proxy/https_proxy 代理配置。
 
   ```shell
+  export https_proxy=http://127.0.0.1:7890   # HTTPS client 使用
+  export http_proxy=http://127.0.0.1:7890    # HTTP client 使用（可与上相同）
   export YR_ENABLE_HTTP_PROXY=true
   ```
+
+说明：与 curl 一致——HTTPS 优先读 `https_proxy`，HTTP 优先读 `http_proxy`；未设置时会 fallback 到另一个。代理 URL 支持账号密码，格式：`http://user:pass@host:port`。
