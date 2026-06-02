@@ -17,16 +17,15 @@ SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp3
 
 set_smoke_target() {
     local suffix="$1"
+    # The pipeline pins SANDBOX_SDK_STEP_KEY to a single ABI (e.g. build-sdk-amd64-cp311);
+    # reuse only its platform prefix and swap in the requested suffix so each variant
+    # downloads its own SDK wheel/obs-urls. Falls back to the configured prefix.
+    local prefix="${SDK_STEP_KEY_PREFIX}"
     if [ -n "${SANDBOX_SDK_STEP_KEY:-}" ]; then
-        SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY}"
-    else
-        SDK_STEP_KEY="${SDK_STEP_KEY_PREFIX}-${suffix}"
+        prefix="${SANDBOX_SDK_STEP_KEY%-cp*}"
     fi
-    if [ -n "${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-}" ]; then
-        SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN}"
-    else
-        SMOKE_SDK_WHEEL_PATTERN="openyuanrong_sdk*-${suffix}-*.whl"
-    fi
+    SDK_STEP_KEY="${prefix}-${suffix}"
+    SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-${suffix}-*.whl}"
 }
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
