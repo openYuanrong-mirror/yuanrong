@@ -544,6 +544,81 @@ def test_sandbox_create_exec_and_terminate(init_yr):
 
 
 @pytest.mark.smoke
+def test_sandbox_tunnel_http_get_post(init_yr):
+    """Tunnel smoke: local upstream + reverse tunnel + GET/POST via sandbox exec.
+
+    Mirrors sandbox_tunnel_http_longrun_stress.py at smoke scale (one GET /ping
+    and one POST /echo). Validates the full upstream -> TunnelClient -> sandbox
+    path on whichever Python ABI the SDK wheel was built for (e.g. cp313).
+    """
+    import contextlib
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class _UpstreamHandler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.path == "/ping":
+                body = b"pong"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length > 0 else b""
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, fmt, *args):  # noqa: A003
+            return
+
+    with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as probe:
+        probe.bind(("127.0.0.1", 0))
+        upstream_port = probe.getsockname()[1]
+    upstream = ThreadingHTTPServer(("127.0.0.1", upstream_port), _UpstreamHandler)
+    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+
+    sandbox = None
+    try:
+        sandbox = yr.sandbox.create(
+            name=_unique_name("sdk-tunnel"),
+            upstream=f"127.0.0.1:{upstream_port}",
+            idle_timeout=600,
+        )
+        assert sandbox is not None
+        tunnel_url = sandbox.get_tunnel_url()
+        assert tunnel_url, "empty tunnel url"
+
+        ping = sandbox.exec(f"curl -sS {tunnel_url}/ping", timeout=60)
+        assert ping["returncode"] == 0, ping
+        assert "pong" in (ping["stdout"] or ""), ping
+
+        payload = 1024
+        post_cmd = (
+            f"head -c {payload} /dev/zero | tr '\\0' 'x' "
+            f"| curl -sS -X POST --data-binary @- {tunnel_url}/echo | wc -c"
+        )
+        post = sandbox.exec(post_cmd, timeout=60)
+        assert post["returncode"] == 0, post
+        assert str(payload) in (post["stdout"] or ""), post
+    finally:
+        if sandbox is not None:
+            try:
+                sandbox.terminate()
+            except Exception:
+                pass
+        upstream.shutdown()
+        upstream.server_close()
+
+
+@pytest.mark.smoke
 def test_yrcli_exec_with_sandbox_instance(require_plain_http_for_yrcli):
     namespace = "offcluster"
     name = _unique_name("yrcli-exec")

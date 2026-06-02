@@ -5,9 +5,29 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
-SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
+SDK_STEP_KEY_PREFIX="${SANDBOX_SDK_STEP_KEY_PREFIX:-build-sdk-amd64}"
+# Python ABI variants to smoke against the deployed cluster (space separated).
+# Defaults cover the historical cp311 plus cp313 (Python 3.13) coverage.
+YR_K8S_SMOKE_SDK_SUFFIXES="${YR_K8S_SMOKE_SDK_SUFFIXES:-cp311 cp313}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
+# SDK_STEP_KEY / SMOKE_SDK_WHEEL_PATTERN are (re)computed per suffix by set_smoke_target().
+# Explicit SANDBOX_SDK_STEP_KEY / YR_K8S_SMOKE_SDK_WHEEL_PATTERN overrides force single-target mode.
+SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-${SDK_STEP_KEY_PREFIX}-cp311}"
 SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp311-*.whl}"
+
+set_smoke_target() {
+    local suffix="$1"
+    if [ -n "${SANDBOX_SDK_STEP_KEY:-}" ]; then
+        SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY}"
+    else
+        SDK_STEP_KEY="${SDK_STEP_KEY_PREFIX}-${suffix}"
+    fi
+    if [ -n "${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-}" ]; then
+        SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN}"
+    else
+        SMOKE_SDK_WHEEL_PATTERN="openyuanrong_sdk*-${suffix}-*.whl"
+    fi
+}
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
 SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
@@ -249,7 +269,9 @@ if host and port:
 
 run_smoke() {
     local server_address="$1"
+    local suffix="${2:-}"
     local -a pytest_args
+    local log_file="${SMOKE_LOG_DIR}/smoke${suffix:+-${suffix}}.log"
     mkdir -p "${SMOKE_LOG_DIR}"
     install_smoke_wheels
 
@@ -259,7 +281,7 @@ run_smoke() {
         pytest_args=(-m smoke)
     fi
 
-    printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
+    printf 'Running yr-k8s off-cluster smoke [%s] against %s with %s\n' "${suffix:-default}" "${server_address}" "${SMOKE_PYTHON}" >&2
     YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
     YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
     YR_OFF_CLUSTER_USE_UV_VENV=false \
@@ -267,7 +289,7 @@ run_smoke() {
     UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
     YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
     bash test/st/run_off_cluster_test.sh -a "${server_address}" --no-uv-venv -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
-        2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
+        2>&1 | tee "${log_file}"
 }
 
 main() {
@@ -299,7 +321,20 @@ main() {
     bash deploy/sandbox/k8s/deploy.sh
 
     if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-        run_smoke "${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address)}"
+        local server_address smoke_suffix smoke_failures
+        server_address="${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address)}"
+        smoke_failures=""
+        for smoke_suffix in ${YR_K8S_SMOKE_SDK_SUFFIXES}; do
+            set_smoke_target "${smoke_suffix}"
+            download_artifacts
+            if ! run_smoke "${server_address}" "${smoke_suffix}"; then
+                smoke_failures="${smoke_failures} ${smoke_suffix}"
+            fi
+        done
+        if [ -n "${smoke_failures}" ]; then
+            printf 'yr-k8s smoke failed for SDK variant(s):%s\n' "${smoke_failures}" >&2
+            exit 1
+        fi
     fi
 
     if command -v buildkite-agent >/dev/null 2>&1; then
