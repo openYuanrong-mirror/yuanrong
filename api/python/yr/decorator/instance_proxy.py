@@ -33,6 +33,7 @@ from yr.generator import ObjectRefGenerator
 from yr.common import constants, utils
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions, function_group_enabled
+from yr.config_manager import ConfigManager
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
 from yr.object_ref import ObjectRef, ObjectRefDirect
 from yr.runtime_holder import global_runtime, save_real_instance_id
@@ -260,6 +261,7 @@ class InstanceCreator:
     def _invoke(self, name=None, args=None, kwargs=None, invoke_options=None):
         if invoke_options is None:
             invoke_options = self.__invoke_options__
+        invoke_options = ConfigManager().override_bypass_datasystem(invoke_options)
         if invoke_options.idle_timeout >= 0:
             # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it 
             invoke_options.custom_extensions["idle_timeout"] = str(invoke_options.idle_timeout)
@@ -275,13 +277,14 @@ class InstanceCreator:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
-                runtime = global_runtime.get_runtime()
-                code_id = runtime.put_serialized(serialized_object)
-                if not isinstance(code_id, str):
-                    code_id = runtime.put(serialized_object)
-                self._code_ref = ObjectRef(code_id, need_incre=False)
-                _logger.info("[Reference Counting] put code with id = %s, className = %s",
-                         self._code_ref.id, self.__user_class_descriptor__.class_name)
+                else:
+                    runtime = global_runtime.get_runtime()
+                    code_id = runtime.put_serialized(serialized_object)
+                    if not isinstance(code_id, str):
+                        code_id = runtime.put(serialized_object)
+                    self._code_ref = ObjectRef(code_id, need_incre=False)
+                    _logger.info("[Reference Counting] put code with id = %s, className = %s",
+                            self._code_ref.id, self.__user_class_descriptor__.class_name)
             elif getattr(invoke_options, "skip_serialize", False):
                 # For pre-deployed classes, skip serialization
                 class_path = f"{self.__user_class__.__module__}.{self.__user_class__.__qualname__}"
@@ -1018,6 +1021,7 @@ class MethodProxy:
     def _invoke(self, args, kwargs, invoke_options=InvokeOptions(), ref_cls=None):
         if not self._instance_ref().is_activate():
             raise RuntimeError("this instance is terminated")
+        invoke_options = ConfigManager().override_bypass_datasystem(invoke_options)
         if self._method_descriptor.target_language == LanguageType.Python:
             args_list = signature.package_args(self._signature, args, kwargs)
         else:

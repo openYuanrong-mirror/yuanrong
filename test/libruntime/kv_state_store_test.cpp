@@ -137,5 +137,19 @@ TEST(KVStateStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
     EXPECT_EQ(stateStore.connectOpts.tenantId, options.tenantId);
     EXPECT_TRUE(stateStore.connectOpts.enableCrossNodeConnection);
 }
+
+TEST(KVStateStoreInitTest, InitFromDsConnectOptionsDoesNotInitializeClientImmediately)
+{
+    DSCacheStateStore stateStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.8";
+    options.port = 32001;
+
+    ErrorInfo err = stateStore.Init(options);
+
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    EXPECT_FALSE(stateStore.isInit);
+    EXPECT_EQ(stateStore.dsStateClient, nullptr);
+}
 }  // namespace test
 }  // namespace YR

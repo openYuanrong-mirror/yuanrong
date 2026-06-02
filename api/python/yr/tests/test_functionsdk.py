@@ -23,6 +23,7 @@ from yr.functionsdk import function
 from yr.functionsdk import utils
 from yr.functionsdk import logger as sdklogger
 from yr.functionsdk import logger_manager
+from yr.config_manager import ConfigManager
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 import os
@@ -35,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 class TestFunctionSdk(TestCase):
+
+    def setUp(self):
+        ConfigManager().bypass_datasystem = None
+
+    def tearDown(self):
+        ConfigManager().bypass_datasystem = None
 
     @patch("yr.log.get_logger")
     def test_context(self, mock_logger):
@@ -73,6 +80,10 @@ class TestFunctionSdk(TestCase):
         args = {"body": "test"}
         obj = f.options(opt).invoke(args)
         self.assertEqual(obj.id, "obj_abcd", obj.id)
+
+        ConfigManager().bypass_datasystem = True
+        f.options(opt).invoke(args)
+        self.assertTrue(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
 
         args = [1, 2, 3]
         with self.assertRaises(TypeError):

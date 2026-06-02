@@ -21,6 +21,7 @@ from unittest.mock import Mock, patch
 from yr.decorator import instance_proxy, function_proxy
 from yr.object_ref import ObjectRef
 from yr.config import InvokeOptions
+from yr.config_manager import ConfigManager
 from yr.common.utils import CrossLanguageInfo
 from yr.libruntime_pb2 import LanguageType, FunctionMeta
 
@@ -29,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 class TestDecorator(TestCase):
+
+    def setUp(self):
+        ConfigManager().bypass_datasystem = None
+
+    def tearDown(self):
+        ConfigManager().bypass_datasystem = None
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.log.get_logger")
@@ -87,6 +94,11 @@ class TestDecorator(TestCase):
 
         obj = ins1.get.options(InvokeOptions()).invoke()
         self.assertTrue(isinstance(obj, ObjectRef))
+
+        ConfigManager().bypass_datasystem = True
+        ins1.get.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertTrue(mock_runtime.invoke_instance.call_args.kwargs["opt"].bypass_datasystem)
+        ConfigManager().bypass_datasystem = None
 
         ins1.group_name = ""
         with self.assertRaises(RuntimeError):
@@ -199,6 +211,49 @@ class TestDecorator(TestCase):
 
         cross_proxy = function_proxy.make_cross_language_function_proxy("cppfunc", "", LanguageType.Cpp)
         self.assertEqual(cross_proxy.cross_language_info.function_name, "cppfunc")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_function_proxy_respects_global_bypass_override(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.invoke_by_name.return_value = ["obj1"]
+        get_runtime.return_value = mock_runtime
+
+        proxy = function_proxy.make_cpp_function_proxy("cppfunc", "key")
+        proxy.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertFalse(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+        ConfigManager().bypass_datasystem = True
+        proxy.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertTrue(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+        ConfigManager().bypass_datasystem = False
+        proxy.invoke_direct()
+        self.assertFalse(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_instance_creator_respects_global_bypass_override(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "instance-id"
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        ConfigManager().bypass_datasystem = False
+        creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(skip_serialize=True, bypass_datasystem=True))
+        creator.invoke()
+
+        opt = mock_runtime.create_instance.call_args.kwargs["opt"]
+        self.assertFalse(opt.bypass_datasystem)
+
+    def test_config_manager_preserves_per_invoke_bypass_without_override(self):
+        opt = InvokeOptions(bypass_datasystem=True)
+
+        overridden = ConfigManager().override_bypass_datasystem(opt)
+
+        self.assertIs(overridden, opt)
+        self.assertTrue(overridden.bypass_datasystem)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ from yr.common.types import GroupInfo
 from yr.common import utils
 from yr.common.utils import CrossLanguageInfo, ObjectDescriptor
 from yr.config import InvokeOptions
+from yr.config_manager import ConfigManager
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
 from yr.object_ref import ObjectRef, ObjectRefDirect
 from yr.runtime_holder import global_runtime
@@ -284,6 +285,7 @@ class FunctionProxy:
         Raises:
             TypeError: This exception is thrown if the type of the passed parameter is incorrect.
         """
+        opts = ConfigManager().override_bypass_datasystem(opts)
         function_id = self.designated_urn
         if self.cross_language_info is None:
             args_list = signature.package_args(self.sig, args, kwargs)
@@ -300,13 +302,14 @@ class FunctionProxy:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", func.__qualname__)
-                runtime = global_runtime.get_runtime()
-                code_id = runtime.put_serialized(serialized_object)
-                if not isinstance(code_id, str):
-                    code_id = runtime.put(serialized_object)
-                self._code_ref = ObjectRef(code_id, need_incre=False)
-                _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
-                              self._code_ref.id, func.__qualname__)
+                else:
+                    runtime = global_runtime.get_runtime()
+                    code_id = runtime.put_serialized(serialized_object)
+                    if not isinstance(code_id, str):
+                        code_id = runtime.put(serialized_object)
+                    self._code_ref = ObjectRef(code_id, need_incre=False)
+                    _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
+                                self._code_ref.id, func.__qualname__)
         with self._lock:
             if self._initializer and self._initializer_code_ref is None:
                 self._initializer_code_ref = yr.put(self._initializer)

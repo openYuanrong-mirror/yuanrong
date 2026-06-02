@@ -169,6 +169,9 @@ class Config:
     #: Whether to enable metric collection. ``False`` indicates disabled, and ``True`` indicates enabled.
     #: The default value is ``True``. This takes effect only when called in the cluster.
     enable_metrics: bool = True
+    #: Global override for ``InvokeOptions.bypass_datasystem``.
+    #: ``None`` keeps each invocation's option; ``True`` or ``False`` overrides it.
+    bypass_datasystem: Optional[bool] = None
     #: Used to set custom environment variables for the runtime. Currently, only `LD_LIBRARY_PATH` is supported.
     custom_envs: Dict[str, str] = field(default_factory=dict)
     #: Function master address list.
@@ -623,11 +626,6 @@ class InvokeOptions:
 
     idle_timeout: int = 300
     is_delete_remote_tensor: bool = False
-    #: Whether to bypass datasystem for the return path. When True, all return values
-    #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.
-    #: Return values exceeding 5MB will be truncated.
-    bypass_datasystem: bool = False
-
     #: Whether to bypass datasystem for the return path. When True, all return values
     #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.
     #: Return values exceeding 5MB will be truncated.

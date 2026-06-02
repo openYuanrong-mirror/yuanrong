@@ -111,8 +111,7 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
     connectOptsInput.tenantId = options.tenantId;
     connectOptsInput.enableCrossNodeConnection = options.enableCrossNodeConnection;
     this->connectOpts = connectOptsInput;
-    InitOnce();
-    return this->initErr;
+    return ErrorInfo();
 }
 
 void DSCacheStateStore::SetTenantId(const std::string &tenantId)
