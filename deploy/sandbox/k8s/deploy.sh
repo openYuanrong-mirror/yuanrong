@@ -281,11 +281,17 @@ prepull_runtime_image() {
     [ -n "${pod}" ] || continue
     for runtime_image in "${runtime_images[@]}"; do
       printf 'Pre-pulling runtime image %s on %s.\n' "${runtime_image}" "${pod}" >&2
-      printf '%s' "${password}" | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
+      # Pre-pull is a best-effort warm-up. A given deploy may not publish every
+      # cpXX variant (e.g. a single-version build), so a missing tag must not
+      # abort the whole deployment — warn and continue instead.
+      if ! printf '%s' "${password}" | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
         --namespace "${NAMESPACE}" -i "${pod}" -c node -- sh -eu -c '
           docker login "$1" -u "$2" --password-stdin >/dev/null
           docker pull "$3"
-        ' sh "${REGISTRY_SERVER}" "${username}" "${runtime_image}"
+        ' sh "${REGISTRY_SERVER}" "${username}" "${runtime_image}"; then
+        printf 'WARNING: pre-pull failed for %s on %s (image may not exist for this build); continuing.\n' \
+          "${runtime_image}" "${pod}" >&2
+      fi
     done
   done <<<"${pods}"
 }
