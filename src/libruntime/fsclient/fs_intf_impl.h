@@ -438,7 +438,7 @@ struct WiredRequest : public std::enable_shared_from_this<WiredRequest> {
                 }
             });
         }
-        YRLOG_INFO("Req {} will retry without ack, count: {}", reqId_, retryCount);
+        YRLOG_DEBUG("Req {} will retry without ack, count: {}", reqId_, retryCount);
         retryHdlr();
     }
 

@@ -1210,7 +1210,7 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
         auto it = storeMap.find(objId);
         if (it == storeMap.end()) {
             std::string msg = "objId " + objId + " does not exist in storeMap.";
-            YRLOG_INFO("{} Return empty string as instanceRoute.", msg);
+            YRLOG_DEBUG("{} Return empty string as instanceRoute.", msg);
             return retInstanceRoute;
         }
         objDetail = it->second;
@@ -1257,7 +1257,7 @@ std::string MemoryStore::GetInstanceProxyID(const std::string &objId, int timeou
         auto it = storeMap.find(objId);
         if (it == storeMap.end()) {
             std::string msg = "objId " + objId + " does not exist in storeMap.";
-            YRLOG_INFO("{} Return empty string as instanceProxyID.", msg);
+            YRLOG_DEBUG("{} Return empty string as instanceProxyID.", msg);
             return "";
         }
         std::shared_ptr<ObjectDetail> objDetail = it->second;
