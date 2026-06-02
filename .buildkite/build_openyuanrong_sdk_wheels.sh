@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${1:-${ROOT_DIR}/output}"
-SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"
+SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"
 BUILD_VERSION="${BUILD_VERSION:-$(cat "${ROOT_DIR}/VERSION")}"
 BOOST_VERSION="${BOOST_VERSION:-1.87.0}"
 SDK_BAZEL_JOBS="${SDK_BAZEL_JOBS:-8}"

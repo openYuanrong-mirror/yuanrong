@@ -35,6 +35,7 @@ global:
     cp310: {}
     cp311: {}
     cp312: {}
+    cp313: {}
   externalEtcd:
     addrList: ""
     metaStoreAddress: ""
@@ -82,6 +83,22 @@ global:
               runtime: runc
               type: image
               imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp310") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          py313:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.13
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp313") | quote }}
               readonly: true
               mountpoint: /mnt
             bootstrap:

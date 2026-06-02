@@ -342,7 +342,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertTrue(values["etcd"]["enabled"])
         self.assertFalse(values["etcd"]["persistence"]["enabled"])
         self.assertEqual(sorted(values["global"]["images"].keys()), ["controlplane", "node", "runtime", "traefik"])
-        self.assertEqual(sorted(values["global"]["runtimeImages"].keys()), ["cp310", "cp311", "cp312", "cp39"])
+        self.assertEqual(sorted(values["global"]["runtimeImages"].keys()), ["cp310", "cp311", "cp312", "cp313", "cp39"])
         self.assertIn("yr-k8s.runtimeImage", values["global"]["services"]["servicesYaml"])
         self.assertIn("imageurl", values["global"]["services"]["servicesYaml"])
         self.assertEqual(
@@ -655,9 +655,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         ).read_text()
         macos_tools = (ROOT.parents[2] / "scripts/ensure-macos-build-tools.sh").read_text()
 
-        self.assertIn('python_requires=">=3.9,<3.13"', setup_py)
-        self.assertIn("Programming Language :: Python :: 3.12", setup_py)
-        self.assertIn('SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"', pipeline)
+        self.assertIn('python_requires=">=3.9,<3.14"', setup_py)
+        self.assertIn("Programming Language :: Python :: 3.13", setup_py)
+        self.assertIn('SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"', pipeline)
         self.assertIn('SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"', pipeline)
         self.assertIn('ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"', pipeline)
         self.assertIn('ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"', pipeline)
@@ -671,7 +671,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("TAG_BUILD_VERSION#v", pipeline)
         self.assertIn("TAG_BUILD_VERSION:-0.7.0+", pipeline)
         self.assertIn("build_openyuanrong_sdk_wheels.sh output", pipeline)
-        sdk_suffixes = ("cp39", "cp310", "cp311", "cp312")
+        sdk_suffixes = ("cp39", "cp310", "cp311", "cp312", "cp313")
         sdk_platforms = ("amd64", "arm64", "macos-arm64")
         sdk_keys = [f"build-sdk-{platform}-{suffix}" for platform in sdk_platforms for suffix in sdk_suffixes]
         self.assertIn('key: "build-sdk-amd64-${SDK_SUFFIX}"', pipeline)

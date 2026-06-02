@@ -71,6 +71,7 @@ python_formula_bin() {
     local prefix
     prefix="$(brew --prefix "$formula")"
     case "$formula" in
+        python@3.13) echo "${prefix}/bin/python3.13" ;;
         python@3.12) echo "${prefix}/bin/python3.12" ;;
         python@3.11) echo "${prefix}/bin/python3.11" ;;
         python@3.10) echo "${prefix}/bin/python3.10" ;;
@@ -133,13 +134,13 @@ pick_python() {
     local py
     local candidates=()
 
-    for py in python3.12 python3.11 python3.10 python3.9 python3; do
+    for py in python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
         if command -v "${py}" >/dev/null 2>&1; then
             candidates+=("$(command -v "${py}")")
         fi
     done
 
-    for py in python@3.12 python@3.11 python@3.10 python@3.9; do
+    for py in python@3.13 python@3.12 python@3.11 python@3.10 python@3.9; do
         if py_path="$(python_formula_bin "${py}" 2>/dev/null)"; then
             candidates+=("${py_path}")
         fi
@@ -182,7 +183,7 @@ ensure_python() {
 
 ensure_sdk_python_versions() {
     local py_version
-    for py_version in python3.12 python3.11 python3.10 python3.9; do
+    for py_version in python3.13 python3.12 python3.11 python3.10 python3.9; do
         if sdk_python_bin "${py_version}" >/dev/null 2>&1; then
             log_info "${py_version} already available"
             continue

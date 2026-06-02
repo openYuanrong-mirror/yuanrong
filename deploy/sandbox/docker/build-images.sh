@@ -56,6 +56,12 @@ python_build_args_from_wheel() {
         cp311)
             printf '%s\n' "3.11.9" "3.11"
             ;;
+        cp312)
+            printf '%s\n' "3.12.10" "3.12"
+            ;;
+        cp313)
+            printf '%s\n' "3.13.2" "3.13"
+            ;;
         *)
             echo "Unsupported Python ABI tag in wheel: ${python_tag}" >&2
             exit 1
