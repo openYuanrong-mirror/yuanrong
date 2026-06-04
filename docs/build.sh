@@ -63,37 +63,64 @@ export BUILD_WITH_PACKAGE
 BASE_DIR=$(dirname "$(readlink -f "$0")")
 OUTPUT_DIR=${BASE_DIR}/../output
 function build_zh_cn() {
-  pushd ${BASE_DIR}/source_zh_cn
+  pushd "${BASE_DIR}"/source_zh_cn
   make html
   # disable configuration：SPHINXOPTS="-W --keep-going -n", enable it after all alarms are cleared.
   popd
 
-  # modify sphinx(7.3.7) build-in search，open limit on numbers in search.
-  # Changes in later versions need to be modified accordingly.
-  sed -i '285d' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
-  sed -i '284s/ ||//' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
+  # modify sphinx built-in search: allow numeric terms in search queries.
+  # Sphinx's searchtools.js skips words matching /^\d+$/ (pure digits).
+  # The || and queryTerm.match are on separate lines, so we need multiline sed.
+  # First join the lines, then remove the digit-match condition.
+  sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
   rm -rf "${OUTPUT_DIR}"/docs/zh-cn && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn
   cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh-cn
 }
 
 function build_en() {
-  pushd ${BASE_DIR}/source_en
+  pushd "${BASE_DIR}"/source_en
   make html
   # disable configuration：SPHINXOPTS="-W --keep-going -n", enable it after all alarms are cleared.
   popd
 
-  # modify sphinx(7.3.7) build-in search，open limit on numbers in search.
-  # Changes in later versions need to be modified accordingly.
-  sed -i '285d' "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
-  sed -i '284s/ ||//' "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
+  # modify sphinx built-in search: allow numeric terms in search queries.
+  # Sphinx's searchtools.js skips words matching /^\d+$/ (pure digits).
+  # The || and queryTerm.match are on separate lines, so we need multiline sed.
+  # First join the lines, then remove the digit-match condition.
+  sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
   rm -rf "${OUTPUT_DIR}"/docs/en && mkdir -p "${OUTPUT_DIR}"/docs/en
   cp -rf "${BASE_DIR}"/source_en/_build/html/* "${OUTPUT_DIR}"/docs/en
 }
 
+function generate_sitemap_index() {
+  # Generate sitemap index at root level referencing both language sitemaps
+  cat > "${OUTPUT_DIR}"/docs/sitemap.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://docs.openyuanrong.org/zh-cn/latest/sitemap.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://docs.openyuanrong.org/en/latest/sitemap.xml</loc>
+  </sitemap>
+</sitemapindex>
+EOF
+
+  # Generate robots.txt at root level
+  cat > "${OUTPUT_DIR}"/docs/robots.txt << 'EOF'
+User-agent: *
+Allow: /
+Disallow: */search.html*
+
+Sitemap: https://docs.openyuanrong.org/sitemap.xml
+EOF
+}
+
 function doc_build() {
-  pip install -r ${BASE_DIR}/../docs/requirements_dev.txt
+  pip install -r "${BASE_DIR}"/requirements_dev.txt
   build_zh_cn
   build_en
+  generate_sitemap_index
 }
 
 doc_build

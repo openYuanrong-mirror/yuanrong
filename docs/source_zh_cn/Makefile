@@ -32,5 +32,5 @@ apidoc:
 	cd "$(RUNTIMEDIR)" && doxygen "Doxyfile"
 
 clean:
-	rm -rf ${SOURCEDIR}/docs/multi_language_function_programming_interface/distributed_programming_interface/api/Python/generated
-	rm -rf ${SOURCEDIR}/docs/_build/
+	rm -rf ${SOURCEDIR}/multi_language_function_programming_interface/api/distributed_programming/Python/generated
+	rm -rf ${BUILDDIR}/

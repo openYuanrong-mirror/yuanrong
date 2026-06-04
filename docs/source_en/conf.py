@@ -109,6 +109,7 @@ html_theme = "sphinx_book_theme"
 
 html_static_path = ["../_static"]
 html_favicon = "../_static/favicon.ico"
+html_extra_path = ["robots.txt"]
 html_css_files = [
     "custom.css",
 ]
@@ -116,7 +117,7 @@ html_js_files = [
     "language-switcher.js",
 ]
 #   确保末尾加上斜杠
-html_baseurl = "https://docs.openyuanrong.org/zh-cn/latest/"
+html_baseurl = "https://docs.openyuanrong.org/en/latest/"
 html_theme_options = {
     "show_navbar_depth": 1,
     "max_navbar_depth": 7,

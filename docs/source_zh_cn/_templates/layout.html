@@ -2,9 +2,9 @@
 
 {% block htmltitle %}
     {% if pagename == "index" %}
-    <title>openYuanrong | 官方文档</title>
+    <title>openYuanrong 官方文档 | Serverless 分布式计算引擎</title>
     {% else %}
-    <title>openYuanrong | {{ title|striptags|e }}</title>
+    <title>{{ title|striptags|e }} - openYuanrong 文档</title>
     {% endif %}
 {% endblock %}
 
@@ -12,7 +12,15 @@
     {{ super() }}
     {% if html_baseurl %}
     <link rel="canonical" href="{{ html_baseurl }}{{ pagename }}.html" />
+    <link rel="alternate" hreflang="zh-cn" href="https://docs.openyuanrong.org/zh-cn/latest/{{ pagename }}.html" />
+    <link rel="alternate" hreflang="en" href="https://docs.openyuanrong.org/en/latest/{{ pagename }}.html" />
+    <link rel="alternate" hreflang="x-default" href="https://docs.openyuanrong.org/zh-cn/latest/{{ pagename }}.html" />
     {% endif %}
+    <meta property="og:title" content="{% if pagename == 'index' %}openYuanrong 官方文档{% else %}{{ title|striptags|e }}{% endif %}" />
+    <meta property="og:site_name" content="openYuanrong" />
+    <meta property="og:type" content="documentation" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en" />
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     var end = document.querySelector('.navbar-header-items__end');
