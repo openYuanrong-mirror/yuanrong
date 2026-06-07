@@ -63,7 +63,10 @@ public:
     {
         work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
             boost::asio::make_work_guard(*ioc_));
-        enableMTLS_ = config->enableMTLS;
+        if (config != nullptr) {
+            enableMTLS_ = config->enableMTLS;
+            enableTLS_ = config->enableTLS;
+        }
     }
     ~FMClient()
     {
@@ -89,6 +92,9 @@ public:
 
 private:
     std::shared_ptr<HttpClient> InitCtxAndHttpClient(void);
+    bool ShouldQueryResourcesFromFrontend() const;
+    ErrorInfo ActivateFrontendClientIfNeed();
+    std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesFromFrontend();
     void MockResp();
 
     std::shared_ptr<LibruntimeConfig> libConfig_;
@@ -98,6 +104,8 @@ private:
     std::unique_ptr<std::thread> iocThread_;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
     bool enableMTLS_{false};
+    bool enableTLS_{false};
+    std::shared_ptr<HttpClient> frontendHttpClient_;
     std::mutex activeMasterMu_;
     std::condition_variable condVar_;
     std::string activeMasterAddr_;

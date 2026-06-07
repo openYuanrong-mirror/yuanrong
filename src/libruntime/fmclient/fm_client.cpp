@@ -37,10 +37,13 @@ QueryResourcesInfoRequest BuildGetResourcesReq(const std::string &reqId)
     return req;
 }
 
-std::unordered_map<std::string, std::string> BuildGetResourcesHeaders()
+std::unordered_map<std::string, std::string> BuildGetResourcesHeaders(const std::string &authToken = "")
 {
     std::unordered_map<std::string, std::string> headers;
     headers[std::string("Type")] = std::string("protobuf");
+    if (!authToken.empty()) {
+        headers[std::string("X-Auth")] = authToken;
+    }
     return headers;
 }
 
@@ -259,11 +262,12 @@ std::pair<ErrorInfo, QueryNamedInsResponse> GetNamedInstancesByHttpClient(std::s
     return {notifyErr, *resp};
 }
 
-std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::shared_ptr<HttpClient> c)
+std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::shared_ptr<HttpClient> c,
+    const std::string &authToken = "")
 {
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
     auto req = BuildGetResourcesReq(*requestId);
-    auto headers = BuildGetResourcesHeaders();
+    auto headers = BuildGetResourcesHeaders(authToken);
     auto isExit = std::make_shared<bool>(false);
     std::string body;
     req.SerializeToString(&body);
@@ -403,6 +407,9 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResourcesWithRetry(
 std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResources()
 {
     YRLOG_DEBUG("start to get resources.");
+    if (ShouldQueryResourcesFromFrontend()) {
+        return GetResourcesFromFrontend();
+    }
     auto startTime = std::chrono::steady_clock::now();
     for (int i = 0;
          std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - startTime).count() <
@@ -426,16 +433,32 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResources()
 std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)
 {
     ErrorInfo err;
-    if (enableMTLS_) {
+    if (enableMTLS_ || enableTLS_) {
         try {
             auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-            ctx->set_verify_mode(ssl::verify_peer);
-            ctx->load_verify_file(libConfig_->verifyFilePath);
-            ctx->use_certificate_chain_file(libConfig_->certificateFilePath);
-            ctx->use_private_key_file(libConfig_->privateKeyPath, ssl::context::pem);
-            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx);
+            if (libConfig_ != nullptr && libConfig_->skipServerVerify) {
+                ctx->set_verify_mode(ssl::verify_none);
+            } else {
+                ctx->set_verify_mode(ssl::verify_peer);
+                if (libConfig_ == nullptr || libConfig_->verifyFilePath.empty()) {
+                    ctx->set_default_verify_paths();
+                } else {
+                    ctx->load_verify_file(libConfig_->verifyFilePath);
+                }
+            }
+            if (enableMTLS_) {
+                if (libConfig_ == nullptr || libConfig_->certificateFilePath.empty() ||
+                    libConfig_->privateKeyPath.empty()) {
+                    YRLOG_ERROR("enableMTLS is true, but certificateFilePath or privateKeyPath is empty");
+                    return {};
+                }
+                ctx->use_certificate_chain_file(libConfig_->certificateFilePath);
+                ctx->use_private_key_file(libConfig_->privateKeyPath, ssl::context::pem);
+            }
+            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx,
+                libConfig_ == nullptr ? "" : libConfig_->serverName);
         } catch (const std::exception &e) {
             YRLOG_ERROR("caught exception when init ssl context : {}", e.what());
             return {};
@@ -445,6 +468,53 @@ std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)
         }
     }
     return std::make_shared<AsyncHttpClient>(this->ioc_);
+}
+
+bool FMClient::ShouldQueryResourcesFromFrontend() const
+{
+    return libConfig_ != nullptr && !libConfig_->inCluster && !libConfig_->functionSystemIpAddr.empty() &&
+           libConfig_->functionSystemPort > 0;
+}
+
+ErrorInfo FMClient::ActivateFrontendClientIfNeed()
+{
+    if (!iocThread_) {
+        iocThread_ = std::make_unique<std::thread>([&] { ioc_->run(); });
+    }
+    if (frontendHttpClient_ != nullptr && frontendHttpClient_->Available() && frontendHttpClient_->IsConnActive()) {
+        return ErrorInfo();
+    }
+    frontendHttpClient_ = InitCtxAndHttpClient();
+    if (frontendHttpClient_ == nullptr) {
+        return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, "failed to init frontend http client");
+    }
+    ConnectionParam param;
+    param.ip = libConfig_->functionSystemIpAddr;
+    param.port = std::to_string(libConfig_->functionSystemPort);
+    param.idleTime = libConfig_->httpIdleTime;
+    auto initErr = frontendHttpClient_->Init(param);
+    if (!initErr.OK()) {
+        frontendHttpClient_.reset();
+        return initErr;
+    }
+    frontendHttpClient_->SetAvailable();
+    return ErrorInfo();
+}
+
+std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResourcesFromFrontend()
+{
+    if (auto err = ActivateFrontendClientIfNeed(); !err.OK()) {
+        return std::make_pair(err, std::vector<ResourceUnit>());
+    }
+    auto [err, res] = GetResourcesByHttpClient(frontendHttpClient_, libConfig_->authToken);
+    if (!err.OK()) {
+        if (frontendHttpClient_ != nullptr) {
+            frontendHttpClient_->GracefulExit();
+        }
+        frontendHttpClient_.reset();
+        return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), std::vector<ResourceUnit>());
+    }
+    return std::make_pair(err, res);
 }
 
 std::pair<ErrorInfo, QueryNamedInsResponse> FMClient::QueryNamedInstances()
