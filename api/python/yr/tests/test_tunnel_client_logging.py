@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import pathlib
 import sys
@@ -42,8 +43,8 @@ def _load_tunnel_client_module():
 
 
 class TestTunnelClientLogging(unittest.TestCase):
-    def test_initial_route_delay_logs_one_final_warning_not_every_retry(self):
-        """Startup failures warn once after start timeout, not on every retry."""
+    def test_initial_route_delay_warns_after_five_consecutive_failures(self):
+        """Startup connection failures should warn only after five consecutive failures."""
         tunnel_client = _load_tunnel_client_module()
 
         class FailingConnect:
@@ -65,17 +66,45 @@ class TestTunnelClientLogging(unittest.TestCase):
         with patch.object(tunnel_client.websockets, "connect", FailingConnect), \
              patch.object(tunnel_client.random, "random", return_value=0), \
              patch.object(tunnel_client, "logger") as mock_logger:
-            connected = client.start("ws://127.0.0.1:28765", timeout=0.05)
-            time.sleep(0.03)
+            connected = client.start("ws://127.0.0.1:28765", timeout=0.01)
+            time.sleep(0.35)
             client.stop()
 
-        final_warning = (
-            "Tunnel connection failed after %.1fs: %s; reconnecting in background"
-        )
         warning_templates = [call.args[0] for call in mock_logger.warning.call_args_list]
-        self.assertEqual(warning_templates.count(final_warning), 1)
+        threshold_warning = (
+            "Tunnel connection failed %d consecutive times: %s; reconnecting in background"
+        )
+        self.assertEqual(warning_templates.count(threshold_warning), 1)
+        threshold_warning_call = next(
+            call for call in mock_logger.warning.call_args_list
+            if call.args[0] == threshold_warning
+        )
+        self.assertEqual(threshold_warning_call.args[1], 5)
+        self.assertIn("simulated route delay", str(threshold_warning_call.args[2]))
         self.assertNotIn("Tunnel disconnected (%s), reconnecting...", warning_templates)
         self.assertFalse(connected)
+
+    def test_recv_loop_clears_connection_failure_count(self):
+        """A successfully established recv loop starts a new connection-failure streak."""
+        tunnel_client = _load_tunnel_client_module()
+        client = tunnel_client.TunnelClient(upstream="http://127.0.0.1:28800")
+        client._connect_failure_count = 4
+        client._last_connect_error = ConnectionRefusedError("old failure")
+
+        async def fake_recv_frames(ws, http):
+            return None
+
+        async def fake_heartbeat_loop(ws):
+            await asyncio.sleep(60)
+
+        client._recv_frames = fake_recv_frames
+        client._heartbeat_loop = fake_heartbeat_loop
+
+        asyncio.run(client._recv_loop(object(), object()))
+
+        self.assertEqual(client._connect_failure_count, 0)
+        self.assertIsNone(client._last_connect_error)
+
 
 
 if __name__ == "__main__":
