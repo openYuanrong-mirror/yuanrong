@@ -112,7 +112,14 @@ class TunnelClient:
         self._thread = threading.Thread(target=self._run, name="tunnel-client", daemon=True)
         self._thread.start()
         # Wait for connection signal
-        return self._connected_event.wait(timeout=timeout)
+        connected = self._connected_event.wait(timeout=timeout)
+        if not connected:
+            logger.warning(
+                "Tunnel connection failed after %.1fs: %s; reconnecting in background",
+                timeout,
+                tunnel_url,
+            )
+        return connected
 
     def is_connected(self) -> bool:
         """Check if the client is currently connected."""
@@ -176,7 +183,7 @@ class TunnelClient:
                 self._connected_event.clear()  # Clear on disconnect
                 if self._stop_event.is_set():
                     break
-                logger.warning("Tunnel disconnected (%s), reconnecting...", e)
+                logger.debug("Tunnel disconnected (%s), reconnecting...", e)
 
             # Increment attempt after disconnect (before backoff calculation)
             attempt += 1
