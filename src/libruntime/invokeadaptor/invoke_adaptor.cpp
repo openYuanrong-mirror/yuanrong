@@ -176,7 +176,7 @@ InvokeAdaptor::InvokeAdaptor(
     this->waitingObjectManager = waitManager;
     this->generatorReceiver_ = generatorReceiver;
     this->generatorNotifier_ = generatorNotifier;
-    this->functionMasterClient_ = std::make_shared<FMClient>();
+    this->functionMasterClient_ = std::make_shared<FMClient>(config);
     this->functionMasterClient_->SetSubscribeActiveMasterCb(std::bind(&InvokeAdaptor::SubscribeActiveMaster, this));
 
     // for debug instance, a built-in breakpoint is set before executing init call, so that the user can set their
