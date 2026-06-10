@@ -175,6 +175,7 @@ public:
     CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, -1);
     CONFIG_DECLARE(int, YR_HTTP_IDLE_TIME, 30);
     CONFIG_DECLARE(int, YR_NOTIFY_THREAD_POOL_SIZE, 5);
+    CONFIG_DECLARE(std::string, YR_FAAS_DRIVER_MOD, "");
     CONFIG_DECLARE_VALID(std::string, RUN_MODE, "integrated",  // integrated or standalone
                          [](const std::string &val) -> bool { return (val == INTEGRATED || val == STANDALONE); });
     CONFIG_DECLARE(bool, ENABLE_FUNCTION_SCHEDULER, false);  // whether start an in-memory scheduler

@@ -87,7 +87,8 @@ spec:
             - -c
             - |
                 [ ! -d {{quote .Values.global.log.functionSystem.path}} ] && mkdir -p {{quote .Values.global.log.functionSystem.path}}
-                python3 -m yr.cli.main -v launch --env-subst RUNTIME_POD_IP,RUNTIME_HOST_IP,RUNTIME_POD_NAME function_scheduler
+                export ENCRYPT_PRIVATE_KEY_PASSWD=$(cat "{{ .Values.global.mutualSSLConfig.sslBasePath }}/cert_pwd" 2>/dev/null) || true
+                python3 -m yr.cli.main -v launch --env-subst RUNTIME_POD_IP,RUNTIME_HOST_IP,RUNTIME_POD_NAME,ENCRYPT_PRIVATE_KEY_PASSWD function_scheduler
           ports:
             - containerPort: {{ .Values.global.port.functionSchedulerPort }}
               protocol: TCP

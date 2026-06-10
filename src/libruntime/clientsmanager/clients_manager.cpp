@@ -245,6 +245,9 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
                 connectOptions.token = token;
         }
     }
+    if (!token.Empty() && ak.empty() && sk.Empty()) {
+        connectOptions.token = token;
+    }
     std::string tenantId = Config::Instance().YR_TENANT_ID();
     if (!tenantId.empty()) {
         connectOptions.tenantId = tenantId;

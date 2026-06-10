@@ -30,11 +30,6 @@
 
 namespace YR {
 namespace Libruntime {
-// 1、http://IP:PORT; 2、https://IP:PORT; 3、IP:PORT; 4、https://www.xxx.com; 5、http://www.xxx.com
-const std::string HTTP_PROTOCOL_PREFIX = "http://";
-const std::string HTTPS_PROTOCOL_PREFIX = "https://";
-const int32_t HTTPS_DEFAULT_PORT = 443;
-const int32_t HTTP_DEFAULT_PORT = 80;
 const std::string X_TENANT_ID = "X-Tenant-ID";
 const std::string IAM_CREDENTIAL_REQUIRE_PATH = "/iam-server/v1/credential/require";
 struct AkSkInfo {

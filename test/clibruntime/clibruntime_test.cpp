@@ -469,6 +469,7 @@ TEST_F(CLibruntimeTest, CInitTest)
         1,
         0,
         0,
+        "test",
         "privateKeyPath",
         "certificateFilePath",
         "verifyFilePath",

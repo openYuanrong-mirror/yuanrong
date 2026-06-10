@@ -137,6 +137,7 @@ typedef struct tagCLibruntimeConfig {
     char inCluster;
     char isDriver;
     char enableMTLS;
+    char *serverName;
     char *privateKeyPath;
     char *certificateFilePath;
     char *verifyFilePath;

@@ -20,10 +20,13 @@
 
 #include "src/libruntime/libruntime.h"
 #include "src/libruntime/libruntime_config.h"
+#include "src/libruntime/utils/token_manager.h"
 #include "src/utility/logger/log_manager.h"
 namespace YR {
 namespace Libruntime {
 using YR::utility::LogManager;
+const int DEFAULT_TOKEN_REFRESH_TIMEOUT = 5; // second
+const int DEFAULT_TOKEN_REFRESH_BUFFER_TIME = 30; // second
 class LibruntimeManager {
 public:
     static LibruntimeManager &Instance()
@@ -49,6 +52,14 @@ public:
     ErrorInfo HandleInitialized(const LibruntimeConfig &config, const std::string &rtCtx);
 
     void ExecShutdownCallback(int signum, bool needExit = true);
+
+    ErrorInfo InitTokenManager(std::shared_ptr<LibruntimeConfig> librtConfig, std::shared_ptr<Security> security);
+
+    void StartTokenRefresh(std::shared_ptr<Security> security);
+
+    void SchedulerTokenRefresh(std::shared_ptr<Security> security);
+
+    void StopTokenRefresh();
 
 private:
     LibruntimeManager();
@@ -82,6 +93,10 @@ private:
     std::shared_ptr<LogManager> logManager_;
 
     std::once_flag flag_;
+
+    std::shared_ptr<TokenManager> tokenManager_;
+
+    std::shared_ptr<YR::utility::Timer> tokenRefreshTimer_;
 };
 }  // namespace Libruntime
 }  // namespace YR

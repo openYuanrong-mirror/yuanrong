@@ -196,15 +196,20 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
 
 ErrorInfo ClientManager::Init(const ConnectionParam &param)
 {
+    return Init(param, YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM(), RETRY_TIME);
+}
+
+ErrorInfo ClientManager::Init(const ConnectionParam &param, const uint32_t &clientsCnt, const int &retryTime)
+{
     ErrorInfo error = InitCtxAndIocThread();
     if (!error.OK()) {
         return error;
     }
     this->connParam = param;
-    connectedClientsCnt_ = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
+    connectedClientsCnt_ = clientsCnt;
     YRLOG_INFO("http initial connection num {}", connectedClientsCnt_);
     for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
-        for (int j = 0; j < RETRY_TIME; j++) {
+        for (int j = 0; j < retryTime; j++) {
             error = clients[i]->Init(param);
             clients[i]->SetAvailable();
             if (error.OK()) {
@@ -256,6 +261,63 @@ bool ClientManager::SubmitRequest(const http::verb &method, const std::string &t
                 YRLOG_DEBUG("httpclient {} is reInit failed, requestId:{} err: {}", i, *requestId, err.CodeAndMsg());
                 receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
                          HTTP_CONNECTION_ERROR_CODE);
+                this->clients[i]->SetAvailable();
+                return true;
+            }
+        }
+        this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+        return true;
+    }
+    uint32_t newClientIdx = 0;
+    {
+        absl::WriterMutexLock l(&connCntMu_);
+        if (connectedClientsCnt_ >= maxConnSize_) {
+            return false;
+        }
+        newClientIdx = connectedClientsCnt_++;
+    }
+    YRLOG_DEBUG("init httpclient {}", newClientIdx);
+    this->clients[newClientIdx]->Init(this->connParam);
+    this->clients[newClientIdx]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+    return true;
+}
+
+void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                        const std::unordered_map<std::string, std::string> &headers,
+                                        const std::string &body, const std::shared_ptr<std::string> requestId,
+                                        const HttpCallbackFunctionV2 &receiver)
+{
+    for (;;) {
+        if (SubmitRequest(method, target, headers, body, requestId, receiver)) {
+            break;
+        }
+        std::this_thread::yield();
+    }
+}
+
+bool ClientManager::SubmitRequest(const http::verb &method, const std::string &target,
+                                  const std::unordered_map<std::string, std::string> &headers,
+                                  const std::string &body, const std::shared_ptr<std::string> requestId,
+                                  const HttpCallbackFunctionV2 &receiver)
+{
+    for (uint32_t i = 0;; i++) {
+        {
+            absl::ReaderMutexLock l(&connCntMu_);
+            if (i >= connectedClientsCnt_) {
+                break;
+            }
+        }
+        if (!this->clients[i]->SetUnavailable()) {
+            continue;
+        }
+        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
+        if (!this->clients[i]->IsConnActive()) {
+            YRLOG_DEBUG("httpclient {} id not active, reinit now. requestId: {}", i, *requestId);
+            auto err = this->clients[i]->ReInit(requestId);
+            if (!err.OK()) {
+                YRLOG_DEBUG("httpclient {} id reInit failed, requestId: {} err: {}", i, *requestId, err.CodeAndMsg());
+                receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
+                         HTTP_CONNECTION_ERROR_CODE, std::unordered_map<std::string, std::string> {});
                 this->clients[i]->SetAvailable();
                 return true;
             }

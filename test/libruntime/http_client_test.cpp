@@ -210,5 +210,22 @@ TEST_F(HttpClientTest, after_httpserver_stop_request_should_return_once)
     sendMsgHandler();
     ASSERT_EQ(1, future.get());
 }
+
+TEST_F(HttpClientTest, GetRespHeaders_NullParser)
+{
+    if (httpServer_->StartServer(ip_, port_, threadNum)) {
+        std::cout << "start http server success" << std::endl;
+    } else {
+        std::cout << "start http server failed" << std::endl;
+    }
+    std::shared_ptr<LibruntimeConfig> librtCfg = std::make_shared<LibruntimeConfig>();
+    librtCfg->httpIocThreadsNum = 5;
+    auto httpClient = std::make_unique<ClientManager>(librtCfg);
+    auto err = httpClient->Init({"127.0.0.1", "12345"});
+    ASSERT_EQ(err.OK(), true);
+
+    auto result = httpClient->GetRespHeaders();
+    ASSERT_TRUE(result.empty());
+}
 }  // namespace test
 }  // namespace YR

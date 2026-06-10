@@ -33,6 +33,8 @@ namespace asio = boost::asio;
 namespace YR {
 namespace Libruntime {
 using HttpCallbackFunction = std::function<void(const std::string &, const boost::beast::error_code &, const uint)>;
+using HttpCallbackFunctionV2 = std::function<void(const std::string &, const boost::beast::error_code &, const uint,
+                                                  const std::unordered_map<std::string, std::string> &)>;
 const http::verb POST = http::verb::post;
 const http::verb DELETE = http::verb::delete_;
 const http::verb GET = http::verb::get;
@@ -56,6 +58,13 @@ public:
                                      const std::unordered_map<std::string, std::string> &headers,
                                      const std::string &body, const std::shared_ptr<std::string> requestId,
                                      const HttpCallbackFunction &receiver) = 0;
+    virtual void SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                     const std::unordered_map<std::string, std::string> &headers,
+                                     const std::string &body, const std::shared_ptr<std::string> requestId,
+                                     const HttpCallbackFunctionV2 &receiver)
+    {
+        YRLOG_DEBUG("the implementation of SubmitInvokeRequest() function is empty");
+    }
 
     virtual ErrorInfo ReInit(const std::shared_ptr<std::string> requestId)
     {
@@ -152,9 +161,34 @@ public:
         SetAvailable();
     };
 
+    std::unordered_map<std::string, std::string> GetRespHeaders()
+    {
+        std::unordered_map<std::string, std::string> headers;
+        // 1. 检查指针是否有效
+        if (!resParser_) {
+            YRLOG_ERROR("Response parser pointer is null.");
+            return headers;
+        }
+
+        // 2. 检查是否解析完成
+        // 如果还在解析中（例如流式解析未完成），get() 可能返回不完整的数据或未定义的行为
+        if (!resParser_->is_done()) {
+            YRLOG_ERROR("Response parsing is not yet complete.");
+            return headers;
+        }
+
+        // 3. 获取解析完成的 response 对象
+        // gets() 返回的是一个引用：http::response<http::string_body>&
+        for (auto const& field : resParser_->get().base()) {
+            headers.emplace(std::string(field.name_string()), std::string(field.value()));
+        }
+        return headers;
+    };
+
 protected:
     ConnectionParam connParam_;
     HttpCallbackFunction callback_;
+    HttpCallbackFunctionV2 callbackV2_;
     beast::flat_buffer buf_;
     std::shared_ptr<http::response_parser<http::string_body>> resParser_;
     http::request<http::string_body> req_;

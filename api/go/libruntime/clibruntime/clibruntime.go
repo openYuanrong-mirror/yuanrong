@@ -773,6 +773,7 @@ func Init(conf config.Config) error {
 		inCluster:                    C.char(btoi(conf.InCluster)),
 		isDriver:                     C.char(btoi(conf.IsDriver)),
 		enableMTLS:                   C.char(btoi(conf.EnableMTLS)),
+		serverName:                   cServerName,
 		privateKeyPath:               cPrivateKeyPath,
 		certificateFilePath:          cCertificateFilePath,
 		verifyFilePath:               cVerifyFilePath,

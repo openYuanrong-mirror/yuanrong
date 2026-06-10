@@ -415,5 +415,15 @@ TEST_F(SecurityTest, GetAKSKDK)
     EXPECT_TRUE(sk.Empty());
     EXPECT_TRUE(dk.Empty());
 }
+
+TEST_F(SecurityTest, SetTokenEmpty)
+{
+    auto s = std::make_shared<Security>();
+    s->SetToken(SensitiveValue(""));
+    SensitiveValue expectRes;
+    s->GetToken(expectRes);
+    std::string res(expectRes.GetData(), expectRes.GetSize());
+    EXPECT_EQ(res, "");
+}
 }  // namespace test
 }  // namespace YR

@@ -59,6 +59,7 @@ func InitRuntime(conf *common.Configuration, intfs execution.FunctionExecutionIn
 		CertificateFilePath:   conf.CertificateFilePath,
 		VerifyFilePath:        conf.VerifyFilePath,
 		PrivateKeyPaaswd:      conf.PrivateKeyPaaswd,
+		ServerName:            conf.ServerName,
 		Api:                   api.PosixApi,
 		Hooks: config.HookIntfs{
 			LoadFunctionCb:      intfs.LoadFunction,

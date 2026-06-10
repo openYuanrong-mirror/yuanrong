@@ -468,6 +468,7 @@ void ParseAndSetBasicConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCf
 void SetMTLSConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
 {
     librtCfg.enableMTLS = config->enableMTLS != 0;
+    librtCfg.serverName = config->serverName;
     librtCfg.privateKeyPath = config->privateKeyPath;
     librtCfg.certificateFilePath = config->certificateFilePath;
     librtCfg.verifyFilePath = config->verifyFilePath;

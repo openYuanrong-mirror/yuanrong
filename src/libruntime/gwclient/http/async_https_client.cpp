@@ -37,8 +37,24 @@ void AsyncHttpsClient::SubmitInvokeRequest(const http::verb &method, const std::
                                            const std::string &body, const std::shared_ptr<std::string> requestId,
                                            const HttpCallbackFunction &receiver)
 {
-    retried_ = false;
     callback_ = receiver;
+    SubmitInvokeRequest(method, target, headers, body, requestId);
+}
+
+void AsyncHttpsClient::SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                           const std::unordered_map<std::string, std::string> &headers,
+                                           const std::string &body, const std::shared_ptr<std::string> requestId,
+                                           const HttpCallbackFunctionV2 &receiver)
+{
+    callbackV2_ = receiver;
+    SubmitInvokeRequest(method, target, headers, body, requestId);
+}
+
+void AsyncHttpsClient::SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                           const std::unordered_map<std::string, std::string> &headers,
+                                           const std::string &body, const std::shared_ptr<std::string> requestId)
+{
+    retried_ = false;
     req_ = {method, target, DEFAULT_HTTP_VERSION};
     for (auto &iter : headers) {
         req_.set(iter.first, iter.second);
@@ -124,6 +140,9 @@ void AsyncHttpsClient::OnWrite(const std::shared_ptr<std::string> requestId, con
     }
     if (callback_) {
         callback_(HTTP_CONNECTION_ERROR_MSG, ec, HTTP_CONNECTION_ERROR_CODE);
+    } else if (callbackV2_) {
+        callbackV2_(HTTP_CONNECTION_ERROR_MSG, ec, HTTP_CONNECTION_ERROR_CODE,
+                    std::unordered_map<std::string, std::string> {});
     }
     SetConnInActive();
     SetAvailable();
@@ -141,6 +160,8 @@ void AsyncHttpsClient::OnRead(const std::shared_ptr<std::string> requestId, cons
 
     if (callback_) {
         callback_(resParser_->get().body(), ec, resParser_->get().result_int());
+    } else if (callbackV2_) {
+        callbackV2_(resParser_->get().body(), ec, resParser_->get().result_int(), GetRespHeaders());
     }
     CheckResponseHeaderAndReset();
 }

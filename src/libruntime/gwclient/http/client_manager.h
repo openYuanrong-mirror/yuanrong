@@ -33,15 +33,23 @@ public:
     ~ClientManager() override;
 
     virtual ErrorInfo Init(const ConnectionParam &param) override;
+    ErrorInfo Init(const ConnectionParam &param, const uint32_t &clientsCnt, const int &retryTime);
     virtual void SubmitInvokeRequest(const http::verb &method, const std::string &target,
                                      const std::unordered_map<std::string, std::string> &headers,
                                      const std::string &body, const std::shared_ptr<std::string> requestId,
                                      const HttpCallbackFunction &receiver) override;
+    virtual void SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                     const std::unordered_map<std::string, std::string> &headers,
+                                     const std::string &body, const std::shared_ptr<std::string> requestId,
+                                     const HttpCallbackFunctionV2 &receiver) override;
     void Stop();
 private:
     bool SubmitRequest(const http::verb &method, const std::string &target,
                        const std::unordered_map<std::string, std::string> &headers, const std::string &body,
                        const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver);
+    bool SubmitRequest(const http::verb &method, const std::string &target,
+                       const std::unordered_map<std::string, std::string> &headers, const std::string &body,
+                       const std::shared_ptr<std::string> requestId, const HttpCallbackFunctionV2 &receiver);
     ErrorInfo InitCtxAndIocThread();
     ErrorInfo InitMtlsClients();
     ErrorInfo InitOneWayTlsClients();

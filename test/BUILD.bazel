@@ -131,6 +131,10 @@ cc_test(
 cc_test(
   name = "libruntime_test",
   srcs = [
+    "libruntime/httpserver/common_server.h",
+    "libruntime/httpserver/common_server.cpp",
+    "libruntime/httpserver/async_http_server.h",
+    "libruntime/httpserver/async_https_server.h",
     "libruntime/invoke_adaptor_test.cpp",
     "libruntime/agent_session_manager_test.cpp",
     "libruntime/libruntime_manager_test.cpp",
@@ -161,6 +165,13 @@ cc_test(
   copts = [
           "-fno-access-control",
   ],
+  data = [
+    "data/cert/ca.crt",
+    "data/cert/client.crt",
+    "data/cert/client.key",
+    "data/cert/server.crt",
+    "data/cert/server.key"
+  ],
   linkstatic = True,
 )
 
@@ -168,6 +179,26 @@ cc_test(
   name = "tenant_ak_sk_test",
   srcs = [
     "libruntime/ak_sk_manager_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  copts = [
+    "-fno-access-control",
+  ],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "token_manager_test",
+  srcs = [
+    "libruntime/httpserver/common_server.h",
+    "libruntime/httpserver/common_server.cpp",
+    "libruntime/httpserver/async_http_server.h",
+    "libruntime/httpserver/async_https_server.h",
+    "libruntime/token_manager_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",

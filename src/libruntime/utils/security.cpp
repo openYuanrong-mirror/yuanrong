@@ -380,5 +380,16 @@ void Security::SetAKSKAndCredential(const std::string &ak, const SensitiveValue 
     this->isCredential_ = true;
 }
 
+void Security::SetToken(const SensitiveValue &token)
+{
+    this->token_ = token;
+}
+
+void Security::UpdateTokenHandlers()
+{
+    for (auto &h : this->updateTokenHandlers) {
+        h(this->token_);
+    }
+}
 }  // namespace Libruntime
 }  // namespace YR

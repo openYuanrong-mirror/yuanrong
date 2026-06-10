@@ -254,6 +254,10 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             return err;
         }
     }
+    auto initTokenManagerErr = InitTokenManager(librtConfig, security);
+    if (!initTokenManagerErr.OK()) {
+        return initTokenManagerErr;
+    }
     std::string metricsRootCertData;
     std::string metricsCertData;
     std::string metricsKeyData;
@@ -326,6 +330,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
 
 void LibruntimeManager::Finalize(const std::string &rtCtx)
 {
+    StopTokenRefresh();
     std::shared_ptr<LibruntimeConfig> librtConfig = nullptr;
     {
         std::lock_guard<std::mutex> rtCfgLK(rtCfgMtx);
@@ -466,6 +471,71 @@ void LibruntimeManager::ExecShutdownCallback(int signum, bool needExit)
     YRLOG_INFO("End to call SigtermHandler, signum: {}", signum);
     if (needExit) {
         exit(signum);
+    }
+}
+
+ErrorInfo LibruntimeManager::InitTokenManager(std::shared_ptr<LibruntimeConfig> librtConfig,
+                                              std::shared_ptr<Security> security)
+{
+    this->tokenManager_ = std::make_shared<YR::Libruntime::TokenManager>(librtConfig);
+    if (!this->tokenManager_->IsInitToken()) {
+        return {};
+    }
+    auto initErr = this->tokenManager_->Init();
+    if (!initErr.OK()) {
+        return initErr;
+    }
+
+    // 定时任务，更新维护 security 的 token
+    StartTokenRefresh(security);
+    return {};
+}
+
+void LibruntimeManager::StartTokenRefresh(std::shared_ptr<Security> security)
+{
+    int64_t nextRefreshSeconds = 0;
+    auto [tokenSalt, err] = this->tokenManager_->RequireToken();
+    if (!err.OK() || !tokenSalt) {
+        YRLOG_ERROR("libruntime require token failed, will retry {}", err.OK() ? "tokenSalt is nullptr" : err.Msg());
+        nextRefreshSeconds = DEFAULT_TOKEN_REFRESH_TIMEOUT;
+    } else {
+        security->SetToken(SensitiveValue(tokenSalt->token));
+        security->UpdateTokenHandlers();
+        // 计算下次任务刷新时间，提前30s，避免token提前过期
+        auto now = std::chrono::system_clock::now();
+        auto nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+        nextRefreshSeconds = tokenSalt->expiredTimeStamp - nowSeconds - DEFAULT_TOKEN_REFRESH_BUFFER_TIME;
+    }
+    if (nextRefreshSeconds <= 0) {
+        nextRefreshSeconds = 1;
+    }
+    YRLOG_WARN("token will expire, next refresh in {}s", nextRefreshSeconds);
+    auto timeoutMs = nextRefreshSeconds * 1000;
+    if (tokenRefreshTimer_ == nullptr) {
+        tokenRefreshTimer_ = YR::utility::ExecuteByGlobalTimer(
+            [this, security]() { SchedulerTokenRefresh(security); },
+            timeoutMs,
+            1
+        );
+    } else {
+        YR::utility::ExecuteByGlobalTimer(
+            [this, security]() { SchedulerTokenRefresh(security); },
+            timeoutMs,
+            tokenRefreshTimer_
+        );
+    }
+}
+
+void LibruntimeManager::SchedulerTokenRefresh(std::shared_ptr<Security> security)
+{
+    StartTokenRefresh(security);
+}
+
+void LibruntimeManager::StopTokenRefresh()
+{
+    if (tokenRefreshTimer_ != nullptr) {
+        YR::utility::CancelGlobalTimer(tokenRefreshTimer_);
+        tokenRefreshTimer_ = nullptr;
     }
 }
 }  // namespace Libruntime

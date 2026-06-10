@@ -52,6 +52,7 @@ type Configuration struct {
 	JobID                        string
 	DriverMode                   bool
 	EnableMTLS                   bool
+	ServerName                   string
 	PrivateKeyPath               string
 	CertificateFilePath          string
 	VerifyFilePath               string
@@ -87,6 +88,7 @@ func initConfig() {
 			flag.StringVar(&configSingleton.cfg.JobID, "jobId", "12345678", "")
 			flag.BoolVar(&configSingleton.cfg.DriverMode, "driverMode", false, "")
 			flag.BoolVar(&configSingleton.cfg.EnableMTLS, "enableMTLS", false, "")
+			flag.StringVar(&configSingleton.cfg.ServerName, "serverName", "", "")
 			flag.StringVar(&configSingleton.cfg.PrivateKeyPath, "privateKeyPath", "", "")
 			flag.StringVar(&configSingleton.cfg.CertificateFilePath, "certificateFilePath", "", "")
 			flag.StringVar(&configSingleton.cfg.VerifyFilePath, "verifyFilePath", "", "")

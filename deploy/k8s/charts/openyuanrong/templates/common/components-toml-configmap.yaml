@@ -478,6 +478,7 @@ data:
     bin_path = "/home/sn/frontend/bin/goruntime"
 
     [frontend.env]
+    GODEBUG="cgocheck=0,invalidptr=0"
     POD_IP="{RUNTIME_POD_IP}"
     NODE_IP="{RUNTIME_HOST_IP}"
     HOST_IP="{RUNTIME_HOST_IP}"
@@ -616,6 +617,7 @@ data:
     FUNCTION_META_PATH="/home/sn/function-metas"
     RESOURCE_PATH="/home/sn/resource"
     LIB_PATH=""
+    YR_FAAS_DEIVER_MOD="MICROSERVICE"
 
 
     [frontend.args]
@@ -629,12 +631,49 @@ data:
     functionSystemAddress="{RUNTIME_HOST_IP}:32568"
     driverMode="true"
     enableEvent={{ quote .Values.global.common.enableEvent }}
+    iamAddress="http://iam-adaptor.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.global.port.iamAdapterHttpPort }}"
+    serverName={{ quote .Values.global.mutualSSLConfig.serverName }}
+    {{ if .Values.global.mutualSSLConfig.sslEnable }}
+      enableMTLS={{ .Values.global.mutualSSLConfig.sslEnable }}
+      {{ if .Values.global.mutualSSLConfig.sslBasePath }}
+        privateKeyPath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.key"
+        certificateFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.crt"
+        verifyFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/ca.crt"
+        encryptPrivateKeyPasswd="{ENCRYPT_PRIVATE_KEY_PASSWD}"
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ else }}
+        privateKeyPath=""
+        certificateFilePath=""
+        verifyFilePath=""
+        encryptPrivateKeyPasswd=""
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ end }}
+    {{ else if and (.Values.global.scc.enable) (.Values.global.scc.basePath) }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile="{{ .Values.global.scc.basePath }}/primary.ks"
+      standbyKeyStoreFile="{{ .Values.global.scc.basePath }}/standby.ks"
+    {{ else }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile=""
+      standbyKeyStoreFile=""
+    {{ end }}
 
 
     [function_manager]
     bin_path = "/home/sn/manager/bin/goruntime"
 
     [function_manager.env]
+    GODEBUG="cgocheck=0,invalidptr=0"
     POD_IP="{RUNTIME_POD_IP}"
     NODE_IP="{RUNTIME_HOST_IP}"
     HOST_IP="{RUNTIME_HOST_IP}"
@@ -771,6 +810,7 @@ data:
     FUNCTION_META_PATH="/home/sn/function-metas"
     RESOURCE_PATH="/home/sn/resource"
     LIB_PATH=""
+    YR_FAAS_DEIVER_MOD="MICROSERVICE"
 
     [function_manager.args]
     runtimeConfigPath="/home/sn/config/config.json"
@@ -782,12 +822,49 @@ data:
     logPath={{ quote .Values.global.log.functionSystem.path}}
     functionSystemAddress="{RUNTIME_HOST_IP}:32568"
     driverMode="true"
+    iamAddress="http://iam-adaptor.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.global.port.iamAdapterHttpPort }}"
+    serverName={{ quote .Values.global.mutualSSLConfig.serverName }}
+    {{ if .Values.global.mutualSSLConfig.sslEnable }}
+      enableMTLS={{ .Values.global.mutualSSLConfig.sslEnable }}
+      {{ if .Values.global.mutualSSLConfig.sslBasePath }}
+        privateKeyPath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.key"
+        certificateFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.crt"
+        verifyFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/ca.crt"
+        encryptPrivateKeyPasswd="{ENCRYPT_PRIVATE_KEY_PASSWD}"
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ else }}
+        privateKeyPath=""
+        certificateFilePath=""
+        verifyFilePath=""
+        encryptPrivateKeyPasswd=""
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ end }}
+    {{ else if and (.Values.global.scc.enable) (.Values.global.scc.basePath) }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile="{{ .Values.global.scc.basePath }}/primary.ks"
+      standbyKeyStoreFile="{{ .Values.global.scc.basePath }}/standby.ks"
+    {{ else }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile=""
+      standbyKeyStoreFile=""
+    {{ end }}
 
 
     [function_scheduler]
     bin_path = "/home/sn/scheduler/bin/goruntime"
 
     [function_scheduler.env]
+    GODEBUG="cgocheck=0,invalidptr=0"
     POD_IP="{RUNTIME_POD_IP}"
     NODE_IP="{RUNTIME_HOST_IP}"
     HOST_IP="{RUNTIME_HOST_IP}"
@@ -924,6 +1001,7 @@ data:
     FUNCTION_META_PATH="/home/sn/function-metas"
     RESOURCE_PATH="/home/sn/resource"
     LIB_PATH=""
+    YR_FAAS_DEIVER_MOD="MICROSERVICE"
 
     [function_scheduler.args]
     runtimeConfigPath="/home/sn/config/config.json"
@@ -935,3 +1013,39 @@ data:
     logPath={{ quote .Values.global.log.functionSystem.path}}
     functionSystemAddress="{RUNTIME_HOST_IP}:32568"
     driverMode="true"
+    iamAddress="http://iam-adaptor.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.global.port.iamAdapterHttpPort }}"
+    serverName={{ quote .Values.global.mutualSSLConfig.serverName }}
+    {{ if .Values.global.mutualSSLConfig.sslEnable }}
+      enableMTLS={{ .Values.global.mutualSSLConfig.sslEnable }}
+      {{ if .Values.global.mutualSSLConfig.sslBasePath }}
+        privateKeyPath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.key"
+        certificateFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/module.crt"
+        verifyFilePath="{{ .Values.global.mutualSSLConfig.sslBasePath }}/ca.crt"
+        encryptPrivateKeyPasswd="{ENCRYPT_PRIVATE_KEY_PASSWD}"
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ else }}
+        privateKeyPath=""
+        certificateFilePath=""
+        verifyFilePath=""
+        encryptPrivateKeyPasswd=""
+        primaryKeyStoreFile=""
+        standbyKeyStoreFile=""
+      {{ end }}
+    {{ else if and (.Values.global.scc.enable) (.Values.global.scc.basePath) }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile="{{ .Values.global.scc.basePath }}/primary.ks"
+      standbyKeyStoreFile="{{ .Values.global.scc.basePath }}/standby.ks"
+    {{ else }}
+      enableMTLS=""
+      privateKeyPath=""
+      certificateFilePath=""
+      verifyFilePath=""
+      encryptPrivateKeyPasswd=""
+      primaryKeyStoreFile=""
+      standbyKeyStoreFile=""
+    {{ end }}

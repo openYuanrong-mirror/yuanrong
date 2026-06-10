@@ -140,6 +140,10 @@ public:
 
     std::string GetValueFromFile(const std::string &path);
 
+    virtual void SetToken(const SensitiveValue &token);
+
+    void UpdateTokenHandlers();
+
 private:
     void StreamReaderWaitHandler(const boost::system::error_code &error,
                                  std::shared_ptr<YR::utility::NotificationUtility> notify);

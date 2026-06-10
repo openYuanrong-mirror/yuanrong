@@ -47,7 +47,13 @@ const std::string AFFINITYSCOPE_POD = "POD";
 const std::string AFFINITYSCOPE_NODE = "NODE";
 const std::string DEFAULT_YR_NAMESPACE = "yr_defalut_namespace";
 const std::string EVENT_EOF = "yuanrong_event_EOF";
+const std::string FAAS_DRIVER_MOD_MICROSERVICE = "MICROSERVICE";
 const std::string INSTANCE_REQUIREMENT_ACCEPT = "accept";
 const std::string INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM = "text/event-stream";
+// 1、http://IP:PORT; 2、https://IP:PORT; 3、IP:PORT; 4、https://www.xxx.com; 5、http://www.xxx.com
+const std::string HTTP_PROTOCOL_PREFIX = "http://";
+const std::string HTTPS_PROTOCOL_PREFIX = "https://";
+const int32_t HTTPS_DEFAULT_PORT = 443;
+const int32_t HTTP_DEFAULT_PORT = 80;
 }  // namespace Libruntime
 }  // namespace YR

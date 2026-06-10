@@ -560,6 +560,7 @@ global:
   scc:
     # If true, SCC encrypt and decrypt will be enabled and using scc secret key
     enable: false
+    basePath: "/home/snuser/secret/scc"
     secretName: "scc-ks-secret"
     primaryContent: ""
     standbyContext: ""

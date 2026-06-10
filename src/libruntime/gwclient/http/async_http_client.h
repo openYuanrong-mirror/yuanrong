@@ -45,6 +45,13 @@ public:
                              const std::unordered_map<std::string, std::string> &headers, const std::string &body,
                              const std::shared_ptr<std::string> requestId,
                              const HttpCallbackFunction &receiver) override;
+    void SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                             const std::unordered_map<std::string, std::string> &headers, const std::string &body,
+                             const std::shared_ptr<std::string> requestId,
+                             const HttpCallbackFunctionV2 &receiver) override;
+    void SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                             const std::unordered_map<std::string, std::string> &headers, const std::string &body,
+                             const std::shared_ptr<std::string> requestId);
 
     void OnRead(const std::shared_ptr<std::string> requestId, const beast::error_code &ec,
                 std::size_t bytesTransferred);
