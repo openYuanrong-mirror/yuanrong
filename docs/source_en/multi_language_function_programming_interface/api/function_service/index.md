@@ -31,7 +31,7 @@ This section introduces the Function Service API for developing, managing, and i
 
 ## Function Development SDK
 
-- [Python SDK](./Python/index.rst)
+- [Python SDK](./Python/python_sdk.rst)
 - [C++ SDK](./Cpp/cpp_sdk.md)
 - [Java SDK](./Java/java_sdk.md)
 

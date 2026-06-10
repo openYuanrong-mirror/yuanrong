@@ -16,7 +16,7 @@ openYuanrong provides function service capabilities, supporting openYuanrong fun
 
 - handler: Method name, customizable.
 - event: Request parameters for the function service, including request headers, request body, etc., in JSON object format.
-- context: Context information provided by the openYuanrong runtime. For interface introduction, see Function Service [Python SDK](../../api/function_service/Python/index.rst).
+- context: Context information provided by the openYuanrong runtime. For interface introduction, see Function Service [Python SDK](../../api/function_service/Python/python_sdk.rst).
 
 ```python
 def handler(event, context)
@@ -179,7 +179,7 @@ The Initializer callback method signature is as follows:
 ::::{tab-item} Python
 
 - initializer: Method name, customizable.
-- context: Context information provided by the openYuanrong runtime. For interface introduction, see Function Service [Python SDK](../../api/function_service/Python/index.rst).
+- context: Context information provided by the openYuanrong runtime. For interface introduction, see Function Service [Python SDK](../../api/function_service/Python/python_sdk.rst).
 
 ```python
 def initializer(context)

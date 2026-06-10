@@ -14,7 +14,7 @@ The openYuanrong initialization interface.
 
 - Returns:
 
-    [ClientInfo](#public-class-clientinfo): openYuanrong client info.
+   [ClientInfo](clientinfo-class): openYuanrong client info.
 
 ### public static ClientInfo init(Config conf) throws YRException
 
@@ -38,7 +38,9 @@ ClientInfo jobid = YR.init(conf);
 
 - Returns:
 
-    [ClientInfo](#public-class-clientinfo): openYuanrong client info.
+   [ClientInfo](clientinfo-class): openYuanrong client info.
+
+(clientinfo-class)=
 
 ## public class ClientInfo
 

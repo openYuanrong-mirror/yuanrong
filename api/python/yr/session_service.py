@@ -32,7 +32,9 @@ class ManagedSessionObj:
     """
     Managed Session Object.
 
-    Session Data Structure::
+    Session Data Structure:
+
+    .. code-block:: json
 
         {
             "sessionID": "s-123",
@@ -199,8 +201,9 @@ class SessionService:
         Note:
             - Returns None when current request does not carry sessionId
             - Returns None when use_agent_session=false
-            - When use_agent_session=true and session is not created, runtime automatically creates
-              empty SessionObj and writes to DataSystem, load_session() still returns object (with empty content)
+            - When use_agent_session=true and session is not created, runtime automatically
+              creates empty SessionObj and writes to DataSystem, load_session() still
+              returns object (with empty content)
 
         Returns:
             ManagedSessionObj, or None when sessionId is empty

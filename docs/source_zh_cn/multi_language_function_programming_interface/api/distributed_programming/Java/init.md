@@ -16,7 +16,7 @@ openYuanrong 初始化接口。
 
 - 返回:
 
-    [ClientInfo](#public-class-clientinfo): openYuanrong 客户端信息。
+   [ClientInfo](clientinfo-class): openYuanrong 客户端信息。
 
 #### public static ClientInfo init(Config conf) throws YRException
 
@@ -38,7 +38,9 @@ ClientInfo jobid = YR.init(conf);
 
 - 返回：
 
-    [ClientInfo](#public-class-clientinfo): openYuanrong 客户端信息。
+   [ClientInfo](clientinfo-class): openYuanrong 客户端信息。
+
+(clientinfo-class)=
 
 ## public class ClientInfo
 

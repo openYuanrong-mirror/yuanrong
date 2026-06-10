@@ -57,19 +57,17 @@ class UserTLSConfig:
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class DeploymentConfig:
     """
-    AutoDeploymentConfig
-
-    Attributes:
-        cpu(str): cpu acquired, the unit is millicpu
-        mem(str): mem acquiored (MB)
-        datamem(str): data system mem acquired (MB)
-        spill_path(str): spill path, when out of memory will flush data to disk
-        spill_size(str): spill size limit (MB)
+    AutoDeploymentConfig.
     """
+    #: cpu acquired, the unit is millicpu.
     cpu: int = 0
+    #: mem acquiored (MB).
     mem: int = 0
+    #: data system mem acquired (MB).
     datamem: int = 0
+    #: spill path, when out of memory will flush data to disk.
     spill_path: str = ""
+    #: spill size limit (MB).
     spill_limit: int = 0
 
 
