@@ -43,6 +43,7 @@ current_time_str = build_time.strftime("%Y-%m-%d %H:%M:%S")
 project = "openYuanrong"
 copyright = f"{build_time.year}, openEuler openYuanrong"
 author = "openYuanrong with CC BY 4.0 LICENSE"
+language = "zh_CN"
 
 logging.info(
     f"""Doc build configs:
