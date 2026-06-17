@@ -87,6 +87,10 @@ extensions = [
 ]
 sitemap_url_scheme = "{link}"
 sitemap_show_lastmod = True
+sitemap_excludes = [
+    "search.html",
+    "genindex.html",
+]
 autoclass_content = "both"
 copybutton_exclude = ".linenos, .gp, .go"
 

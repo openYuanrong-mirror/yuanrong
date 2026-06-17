@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /zh-cn/latest/
-Disallow: /zh-cn/0.*
+Disallow: /zh-cn/
 Disallow: */search.html
