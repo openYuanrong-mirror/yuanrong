@@ -374,6 +374,7 @@ public:
     virtual bool IsHealth() = 0;
     virtual void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instaceId) {}
     virtual int GetSelfPort() const { return -1; }
+    virtual std::string GetSelfIP() const { return ""; }
     void SetAgentSessionManager(const std::shared_ptr<AgentSessionManager> &agentSessionManager)
     {
         agentSessionManager_ = agentSessionManager;
@@ -459,6 +460,12 @@ private:
         bool WaitInitialized(void)
         {
             n.WaitForNotification();
+            absl::ReaderMutexLock lock(&this->mu);
+            return state == INITIALIZED;
+        }
+
+        bool IsInitialized()
+        {
             absl::ReaderMutexLock lock(&this->mu);
             return state == INITIALIZED;
         }

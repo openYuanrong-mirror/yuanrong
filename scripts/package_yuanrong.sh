@@ -198,6 +198,15 @@ function copy_datasystem_k8s_assets() {
     fi
 }
 
+function require_release_file() {
+    local pattern=$1
+    local label=$2
+    local matched
+
+    matched=$(resolve_first_match "${pattern}") || die "Missing ${label}: ${pattern}"
+    echo "Verified ${label}: ${matched}"
+}
+
 function parse_args () {
     getopt_cmd=$(getopt -o v:h -l version:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
@@ -387,6 +396,19 @@ cat >${OUTPUT_DIR}/openyuanrong/VERSION <<EOF
 "${BUILD_VERSION}"
 EOF
 [ -d "${OUTPUT_DIR}/openyuanrong/runtime/sdk/cpp" ] && cp -ar ${OUTPUT_DIR}/openyuanrong/VERSION ${OUTPUT_DIR}/openyuanrong/runtime/sdk/cpp/VERSION
+
+require_release_file \
+  "${OUTPUT_DIR}/openyuanrong/datasystem/sdk/datasystem-*_*.jar" \
+  "datasystem Java SDK jar"
+require_release_file \
+  "${OUTPUT_DIR}/openyuanrong/datasystem/sdk/openyuanrong_datasystem_sdk*.whl" \
+  "datasystem Python SDK wheel"
+require_release_file \
+  "${OUTPUT_DIR}/openyuanrong/runtime/sdk/java/faas-function-sdk-*.jar" \
+  "FaaS Java SDK jar"
+require_release_file \
+  "${OUTPUT_DIR}/openyuanrong/runtime/sdk/java/yr-api-sdk-*.jar" \
+  "YuanRong Java API SDK jar"
 
 baseTime_s=$(date +%s)
 tar -zcf openyuanrong-${BUILD_VERSION}.tar.gz openyuanrong

@@ -90,11 +90,6 @@ private:
         const std::shared_ptr<LibruntimeConfig> &librtCfg, std::int32_t connectTimeout);
 #endif  // ENABLE_DATASYSTEM
 
-    ConnectOptions BuildDsConnectOptions(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-        const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-        const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-        const datasystem::SensitiveValue &sk, std::int32_t connectTimeout);
-
     std::pair<std::shared_ptr<ClientManager>, ErrorInfo> InitHttpClient(
         const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &librtCfg);
 

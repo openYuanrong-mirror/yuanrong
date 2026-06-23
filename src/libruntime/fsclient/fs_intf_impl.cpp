@@ -58,6 +58,26 @@ static const StreamingMessage INVOKE_RESPONSE = []() {
     return fake;
 }();
 
+static std::string ResolveDriverListenIpAddr(const std::string &functionProxyIp, bool enableEvent)
+{
+    if (!enableEvent) {
+        return functionProxyIp;
+    }
+    auto &config = Config::Instance();
+    if (!config.POSIX_LISTEN_ADDR().empty()) {
+        std::string listenIp;
+        int32_t listenPort = 0;
+        ParseIpAddr(config.POSIX_LISTEN_ADDR(), listenIp, listenPort);
+        if (!listenIp.empty()) {
+            return listenIp;
+        }
+    }
+    if (!config.POD_IP().empty()) {
+        return config.POD_IP();
+    }
+    return functionProxyIp;
+}
+
 FSIntfImpl::FSIntfImpl(const std::string &ipAddr, int port, FSIntfHandlers handlers, bool isDriver,
                        std::shared_ptr<Security> sec, std::shared_ptr<ClientsManager> clientsMgr, bool enableClientMode,
                        bool enableEvent)
@@ -74,7 +94,7 @@ FSIntfImpl::FSIntfImpl(const std::string &ipAddr, int port, FSIntfHandlers handl
         fsPort = port;
         selfPort = 0;
         fsIp = ipAddr;
-        listeningIpAddr = ipAddr;
+        listeningIpAddr = ResolveDriverListenIpAddr(ipAddr, enableEvent);
     } else if (enableClientMode) {
         // client mode the input address is runtime address.
         fsIp = ParseIpAddr(Config::Instance().YR_SERVER_ADDRESS()).ip;
@@ -1574,6 +1594,11 @@ bool FSIntfImpl::IsHealth()
 int FSIntfImpl::GetSelfPort() const
 {
     return this->selfPort;
+}
+
+std::string FSIntfImpl::GetSelfIP() const
+{
+    return this->listeningIpAddr;
 }
 
 ErrorInfo FSIntfImpl::ReconnectProxyClient(const std::string &newFsIp, int newFsPort)

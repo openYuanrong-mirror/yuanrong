@@ -76,26 +76,6 @@ replace_in_file() {
     rm -f "${file}.bak"
 }
 
-ensure_chart_dependencies() {
-    local chart_file="$1"
-    if grep -Eq '^dependencies:' "${chart_file}"; then
-        return 0
-    fi
-    tee -a "${chart_file}" >/dev/null <<'EOF'
-
-dependencies:
-  - name: datasystem
-    version: "2.2"
-    repository: "file://charts/datasystem"
-  - name: etcd
-    version: "0.1.0"
-    repository: "file://charts/etcd"
-  - name: minio
-    version: "0.1.0"
-    repository: "file://charts/minio"
-EOF
-}
-
 main() {
     require_bin curl
     require_bin git
@@ -137,10 +117,8 @@ main() {
     replace_in_file "${WORK_DIR}/helm/OpenYuanRong/values.yaml" "ImageRepo" "${IMAGE_REPO}/"
     replace_in_file "${WORK_DIR}/helm/OpenYuanRong/values.yaml" "version_replace" "${IMAGE_TAG}"
     replace_in_file "${WORK_DIR}/helm/OpenYuanRong/charts/datasystem/values.yaml" "version_replace" "${IMAGE_TAG}"
-    ensure_chart_dependencies "${WORK_DIR}/helm/OpenYuanRong/Chart.yaml"
 
     cp "${WORK_DIR}/helm/OpenYuanRong/values.yaml" "${METADATA_DIR}/openyuanrong-image-values.yaml"
-    helm lint "${WORK_DIR}/helm/OpenYuanRong"
     helm template openyuanrong "${WORK_DIR}/helm/OpenYuanRong" \
         >"${MANIFEST_DIR}/openyuanrong.yaml"
     helm package "${WORK_DIR}/helm/OpenYuanRong" \

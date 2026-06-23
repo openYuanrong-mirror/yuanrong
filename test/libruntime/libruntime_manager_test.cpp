@@ -19,7 +19,7 @@
 #include <boost/beast/http.hpp>
 
 #include "mock/mock_security.h"
-#include "httpserver/async_https_server.h"
+#include "httpserver/async_http_server.h"
 #include "src/libruntime/libruntime_manager.h"
 #define private public
 
@@ -87,7 +87,7 @@ TEST_F(LibruntimeManagerTest, HandleInitializedTest)
 class LibruntimeManagerTest2 : public ::testing::Test {
 public:
     void SetUp() override {
-        httpsServer_ = std::make_shared<AsyncHttpsServer>();
+        httpServer_ = std::make_shared<AsyncHttpServer>();
         libruntimeManager_ = &YR::Libruntime::LibruntimeManager::Instance();
     }
 
@@ -98,7 +98,7 @@ public:
     }
 
 private:
-    std::shared_ptr<AsyncHttpsServer> httpsServer_;
+    std::shared_ptr<AsyncHttpServer> httpServer_;
     std::string ip_ = "127.0.0.1";
     unsigned short port_ = 12346;
     int threadNum = 8;
@@ -109,31 +109,7 @@ private:
 std::shared_ptr<LibruntimeConfig> ConstructLibruntimeConfig()
 {
     std::shared_ptr<LibruntimeConfig> librtCfg = std::make_shared<LibruntimeConfig>();
-    librtCfg->enableMTLS = true;
-    librtCfg->verifyFilePath = "./test/data/cert/ca.crt";
-    librtCfg->certificateFilePath = "./test/data/cert/client.crt";
-    std::strcpy(librtCfg->privateKeyPaaswd, "test");
-    librtCfg->privateKeyPath = "./test/data/cert/client.key";
-    // The serverName is not verified.
-    librtCfg->serverName = "test";
     return librtCfg;
-}
-
-std::shared_ptr<ssl::context> ConstructSslContext()
-{
-    try {
-        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ctx->set_options(boost::asio::ssl::context::default_workarounds | boost::asio::ssl::context::no_sslv2);
-        ctx->load_verify_file("./test/data/cert/ca.crt");
-        ctx->use_certificate_chain_file("./test/data/cert/server.crt");
-        ctx->set_password_callback(
-            [](std::size_t max_length, ssl::context_base::password_purpose purpose) { return "test"; });
-        ctx->use_private_key_file("./test/data/cert/server.key", ssl::context::pem);
-        return ctx;
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << std::endl;
-        return nullptr;
-    }
 }
 
 TEST_F(LibruntimeManagerTest2, InitTokenManager)
@@ -146,16 +122,14 @@ TEST_F(LibruntimeManagerTest2, InitTokenManager)
 
 TEST_F(LibruntimeManagerTest2, SchedulerTokenRefresh)
 {
-    auto ctx = ConstructSslContext();
-    ASSERT_TRUE(ctx != nullptr);
-    if (httpsServer_->StartServer(ip_, port_, threadNum, ctx)) {
-        std::cout << "start https server success" << std::endl;
+    if (httpServer_->StartServer(ip_, port_, threadNum)) {
+        std::cout << "start http server success" << std::endl;
     } else {
-        std::cout << "start https server failed" << std::endl;
+        std::cout << "start http server failed" << std::endl;
     }
     auto librtCfg = ConstructLibruntimeConfig();
     librtCfg->httpIocThreadsNum = 5;
-    librtCfg->iamAddress = "https://127.0.0.1:12346";
+    librtCfg->iamAddress = "http://127.0.0.1:12346";
     auto tokenManager = std::make_shared<TokenManager>(librtCfg, 3);
     auto initErr = tokenManager->Init();
     EXPECT_TRUE(initErr.OK());

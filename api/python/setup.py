@@ -59,6 +59,16 @@ def get_version():
     return version
 
 
+def get_component_version(component, fallback):
+    """get split component package version"""
+    version_path = os.path.join(ROOT_DIR, "..", "..", component, "VERSION")
+    if not os.path.exists(version_path):
+        return fallback
+    with open(version_path, "r", encoding="utf-8") as version_file:
+        version = version_file.read().strip()
+    return version or fallback
+
+
 class SetupType(Enum):
     """setup type enum"""
 
@@ -218,10 +228,11 @@ else:
     setup_spec.extras["cpp"] = [f"{base_name}_cpp_sdk==" + setup_spec.version]
     setup_spec.extras["dashboard"] = [f"{base_name}_dashboard==" + setup_spec.version]
     setup_spec.extras["faas"] = [f"{base_name}_faas==" + setup_spec.version]
+    datasystem_version = get_component_version("datasystem", setup_spec.version)
     setup_spec.extras["default"] = [
         f"{base_name}_runtime==" + setup_spec.version,
         f"{base_name}_functionsystem==" + setup_spec.version,
-        f"{base_name}_datasystem==" + setup_spec.version,
+        f"{base_name}_datasystem==" + datasystem_version,
     ]
     setup_spec.extras["all"] = (
         setup_spec.extras["default"]

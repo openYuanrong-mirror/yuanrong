@@ -40,7 +40,7 @@ Options:
     -m mem limit(MB)
     -h usage.
     -j concurrency limit
-    -G enable gloo collective operations (default: enabled)
+    -G enable gloo collective operations (default: disabled)
     -U enable UCC collective operations (default: disabled)
 "
 
@@ -77,7 +77,7 @@ SANITIZER="off"
 BAZEL_OPTIONS_ENV=""
 SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
-ENABLE_GLOO="true"
+ENABLE_GLOO="false"
 ENABLE_UCC="false"
 ENABLE_DATASYSTEM="true"
 MACOS_DEPLOYMENT_TARGET=""
@@ -472,15 +472,19 @@ fi
 API_DIR="${BASE_DIR}/api"
 # Use sed with cross-platform compatibility (macOS requires -i '')
 if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/pom.xml
-    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-api-sdk/pom.xml
-    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
-    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-api-sdk/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/function-common/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-runtime/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/faas-function-sdk/pom.xml
+    sed -i '' -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-api-sdk/resource/sdkpom.xml
 else
-    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/pom.xml
-    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-api-sdk/pom.xml
-    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
-    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-api-sdk/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/function-common/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-runtime/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/faas-function-sdk/pom.xml
+    sed -i -e "s/<version>v0.0.1<\/version>/<version>${BUILD_VERSION}<\/version>/g" -e "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/g" $API_DIR/java/yr-api-sdk/resource/sdkpom.xml
 fi
 
 PYTHON_BIN_FULL_PATH="$(command -v "${PYTHON3_BIN_PATH}" 2>/dev/null || true)"

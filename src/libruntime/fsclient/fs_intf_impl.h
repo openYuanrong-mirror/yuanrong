@@ -570,6 +570,7 @@ public:
     void RemoveInsRtIntf(const std::string &instanceId) override;
     bool IsHealth() override;
     int GetSelfPort() const override;
+    std::string GetSelfIP() const override;
 
 protected:
     void Write(const std::shared_ptr<StreamingMessage> &msg, std::function<void(ErrorInfo)> callback = nullptr);

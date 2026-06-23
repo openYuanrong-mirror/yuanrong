@@ -215,6 +215,37 @@ TEST_F(FSIntfImplTest, After_Receive_Repeated_ShutdownReq_ShutdownHandler_Should
     ASSERT_TRUE(fTwo.get());
 }
 
+TEST_F(FSIntfImplTest, CheckpointShouldNotTreatPendingInitCallAsBusy)
+{
+    std::atomic<bool> checkpointCalled{false};
+    FSIntfHandlers handlers;
+    handlers.checkpoint = [&checkpointCalled](const CheckpointRequest &req) -> CheckpointResponse {
+        checkpointCalled = true;
+        CheckpointResponse resp;
+        resp.set_code(common::ERR_NONE);
+        resp.set_state("state");
+        return resp;
+    };
+    fsIntfImpl_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), 0, handlers, true, nullptr,
+                                               std::make_shared<ClientsManager>(), false);
+    fsIntfImpl_->checkpointRecoverExecutor.Init(1);
+    ASSERT_TRUE(fsIntfImpl_->status.SetInitializing());
+    ASSERT_TRUE(fsIntfImpl_->AddProcessingRequestId("initcall-request-id"));
+
+    std::promise<CheckpointResponse> promise;
+    auto future = promise.get_future();
+    CheckpointRequest req;
+    fsIntfImpl_->HandleCheckpointRequest(req, [&promise](const CheckpointResponse &resp) {
+        promise.set_value(resp);
+    });
+
+    auto resp = future.get();
+    EXPECT_TRUE(checkpointCalled);
+    EXPECT_EQ(resp.code(), common::ERR_NONE);
+    EXPECT_EQ(resp.state(), "state");
+    EXPECT_TRUE(fsIntfImpl_->DeleteProcessingRequestId("initcall-request-id"));
+}
+
 TEST_F(FSIntfImplTest, TestRemoveInsRtIntf)
 {
     Config::Instance().RUNTIME_DIRECT_CONNECTION_ENABLE() = true;

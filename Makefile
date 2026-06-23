@@ -7,6 +7,7 @@ NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 JOBS ?= $(NPROCS)
 FUNCTIONSYSTEM_JOBS ?= 8
 DATASYSTEM_PYTHON ?= on
+DATASYSTEM_JAVA ?= on
 BUILD_VERSION ?=
 BUILD_VERSION_ARG := $(if $(BUILD_VERSION),-v $(BUILD_VERSION),)
 
@@ -32,6 +33,8 @@ help:
 	@echo "                      Example: make all JOBS=8"
 	@echo "  FUNCTIONSYSTEM_JOBS - Parallelism for functionsystem; defaults to 8"
 	@echo "                      Example: make all FUNCTIONSYSTEM_JOBS=6"
+	@echo "  DATASYSTEM_JAVA    - Build datasystem Java SDK jar; defaults to on"
+	@echo "                      Example: make datasystem DATASYSTEM_JAVA=off"
 
 clean:
 	@echo "Cleaning build outputs..."
@@ -77,7 +80,7 @@ frontend:
 
 datasystem:
 	@rm -rf datasystem/output/*
-	bash datasystem/build.sh -X off -P $(DATASYSTEM_PYTHON) -G on -i on -j $(JOBS) $(BUILD_VERSION_ARG)
+	bash datasystem/build.sh -X off -P $(DATASYSTEM_PYTHON) -J $(DATASYSTEM_JAVA) -G on -i on -j $(JOBS) $(BUILD_VERSION_ARG)
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem-*.tar.gz output/
 	@mkdir -p functionsystem/vendor/src

@@ -267,7 +267,9 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
 {
     this->checkpointRecoverExecutor.Handle(
         [this, req, callback]() {
-            if (ExistProcessingRequestId()) {
+            // Only block checkpoint after initialization. During initcall, the instance state is already valid for
+            // checkpointing even though the initcall ack may not have been processed yet.
+            if (status.IsInitialized() && ExistProcessingRequestId()) {
                 CheckpointResponse resp;
                 resp.set_code(common::ERR_INSTANCE_BUSY);
                 resp.set_message("Instance is busy handling requests, checkpoint cannot be performed now.");

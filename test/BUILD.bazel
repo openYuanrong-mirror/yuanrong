@@ -228,7 +228,10 @@ cc_test(
   ],
   copts = [
     "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 

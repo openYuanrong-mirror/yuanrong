@@ -170,7 +170,7 @@ void FSClient::EventAsync(const std::shared_ptr<EventMessageSpec> &req, int time
 
 std::string FSClient::GetEventServerIP()
 {
-    return this->ipAddr;
+    return this->fsIntf->GetSelfIP();
 }
 
 int FSClient::GetEventServerPort()

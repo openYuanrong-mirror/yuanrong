@@ -10,7 +10,7 @@ ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"
 ENABLE_RUNTIME_ARM="${ENABLE_RUNTIME_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
 ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
-ENABLE_COMPONENT_IMAGE_BUILD="${ENABLE_COMPONENT_IMAGE_BUILD:-false}"
+ENABLE_COMPONENT_IMAGE_BUILD="${ENABLE_COMPONENT_IMAGE_BUILD:-true}"
 ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
 RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
 FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
@@ -399,7 +399,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -879,7 +879,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e

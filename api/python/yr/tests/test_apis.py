@@ -16,11 +16,13 @@
 import unittest
 from unittest.mock import patch, Mock
 
+import collections
 from concurrent.futures import Future
 import cloudpickle
 import pytest
 
 import yr
+from yr.apis import _recurse
 from yr import exception
 from yr import fcc
 from yr.config_manager import ConfigManager
@@ -65,6 +67,20 @@ class TestApi(unittest.TestCase):
 
         assert str(err.value) == "runtime not enable, please call yr.init() first"
         assert "runtime not enable" in str(err.value)
+
+    def test_recurse_preserves_mapping_subclasses(self):
+        ref_obj = Mock()
+        ordered = collections.OrderedDict([("hello", 1), ("world", 2)])
+        default = collections.defaultdict(lambda: 0, [("hello", 1), ("world", 2)])
+
+        restored_ordered = _recurse(ordered, ref_obj)
+        restored_default = _recurse(default, ref_obj)
+
+        assert isinstance(restored_ordered, collections.OrderedDict)
+        assert list(restored_ordered.items()) == list(ordered.items())
+        assert isinstance(restored_default, collections.defaultdict)
+        assert restored_default.default_factory is default.default_factory
+        assert dict(restored_default) == dict(default)
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.apis.is_initialized")

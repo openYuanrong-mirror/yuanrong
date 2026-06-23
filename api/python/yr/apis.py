@@ -17,6 +17,7 @@
 """api"""
 
 import atexit
+from collections import defaultdict
 import functools
 import logging
 import os
@@ -391,8 +392,10 @@ def _recurse(obj, ref_obj):
         return out_tensor
     if isinstance(obj, list):
         return [_recurse(item, ref_obj) for item in obj]
+    if isinstance(obj, defaultdict):
+        return type(obj)(obj.default_factory, [(k, _recurse(v, ref_obj)) for k, v in obj.items()])
     if isinstance(obj, dict):
-        return {k: _recurse(v, ref_obj) for k, v in obj.items()}
+        return type(obj)([(k, _recurse(v, ref_obj)) for k, v in obj.items()])
     if isinstance(obj, set):
         new_set = set()
         for item in obj:
