@@ -2215,7 +2215,7 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
         killReq,
         [insId, &promise](const KillResponse &response, const ErrorInfo &err) -> void {
             if (response.code() != common::ERR_NONE) {
-                YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
+                YRLOG_DEBUG("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
                             fmt::underlying(response.code()), response.message());
                 YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
                                                   response.message());
