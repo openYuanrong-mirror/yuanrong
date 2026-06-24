@@ -45,6 +45,8 @@ for so_path in [
     "libupb_base_lib.so.42",
     "libupb_mem_lib.so.42",
     "libgpr.so.42",
+    "libgflags.so.2.2",
+    "libbrpc.so",
     "libdatasystem.so",
     "libcommon_flags.so",
     "libspdlog.so.1.12.0",

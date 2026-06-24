@@ -65,6 +65,7 @@ public class LoadUtil {
         SYMLINK_MAP.put("libupb_mem_lib.so.42.0.0", "libupb_mem_lib.so.42");
         SYMLINK_MAP.put("libgpr.so.42.0.0", "libgpr.so.42");
         SYMLINK_MAP.put("libaddress_sorting.so.42.0.0", "libaddress_sorting.so.42");
+        SYMLINK_MAP.put("libgflags.so.2.2.2", "libgflags.so.2.2");
     }
 
     // Libraries that only need to be extracted and symlinked, not loaded explicitly.
@@ -78,7 +79,9 @@ public class LoadUtil {
         "libupb_base_lib.so.42.0.0",
         "libupb_mem_lib.so.42.0.0",
         "libgpr.so.42.0.0",
-        "libaddress_sorting.so.42.0.0"
+        "libaddress_sorting.so.42.0.0",
+        "libgflags.so.2.2.2",
+        "libbrpc.so"  // unversioned .so, no SYMLINK_MAP entry needed
     };
 
     // .so files depend on each other and need to be read in a specific sequence.

@@ -22,7 +22,9 @@ cc_library(
         "lib/libupb_mem_lib.so.42",
         "lib/libgpr.so.42",
     ] + glob([
+        "lib/libbrpc.so*",
         "lib/libds-spdlog.so.*",
+        "lib/libgflags.so*",
         "lib/libtbb.so*",
     ]),
     hdrs = glob(["include/**/*.h"]),
