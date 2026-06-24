@@ -44,6 +44,16 @@ from yr.serialization import Serialization
 _logger = logging.getLogger(__name__)
 
 
+def _resolve_need_order(invoke_options: InvokeOptions, is_async: bool) -> bool:
+    if invoke_options.concurrency not in (None, 1):
+        if invoke_options.need_order is True:
+            raise ValueError("need_order=True is mutually exclusive with concurrency > 1")
+        return False
+    if invoke_options.need_order is None:
+        return not is_async
+    return invoke_options.need_order
+
+
 class InstanceCreator:
     """
     User instance creator.
@@ -124,9 +134,7 @@ class InstanceCreator:
             name for name, method in class_methods
             if inspect.iscoroutinefunction(method) or inspect.isasyncgenfunction(method)
         ]) > 0
-        if ((self.__invoke_options__.concurrency is None or self.__invoke_options__.concurrency == 1)
-                and not self.__is_async__):
-            self.__invoke_options__.need_order = True
+        self.__invoke_options__.need_order = _resolve_need_order(self.__invoke_options__, self.__is_async__)
         self.__user_class_descriptor__ = utils.ObjectDescriptor.get_from_class(user_class)
         self.__user_class_descriptor__.target_language = LanguageType.Python
         self.__target_function_key__ = ""
@@ -501,10 +509,7 @@ class InstanceCreator:
         """
         instance_cls = self
         invoke_options.check_options_valid()
-        if (invoke_options.concurrency is None or invoke_options.concurrency == 1) and not self.__is_async__:
-            invoke_options.need_order = True
-        else:
-            invoke_options.need_order = False
+        invoke_options.need_order = _resolve_need_order(invoke_options, self.__is_async__)
 
         class InstanceOptionWrapper:
             """instance option wrapper"""

@@ -504,7 +504,8 @@ class InvokeOptions:
     #: to the latest state). If the value is ``0``, the instance is not automatically restored when it abnormally exits.
     recover_retry_times: int = 0
     #: Whether to enable order-preserving. Only effective for stateful functions.
-    need_order: bool = False
+    #: ``None`` means auto: synchronous stateful instances with concurrency=1 enable order-preserving by default.
+    need_order: Optional[bool] = None
     #: Used to specify the name of the instance. When `namespace` is specified, the instance name is `namespace-name`,
     #: otherwise it is `name`.
     name: str = ""

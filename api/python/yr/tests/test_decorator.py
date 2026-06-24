@@ -38,6 +38,33 @@ class TestDecorator(TestCase):
     def tearDown(self):
         ConfigManager().bypass_datasystem = None
 
+    def test_instance_need_order_auto_default_only_when_unset(self):
+        class Actor:
+            def ping(self):
+                return "pong"
+
+        default_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, InvokeOptions())
+        self.assertTrue(default_creator.__invoke_options__.need_order)
+
+        explicit_false_creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(need_order=False))
+        self.assertFalse(explicit_false_creator.__invoke_options__.need_order)
+
+        with self.assertRaises(ValueError):
+            instance_proxy.InstanceCreator.create_from_user_class(
+                Actor, InvokeOptions(need_order=True, concurrency=100))
+
+        explicit_true_single_creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(need_order=True, concurrency=1))
+        self.assertTrue(explicit_true_single_creator.__invoke_options__.need_order)
+
+        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor)
+        options_creator.options(InvokeOptions(need_order=False))
+        self.assertFalse(options_creator.__invoke_options__.need_order)
+
+        with self.assertRaises(ValueError):
+            options_creator.options(InvokeOptions(need_order=True, concurrency=100))
+
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.log.get_logger")
     def test_instance_proxy(self, mock_logger, get_runtime):
@@ -84,7 +111,7 @@ class TestDecorator(TestCase):
         with self.assertRaises(ValueError):
             ins_creator.options(name="ins", namespace="")
 
-        ins_creator = ins_creator.options([InvokeOptions(cpu=1000, need_order=True, concurrency=100)])
+        ins_creator = ins_creator.options([InvokeOptions(cpu=1000, need_order=True, concurrency=1)])
         ins1 = ins_creator.invoke()
         self.assertTrue(ins1.need_order)
 
