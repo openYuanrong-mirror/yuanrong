@@ -37,7 +37,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, urlunparse
@@ -147,16 +146,8 @@ def _invoke_faas_short_http(namespace, function, payload, headers=None, timeout=
         headers=request_headers,
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.getcode(), response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        headers_text = str(exc.headers).strip()
-        raise AssertionError(
-            f"FaaS short invoke failed: status={exc.code} reason={exc.reason} "
-            f"url={url} headers={headers_text!r} body={body!r}"
-        ) from exc
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.getcode(), response.read().decode("utf-8")
 
 
 def _decode_json_body(body):
