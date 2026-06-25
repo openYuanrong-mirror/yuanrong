@@ -57,6 +57,9 @@ const (
 	retryJitter   = 0.1             // 随机抖动系数
 	retryTime     = 20
 	retryCap      = 300 * time.Second // 最大等待时间上限
+
+	enableMetricsEnvKey      = "ENABLE_METRICS"
+	enableAgentSessionEnvKey = "ENABLE_AGENT_SESSION"
 )
 
 var (
@@ -662,6 +665,43 @@ func setCreateOptionForUserAgencyAndEnv(funcSpec *types.FunctionSpecification, c
 	}
 	createOpt[constant.DelegateEncryptKey] = string(encryptData)
 	log.GetLogger().Infof("generate delegate encrypt config %s for function %s", string(encryptData), funcSpec.FuncKey)
+	if funcSpec.ExtendedMetaData.EnableAgentSession {
+		if err := mergeDelegateEnvVar(createOpt, map[string]string{
+			enableAgentSessionEnvKey: strconv.FormatBool(funcSpec.ExtendedMetaData.EnableAgentSession),
+		}); err != nil {
+			log.GetLogger().Errorf("failed to merge enable_agent_session env for %s", funcSpec.FuncKey)
+			return err
+		}
+		log.GetLogger().Infof("generate delegate env var config %s for function %s",
+			createOpt[constant.DelegateEnvVar], funcSpec.FuncKey)
+	}
+	if err := mergeDelegateEnvVar(createOpt, map[string]string{
+		enableMetricsEnvKey: strconv.FormatBool(funcSpec.ExtendedMetaData.EnableMetrics),
+	}); err != nil {
+		log.GetLogger().Errorf("failed to merge enable_metrics env for %s", funcSpec.FuncKey)
+		return err
+	}
+	return nil
+}
+
+func mergeDelegateEnvVar(createOpt map[string]string, newEnvs map[string]string) error {
+	if createOpt == nil {
+		return errors.New("createOpt is nil")
+	}
+	mergedEnv := make(map[string]string, len(newEnvs))
+	if current, ok := createOpt[constant.DelegateEnvVar]; ok && current != "" {
+		if err := json.Unmarshal([]byte(current), &mergedEnv); err != nil {
+			return err
+		}
+	}
+	for key, value := range newEnvs {
+		mergedEnv[key] = value
+	}
+	envBytes, err := jsonMarshal(mergedEnv)
+	if err != nil {
+		return err
+	}
+	createOpt[constant.DelegateEnvVar] = string(envBytes)
 	return nil
 }
 

@@ -393,6 +393,46 @@ func Test_setCreateOptionForLifeCycleDetached(t *testing.T) {
 	}
 }
 
+func TestSetCreateOptionForUserAgencyAndEnv(t *testing.T) {
+	convey.Convey("Test setCreateOptionForUserAgencyAndEnv", t, func() {
+		convey.Convey("merge agent session and metrics env without dropping existing env", func() {
+			funcSpec := &types.FunctionSpecification{
+				FuncKey: "default/0-session-func/$latest",
+				ExtendedMetaData: commonTypes.ExtendedMetaData{
+					EnableAgentSession: true,
+					EnableMetrics:      true,
+				},
+			}
+			createOpt := map[string]string{
+				constant.DelegateEnvVar: `{"EXISTING_ENV":"keep"}`,
+			}
+
+			err := setCreateOptionForUserAgencyAndEnv(funcSpec, createOpt)
+			convey.So(err, convey.ShouldBeNil)
+
+			envs := map[string]string{}
+			err = json.Unmarshal([]byte(createOpt[constant.DelegateEnvVar]), &envs)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(envs["EXISTING_ENV"], convey.ShouldEqual, "keep")
+			convey.So(envs[enableAgentSessionEnvKey], convey.ShouldEqual, "true")
+			convey.So(envs[enableMetricsEnvKey], convey.ShouldEqual, "true")
+		})
+		convey.Convey("invalid existing delegate env returns error", func() {
+			funcSpec := &types.FunctionSpecification{
+				ExtendedMetaData: commonTypes.ExtendedMetaData{
+					EnableAgentSession: true,
+				},
+			}
+			createOpt := map[string]string{
+				constant.DelegateEnvVar: `{invalid`,
+			}
+
+			err := setCreateOptionForUserAgencyAndEnv(funcSpec, createOpt)
+			convey.So(err, convey.ShouldNotBeNil)
+		})
+	})
+}
+
 func Test_setCreateOptionForNuwaRuntimeInfo(t *testing.T) {
 	rawGConfig := config.GlobalConfig
 	config.GlobalConfig = types.Configuration{
