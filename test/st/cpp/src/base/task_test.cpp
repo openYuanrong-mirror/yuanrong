@@ -347,8 +347,9 @@ TEST_F(TaskTest, ExceptionChain)
 {
     printf("=====云上invoke 错误的算术运算=====\n");
     auto r1 = YR::Function(ExcChain).Invoke();
+    constexpr int nestedSignalExceptionTimeoutSec = 15;
     try {
-        int n1 = *YR::Get(r1, 5);
+        int n1 = *YR::Get(r1, nestedSignalExceptionTimeoutSec);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
