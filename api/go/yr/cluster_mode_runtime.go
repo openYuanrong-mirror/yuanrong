@@ -64,7 +64,7 @@ func (r *ClusterModeRuntime) CreateInstance(
 func (r *ClusterModeRuntime) InvokeByInstanceId(
 	funcMeta api.FunctionMeta, instanceID string, args []api.Arg, invokeOpt api.InvokeOptions,
 ) (string, error) {
-	return clibruntime.InvokeByInstanceId(funcMeta, instanceID, args, api.InvokeOptions{})
+	return clibruntime.InvokeByInstanceId(funcMeta, instanceID, args, invokeOpt)
 }
 
 // Kill send kill instance request

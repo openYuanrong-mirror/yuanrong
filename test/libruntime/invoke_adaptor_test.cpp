@@ -1175,6 +1175,32 @@ TEST_F(InvokeAdaptorTest, CallHandlerTest)
     ASSERT_EQ(res, 1);
 }
 
+TEST_F(InvokeAdaptorTest, CallHandlerUpdatesEventServerInfoFromCreateOptions)
+{
+    std::shared_ptr<CallMessageSpec> req = std::make_shared<CallMessageSpec>();
+    req->Mutable().set_requestid("event-request-id");
+    req->Mutable().set_senderid("frontend-instance-id");
+    req->Mutable().set_iscreate(false);
+    (*req->Mutable().mutable_createoptions())[YR_EVENT_SERVER_IP] = "127.0.0.10";
+    (*req->Mutable().mutable_createoptions())[YR_EVENT_SERVER_PORT] = "18888";
+
+    libConfig->libruntimeOptions.functionExecuteCallback =
+        [](const FunctionMeta &, const libruntime::InvokeType, const std::vector<std::shared_ptr<DataObject>> &,
+           std::vector<std::shared_ptr<DataObject>> &) -> ErrorInfo { return ErrorInfo(); };
+    auto pbArg = req->Mutable().add_args();
+    pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
+    InvokeSpec spec;
+    spec.invokeType = libruntime::InvokeType::InvokeFunctionStateless;
+    pbArg->set_value(spec.BuildInvokeMetaData(*invokeAdaptor->librtConfig));
+
+    invokeAdaptor->CallHandler(req);
+
+    ASSERT_TRUE(gwClient->eventServerInfoUpdated);
+    ASSERT_EQ(gwClient->eventServerIp, "127.0.0.10");
+    ASSERT_EQ(gwClient->eventServerPort, 18888);
+    ASSERT_EQ(gwClient->eventServerInstanceId, "frontend-instance-id");
+}
+
 TEST_F(InvokeAdaptorTest, CheckpointHandlerTest)
 {
     CheckpointRequest req;

@@ -398,6 +398,23 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         metaData.invocationmeta(),
         [this, req, metaData]() {
             std::function<void()> handler = [this, req, metaData]() {
+                const auto &opts = req->Immutable().createoptions();
+                auto ipIt = opts.find(YR_EVENT_SERVER_IP);
+                auto portIt = opts.find(YR_EVENT_SERVER_PORT);
+                if (ipIt != opts.end() && portIt != opts.end() && !ipIt->second.empty()) {
+                    try {
+                        int port = std::stoi(portIt->second);
+                        if (port >= 0) {
+                            fsClient->UpdateEventServerInfo(ipIt->second, port, req->Immutable().senderid());
+                        } else {
+                            YRLOG_WARN("invalid event server port {}, requestId {}", portIt->second,
+                                       req->Immutable().requestid());
+                        }
+                    } catch (const std::exception &e) {
+                        YRLOG_WARN("failed to parse event server port {}, requestId {}, err {}", portIt->second,
+                                   req->Immutable().requestid(), e.what());
+                    }
+                }
                 threadLocalTraceId = req->Immutable().traceid();
                 threadLocalRequestId = req->Immutable().requestid();
                 threadLocalInstanceId = req->Immutable().senderid();
@@ -1284,6 +1301,16 @@ void InvokeAdaptor::InvokeInstanceFunction(std::shared_ptr<InvokeSpec> spec)
             YRLOG_WARN("instance: {} of reqid: {} belongs group: {} is not ready, can not execute invoke req",
                        spec->invokeInstanceId, spec->requestId, spec->opts.groupName);
             return;
+        }
+    }
+    if (librtConfig->enableEvent) {
+        auto it = spec->opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
+        if (it != spec->opts.invokeLabels.end() && it->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM) {
+            YRLOG_DEBUG("start to add eventInfo, instanceId is {}", spec->requestId);
+            auto invokeOptions = spec->requestInvoke->Mutable().mutable_invokeoptions();
+            auto customTag = invokeOptions->mutable_customtag();
+            (*customTag)[YR_EVENT_SERVER_IP] = fsClient->GetEventServerIP();
+            (*customTag)[YR_EVENT_SERVER_PORT] = std::to_string(fsClient->GetEventServerPort());
         }
     }
     fsClient->InvokeAsync(spec->requestInvoke, std::bind(&InvokeAdaptor::InvokeNotifyHandler, this, _1, _2),

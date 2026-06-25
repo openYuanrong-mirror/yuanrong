@@ -182,6 +182,13 @@ public:
     void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback) override{};
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
                              int timeout) override{};
+    void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instanceId) override
+    {
+        eventServerIp = ip;
+        eventServerPort = port;
+        eventServerInstanceId = instanceId;
+        eventServerInfoUpdated = true;
+    }
     
     MOCK_METHOD(void, ReturnCallResult,
                 (const std::shared_ptr<CallResultMessageSpec> result, bool isCreate, CallResultCallBack callback),
@@ -192,6 +199,10 @@ public:
     bool isAcquireResponse = false;
     bool isBatchRenew = false;
     bool needCheckArgs = false;
+    bool eventServerInfoUpdated = false;
+    std::string eventServerIp;
+    int eventServerPort = 0;
+    std::string eventServerInstanceId;
     std::promise<int> callbackPromise = std::promise<int>();
     std::promise<int> killCallbackPromise = std::promise<int>();
     std::shared_future<int> callbackFuture = callbackPromise.get_future();
