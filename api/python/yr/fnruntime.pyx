@@ -1023,7 +1023,10 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
             raise ValueError("Failed to convert affinity to cpp affinity.")
         opts.scheduleAffinities.push_back(c_affinity)
     opts.recoverRetryTimes = opt.recover_retry_times
-    opts.needOrder = bool(opt.need_order)
+    if opt.need_order:
+        opts.needOrder = True
+    else:
+        opts.needOrder = False
     opts.traceId = opt.trace_id
     for key, value in opt.env_vars.items():
         opts.envVars.insert(pair[string, string](key, value))
