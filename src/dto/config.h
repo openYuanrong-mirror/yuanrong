@@ -114,7 +114,7 @@ CONFIG_DECLARE(std::string, YR_LOG_PREFIX, "");
 CONFIG_DECLARE(std::string, SNUSER_LIB_PATH, "/home/snuser/snlib");
 CONFIG_DECLARE(std::string, YR_LOG_LEVEL, "INFO");
 CONFIG_DECLARE(bool, YR_LOG_USE_UTC_TIME, false);
-CONFIG_DECLARE(bool, YR_ONLY_STDOUT, false);
+CONFIG_DECLARE(bool, YR_ONLY_STDOUT, true);
 CONFIG_DECLARE(std::string, YRFUNCID, "");
 CONFIG_DECLARE(std::string, YR_PYTHON_FUNCID, "");
 CONFIG_DECLARE(std::string, YR_JAVA_FUNCID, "");

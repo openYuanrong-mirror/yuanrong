@@ -82,7 +82,7 @@ class RuntimeLogger:
             return
 
         # Check if YR_ONLY_STDOUT is set to enable stdout-only logging
-        only_stdout = os.getenv("YR_ONLY_STDOUT", "false").lower() in ("true", "1")
+        only_stdout = os.getenv("YR_ONLY_STDOUT", "true").lower() in ("true", "1")
 
         if only_stdout or is_driver:
             self.__init_stream_logger(log_level)
