@@ -759,6 +759,14 @@ def wait_sandbox_gateway_route(url, timeout=30):
     return False
 
 
+def _sandbox_gateway_route_timeout():
+    return int(os.getenv("YR_SANDBOX_GATEWAY_ROUTE_TIMEOUT", "120"))
+
+
+def _sandbox_tunnel_connect_timeout():
+    return float(os.getenv("YR_SANDBOX_TUNNEL_CONNECT_TIMEOUT", "120"))
+
+
 def setup_sandbox_tunnel(sandbox_instance, instance_id, upstream, proxy_port):
     tunnel_port = proxy_port - 1
     yr.get(sandbox_instance.start_tunnel_server.invoke(tunnel_port, proxy_port))
@@ -769,10 +777,17 @@ def setup_sandbox_tunnel(sandbox_instance, instance_id, upstream, proxy_port):
     gateway_host = _get_gateway_host()
     tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
     tunnel_ws_url = tunnel_url.replace("https://", "wss://").replace("http://", "ws://")
-    if not wait_sandbox_gateway_route(tunnel_url, timeout=30):
-        logging.warning("sandbox gateway route is not ready, continuing tunnel startup: %s", tunnel_url)
+    route_timeout = _sandbox_gateway_route_timeout()
+    if not wait_sandbox_gateway_route(tunnel_url, timeout=route_timeout):
+        raise RuntimeError(f"sandbox gateway route is not ready after {route_timeout}s: {tunnel_url}")
     tunnel_client = TunnelClient(upstream)
-    connected = tunnel_client.start(tunnel_ws_url, timeout=30.0)
+    connect_timeout = _sandbox_tunnel_connect_timeout()
+    connected = tunnel_client.start(tunnel_ws_url, timeout=connect_timeout)
+    if not connected:
+        tunnel_client.stop()
+        raise RuntimeError(
+            f"tunnel websocket did not connect within {connect_timeout}s: {tunnel_ws_url}"
+        )
     return {
         "tunnel_client": tunnel_client,
         "tunnel_ws_url": tunnel_ws_url,
@@ -912,7 +927,12 @@ def create_sandbox_auto(*args, **kwargs):
             upstream=upstream,
             proxy_port=proxy_port,
         )
-        resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
+        resolved_id = resolve_created_sandbox_instance_id(
+            namespace,
+            name,
+            instance_id,
+            timeout=120 if upstream else 30,
+        )
         ret, instance = query_instance(resolved_id, __user)
         if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
             return resolved_id, tunnel_info

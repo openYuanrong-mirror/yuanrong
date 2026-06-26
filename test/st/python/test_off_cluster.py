@@ -170,6 +170,18 @@ def _decode_json_body(body):
     return value
 
 
+def _build_session_header(session_id):
+    return {
+        "X-Instance-Session": json.dumps(
+            {
+                "sessionID": session_id,
+                "sessionTTL": 0,
+                "concurrency": 1,
+            }
+        ),
+    }
+
+
 def _remote_python_exec_command(code):
     encoded = base64.b64encode(code.encode()).decode()
     return f"python3 -c exec(__import__('base64').b64decode('{encoded}'))"
@@ -426,6 +438,9 @@ def _run_yrcli(*args, timeout=120, user=None):
     env = os.environ.copy()
     if not _get_enable_tls():
         env.pop("YR_INSECURE", None)
+        env.pop("YR_VERIFY_FILE", None)
+        env.pop("YR_CERT_FILE", None)
+        env.pop("YR_PRIVATE_KEY_FILE", None)
     result = subprocess.run(
         command,
         stdout=subprocess.PIPE,
@@ -863,7 +878,7 @@ def test_wait_with_exception(init_yr, require_remote_python_runtime):
         return n
 
     ref = may_throw.invoke(0)
-    ready, not_ready = yr.wait([ref], wait_num=1, timeout=120)
+    ready, not_ready = yr.wait([ref], wait_num=1, timeout=240)
     assert len(not_ready) == 0
     assert ready == [ref]
     with pytest.raises(RuntimeError):
@@ -896,7 +911,7 @@ def test_repeated_invoke_stability(init_yr, require_remote_python_runtime):
         return x
 
     for i in range(5):
-        assert yr.get(echo.invoke(i)) == i
+        assert yr.get(echo.invoke(i), timeout=120) == i
 
 
 # ============================================================
@@ -988,7 +1003,6 @@ def test_yrcli_sandbox_port_forwarding(require_plain_http_for_yrcli):
 
 
 @pytest.mark.smoke
-@pytest.mark.skip(reason="Traefik gateway route warmup for reverse tunnel is unstable; re-enable after local validation")
 def test_yrcli_sandbox_reverse_tunnel(require_plain_http_for_yrcli):
     upstream = _start_local_upstream()
     host, port = upstream.server_address
@@ -1182,4 +1196,174 @@ def test_faas_sse_stream(require_plain_http_for_yrcli, tmp_path):
         assert '"echo": "sse-ping"' in body, body
         assert "[DONE]" in body, body
     finally:
+        _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")
+
+
+@pytest.mark.smoke
+def test_faas_agent_session_wait_notify(require_plain_http_for_yrcli, tmp_path):
+    """Verify AI Agent session wait/notify and affinity on the same instance."""
+    namespace = "faaspy"
+    function = _unique_name("yrcli-session").replace("-", "")
+    full_name = f"0@{namespace}@{function}"
+    session_id = _unique_name("agent-session")
+    runtime = _get_faas_runtime()
+    _ensure_faas_runtime(runtime)
+    code_dir = tmp_path / "faas-session"
+    code_dir.mkdir()
+    handler_path = code_dir / "handler.py"
+    handler_path.write_text(
+        "import socket\n"
+        "\n"
+        "def handler(event, context):\n"
+        "    hostname = socket.gethostname()\n"
+        "    if isinstance(event, dict) and event.get('action') == 'ping':\n"
+        "        return {'ok': True, 'phase': 'ping', 'hostname': hostname}\n"
+        "\n"
+        "    session_svc = context.get_session_service()\n"
+        "    sess = session_svc.load_session()\n"
+        "    if sess is None:\n"
+        "        return {'ok': False, 'error': 'session unavailable', 'hostname': hostname}\n"
+        "\n"
+        "    if isinstance(event, dict) and event.get('action') == 'notify':\n"
+        "        sess.notify(event.get('payload') or {})\n"
+        "        return {'ok': True, 'phase': 'notify', 'hostname': hostname}\n"
+        "\n"
+        "    payload = sess.wait_for_notify(180000)\n"
+        "    if payload is None:\n"
+        "        return {'ok': False, 'error': 'timeout', 'hostname': hostname}\n"
+        "\n"
+        "    histories = sess.get_histories()\n"
+        "    histories.append('notified:' + str(payload.get('message', '')))\n"
+        "    sess.set_histories(histories)\n"
+        "    return {\n"
+        "        'ok': True,\n"
+        "        'phase': 'main',\n"
+        "        'payload': payload,\n"
+        "        'histories': sess.get_histories(),\n"
+        "        'hostname': hostname,\n"
+        "    }\n",
+        encoding="utf-8",
+    )
+    function_json = tmp_path / "function-session.json"
+    function_json.write_text(
+        json.dumps(
+            {
+                "name": full_name,
+                "runtime": runtime,
+                "description": "yrcli off-cluster agent session smoke handler",
+                "handler": "handler.handler",
+                "kind": "faas",
+                "enableAgentSession": True,
+                "cpu": 300,
+                "memory": 128,
+                "timeout": 300,
+                "customResources": {},
+                "environment": {},
+                "extendedHandler": {},
+                "extendedTimeout": {},
+                "minInstance": "1",
+                "maxInstance": "1",
+                "concurrentNum": "2",
+                "storageType": "local",
+                "codePath": str(code_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    deployed = _run_yrcli(
+        "deploy",
+        "--code-path",
+        str(code_dir),
+        "--function-json",
+        str(function_json),
+        "--update",
+        timeout=180,
+    )
+    assert "succeed to deploy function" in deployed.stdout or "succeed to update function" in deployed.stdout
+
+    warmup_deadline = time.time() + 120
+    while time.time() < warmup_deadline:
+        try:
+            warmup_status, warmup_body = _invoke_faas_short_http(
+                namespace,
+                function,
+                {"action": "ping"},
+                timeout=30,
+            )
+            if warmup_status == 200:
+                warmup_value = _decode_json_body(warmup_body)
+                if warmup_value.get("phase") == "ping":
+                    break
+        except (AssertionError, TimeoutError, urllib.error.URLError):
+            pass
+        time.sleep(3)
+    else:
+        raise AssertionError("function warmup ping did not succeed before session test")
+
+    main_thread = None
+    try:
+        main_result = {}
+        main_error = {}
+
+        def _run_main_invoke():
+            try:
+                status, body = _invoke_faas_short_http(
+                    namespace,
+                    function,
+                    {"text": "start"},
+                    headers=_build_session_header(session_id),
+                    timeout=300,
+                )
+                main_result["status"] = status
+                main_result["body"] = body
+            except Exception as exc:
+                main_error["error"] = exc
+
+        main_thread = threading.Thread(target=_run_main_invoke)
+        main_thread.start()
+
+        notify_status = None
+        notify_body = None
+        notify_error = None
+        deadline = time.time() + 240
+        while main_thread.is_alive() and time.time() < deadline:
+            try:
+                notify_status, notify_body = _invoke_faas_short_http(
+                    namespace,
+                    function,
+                    {"action": "notify", "payload": {"message": "hello-session"}},
+                    headers=_build_session_header(session_id),
+                    timeout=30,
+                )
+            except (AssertionError, TimeoutError, urllib.error.URLError) as exc:
+                notify_error = exc
+                if isinstance(exc, AssertionError) and "over-acquire limit exceeded" not in str(exc):
+                    raise
+            time.sleep(3)
+        assert notify_status == 200, notify_body or notify_error
+
+        main_thread.join(timeout=120)
+        assert "error" not in main_error, main_error.get("error")
+        notify_value = _decode_json_body(notify_body)
+        assert notify_value.get("ok") is True, notify_value
+        assert notify_value.get("phase") == "notify", notify_value
+        notify_hostname = notify_value.get("hostname")
+        assert notify_hostname, notify_value
+
+        assert main_result.get("status") == 200, main_result.get("body")
+        main_value = _decode_json_body(main_result["body"])
+        assert main_value.get("ok") is True, main_value
+        assert main_value.get("phase") == "main", main_value
+        assert main_value.get("payload", {}).get("message") == "hello-session", main_value
+        assert "notified:hello-session" in main_value.get("histories", []), main_value
+        assert main_value.get("hostname") == notify_hostname, (
+            f"session affinity mismatch: main={main_value.get('hostname')} "
+            f"notify={notify_hostname}"
+        )
+    finally:
+        if main_thread is not None:
+            main_thread.join(timeout=300)
         _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")
