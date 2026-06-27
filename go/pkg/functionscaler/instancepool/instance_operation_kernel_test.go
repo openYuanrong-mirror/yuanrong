@@ -231,8 +231,14 @@ func TestPrepareCreateOptions(t *testing.T) {
 		convey.So(createOpt[commonconstant.DelegateHostAliases], convey.ShouldEqual,
 			`{"10.29.111.111":["host1"],"10.29.111.112":["host2"],"10.29.111.113":["host3"]}`)
 		convey.So(createOpt[commonconstant.DelegateBootstrapKey], convey.ShouldEqual, "start")
+		delegateEnv := map[string]string{}
+		err := json.Unmarshal([]byte(createOpt[commonconstant.DelegateEnvVar]), &delegateEnv)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(delegateEnv[enableMetricsEnvKey], convey.ShouldEqual, "false")
 
 		os.Setenv("CUSTOM_CONTAINER_IMAGE_PULL_POLICY", "Always")
+		funcSpec.ExtendedMetaData.EnableMetrics = true
+		funcSpec.ExtendedMetaData.EnableAgentSession = true
 		createOpt, _ = prepareCreateOptions(createInstanceRequest{
 			funcSpec: funcSpec,
 			nuwaRuntimeInfo: &wisecloudTypes.NuwaRuntimeInfo{
@@ -249,8 +255,8 @@ func TestPrepareCreateOptions(t *testing.T) {
 		}, &resspeckey.ResourceSpecification{})
 		convey.So(createOpt[commonconstant.DelegateContainerKey], convey.ShouldEqual,
 			`{"image":"","imagePullPolicy":"Always","env":[{"name":"INVOKE_TYPE","value":"faas"},{"name":"x-system-tenantId"},{"name":"x-system-functionName"},{"name":"x-system-functionVersion"},{"name":"x-system-region","value":"12324234"},{"name":"x-system-clusterID"},{"name":"x-system-NODE_IP","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"status.hostIP"}}},{"name":"x-system-podName","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.name"}}},{"name":"POD_IP","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"status.podIP"}}},{"name":"HOST_IP","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"status.hostIP"}}},{"name":"PodName","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.name"}}},{"name":"POD_ID","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.uid"}}},{"name":"POD_NAME","valueFrom":{"fieldRef":{"apiVersion":"v1","fieldPath":"metadata.name"}}}],"command":null,"args":null,"uid":123,"gid":0,"volumeMounts":[{"name":"agc-config-file","mountPath":"/opt/config/afc-config-file"},{"name":"agc-config-file1","mountPath":"/opt/config/afc-config-file1"}],"runtime_graceful_shutdown":{"maxShutdownTimeout":0},"lifecycle":{},"serviceAccountName":"default"}`)
-		delegateEnv := map[string]string{}
-		err := json.Unmarshal([]byte(createOpt[commonconstant.DelegateEnvVar]), &delegateEnv)
+		delegateEnv = map[string]string{}
+		err = json.Unmarshal([]byte(createOpt[commonconstant.DelegateEnvVar]), &delegateEnv)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(delegateEnv[enableMetricsEnvKey], convey.ShouldEqual, "true")
 		convey.So(delegateEnv["ENABLE_AGENT_SESSION"], convey.ShouldEqual, "true")
