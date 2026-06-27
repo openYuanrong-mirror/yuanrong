@@ -52,14 +52,14 @@ import (
 
 // 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 + 256 + 300 + 300... = 3811秒
 const (
-	retryDuration = 1 * time.Second // 初始等待时间
-	retryFactor   = 2               // 倍数因子（每次翻4倍）
-	retryJitter   = 0.1             // 随机抖动系数
-	retryTime     = 20
-	retryCap      = 300 * time.Second // 最大等待时间上限
-
+	retryDuration            = 1 * time.Second // 初始等待时间
+	retryFactor              = 2               // 倍数因子（每次翻4倍）
+	retryJitter              = 0.1             // 随机抖动系数
+	retryTime                = 20
+	retryCap                 = 300 * time.Second // 最大等待时间上限
 	enableMetricsEnvKey      = "ENABLE_METRICS"
 	enableAgentSessionEnvKey = "ENABLE_AGENT_SESSION"
+	sessionCtxEnvKey         = "YR_SESSION_CTX_ID"
 )
 
 var (
@@ -501,6 +501,12 @@ func prepareCreateOptions(request createInstanceRequest, resSpec *resspeckey.Res
 	}
 	for _, f := range setFunctions {
 		if err := f(request.funcSpec, createOpt); err != nil {
+			return nil, err
+		}
+	}
+	if request.sessionCtxID != nil {
+		createOpt[constant.SessionCtxID] = *request.sessionCtxID
+		if err := mergeDelegateEnvVar(createOpt, map[string]string{sessionCtxEnvKey: *request.sessionCtxID}); err != nil {
 			return nil, err
 		}
 	}

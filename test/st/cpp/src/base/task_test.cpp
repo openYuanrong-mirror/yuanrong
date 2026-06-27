@@ -800,6 +800,20 @@ TEST_F(TaskTest, CheckTaskObjIdSuccessfully)
     EXPECT_EQ(*YR::Get(ret1), 4);
 }
 
+/*case
+ * @title: put, 生成objID携带workerID
+ * @precondition:
+ * @step:  1.调用函数，put，get
+ * @expect:  1.put生成携带workerID的objID
+ */
+TEST_F(TaskTest, CheckPutObjIdSuccessfully)
+{
+    auto r1 = YR::Function(Add).Invoke(1, 1);
+    auto ret = YR::Put(r1);
+    EXPECT_EQ(ret.ID().size(), 20);
+    EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
+}
+
 /*
  * Check whether customextension has been written into the request body by viewing log file.
  * Therefore this case is disabled.
@@ -852,20 +866,6 @@ TEST_F(TaskTest, KVSetAndGetSuccessfully)
     auto resultV2 = YR::KV().Get(key);
     EXPECT_EQ(resultV2, value);
     YR::KV().Del(key);
-}
-
-/*case
- * @title: put, 生成objID携带workerID
- * @precondition:
- * @step:  1.调用函数，put，get
- * @expect:  1.put生成携带workerID的objID
- */
-TEST_F(TaskTest, CheckPutObjIdSuccessfully)
-{
-    auto r1 = YR::Function(Add).Invoke(1, 1);
-    auto ret = YR::Put(r1);
-    EXPECT_EQ(ret.ID().size(), 57);
-    EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
 }
 
 /*case

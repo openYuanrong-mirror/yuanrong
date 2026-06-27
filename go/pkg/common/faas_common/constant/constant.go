@@ -490,6 +490,8 @@ const (
 	InstanceRequirementPoolLabel = "poolLabel"
 	// InstanceSessionConfig is the key of instance session config in instance acquiring
 	InstanceSessionConfig = "instanceSessionConfig"
+	// SessionCtxID is the session context ID used for instance isolation.
+	SessionCtxID = "sessionCtxID"
 	// InstanceRequirementInvokeLabel - name of instance label args[1]
 	InstanceRequirementInvokeLabel = "instanceInvokeLabel"
 )

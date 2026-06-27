@@ -495,6 +495,7 @@ type ExtendedMetaData struct {
 	PriorityAZ             string                 `json:"priority_az,omitempty"`
 	EnableMetrics          bool                   `json:"enableMetrics,omitempty"`
 	EnableAgentSession     bool                   `json:"enable_agent_session,omitempty"`
+	EnableSessionCtx       bool                   `json:"enable_session_ctx,omitempty"`
 }
 
 // UserOtelConfig -
@@ -734,14 +735,15 @@ type ResourceConfig struct {
 
 // Extensions -
 type Extensions struct {
-	Source            string `json:"source"`
-	CreateTimestamp   string `json:"createTimestamp"`
-	UpdateTimestamp   string `json:"updateTimestamp"`
-	PID               string `json:"pid"`
-	PodName           string `json:"podName"`
-	PodNamespace      string `json:"podNamespace"`
-	PodDeploymentName string `json:"podDeploymentName"`
-	AZ                string `json:"az,omitempty"`
+	Source            string  `json:"source"`
+	CreateTimestamp   string  `json:"createTimestamp"`
+	UpdateTimestamp   string  `json:"updateTimestamp"`
+	PID               string  `json:"pid"`
+	PodName           string  `json:"podName"`
+	PodNamespace      string  `json:"podNamespace"`
+	PodDeploymentName string  `json:"podDeploymentName"`
+	AZ                string  `json:"az,omitempty"`
+	SessionCtxID      *string `json:"sessionCtxID,omitempty"`
 }
 
 // InstanceSpecification contains specification of a instance in etcd

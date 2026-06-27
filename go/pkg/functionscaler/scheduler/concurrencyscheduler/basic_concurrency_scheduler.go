@@ -500,20 +500,21 @@ func (i *instanceQueueWithObserver) handleSubHealthInstanceUpdateMetrics(oldInsA
 }
 
 type basicConcurrencyScheduler struct {
-	funcSpec             *types.FunctionSpecification
-	insAcqReqQueue       *requestqueue.InsAcqReqQueue
-	leaseManager         lease.InstanceLeaseManager
-	selfInstanceQueue    queue.Queue
-	otherInstanceQueue   queue.Queue
-	selfSubHealthRecord  map[string]*instanceElement
-	otherSubHealthRecord map[string]*instanceElement
-	sessionManager       *sessionManager
-	observers            map[scheduler.InstanceTopic][]*instanceObserver
-	funcKeyWithRes       string
-	concurrentNum        int
-	isFuncOwner          bool
-	stopped              bool
-	leaseInterval        time.Duration
+	funcSpec              *types.FunctionSpecification
+	insAcqReqQueue        *requestqueue.InsAcqReqQueue
+	leaseManager          lease.InstanceLeaseManager
+	selfInstanceQueue     queue.Queue
+	otherInstanceQueue    queue.Queue
+	selfSubHealthRecord   map[string]*instanceElement
+	otherSubHealthRecord  map[string]*instanceElement
+	sessionManager        *sessionManager
+	observers             map[scheduler.InstanceTopic][]*instanceObserver
+	funcKeyWithRes        string
+	concurrentNum         int
+	isFuncOwner           bool
+	stopped               bool
+	leaseInterval         time.Duration
+	sessionCtxIdleHandler func(*types.Instance)
 	*sync.RWMutex
 	*sync.Cond
 	grayAllocator       GrayInstanceAllocator
@@ -657,7 +658,7 @@ func (bcs *basicConcurrencyScheduler) loadSessionToInstanceQueue(recoverCallback
 					sess.SessionID, insElem.instance.InstanceID)
 				continue
 			}
-			bcs.sessionManager.addSession(sess.SessionID, record)
+			bcs.sessionManager.addSession(bcs.getRecordCacheKey(record), record)
 			recoverCallback(&types.SessionInfo{
 				SessionID:  record.sessionID,
 				SessionCtx: record.ctx,
@@ -704,11 +705,14 @@ func (bcs *basicConcurrencyScheduler) scheduleRequest(insAcqReq *types.InstanceA
 	// once a session is bound with an instance, all pending requests of this session will be marked as designate
 	// instance requests to avoid other instanceScheduler scheduling them (others don't have a bound record)
 	if insAcqReq.DesignateInstanceID == "" && len(insAcqReq.InstanceSession.SessionID) != 0 {
-		record, exist := bcs.sessionManager.getSession(insAcqReq.InstanceSession.SessionID)
+		record, exist := bcs.sessionManager.getSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
+			insAcqReq.SessionCtxID))
 		if exist {
 			insAcqReq.DesignateInstanceID = record.insElem.instance.InstanceID
 		} else if bcs.sessionManager.isGrayStatus() || !bcs.isFuncOwner {
-			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(insAcqReq.InstanceSession.SessionID)
+			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(
+				insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID,
+				bcs.funcSpec.ExtendedMetaData.EnableSessionCtx)
 		}
 	}
 	// 适配当前灰度设计，从数据系统恢复session-instance时，需要判断instance在哪个queue，灰度需求完成后删除该逻辑
@@ -749,11 +753,14 @@ func (bcs *basicConcurrencyScheduler) AcquireInstance(insAcqReq *types.InstanceA
 	// to this scheduler
 	useSelfInstance := bcs.isFuncOwner || insAcqReq.TrafficLimited
 	if insAcqReq.DesignateInstanceID == "" && len(insAcqReq.InstanceSession.SessionID) != 0 {
-		record, exist := bcs.sessionManager.getSession(insAcqReq.InstanceSession.SessionID)
+		record, exist := bcs.sessionManager.getSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
+			insAcqReq.SessionCtxID))
 		if exist {
 			insAcqReq.DesignateInstanceID = record.insElem.instance.InstanceID
 		} else if bcs.sessionManager.isGrayStatus() || !bcs.isFuncOwner {
-			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(insAcqReq.InstanceSession.SessionID)
+			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(
+				insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID,
+				bcs.funcSpec.ExtendedMetaData.EnableSessionCtx)
 		}
 	}
 	if insAcqReq.DesignateInstanceID != "" && (bcs.sessionManager.isGrayStatus() || !bcs.isFuncOwner) {
@@ -841,7 +848,7 @@ func (bcs *basicConcurrencyScheduler) acquireInstanceInternal(instanceQueue queu
 	if leaseErr != nil {
 		log.GetLogger().Errorf("failed to create lease of instance %s for function %s error %s",
 			insAlloc.Instance.InstanceID, bcs.funcKeyWithRes, leaseErr.Error())
-		if err := bcs.releaseInstanceInternal(instanceQueue, insAlloc); err != nil {
+		if _, err := bcs.releaseInstanceInternal(instanceQueue, insAlloc); err != nil {
 			log.GetLogger().Errorf("failed to release instance %s for function %s error %s",
 				insAlloc.Instance.InstanceID, bcs.funcKeyWithRes, err.Error())
 		}
@@ -855,15 +862,61 @@ func (bcs *basicConcurrencyScheduler) acquireDefaultInstance(instanceQueue queue
 	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
 	log.GetLogger().Debugf("acquire default instance for function %s traceID %s", bcs.funcKeyWithRes,
 		insAcqReq.TraceID)
-	obj := instanceQueue.Front()
-	if obj == nil {
-		return nil, scheduler.ErrNoInsAvailable
-	}
-	insElem, ok := obj.(*instanceElement)
-	if !ok {
-		return nil, scheduler.ErrTypeConvertFail
+	var insElem *instanceElement
+	if bcs.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		if instanceQueue.SortedRange(func(obj interface{}) bool {
+			candidate, ok := obj.(*instanceElement)
+			if !ok || candidate.instance.InstanceStatus.Code != int32(constant.KernelInstanceStatusRunning) ||
+				!bcs.matchesSessionCtx(candidate.instance, insAcqReq.SessionCtxID) || len(candidate.threadMap) == 0 {
+				return true
+			}
+			insElem = candidate
+			return false
+		}) {
+			return nil, scheduler.ErrNoInsAvailable
+		}
+	} else {
+		obj := instanceQueue.Front()
+		if obj == nil {
+			return nil, scheduler.ErrNoInsAvailable
+		}
+		var ok bool
+		insElem, ok = obj.(*instanceElement)
+		if !ok {
+			return nil, scheduler.ErrTypeConvertFail
+		}
 	}
 	return acquireInstanceThread(insAcqReq.DesignateThreadID, instanceQueue, insElem)
+}
+
+func (bcs *basicConcurrencyScheduler) matchesSessionCtx(instance *types.Instance, sessionCtxID string) bool {
+	if !bcs.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		return true
+	}
+	return instance != nil && instance.SessionCtxID != nil && *instance.SessionCtxID == sessionCtxID
+}
+
+func hasActiveSessionCtx(instance *types.Instance) bool {
+	return instance != nil && instance.SessionCtxID != nil && *instance.SessionCtxID != ""
+}
+
+type releaseInstanceResult struct {
+	instanceForSessionCtxIdleHandler *types.Instance
+}
+
+func (r releaseInstanceResult) shouldHandleSessionCtxIdle() bool {
+	return r.instanceForSessionCtxIdleHandler != nil
+}
+
+func (bcs *basicConcurrencyScheduler) getSessionCacheKey(sessionID, sessionCtxID string) string {
+	if !bcs.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		return sessionID
+	}
+	return sessionID + "\x00" + sessionCtxID
+}
+
+func (bcs *basicConcurrencyScheduler) getRecordCacheKey(record *sessionRecord) string {
+	return bcs.getSessionCacheKey(record.sessionID, record.sessionCtxID)
 }
 
 func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue.Queue,
@@ -894,6 +947,9 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 			if insElem.instance.InstanceStatus.Code != int32(constant.KernelInstanceStatusRunning) {
 				return true
 			}
+			if !bcs.matchesSessionCtx(insElem.instance, insAcqReq.SessionCtxID) {
+				return true
+			}
 			if insAcqReq.InstanceSession.Concurrency == -1 {
 				// Full-concurrency session must monopolize the whole instance, so only fully idle instances
 				// are eligible for binding.
@@ -910,14 +966,16 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 		if err != nil {
 			return nil, err
 		}
-		bcs.sessionManager.addSession(insAcqReq.InstanceSession.SessionID, record)
+		bcs.sessionManager.addSession(bcs.getRecordCacheKey(record), record)
 	}
-	insAlloc, acqErr := bcs.acquireSessionThread(insAcqReq.DesignateThreadID, insAcqReq.InstanceSession)
+	insAlloc, acqErr := bcs.acquireSessionThread(insAcqReq.DesignateThreadID, insAcqReq.InstanceSession,
+		insAcqReq.SessionCtxID)
 	// if acqErr equals ErrNoInsThdAvail, try getting thread without session from the same instance
 	if acqErr != ErrNoInsThdAvail {
 		return insAlloc, acqErr
 	}
-	record, ok := bcs.sessionManager.getSession(insAcqReq.InstanceSession.SessionID)
+	record, ok := bcs.sessionManager.getSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
+		insAcqReq.SessionCtxID))
 	if !ok {
 		return insAlloc, acqErr
 	}
@@ -926,12 +984,13 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 
 func (bcs *basicConcurrencyScheduler) isSessionExist(instanceQueue queue.Queue,
 	insAcqReq *types.InstanceAcquireRequest) bool {
-	record, exist := bcs.sessionManager.getSession(insAcqReq.InstanceSession.SessionID)
+	cacheKey := bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID)
+	record, exist := bcs.sessionManager.getSession(cacheKey)
 	if exist {
 		// 缓存中有session但是instance已经被删除时，更新缓存
 		obj := instanceQueue.GetByID(record.insElem.instance.InstanceID)
 		if obj == nil {
-			bcs.sessionManager.delSession(insAcqReq.InstanceSession.SessionID)
+			bcs.sessionManager.delSession(cacheKey)
 			exist = false
 		}
 	}
@@ -949,7 +1008,8 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 	obj := instanceQueue.GetByID(insAcqReq.DesignateInstanceID)
 	if obj == nil {
 		if len(insAcqReq.InstanceSession.SessionID) != 0 {
-			bcs.sessionManager.delSession(insAcqReq.InstanceSession.SessionID)
+			bcs.sessionManager.delSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
+				insAcqReq.SessionCtxID))
 		}
 		return nil, scheduler.ErrInsNotExist
 	}
@@ -957,11 +1017,15 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 	if !ok {
 		return nil, scheduler.ErrTypeConvertFail
 	}
+	if !bcs.matchesSessionCtx(insElem.instance, insAcqReq.SessionCtxID) {
+		return nil, scheduler.ErrInsNotExist
+	}
 	if insElem.instance.InstanceStatus.Code == int32(constant.KernelInstanceStatusSubHealth) {
 		return nil, scheduler.ErrInsSubHealthy
 	}
 	if len(insAcqReq.InstanceSession.SessionID) != 0 {
-		record, ok := bcs.sessionManager.getSession(insAcqReq.InstanceSession.SessionID)
+		record, ok := bcs.sessionManager.getSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
+			insAcqReq.SessionCtxID))
 		// 指定的实例与session绑定的实例冲突，以指定实例为准
 		if ok && record.insElem.instance.InstanceID != insAcqReq.DesignateInstanceID {
 			insAcqReq.InstanceSession.SessionID = ""
@@ -971,10 +1035,10 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 			if acqErr != nil {
 				return nil, scheduler.ErrInternal
 			}
-			bcs.sessionManager.addSession(insAcqReq.InstanceSession.SessionID, record)
+			bcs.sessionManager.addSession(bcs.getRecordCacheKey(record), record)
 		}
 		insAlloc, acqErr = bcs.acquireSessionThread(insAcqReq.DesignateThreadID,
-			insAcqReq.InstanceSession)
+			insAcqReq.InstanceSession, insAcqReq.SessionCtxID)
 		// if acqErr equals ErrNoInsThdAvail, try getting thread without session from the same instance
 		if acqErr == ErrNoInsThdAvail {
 			return bcs.acquireInstanceWithOverAcqSession(instanceQueue, record, insAcqReq)
@@ -1056,6 +1120,7 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 	record := &sessionRecord{
 		ctx:            ctx,
 		sessionID:      session.SessionID,
+		sessionCtxID:   "",
 		ttl:            time.Duration(session.SessionTTL) * time.Second,
 		availThdMap:    make(map[string]struct{}, utils.DefaultMapSize),
 		allocThdMap:    make(map[string]struct{}, utils.DefaultMapSize),
@@ -1064,6 +1129,9 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 		expireCancelCh: make(chan struct{}, 1),
 		cancelFunc:     cancelFunc,
 		insElem:        insElem,
+	}
+	if bcs.funcSpec.ExtendedMetaData.EnableSessionCtx && insElem.instance.SessionCtxID != nil {
+		record.sessionCtxID = *insElem.instance.SessionCtxID
 	}
 	for i := 0; i < session.Concurrency; i++ {
 		threadID := insElem.GetThreadFromThreadMap()
@@ -1086,17 +1154,17 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 		}
 		metrics.OnAcquireLease(insAlloc)
 	}
-	log.GetLogger().Infof("bind session %s with instance %s for function %s, " +
-	    "requestedConcurrency=%d boundConcurrency=%d, instanceConcurrency=%d availableAfterBind=%d", record.sessionID,
+	log.GetLogger().Infof("bind session %s with instance %s for function %s, "+
+		"requestedConcurrency=%d boundConcurrency=%d, instanceConcurrency=%d availableAfterBind=%d", record.sessionID,
 		insElem.instance.InstanceID, bcs.funcKeyWithRes, requestedConcurrency, record.concurrency,
 		insElem.instance.ConcurrentNum, len(insElem.threadMap))
 	return record, nil
 }
 
 func (bcs *basicConcurrencyScheduler) acquireSessionThread(designateThreadID string,
-	sessionConfig commonTypes.InstanceSessionConfig) (
+	sessionConfig commonTypes.InstanceSessionConfig, sessionCtxID string) (
 	*types.InstanceAllocation, error) {
-	record, exist := bcs.sessionManager.getSession(sessionConfig.SessionID)
+	record, exist := bcs.sessionManager.getSession(bcs.getSessionCacheKey(sessionConfig.SessionID, sessionCtxID))
 	if !exist {
 		log.GetLogger().Errorf("session %s is not bound with instance for function %s", sessionConfig.SessionID,
 			bcs.funcKeyWithRes)
@@ -1135,30 +1203,35 @@ func (bcs *basicConcurrencyScheduler) acquireSessionThread(designateThreadID str
 // ReleaseInstance releases an instance
 func (bcs *basicConcurrencyScheduler) ReleaseInstance(insAlloc *types.InstanceAllocation) error {
 	bcs.Lock()
-	defer bcs.Unlock()
 	useSelfInstance := bcs.checkSelfInstance(insAlloc.Instance)
 	var (
-		err error
+		releaseResult releaseInstanceResult
+		err           error
 	)
 	if useSelfInstance {
-		err = bcs.releaseInstanceInternal(bcs.selfInstanceQueue, insAlloc)
+		releaseResult, err = bcs.releaseInstanceInternal(bcs.selfInstanceQueue, insAlloc)
 	} else {
-		err = bcs.releaseInstanceInternal(bcs.otherInstanceQueue, insAlloc)
+		releaseResult, err = bcs.releaseInstanceInternal(bcs.otherInstanceQueue, insAlloc)
+	}
+	idleHandler := bcs.sessionCtxIdleHandler
+	bcs.Unlock()
+	if err == nil && releaseResult.shouldHandleSessionCtxIdle() && idleHandler != nil {
+		idleHandler(releaseResult.instanceForSessionCtxIdleHandler)
 	}
 	return err
 }
 
 func (bcs *basicConcurrencyScheduler) releaseInstanceInternal(instanceQueue queue.Queue,
-	insAlloc *types.InstanceAllocation) error {
+	insAlloc *types.InstanceAllocation) (releaseInstanceResult, error) {
 	instance := insAlloc.Instance
 	obj := instanceQueue.GetByID(instance.InstanceID)
 	if obj == nil {
-		return scheduler.ErrInsNotExist
+		return releaseInstanceResult{}, scheduler.ErrInsNotExist
 	}
 	var ok bool
 	insElem, ok := obj.(*instanceElement)
 	if !ok {
-		return scheduler.ErrTypeConvertFail
+		return releaseInstanceResult{}, scheduler.ErrTypeConvertFail
 	}
 	releaseInSession := false
 	if len(insAlloc.SessionInfo.SessionID) != 0 {
@@ -1168,7 +1241,7 @@ func (bcs *basicConcurrencyScheduler) releaseInstanceInternal(instanceQueue queu
 		if err == nil {
 			releaseInSession = true
 		} else if err != ErrInsThdNotExist {
-			return err
+			return releaseInstanceResult{}, err
 		}
 	}
 	if !releaseInSession {
@@ -1178,19 +1251,28 @@ func (bcs *basicConcurrencyScheduler) releaseInstanceInternal(instanceQueue queu
 	if err != nil {
 		log.GetLogger().Errorf("failed to update instance %s during allocation release for function %s error %s",
 			insAlloc.Instance.InstanceID, bcs.funcKeyWithRes, err.Error())
-		return err
+		return releaseInstanceResult{}, err
 	}
 	if !releaseInSession {
 		metrics.OnReleaseLease(insAlloc)
 	}
-	return nil
+	if bcs.funcSpec.ExtendedMetaData.EnableSessionCtx && hasActiveSessionCtx(insElem.instance) &&
+		len(insElem.threadMap) == insElem.instance.ConcurrentNum {
+		return releaseInstanceResult{instanceForSessionCtxIdleHandler: insElem.instance}, nil
+	}
+	return releaseInstanceResult{}, nil
 }
 
 func (bcs *basicConcurrencyScheduler) releaseInstanceThreadWithSession(insQue queue.Queue, insElem *instanceElement,
 	insAlloc *types.InstanceAllocation) error {
 	log.GetLogger().Infof("start to unbind session %s with thread %s for function %s", insAlloc.SessionInfo.SessionID,
 		insAlloc.AllocationID, bcs.funcKeyWithRes)
-	record, exist := bcs.sessionManager.getSession(insAlloc.SessionInfo.SessionID)
+	sessionCtxID := ""
+	if bcs.funcSpec.ExtendedMetaData.EnableSessionCtx && insAlloc.Instance.SessionCtxID != nil {
+		sessionCtxID = *insAlloc.Instance.SessionCtxID
+	}
+	record, exist := bcs.sessionManager.getSession(bcs.getSessionCacheKey(insAlloc.SessionInfo.SessionID,
+		sessionCtxID))
 	if !exist {
 		log.GetLogger().Errorf("session %s is not bound with instance %s for function %s",
 			insAlloc.SessionInfo.SessionID, insElem.instance.InstanceID, bcs.funcKeyWithRes)
@@ -1253,12 +1335,18 @@ func (bcs *basicConcurrencyScheduler) unbindInstanceSession(insQue queue.Queue, 
 			}
 			metrics.OnReleaseLease(insAlloc)
 		}
-		bcs.sessionManager.delSession(record.sessionID)
+		bcs.sessionManager.delSession(bcs.getRecordCacheKey(record))
 		if err := insQue.UpdateObjByID(record.insElem.instance.InstanceID, record.insElem); err != nil {
 			log.GetLogger().Errorf("failed to update instance %s during unbinding with session %s for function %s"+
 				" error %s", record.insElem.instance.InstanceID, record.sessionID, bcs.funcKeyWithRes, err.Error())
 		}
+		instance := record.insElem.instance
+		idleHandler := bcs.sessionCtxIdleHandler
+		enableSessionCtx := bcs.funcSpec.ExtendedMetaData.EnableSessionCtx
 		bcs.L.Unlock()
+		if idleHandler != nil && enableSessionCtx && hasActiveSessionCtx(instance) {
+			idleHandler(instance)
+		}
 		log.GetLogger().Infof("unbind session %s with instance %s for function %s", record.sessionID,
 			record.insElem.instance.InstanceID, bcs.funcKeyWithRes)
 	case <-record.expireCancelCh:
@@ -1379,6 +1467,43 @@ func (bcs *basicConcurrencyScheduler) DelInstance(instance *types.Instance) erro
 		bcs.reassignInstanceWhenGray()
 	}
 	return err
+}
+
+func (bcs *basicConcurrencyScheduler) isSessionCtxInstanceIdle(instanceID, sessionCtxID string) bool {
+	bcs.RLock()
+	defer bcs.RUnlock()
+	for _, instanceQueue := range []queue.Queue{bcs.selfInstanceQueue, bcs.otherInstanceQueue} {
+		obj := instanceQueue.GetByID(instanceID)
+		insElem, ok := obj.(*instanceElement)
+		if !ok {
+			continue
+		}
+		return bcs.matchesSessionCtx(insElem.instance, sessionCtxID) &&
+			len(insElem.threadMap) == insElem.instance.ConcurrentNum
+	}
+	return false
+}
+
+func (bcs *basicConcurrencyScheduler) popIdleSessionCtxInstance(instanceID, sessionCtxID string) (*types.Instance, error) {
+	bcs.Lock()
+	defer bcs.Unlock()
+	for _, instanceQueue := range []queue.Queue{bcs.selfInstanceQueue, bcs.otherInstanceQueue} {
+		obj := instanceQueue.GetByID(instanceID)
+		insElem, ok := obj.(*instanceElement)
+		if !ok {
+			continue
+		}
+		if !bcs.matchesSessionCtx(insElem.instance, sessionCtxID) ||
+			len(insElem.threadMap) != insElem.instance.ConcurrentNum {
+			return nil, nil
+		}
+		if err := instanceQueue.DelByID(instanceID); err != nil {
+			return nil, err
+		}
+		bcs.leaseManager.HandleInstanceDelete(insElem.instance)
+		return insElem.instance, nil
+	}
+	return nil, nil
 }
 
 // SignalAllInstances sends signal to all instances

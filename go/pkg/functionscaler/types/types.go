@@ -411,6 +411,7 @@ type Instance struct {
 	FunctionProxyID   string
 	RouteAddress      string
 	AZ                string
+	SessionCtxID      *string
 }
 
 // Copy -
@@ -440,6 +441,7 @@ func (i *Instance) Copy() *Instance {
 		FunctionProxyID:   i.FunctionProxyID,
 		RouteAddress:      i.RouteAddress,
 		AZ:                i.AZ,
+		SessionCtxID:      i.SessionCtxID,
 	}
 }
 
@@ -504,6 +506,7 @@ type InstanceAcquireRequest struct {
 	StateID             string
 	CallerPodName       string
 	TrafficLimited      bool
+	SessionCtxID        string
 
 	SkipWaitPending bool
 }

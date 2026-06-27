@@ -50,6 +50,7 @@ type InsQueConfig struct {
 	ResKey           resspeckey.ResSpecKey
 	MetricsCollector metrics.Collector
 	CreateInstanceFunc
+	SessionCtxIdleFunc
 	DeleteInstanceFunc
 	SignalInstanceFunc
 }
@@ -58,8 +59,11 @@ type InsQueConfig struct {
 type InstanceOperationFunc struct{}
 
 // CreateInstanceFunc -
-type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string, *string) (
 	*types.Instance, error)
+
+// SessionCtxIdleFunc handles an instance becoming idle after its session binding expires.
+type SessionCtxIdleFunc func(*types.Instance)
 
 // DeleteInstanceFunc -
 type DeleteInstanceFunc func(*types.Instance) error
@@ -75,6 +79,15 @@ type InstanceQueue interface {
 	HandleFuncSpecUpdate(funcSpec *types.FunctionSpecification)
 	Destroy()
 	GetInstanceNumber(onlySelf bool) int
+}
+
+type SessionCtxIdleScheduler interface {
+	IsSessionCtxInstanceIdle(instanceID, sessionCtxID string) bool
+	PopIdleSessionCtxInstance(instanceID, sessionCtxID string) (*types.Instance, error)
+}
+
+type SessionCtxIdleHandlerSetter interface {
+	SetSessionCtxIdleHandler(handler func(*types.Instance))
 }
 
 func buildSnError(err error) snerror.SNError {

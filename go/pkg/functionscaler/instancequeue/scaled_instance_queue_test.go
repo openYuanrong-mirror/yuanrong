@@ -338,6 +338,14 @@ func TestHandleFuncSpecUpdate(t *testing.T) {
 	assert.Equal(t, 4, q.concurrentNum)
 	assert.Equal(t, 0, len(instanceScheduler.insQue))
 	assert.Equal(t, true, instanceScaler.enable)
+	q.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		FuncMetaSignature: "funcSig4",
+		InstanceMetaData: commontypes.InstanceMetaData{
+			ConcurrentNum: 4,
+		},
+		ExtendedMetaData: commontypes.ExtendedMetaData{EnableSessionCtx: true},
+	})
+	assert.Equal(t, false, instanceScaler.enable)
 	close(stop)
 }
 
@@ -548,7 +556,7 @@ func TestStartScaleUpWorker(t *testing.T) {
 }
 
 func TestScaleUpProcess(t *testing.T) {
-	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string, *string) (
 		*types.Instance, error) {
 		return &types.Instance{}, nil
 	}
@@ -586,8 +594,8 @@ func TestScaleUpProcess(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 3, callCount)
 	// instance nil & error not nil
-	patchCreateFunc := ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
-		*types.Instance, error) {
+	patchCreateFunc := ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte,
+		string, *string) (*types.Instance, error) {
 		return nil, snerror.New(4001, "user error")
 	})
 	q.ScaleUpHandler(1, callback)
@@ -595,8 +603,8 @@ func TestScaleUpProcess(t *testing.T) {
 	assert.Equal(t, 4, callCount)
 	patchCreateFunc.Reset()
 	// instance not nil & error not nil
-	patchCreateFunc = ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
-		*types.Instance, error) {
+	patchCreateFunc = ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte,
+		string, *string) (*types.Instance, error) {
 		return &types.Instance{InstanceID: "instance1"}, snerror.New(4001, "user error")
 	})
 	q.ScaleUpHandler(1, callback)
@@ -612,7 +620,7 @@ func TestScaleDownProcess(t *testing.T) {
 		delIns = ins
 		return nil
 	}
-	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string, *string) (
 		*types.Instance, error) {
 		return nil, nil
 	}

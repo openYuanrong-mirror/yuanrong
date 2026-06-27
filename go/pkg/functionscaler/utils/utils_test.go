@@ -349,7 +349,24 @@ func TestBuildInstanceFromInsSpec(t *testing.T) {
 			}, nil)
 			convey.So(instance.AZ, convey.ShouldEqual, "az1")
 		})
+		convey.Convey("get session context ID with presence", func() {
+			emptyCtx := ""
+			instance := BuildInstanceFromInsSpec(&commonTypes.InstanceSpecification{
+				Extensions: commonTypes.Extensions{SessionCtxID: &emptyCtx},
+			}, nil)
+			convey.So(instance.SessionCtxID, convey.ShouldNotBeNil)
+			convey.So(*instance.SessionCtxID, convey.ShouldEqual, "")
+
+			instance = BuildInstanceFromInsSpec(&commonTypes.InstanceSpecification{}, nil)
+			convey.So(instance.SessionCtxID, convey.ShouldBeNil)
+		})
 	})
+}
+
+func TestCheckSessionCtxIDValid(t *testing.T) {
+	assert.True(t, CheckSessionCtxIDValid(""))
+	assert.True(t, CheckSessionCtxIDValid("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	assert.False(t, CheckSessionCtxIDValid("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
 }
 
 func TestCheckInstanceSessionValid(t *testing.T) {

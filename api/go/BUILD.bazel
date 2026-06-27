@@ -48,13 +48,18 @@ genrule(
             esac
         done &&
         cd $$(realpath $$BASE_DIR/api/go/runtime/) &&
+        export GOROOT=/opt/buildtools/golang_go-1.24.1 &&
+        export PATH=$$GOROOT/bin:$$PATH &&
+        export GOWORK=off &&
+        export GOTOOLCHAIN=local &&
+        go version &&
         # Build in module mode only. In CI/bazel execroot there is no sibling workspace
         # (for example `../../../yuanrong-frontend`), so we must ignore repository-level go.work.
-        GOWORK=off go mod tidy &&
+        go mod tidy &&
         if [[ "$$(uname)" == "Darwin" ]]; then
-            CGO_ENABLED=1 GOWORK=off go build -buildmode=pie -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
+            CGO_ENABLED=1 go build -buildmode=pie -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
         else
-            LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' GOWORK=off go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
+            LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
         fi &&
         cd $$BASE_DIR &&
         chmod -R 750 $$GO_OUT_DIR &&

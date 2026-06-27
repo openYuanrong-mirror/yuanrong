@@ -41,6 +41,15 @@ func TestGetFuncMetaSignature(t *testing.T) {
 		}, true)
 		convey.So(signature1, convey.ShouldNotEqual, signature2)
 	})
+	convey.Convey("enable session context affects signature", t, func() {
+		signature1 := GetFuncMetaSignature(&types.FunctionMetaInfo{
+			ExtendedMetaData: types.ExtendedMetaData{EnableSessionCtx: false},
+		}, true)
+		signature2 := GetFuncMetaSignature(&types.FunctionMetaInfo{
+			ExtendedMetaData: types.ExtendedMetaData{EnableSessionCtx: true},
+		}, true)
+		convey.So(signature1, convey.ShouldNotEqual, signature2)
+	})
 	convey.Convey("marshal error", t, func() {
 		oldJSONMarshal := jsonMarshal
 		jsonMarshal = func(v interface{}) ([]byte, error) {

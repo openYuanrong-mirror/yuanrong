@@ -122,7 +122,7 @@ func (op *OneShotInstancePool) CreateInstance(insCrtReq *types.InstanceCreateReq
 	}
 	resKey := resspeckey.ConvertToResSpecKey(resSpec)
 
-	instance, err := op.createInstanceInternal(insCrtReq.InstanceName, resKey, insCrtReq.CreateEvent)
+	instance, err := op.createInstanceInternal(insCrtReq.InstanceName, resKey, insCrtReq.CreateEvent, nil)
 	if err != nil {
 		return nil, snerror.New(statuscode.StatusInternalServerError, err.Error())
 	}
@@ -169,7 +169,11 @@ func (op *OneShotInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 	resKey := resspeckey.ConvertToResSpecKey(resSpec)
 
 	// Create new instance
-	instance, err := op.createInstanceInternal("", resKey, []byte{})
+	var sessionCtxID *string
+	if op.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		sessionCtxID = &insAcqReq.SessionCtxID
+	}
+	instance, err := op.createInstanceInternal("", resKey, []byte{}, sessionCtxID)
 	if err != nil {
 		logger.Errorf("failed to create one-shot instance: %v", err)
 		return nil, snerror.New(statuscode.StatusInternalServerError, err.Error())
@@ -272,7 +276,7 @@ func (op *OneShotInstancePool) autoCleanupInstance(allocationID string, instance
 
 // createInstanceInternal handles actual instance creation
 func (op *OneShotInstancePool) createInstanceInternal(instanceName string, resKey resspeckey.ResSpecKey,
-	createEvent []byte,
+	createEvent []byte, sessionCtxID *string,
 ) (*types.Instance, error) {
 	op.RLock()
 	createRequest := createInstanceRequest{
@@ -284,6 +288,7 @@ func (op *OneShotInstancePool) createInstanceInternal(instanceName string, resKe
 		instanceName:    instanceName,
 		createEvent:     createEvent,
 		instanceType:    types.InstanceTypeScaled, // Use scaled type for one-shot instances
+		sessionCtxID:    sessionCtxID,
 	}
 	op.RUnlock()
 

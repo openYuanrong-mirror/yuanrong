@@ -43,6 +43,7 @@ import (
 // SessionInDS -
 type SessionInDS struct {
 	SchedulerID                       string
+	SessionCtxID                      string `json:"sessionCtxID,omitempty"`
 	commonTypes.InstanceSessionConfig `json:",inline"`
 }
 
@@ -56,6 +57,7 @@ type sessionRecord struct {
 	ttl            time.Duration
 	concurrency    int
 	sessionID      string
+	sessionCtxID   string
 	expireCancelCh chan struct{}
 	expireCh       chan struct{}
 	cancelFunc     func()
@@ -255,7 +257,8 @@ func (sm *sessionManager) saveSessionRecordToDataSystem() {
 		}
 		sessionCache[record.insElem.instance.InstanceID] = append(sessionCache[record.insElem.instance.InstanceID],
 			SessionInDS{
-				SchedulerID: sm.currentSchedulerID,
+				SchedulerID:  sm.currentSchedulerID,
+				SessionCtxID: record.sessionCtxID,
 				InstanceSessionConfig: commonTypes.InstanceSessionConfig{
 					SessionID:   record.sessionID,
 					SessionTTL:  int(record.ttl.Seconds()),
@@ -313,11 +316,12 @@ func (sm *sessionManager) deleteSessionRecordToDataSystem() {
 	}
 }
 
-func (sm *sessionManager) queryInsBySessionFromDS(sessionId string) string {
+func (sm *sessionManager) queryInsBySessionFromDS(sessionID, sessionCtxID string, enableSessionCtx bool) string {
 	sessionCache := sm.loadSessionFromDataSystem()
 	for insId, sessionInDS := range sessionCache {
 		for _, sessionInfo := range sessionInDS {
-			if sessionId == sessionInfo.SessionID {
+			if sessionID == sessionInfo.SessionID &&
+				(!enableSessionCtx || sessionCtxID == sessionInfo.SessionCtxID) {
 				return insId
 			}
 		}

@@ -104,5 +104,6 @@ func buildInstance(instanceID string, request createInstanceRequest) *types.Inst
 		FuncKey:       request.funcSpec.FuncKey,
 		FuncSig:       request.funcSpec.FuncMetaSignature,
 		ConcurrentNum: request.funcSpec.InstanceMetaData.ConcurrentNum,
+		SessionCtxID:  request.sessionCtxID,
 	}
 }

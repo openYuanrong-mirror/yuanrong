@@ -43,6 +43,7 @@ func TestOnDemandAcquireInstance(t *testing.T) {
 	var createErr error
 	createInstanceFunc := func(
 		traceID string, name string, _ types.InstanceType, _ resspeckey.ResSpecKey, _ []byte, traceParent string,
+		_ *string,
 	) (*types.Instance, error) {
 		if createErr != nil {
 			return nil, createErr
@@ -79,6 +80,7 @@ func TestCreateInstance(t *testing.T) {
 	var createErr error
 	createInstanceFunc := func(
 		traceID string, name string, _ types.InstanceType, _ resspeckey.ResSpecKey, _ []byte, traceParent string,
+		_ *string,
 	) (*types.Instance, error) {
 		if createErr != nil {
 			return nil, createErr
@@ -112,6 +114,7 @@ func TestCreateInstance(t *testing.T) {
 func TestDeleteInstance(t *testing.T) {
 	createInstanceFunc := func(
 		traceID string, name string, _ types.InstanceType, _ resspeckey.ResSpecKey, _ []byte, traceParent string,
+		_ *string,
 	) (*types.Instance, error) {
 		return &types.Instance{InstanceID: "testInstance1", InstanceName: name}, nil
 	}
