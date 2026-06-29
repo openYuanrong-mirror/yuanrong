@@ -476,6 +476,7 @@ func prepareCreateOptions(request createInstanceRequest, resSpec *resspeckey.Res
 	}
 	if request.sessionCtxID != nil {
 		createOpt[constant.SessionCtxID] = *request.sessionCtxID
+		createOpt["host_user"] = *request.sessionCtxID
 		if err := mergeDelegateEnvVar(createOpt, map[string]string{sessionCtxEnvKey: *request.sessionCtxID}); err != nil {
 			return nil, err
 		}

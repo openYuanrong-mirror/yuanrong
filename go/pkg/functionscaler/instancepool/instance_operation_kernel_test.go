@@ -275,6 +275,8 @@ func TestPrepareCreateOptions(t *testing.T) {
 		err = json.Unmarshal([]byte(createOpt[commonconstant.DelegateEnvVar]), &delegateEnv)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(delegateEnv[sessionCtxEnvKey], convey.ShouldEqual, sessionCtxID)
+
+		convey.So(createOpt["host_user"], convey.ShouldEqual, sessionCtxID)
 		os.Setenv("CUSTOM_CONTAINER_IMAGE_PULL_POLICY", "")
 	})
 }
