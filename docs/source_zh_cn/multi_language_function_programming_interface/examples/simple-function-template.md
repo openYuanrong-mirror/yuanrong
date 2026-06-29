@@ -1369,7 +1369,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     ```json
      {
         "name": "0@myService@python-demo",
-        "handler": "demo.my_handler",
+        "handler": "demo.handler",
         "extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},
           "environment":{"show_date":"true"},
           "runtime": "python3.9",
@@ -1400,7 +1400,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     结果格式如下， 记录 ` functionVersionUrn ` 字段的值用于调用， 这里对应 ` sn:cn:yrk:default:function:0@myService@python-demo:latest `
         
     ```json
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:default:function:0@myService@python-demo:latest","createTime":"2026-01-20 01:57:36.938 UTC","updateTime":"","functionUrn":"sn:cn:yrk:default:function:0@myService@python-demo","name":"0@myService@python-demo","tenantId":"default","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:default:function:0@myService@python-demo:latest","revisionId":"20260120015736938","codeSize":0,"extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"demo.my_handler","layers":null,"cpu":600,"memory":512,"runtime":"python3.9","timeout":30,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2016-01-20 01:57:36.936 UTC","minInstance":1,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:default:function:0@myService@python-demo:latest","createTime":"2026-01-20 01:57:36.938 UTC","updateTime":"","functionUrn":"sn:cn:yrk:default:function:0@myService@python-demo","name":"0@myService@python-demo","tenantId":"default","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:default:function:0@myService@python-demo:latest","revisionId":"20260120015736938","codeSize":0,"extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"demo.handler","layers":null,"cpu":600,"memory":512,"runtime":"python3.9","timeout":30,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2016-01-20 01:57:36.936 UTC","minInstance":1,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)： 
