@@ -156,6 +156,7 @@ type FunctionSpecification struct {
 	InstanceMetaData  types.InstanceMetaData `json:"instanceMetaData" valid:",optional"` // new add
 	ExtendedMetaData  types.ExtendedMetaData `json:"extendedMetaData" valid:",optional"`
 	RootfsSpecMeta    types.RootfsSpecMeta   `json:"rootfs" valid:",optional"`
+	SandboxType       string                 `json:"sandboxType" valid:",optional"`
 }
 
 // PullTriggerRequestInfo include info of pullTrigger Option Create

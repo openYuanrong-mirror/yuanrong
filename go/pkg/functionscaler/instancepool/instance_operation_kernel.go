@@ -1253,6 +1253,10 @@ func setCreateOptionForFuncSpec(funcSpec *types.FunctionSpecification, createOpt
 	createOpt[types.InitCallTimeoutKey] = strconv.Itoa(int(funcSpec.ExtendedMetaData.Initializer.Timeout))
 	createOpt[types.CallTimeoutKey] = strconv.Itoa(int(funcSpec.FuncMetaData.Timeout))
 	createOpt[types.FunctionSign] = funcSpec.FuncMetaSignature
+
+	if funcSpec.SandboxType != "" {
+	    createOpt["sandbox_type"] = funcSpec.SandboxType
+	}
 }
 
 func initCustomContainerEnv(funcSpec *types.FunctionSpecification) []v1.EnvVar {

@@ -330,6 +330,7 @@ type FunctionMetaInfo struct {
 	InstanceMetaData InstanceMetaData `json:"instanceMetaData" valid:",optional"`
 	ExtendedMetaData ExtendedMetaData `json:"extendedMetaData" valid:",optional"`
 	RootfsSpecMeta   RootfsSpecMeta   `json:"rootfs" valid:",optional"`
+	SandboxType      string           `json:"sandboxType" valid:",optional"`
 }
 
 // FuncMetaData define meta data of functions
