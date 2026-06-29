@@ -1,9 +1,12 @@
 [submodule "frontend"]
 	path = frontend
 	url = https://gitcode.com/openeuler/yuanrong-frontend.git
+	branch = feature/sandbox
 [submodule "datasystem"]
 	path = datasystem
 	url = https://gitcode.com/yuchaow/yuanrong-datasystem.git
+	branch = br_mix
 [submodule "functionsystem"]
 	path = functionsystem
 	url = https://gitcode.com/openeuler/yuanrong-functionsystem.git
+	branch = feature/sandbox
