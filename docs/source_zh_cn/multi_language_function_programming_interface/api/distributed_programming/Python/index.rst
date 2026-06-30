@@ -170,6 +170,10 @@ Python
    :maxdepth: 1
 
    yr.exception.YRError
+   yr.exception.YRRuntimeError
+   yr.exception.YRTimeoutError
+   yr.exception.YRValueError
+   yr.exception.YRTypeError
    yr.exception.CancelError
    yr.exception.YRInvokeError
    yr.exception.YRequestError
@@ -437,7 +441,15 @@ KV 缓存 API
    :widths: 30 70
    
    * - :doc:`yr.exception.YRError`
-     - YR 模块中所有自定义异常的基类。
+     - YR 模块中所有自定义异常的基类，承载结构化错误信息。
+   * - :doc:`yr.exception.YRRuntimeError`
+     - 结构化运行时错误，兼容 Python 内置 RuntimeError 捕获。
+   * - :doc:`yr.exception.YRTimeoutError`
+     - 结构化超时错误，兼容 Python 内置 TimeoutError 捕获。
+   * - :doc:`yr.exception.YRValueError`
+     - 结构化参数取值错误，兼容 Python 内置 ValueError 捕获。
+   * - :doc:`yr.exception.YRTypeError`
+     - 结构化参数类型错误，兼容 Python 内置 TypeError 捕获。
    * - :doc:`yr.exception.CancelError`
      - 任务取消错误。
    * - :doc:`yr.exception.YRInvokeError`

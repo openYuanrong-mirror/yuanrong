@@ -89,7 +89,9 @@ class ErrorInfo:
         error_code: error code, default is ErrorCode.ERR_OK
         module_code: module code, default is ModuleCode.RUNTIME
         msg: error message, default is empty string
+        stack_trace_infos: optional lower-level stack trace details
     """
     error_code: ErrorCode = ErrorCode.ERR_OK
     module_code: ModuleCode = ModuleCode.RUNTIME
     msg: str = ""
+    stack_trace_infos: object = None

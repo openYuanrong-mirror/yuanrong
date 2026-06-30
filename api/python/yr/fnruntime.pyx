@@ -52,7 +52,7 @@ from yr.base_runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType
 from yr import runtime_env
 from yr import port_forwarding
 from yr.checkpoint import SnapstartInfo, SnapstartResponse
-from yr.exception import YRInvokeError, _cause_to_str
+from yr.exception import YRInvokeError, YRRuntimeError, YRTimeoutError, YRValueError, _cause_to_str
 from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
                        SubscriptionType)
 from yr.accelerate.shm_broadcast import Handle, MessageQueue, decode, ResponseStatus
@@ -128,6 +128,15 @@ cdef error_info_from_cpp(CErrorInfo c_error_info):
         return ErrorInfo()
     return ErrorInfo(c_error_info.Code(), c_error_info.MCode(), c_error_info.Msg().decode())
 
+cdef raise_runtime_error_from_cpp(CErrorInfo c_error_info, mesg: str = None):
+    raise YRRuntimeError.from_error_info(error_info_from_cpp(c_error_info), message_prefix=mesg)
+
+cdef raise_timeout_error_from_cpp(CErrorInfo c_error_info, mesg: str = None):
+    raise YRTimeoutError.from_error_info(error_info_from_cpp(c_error_info), message_prefix=mesg)
+
+cdef raise_value_error_from_cpp(CErrorInfo c_error_info, mesg: str = None):
+    raise YRValueError.from_error_info(error_info_from_cpp(c_error_info), message_prefix=mesg)
+
 cdef CErrorInfo error_info_from_py(error_info: ErrorInfo):
     cdef:
         CErrorCode error_code
@@ -147,12 +156,7 @@ cdef CErrorInfo error_info_from_py(error_info: ErrorInfo):
 cdef check_error_info(CErrorInfo c_error_info, mesg: str):
     if c_error_info.OK():
         return
-    raise RuntimeError(
-        f"{mesg}, "
-        f"code: {c_error_info.Code()}, "
-        f"module code {c_error_info.MCode()}, "
-        f"msg: {c_error_info.Msg().decode()}"
-    )
+    raise_runtime_error_from_cpp(c_error_info, mesg)
 
 cdef api_type_from_cpp(const CApiType & c_api_type):
     api_type = ApiType.Function
@@ -569,7 +573,7 @@ def load_code_from_datasystem(code_id: str):
         pair[CErrorInfo, vector[shared_ptr[CBuffer]]] ret
     cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
     if c_libruntime == nullptr:
-        raise RuntimeError("already finalized")
+        raise YRRuntimeError(message="already finalized")
     c_ids.push_back(code_id)
     _logger.debug("code id: %s", code_id)
     with nogil:
@@ -578,9 +582,7 @@ def load_code_from_datasystem(code_id: str):
         ret = c_libruntime.get().GetBuffers(c_ids, 60000, False)
         c_libruntime.get().DecreaseReference(c_ids)
     if not ret.first.OK():
-        raise RuntimeError(
-            f"failed to get object, "
-            f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+        raise_runtime_error_from_cpp(ret.first, "failed to get object")
     it = ret.second.begin()
     return yr.serialization.Serialization().deserialize(Buffer.make(dereference(it)))
 
@@ -723,7 +725,7 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
         _thread_for_default_cg.start()
     cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
     if c_libruntime == nullptr:
-        raise RuntimeError("already finalized")
+        raise YRRuntimeError(message="already finalized")
     result_list = []
     error_info = ErrorInfo()
     cdef:
@@ -957,9 +959,7 @@ cdef CErrorInfo build_invoke_arg(arg, vector[CInvokeArg]& invokeArgs, string ten
         if len(arg.buf) != 0:
             c_error_info = memory_copy(data_buf, arg.buf, len(arg.buf))
             if not c_error_info.OK():
-                raise RuntimeError(
-                    f"failed to build invoke args, "
-                    f"code: {c_error_info.Code()}, module code {c_error_info.MCode()}, msg: {c_error_info.Msg().decode()}")
+                raise_runtime_error_from_cpp(c_error_info, "failed to build invoke args")
     c_arg.dataObj.get().SetBuffer(data_buf)
     c_arg.isRef = arg.is_ref
     c_arg.objId = arg.obj_id
@@ -977,9 +977,8 @@ def get_conda_bin_executable(executable_name: str) -> str:
     if conda_home:
         return conda_home
     else:
-        raise ValueError(
-            "please configure YR_CONDA_HOME environment variable which contain a bin subdirectory"
-        )
+        raise YRValueError(
+            message="please configure YR_CONDA_HOME environment variable which contain a bin subdirectory")
 
 cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info: GroupInfo = None):
     cdef:
@@ -1037,7 +1036,7 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
         c_affinity = affinity_from_py_to_cpp(affinity, opt.preferred_priority, opt.required_priority,
                                              opt.preferred_anti_other_labels)
         if c_affinity == nullptr:
-            raise ValueError("Failed to convert affinity to cpp affinity.")
+            raise YRValueError(message="Failed to convert affinity to cpp affinity.")
         opts.scheduleAffinities.push_back(c_affinity)
     opts.recoverRetryTimes = opt.recover_retry_times
     if opt.need_order:
@@ -1114,9 +1113,7 @@ cdef class Producer:
             with nogil:
                 ret = self.producer.get().Send(e, c_timeout_ms)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to send, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to send")
 
     def close(self) -> None:
         """
@@ -1126,9 +1123,7 @@ cdef class Producer:
         cdef CErrorInfo ret
         ret = self.producer.get().Close()
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to close, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to close")
 
 cdef class SharedBuffer:
     cdef:
@@ -1200,9 +1195,7 @@ cdef class Consumer:
             with nogil:
                 ret = self.consumer.get().Receive(c_timeout_ms, out_elements)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to receive, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to receive")
         it = out_elements.begin()
         while it != out_elements.end():
             result.append(Element(
@@ -1231,9 +1224,7 @@ cdef class Consumer:
         cdef CErrorInfo ret
         ret = self.consumer.get().Ack(element_id)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to ack, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to ack")
 
     def close(self):
         """
@@ -1245,9 +1236,7 @@ cdef class Consumer:
         cdef CErrorInfo ret
         ret = self.consumer.get().Close()
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to close, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to close")
 
 cdef CErrorInfo dump_instance(const string & checkpointId, shared_ptr[CBuffer] & data) noexcept with gil:
     cdef:
@@ -1461,9 +1450,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().Init(config)
         if not ret.OK():
-            raise ValueError(
-                f"failed to init, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_value_error_from_cpp(ret, "failed to init")
 
     def init(self, ctx):
         global _serialization_ctx
@@ -1515,23 +1502,19 @@ cdef class Fnruntime:
         c_dataObj = make_shared[CDataObject]()
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().CreateDataObject(meta_size, data_size, c_dataObj,
                                                                                        nested_ids, param)
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to put object, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to put object")
 
         c_error_info = write2DataObject(c_dataObj, serialized_object, nested_ids_set)
 
         if not c_error_info.OK():
-            raise RuntimeError(
-                f"failed to put object, "
-                f"code: {c_error_info.Code()}, module code {c_error_info.MCode()}, msg: {c_error_info.Msg().decode()}")
+            raise_runtime_error_from_cpp(c_error_info, "failed to put object")
         return ret.second.decode("utf-8")
 
     def get(self, ids: List[str], timeout_ms: int, allow_partial: bool) -> List[Buffer]:
@@ -1554,7 +1537,7 @@ cdef class Fnruntime:
         c_dataObj = make_shared[CDataObject]()
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().GetDataObjects(c_ids, c_timeout_ms, allow_partial)
@@ -1580,8 +1563,8 @@ cdef class Fnruntime:
             mesg = ("failed to get object, "
                     f"code: {ret.first.Code()}, module code: {ret.first.MCode()}, message: {ret.first.Msg().decode()}")
             if ret.first.IsTimeout():
-                raise TimeoutError(mesg)
-            raise RuntimeError(mesg)
+                raise_timeout_error_from_cpp(ret.first, "failed to get object")
+            raise_runtime_error_from_cpp(ret.first, "failed to get object")
 
         result = []
         for it in ret.second:
@@ -1608,7 +1591,7 @@ cdef class Fnruntime:
             c_ids.push_back(i)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().Wait(c_ids, cwaitNum, ctimeout)
@@ -1662,19 +1645,15 @@ cdef class Fnruntime:
         c_buffer = dynamic_pointer_cast[CBuffer, NativeBuffer](make_shared[NativeBuffer](len(value)))
         ret = memory_copy(c_buffer, value, len(value))
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to kv_write, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to kv_write")
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().KVWrite(c_str, c_buffer, param)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to kv_write, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to kv_write")
 
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam) -> None:
         """
@@ -1698,19 +1677,15 @@ cdef class Fnruntime:
             c_buffers.push_back(dynamic_pointer_cast[CBuffer, NativeBuffer](make_shared[NativeBuffer](len(value))))
             ret = memory_copy(c_buffers.back(), value, len(value))
             if not ret.OK():
-                raise RuntimeError(
-                    f"failed to kv_m_write_tx, "
-                    f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+                raise_runtime_error_from_cpp(ret, "failed to kv_m_write_tx")
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().KVMSetTx(c_ids, c_buffers, param)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to kv_m_write_tx, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to kv_m_write_tx")
 
     def kv_read(self, key: Union[str, List[str]], timeout_ms: int, allow_partial: bool = False) -> List[memoryview]:
         """
@@ -1731,14 +1706,12 @@ cdef class Fnruntime:
                 c_ids.push_back(k_id)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().KVRead(c_ids, c_timeout_ms, allow_partial)
         if not ret.second.OK():
-            raise RuntimeError(
-                f"failed to kv_read, "
-                f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.second, "failed to kv_read")
         it = ret.first.begin()
         result = []
         while it != ret.first.end():
@@ -1764,14 +1737,12 @@ cdef class Fnruntime:
         c_get_params = get_params_from_py(get_params)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().KVGetWithParam(c_ids, c_get_params, c_timeout_ms)
         if not ret.second.OK():
-            raise RuntimeError(
-                f"failed to kv_get_with_param, "
-                f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.second, "failed to kv_get_with_param")
         result = []
         for it in ret.first:
             if it == NULL:
@@ -1796,14 +1767,12 @@ cdef class Fnruntime:
                 c_ids.push_back(k_id)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().KVDel(c_ids)
         if not ret.second.OK():
-            raise RuntimeError(
-                f"failed to kv_del, "
-                f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.second, "failed to kv_del")
 
     def increase_global_reference(self, object_ids: List[str]) -> None:
         """
@@ -1820,9 +1789,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().IncreaseReference(c_ids)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to increase, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to increase")
 
     def decrease_global_reference(self, object_ids: List[str]) -> None:
         """
@@ -1865,7 +1832,7 @@ cdef class Fnruntime:
             returnObjs.push_back(returnObj)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             tenantId = c_libruntime.get().GetTenantId()
         function_meta_from_py(functionMeta, func_meta)
@@ -1876,9 +1843,7 @@ cdef class Fnruntime:
             libruntime.SetTenantIdWithPriority()
             error_info = libruntime.InvokeByFunctionName(functionMeta, invokeArgs, opts, returnObjs)
         if not error_info.OK():
-            raise ValueError(
-                f"failed to invoke instance, "
-                f"code: {error_info.Code()}, module code {error_info.MCode()}, msg: {error_info.Msg().decode()}")
+            raise_value_error_from_cpp(error_info, "failed to invoke instance")
 
         _logger.debug("Succeed to invoke function: %s", func_meta)
         return_objs = []
@@ -1902,7 +1867,7 @@ cdef class Fnruntime:
             CInvokeOptions opts
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             tenantId = c_libruntime.get().GetTenantId()
         function_meta_from_py(functionMeta, func_meta)
@@ -1912,9 +1877,7 @@ cdef class Fnruntime:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().CreateInstance(functionMeta, invokeArgs, opts)
         if not ret.first.OK():
-            raise ValueError(
-                f"failed to create instance, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_value_error_from_cpp(ret.first, "failed to create instance")
         return ret.second.decode()
 
     def invoke_instance(self, func_meta: FunctionMeta, instance_id: str, args: List,
@@ -1942,7 +1905,7 @@ cdef class Fnruntime:
             returnObjs.push_back(returnObj)
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             tenantId = c_libruntime.get().GetTenantId()
         function_meta_from_py(functionMeta, func_meta)
@@ -1953,9 +1916,7 @@ cdef class Fnruntime:
             ret = c_libruntime.get().InvokeByInstanceId(functionMeta, cinstanceID,
                                                                                          invokeArgs, opts, returnObjs)
         if not ret.OK():
-            raise ValueError(
-                f"failed to invoke instance, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_value_error_from_cpp(ret, "failed to invoke instance")
         return_objs = []
         for i in range(returnObjs.size()):
             return_objs.append(returnObjs.at(i).id.decode())
@@ -1985,13 +1946,11 @@ cdef class Fnruntime:
             int sigNo = CSignal.KILLINSTANCE
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             ret = c_libruntime.get().Kill(c_id, sigNo)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to kill instance, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to kill instance")
 
     def terminate_instance_sync(self, instance_id: str) -> None:
         """
@@ -2005,13 +1964,11 @@ cdef class Fnruntime:
             int sigNo = CSignal.KILLINSTANCESYNC
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             ret = c_libruntime.get().Kill(c_id, sigNo)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to kill instance sync, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to kill instance sync")
 
     def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
                           function_type: str = "") -> str:
@@ -2036,15 +1993,13 @@ cdef class Fnruntime:
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
 
         with nogil:
             ret = c_libruntime.get().Snapshot(c_id, snap_opts)
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to snapshot instance, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to snapshot instance")
 
         return ret.second.decode()
 
@@ -2063,15 +2018,13 @@ cdef class Fnruntime:
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
 
         with nogil:
             ret = c_libruntime.get().Snapstart(c_checkpoint_id, snap_start_opts)
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to snapstart instance, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to snapstart instance")
 
         return SnapstartResponse(
             instance_id=ret.second.instanceID.decode(),
@@ -2095,15 +2048,13 @@ cdef class Fnruntime:
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
 
         with nogil:
             ret = c_libruntime.get().DeleteCheckpoint(c_checkpoint_id)
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to delete checkpoint, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to delete checkpoint")
 
     def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
         """
@@ -2119,15 +2070,13 @@ cdef class Fnruntime:
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
 
         with nogil:
             ret = c_libruntime.get().ListCheckpoints(c_function_type, c_ns)
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to list checkpoints, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to list checkpoints")
         return [cp.decode() for cp in ret.second]
 
     def terminate_group(self, group_name: str) -> None:
@@ -2140,7 +2089,7 @@ cdef class Fnruntime:
             string c_group_name = group_name
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().GroupTerminate(c_group_name)
 
@@ -2177,9 +2126,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().CreateStreamProducer(cstreamName, cfg, producer)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to create stream producer, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to create stream producer")
         return Producer.make(producer)
 
     def create_stream_consumer(self, stream_name: str, config: SubscriptionConfig) -> Consumer:
@@ -2209,9 +2156,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().CreateStreamConsumer(cstreamName, cfg, consumer)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to create stream consumer, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to create stream consumer")
         return Consumer.make(consumer)
 
     def delete_stream(self, stream_name: str) -> None:
@@ -2227,9 +2172,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().DeleteStream(cstreamName)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to delete stream, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to delete stream")
 
     def query_global_producers_num(self, stream_name: str) -> int:
         """
@@ -2245,9 +2188,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().QueryGlobalProducersNum(cstreamName, num)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to query global producers num, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to query global producers num")
         return num
 
     def query_global_consumers_num(self, stream_name: str) -> int:
@@ -2264,9 +2205,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().QueryGlobalConsumersNum(c_stream_name, num)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to query global consumers num, "
-                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to query global consumers num")
         return num
 
     def save_real_instance_id(self, instance_id: str, need_order: bool) -> None:
@@ -2282,7 +2221,7 @@ cdef class Fnruntime:
         opts.needOrder = need_order
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_libruntime.get().SaveRealInstanceId(c_instance_id, c_instance_id, opts)
 
@@ -2297,7 +2236,7 @@ cdef class Fnruntime:
             string c_instance_id = instance_id.encode()
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_real_instance_id = c_libruntime.get().GetRealInstanceId(c_instance_id)
 
@@ -2315,7 +2254,7 @@ cdef class Fnruntime:
             string c_object_id = object_id.encode()
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             ret = c_libruntime.get().IsObjectExistingInLocal(c_object_id)
 
@@ -2335,7 +2274,7 @@ cdef class Fnruntime:
         c_errror_info = dump_instance("".encode(), data)
         check_error_info(c_errror_info, "Failed to save state")
         if data == nullptr:
-            raise RuntimeError("Failed to save state. Instance buffer is nullptr.")
+            raise YRRuntimeError(message="Failed to save state. Instance buffer is nullptr.")
         with nogil:
             c_errror_info = CLibruntimeManager.Instance().GetLibRuntime().get().SaveState(data, c_timeout_ms)
         check_error_info(c_errror_info, "Failed to save state")
@@ -2392,7 +2331,7 @@ cdef class Fnruntime:
         c_resource_group_spec.bundles = bundles
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_errror_info = c_libruntime.get().CreateResourceGroup(c_resource_group_spec,
                                                                                                      c_request_id)
@@ -2410,7 +2349,7 @@ cdef class Fnruntime:
             CErrorInfo c_errror_info
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_errror_info = c_libruntime.get().RemoveResourceGroup(c_resource_group_name)
         check_error_info(c_errror_info, "Failed to remove resource group")
@@ -2431,7 +2370,7 @@ cdef class Fnruntime:
         c_timeout_seconds = timeout_seconds
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_errror_info = c_libruntime.get().WaitResourceGroup(c_resource_group_name,
                                                                                                    c_request_id,
@@ -2619,9 +2558,7 @@ cdef class Fnruntime:
                             result.append(Buffer.make(c_buffer))
                             return result
                         postincrement(it_sti)
-                raise RuntimeError(
-                    f"failed to peek object, "
-                    f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+                raise_runtime_error_from_cpp(ret.first, "failed to peek object")
         obj_id = ret.second.decode()
         return obj_id
 
@@ -2635,7 +2572,7 @@ cdef class Fnruntime:
             string c_group_name
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             c_group_name = c_libruntime.get().GenerateGroupName()
         group_name = c_group_name.decode()
@@ -2653,13 +2590,11 @@ cdef class Fnruntime:
             pair[vector[string], CErrorInfo] ret
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             ret = c_libruntime.get().GetInstances(c_obj_id, c_group_name)
         if not ret.second.OK():
-            raise RuntimeError(
-                f"failed to get instances, "
-                f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.second, "failed to get instances")
         return [c_instance_id.decode() for c_instance_id in ret.first]
 
     def resource_group_table(self, resource_group_id):
@@ -2676,12 +2611,10 @@ cdef class Fnruntime:
             size_t i
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         ret = c_libruntime.get().GetResourceGroupTable(id)
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to get resources, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to get resources")
 
         return parse_rginfo_to_python(ret.second)
 
@@ -2696,9 +2629,7 @@ cdef class Fnruntime:
             vector[string] label_values
         ret = CLibruntimeManager.Instance().GetLibRuntime().get().GetResources()
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to get resources, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to get resources")
         capacity = {}
         result = []
         for it in ret.second:
@@ -2732,14 +2663,11 @@ cdef class Fnruntime:
         cdef pair[CErrorInfo, QueryNamedInsResponse] ret
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         ret = c_libruntime.get().QueryNamedInstances()
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to get queryInstances, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}"
-            )
+            raise_runtime_error_from_cpp(ret.first, "failed to get queryInstances")
 
         cdef QueryNamedInsResponse rsp = ret.second
         name_result = [rsp.names(i).decode() for i in range(rsp.names_size())]
@@ -2755,26 +2683,21 @@ cdef class Fnruntime:
             pair[CErrorInfo, string] ret
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         ret = c_libruntime.get().GetNodeIpAddress()
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to get node ip address, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to get node ip address")
         return ret.second.decode()
 
     def get_node_id(self):
         cdef pair[CErrorInfo, string] ret
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         ret = c_libruntime.get().GetNodeId()
 
         if not ret.first.OK():
-            raise RuntimeError(
-                f"failed to get node_id, "
-                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}"
-            )
+            raise_runtime_error_from_cpp(ret.first, "failed to get node_id")
 
         return ret.second.decode()
 
@@ -2782,7 +2705,7 @@ cdef class Fnruntime:
         cdef string ret
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         ret = c_libruntime.get().GetNameSpace()
         return ret.decode()
 
@@ -2791,7 +2714,7 @@ cdef class Fnruntime:
             CFunctionGroupRunningInfo info
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             info = c_libruntime.get().GetFunctionGroupRunningInfo()
         return function_group_running_info_from_cpp(info)
@@ -2806,7 +2729,7 @@ cdef class Fnruntime:
             int ctimeout = timeout
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         yr_ns = self.get_namespace()
         cinstanceID = (ns + "-" + name if ns else yr_ns + "-" + name).encode()
         with nogil:
@@ -2814,10 +2737,8 @@ cdef class Fnruntime:
             ret = c_libruntime.get().GetInstance(cname, cns, ctimeout)
         if not ret.second.OK():
             if ret.second.IsTimeout():
-                raise TimeoutError(ret.second.Msg().decode())
-            raise ValueError(
-                f"failed to invoke instance, "
-                f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
+                raise_timeout_error_from_cpp(ret.second)
+            raise_value_error_from_cpp(ret.second, "failed to invoke instance")
         return function_meta_from_cpp(ret.first)
 
     def is_local_instances(self, instance_ids: List[str]) -> bool:
@@ -2828,7 +2749,7 @@ cdef class Fnruntime:
             c_instance_ids.push_back(instance_id.encode())
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
-            raise RuntimeError("already finalized")
+            raise YRRuntimeError(message="already finalized")
         with nogil:
             ret = c_libruntime.get().IsLocalInstances(c_instance_ids)
         return ret
@@ -2842,13 +2763,11 @@ cdef class Fnruntime:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().CreateBuffer(c_size, c_buffer)
 
         if not ret.first.OK():
-            raise RuntimeError(f"failed to create buffer, code: {ret.first.Code()}, "
-                               f"module code: {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to create buffer")
         with nogil:
             result = c_buffer.get().Publish()
         if not result.OK():
-            raise RuntimeError(f"failed to publish, code: {result.Code()}, "
-                               f"module code: {result.MCode()}, msg: {result.Msg().decode()}")
+            raise_runtime_error_from_cpp(result, "failed to publish")
         return ret.second.decode("utf-8"), SharedBuffer.make(c_buffer)
 
     def get_buffer(self, obj_id: str)-> SharedBuffer:
@@ -2860,8 +2779,7 @@ cdef class Fnruntime:
             CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().GetBuffers(c_ids, c_timeout, False)
         if not ret.first.OK():
-            raise RuntimeError(f"failed to get buffer, code: {ret.first.Code()}, "
-                               f"module code: {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret.first, "failed to get buffer")
         return SharedBuffer.make(ret.second.front())
 
     def accelerate(self, group_name: str, handle: Handle):
@@ -2874,9 +2792,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().Accelerate(c_group_name, c_handle, handle_return_object_callback)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to accelerate, code: {ret.Code()}, "
-                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to accelerate")
 
     def add_return_object(self, obj_ids: List[str]):
         cdef:
@@ -2896,9 +2812,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupCreate(c_group_name, c_group_options)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to create group, code: {ret.Code()}, "
-                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to create group")
 
     def wait_group(self, group_name: str):
         cdef:
@@ -2906,9 +2820,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupWait(c_group_name)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to wait group, code: {ret.Code()}, "
-                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to wait group")
 
     def suspend_group(self, group_name: str):
         cdef:
@@ -2916,9 +2828,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupSuspend(c_group_name)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to suspend group, code: {ret.Code()}, "
-                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to suspend group")
 
     def resume_group(self, group_name: str):
         cdef:
@@ -2926,9 +2836,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupResume(c_group_name)
         if not ret.OK():
-            raise RuntimeError(
-                f"failed to resume group, code: {ret.Code()}, "
-                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+            raise_runtime_error_from_cpp(ret, "failed to resume group")
 
 
 def notify_generator_result(generator_id, index, output, error_info):
@@ -2971,9 +2879,7 @@ def notify_generator_result(generator_id, index, output, error_info):
     if c_error_info.OK():
         c_error_info = CLibruntimeManager.Instance().GetLibRuntime().get().NotifyGeneratorResult(c_generator_id, c_index, dataObj, c_result_err)
     if not c_error_info.OK():
-        raise RuntimeError(
-            f"failed to notify gennerator result, "
-            f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        raise_runtime_error_from_cpp(c_error_info, "failed to notify generator result")
 
 
 
@@ -2994,9 +2900,7 @@ def notify_generator_finished(generator_id, number_result):
         ret = CLibruntimeManager.Instance().GetLibRuntime().get().NotifyGeneratorFinished(c_generator_id, c_number_result)
 
     if not ret.OK():
-        raise RuntimeError(
-            f"failed to notify generator finished, "
-            f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        raise_runtime_error_from_cpp(ret, "failed to notify generator finished")
 
 cdef cluster_access_info_cpp_to_py(const CClusterAccessInfo & c_cluster_info):
     return {

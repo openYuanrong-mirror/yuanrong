@@ -22,7 +22,7 @@ from concurrent.futures import Future
 import logging
 from typing import Any, Union
 
-from yr.exception import YRInvokeError, YRError, GeneratorFinished
+from yr.exception import YRInvokeError, YRError, YRRuntimeError, GeneratorFinished, raise_yr_value_error
 from yr.err_type import ErrorInfo, ErrorCode
 from yr.libruntime_pb2 import FunctionMeta
 
@@ -43,12 +43,11 @@ def _set_future_helper(
         return
 
     if isinstance(result, ErrorInfo):
-        if result.error_code == ErrorCode.ERR_GENERATOR_FINISHED.value:
+        if result.error_code in (ErrorCode.ERR_GENERATOR_FINISHED, ErrorCode.ERR_GENERATOR_FINISHED.value):
             f.set_exception(GeneratorFinished(""))
             return
-        if result.error_code != ErrorCode.ERR_OK.value:
-            f.set_exception(RuntimeError(
-                f"code: {result.error_code}, module code {result.module_code}, msg: {result.msg}"))
+        if result.error_code not in (ErrorCode.ERR_OK, ErrorCode.ERR_OK.value):
+            f.set_exception(YRRuntimeError.from_error_info(result))
     elif isinstance(result, YRInvokeError):
         f.set_exception(result.origin_error())
     elif isinstance(result, YRError):
@@ -253,7 +252,7 @@ class ObjectRef:
         """
         self.exception()
         if timeout <= constants.MIN_TIMEOUT_LIMIT and timeout != constants.NO_LIMIT:
-            raise ValueError("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
+            raise_yr_value_error("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
 
         objects = runtime_holder.global_runtime.get_runtime().get([self.id], timeout, False)
         result_str = objects[0]

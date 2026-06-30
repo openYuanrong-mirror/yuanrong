@@ -196,6 +196,10 @@ Exceptions
    :toctree: ./
 
    yr.exception.YRError
+   yr.exception.YRRuntimeError
+   yr.exception.YRTimeoutError
+   yr.exception.YRValueError
+   yr.exception.YRTypeError
    yr.exception.CancelError
    yr.exception.YRInvokeError
    yr.exception.YRequestError

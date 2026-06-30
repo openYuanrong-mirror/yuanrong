@@ -100,6 +100,10 @@ from yr.config import (  # noqa: E402
     PortForwarding,
 )
 from yr.checkpoint import SnapstartInfo, SnapstartResponse  # noqa: E402
+from yr.exception import (  # noqa: E402
+    YRError, YRRuntimeError, YRTimeoutError, YRValueError, YRTypeError,
+    YRInvokeError, YRequestError, CancelError, GetTimeoutError,
+)
 
 from yr.group import Group
 from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
@@ -140,4 +144,6 @@ __all__ = [
     "DebugServer", "set_trace", "sandbox", "kill_instance",
     "restore_from_checkpoint", "delete_checkpoint", "list_checkpoints",
     "SnapstartInfo", "SnapstartResponse", "ManagedSessionObj", "SessionService",
+    "YRError", "YRRuntimeError", "YRTimeoutError", "YRValueError", "YRTypeError",
+    "YRInvokeError", "YRequestError", "CancelError", "GetTimeoutError",
 ]

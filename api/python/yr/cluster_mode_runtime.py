@@ -19,7 +19,7 @@
 import logging
 from typing import Any, Dict, List, Tuple, Union, Callable
 
-from yr.exception import YRInvokeError
+from yr.exception import YRInvokeError, raise_yr_runtime_error
 from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.common.types import InvokeArg, GroupInfo
 from yr.config import InvokeOptions, GroupOptions
@@ -118,7 +118,7 @@ class ClusterModeRuntime(Runtime):
         :return: data which get from ds
         """
         if timeout < 0 and timeout != -1:
-            raise RuntimeError(
+            raise_yr_runtime_error(
                 f"Invalid parameter, timeout: {timeout}, expect -1 or > 0")
 
         timeout_ms = -1 if timeout == -1 else timeout * 1000
