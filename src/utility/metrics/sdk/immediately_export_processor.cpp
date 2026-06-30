@@ -45,6 +45,10 @@ AggregationTemporality ImmediatelyExportProcessor::GetAggregationTemporality(
 
 void ImmediatelyExportProcessor::Export(const MetricData &data) noexcept
 {
+    if (processorActor_ == nullptr) {
+        return;
+    }
+    processorActor_->Export(data);
 }
 
 }  // namespace observability::sdk::metrics

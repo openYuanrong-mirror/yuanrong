@@ -34,6 +34,10 @@ BatchExportProcessor::~BatchExportProcessor()
 
 void BatchExportProcessor::Export(const MetricData &data) noexcept
 {
+    if (processorActor_ == nullptr) {
+        return;
+    }
+    processorActor_->Export(data);
 }
 
 AggregationTemporality BatchExportProcessor::GetAggregationTemporality(

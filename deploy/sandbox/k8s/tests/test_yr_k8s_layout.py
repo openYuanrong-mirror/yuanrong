@@ -1111,6 +1111,18 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('*-cp312-*) python_minor="3.12" ;;', smoke_script)
         self.assertIn("python@3.12", macos_tools)
 
+    def test_python_runtime_packages_metrics_exporters_next_to_fnruntime(self):
+        build_sh = (ROOT.parents[2] / "build.sh").read_text()
+
+        self.assertIn("package_python_runtime_abi_extensions()", build_sh)
+        self.assertIn("'yr/fnruntime*.so'", build_sh)
+        self.assertIn("'yr/cpp/lib/libobservability-*-exporter.so'", build_sh)
+        self.assertIn("libobservability-prometheus-pull-exporter.so", build_sh)
+        self.assertIn("libobservability-aom-alarm-exporter.so", build_sh)
+        self.assertIn('"${BASE_DIR}/metrics/lib"', build_sh)
+        self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_sh)
+        self.assertIn('${service_python_dir}/yr/$(basename "${member}")', build_sh)
+
     def test_push_images_falls_back_when_platform_push_is_unsupported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             docker_log = pathlib.Path(tmpdir) / "docker.log"

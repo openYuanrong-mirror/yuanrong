@@ -130,19 +130,41 @@ function package_python_runtime_abi_extensions() {
     local service_python_dir=$1
     local wheel
     local member
+    local pattern
+    local exporter
+    local metrics_lib_dir
+    local target_file
 
     for wheel in "${OUTPUT_BASE}"/runtime/sdk/python/openyuanrong_sdk-*.whl; do
         [ -f "${wheel}" ] || continue
-        while read -r member; do
-            [ -n "${member}" ] || continue
-            local target_file="${service_python_dir}/yr/$(basename "${member}")"
-            rm -f "${target_file}"
-            unzip -p "${wheel}" "${member}" > "${target_file}"
-            if [[ "$(uname)" != "Darwin" ]]; then
-                chrpath -r '$ORIGIN' "${target_file}" 2>/dev/null || true
+        for pattern in 'yr/fnruntime*.so' 'yr/cpp/lib/libobservability-*-exporter.so'; do
+            while read -r member; do
+                [ -n "${member}" ] || continue
+                target_file="${service_python_dir}/yr/$(basename "${member}")"
+                rm -f "${target_file}"
+                unzip -p "${wheel}" "${member}" > "${target_file}"
+                if [[ "$(uname)" != "Darwin" ]]; then
+                    chrpath -r '$ORIGIN' "${target_file}" 2>/dev/null || true
+                fi
+                chmod 550 "${target_file}"
+            done < <(unzip -Z1 "${wheel}" "${pattern}" 2>/dev/null || true)
+        done
+    done
+
+    for exporter in \
+        libobservability-metrics-file-exporter.so \
+        libobservability-prometheus-push-exporter.so \
+        libobservability-prometheus-pull-exporter.so \
+        libobservability-aom-alarm-exporter.so; do
+        target_file="${service_python_dir}/yr/${exporter}"
+        [ -f "${target_file}" ] && continue
+        for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
+            if [ -f "${metrics_lib_dir}/${exporter}" ]; then
+                cp -f "${metrics_lib_dir}/${exporter}" "${target_file}"
+                chmod 550 "${target_file}"
+                break
             fi
-            chmod 550 "${target_file}"
-        done < <(unzip -Z1 "${wheel}" 'yr/fnruntime*.so' 2>/dev/null || true)
+        done
     done
 }
 
