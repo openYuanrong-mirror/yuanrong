@@ -1560,8 +1560,6 @@ cdef class Fnruntime:
                         result.append(Buffer.make(c_buffer))
                         return result
                     postincrement(it_sti)
-            mesg = ("failed to get object, "
-                    f"code: {ret.first.Code()}, module code: {ret.first.MCode()}, message: {ret.first.Msg().decode()}")
             if ret.first.IsTimeout():
                 raise_timeout_error_from_cpp(ret.first, "failed to get object")
             raise_runtime_error_from_cpp(ret.first, "failed to get object")

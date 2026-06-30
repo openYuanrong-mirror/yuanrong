@@ -56,11 +56,23 @@ def test_error_info_is_preserved():
     assert error.message == "get failed"
 
 
+def test_error_info_message_prefix_is_preserved():
+    """ErrorInfo context prefixes are preserved in the public message."""
+    info = ErrorInfo(ErrorCode.ERR_GET_OPERATION_FAILED, ModuleCode.RUNTIME, "boom")
+    error = YRRuntimeError.from_error_info(info, message_prefix="failed to get object")
+
+    assert error.error_info is info
+    assert error.message == "failed to get object, msg: boom"
+    assert str(error) == "failed to get object, msg: boom"
+
+
 def test_timeout_value_and_type_errors_keep_builtin_catch_compatibility():
     """Specialized yr errors keep compatibility with built-in except clauses."""
     assert isinstance(YRTimeoutError(message="timeout"), TimeoutError)
     assert isinstance(YRValueError(message="bad value"), ValueError)
     assert isinstance(YRTypeError(message="bad type"), TypeError)
+    assert YRValueError("bad value").message == "bad value"
+    assert YRTypeError("bad type").message == "bad type"
 
 
 def test_structured_errors_are_exported_from_yr():

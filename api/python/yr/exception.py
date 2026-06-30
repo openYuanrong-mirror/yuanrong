@@ -33,10 +33,14 @@ class YRError(Exception):
             error_info: ErrorInfo = None,
             cause: Exception = None,
             stack_trace_infos=None):
+        if isinstance(code, str) and message == "":
+            message = code
+            code = ErrorCode.ERR_INNER_SYSTEM_ERROR
         if error_info is not None:
             code = getattr(error_info, "error_code", code)
             module_code = getattr(error_info, "module_code", module_code)
-            message = getattr(error_info, "msg", message)
+            if not message:
+                message = getattr(error_info, "msg", message)
             stack_trace_infos = getattr(error_info, "stack_trace_infos", stack_trace_infos)
         self.code = code
         self.module_code = module_code
