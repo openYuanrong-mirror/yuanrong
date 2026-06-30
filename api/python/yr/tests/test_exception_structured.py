@@ -22,6 +22,7 @@ import pytest
 from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.exception import (
     YRError,
+    YRInvokeError,
     YRRuntimeError,
     YRTimeoutError,
     YRTypeError,
@@ -73,6 +74,16 @@ def test_timeout_value_and_type_errors_keep_builtin_catch_compatibility():
     assert isinstance(YRTypeError(message="bad type"), TypeError)
     assert YRValueError("bad value").message == "bad value"
     assert YRTypeError("bad type").message == "bad type"
+
+
+def test_invoke_error_wrapping_yr_error_keeps_runtime_compatibility():
+    """Invoke errors carrying structured runtime errors still match RuntimeError."""
+    error = YRInvokeError(YRRuntimeError(message="inner"), "traceback")
+
+    origin = error.origin_error()
+
+    assert isinstance(origin, RuntimeError)
+    assert str(origin) == "traceback"
 
 
 def test_structured_errors_are_exported_from_yr():

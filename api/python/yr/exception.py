@@ -126,7 +126,7 @@ class CancelError(YRError):
         return f"stateless request has been cancelled: {self.__task_id}"
 
 
-class YRInvokeError(YRError):
+class YRInvokeError(YRRuntimeError):
     """
     Represents an error that occurred during an invocation.
 
