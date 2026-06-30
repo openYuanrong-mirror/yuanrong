@@ -50,6 +50,9 @@ class YRError(Exception):
         self.stack_trace_infos = stack_trace_infos
         super().__init__(message)
 
+    def __str__(self):
+        return str(self.message)
+
     @classmethod
     def from_error_info(cls, error_info: ErrorInfo, message_prefix: str = None, cause: Exception = None):
         """Build a structured exception from ErrorInfo."""
@@ -57,9 +60,6 @@ class YRError(Exception):
         if message_prefix:
             message = f"{message_prefix}, msg: {message}" if message else message_prefix
         return cls(message=message, error_info=error_info, cause=cause)
-
-    def __str__(self):
-        return str(self.message)
 
 
 class YRRuntimeError(YRError, RuntimeError):
