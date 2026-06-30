@@ -77,6 +77,20 @@ spec:
               value: {{ .Values.gitcodeWebhookRelay.filters.useVirtualMergeRef | quote }}
             - name: RELAY_DEDUP_TTL_SECONDS
               value: {{ .Values.gitcodeWebhookRelay.filters.dedupTtlSeconds | quote }}
+            - name: RELAY_MASTER_TAG_PATH
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.path | quote }}
+            - name: RELAY_MASTER_TAG_BUILDKITE_PIPELINE
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.buildkite.pipeline | quote }}
+            - name: RELAY_MASTER_TAG_REPOSITORY
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.repository | quote }}
+            - name: RELAY_MASTER_TAG_BRANCH
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.branch | quote }}
+            - name: RELAY_MASTER_TAG_PATTERNS
+              value: {{ join "," .Values.gitcodeWebhookRelay.masterTag.tagPatterns | quote }}
+            - name: RELAY_MASTER_TAG_ENV_JSON
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.buildkite.env | toJson | quote }}
+            - name: RELAY_GIT_TIMEOUT_SECONDS
+              value: {{ .Values.gitcodeWebhookRelay.masterTag.gitTimeoutSeconds | quote }}
             - name: BUILDKITE_API_TOKEN
               valueFrom:
                 secretKeyRef:

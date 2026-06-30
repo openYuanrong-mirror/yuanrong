@@ -205,6 +205,28 @@ gitcodeWebhookRelay:
     skipWorkInProgress: true
     useVirtualMergeRef: false
     dedupTtlSeconds: 900
+  masterTag:
+    path: /webhook/gitcode/yuanrong-master-tag
+    repository: https://gitcode.com/openeuler/yuanrong.git
+    branch: master
+    tagPatterns:
+      - "[0-9]*"
+      - "v[0-9]*"
+    gitTimeoutSeconds: 120
+    buildkite:
+      pipeline: yuanrong-master-verify
+      env:
+        BUILD_TARGET: linux
+        ENABLE_LINUX_ARM: "true"
+        ENABLE_RUNTIME_X86: "true"
+        ENABLE_RUNTIME_ARM: "true"
+        ENABLE_SANDBOX_PACKAGE: "true"
+        ENABLE_SANDBOX_MANIFEST: "true"
+        ENABLE_SANDBOX_K8S_TEST: "true"
+        ENABLE_COMPONENT_IMAGE_BUILD: "true"
+        ENABLE_MACOS_SDK: "true"
+        SDK_PYTHON_VERSIONS: "python3.9 python3.10 python3.11 python3.12 python3.13"
+        SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS: "python3.9 python3.10 python3.11 python3.12 python3.13"
   service:
     type: ClusterIP
     annotations: {}

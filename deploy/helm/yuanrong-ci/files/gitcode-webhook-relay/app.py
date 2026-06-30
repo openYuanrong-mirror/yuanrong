@@ -19,7 +19,10 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from fnmatch import fnmatchcase
@@ -46,6 +49,16 @@ def env_int(name, default):
     if not value.strip():
         return default
     return int(value)
+
+
+def env_json_object(name, default=None):
+    value = os.getenv(name, "")
+    if not value.strip():
+        return {} if default is None else default
+    data = json.loads(value)
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{name} must decode to a JSON object")
+    return data
 
 
 def require_env(name):
@@ -76,6 +89,13 @@ SETTINGS = {
     "dedup_ttl_seconds": env_int("RELAY_DEDUP_TTL_SECONDS", 900),
     "webhook_token": os.getenv("GITCODE_WEBHOOK_TOKEN", ""),
     "signature_secret": os.getenv("GITCODE_WEBHOOK_SIGNATURE_SECRET", ""),
+    "master_tag_path": os.getenv("RELAY_MASTER_TAG_PATH", "").rstrip("/"),
+    "master_tag_pipeline": os.getenv("RELAY_MASTER_TAG_BUILDKITE_PIPELINE", "").strip(),
+    "master_tag_repository": os.getenv("RELAY_MASTER_TAG_REPOSITORY", "").strip(),
+    "master_tag_branch": os.getenv("RELAY_MASTER_TAG_BRANCH", "master").strip() or "master",
+    "master_tag_patterns": env_csv("RELAY_MASTER_TAG_PATTERNS"),
+    "master_tag_env": env_json_object("RELAY_MASTER_TAG_ENV_JSON"),
+    "git_timeout_seconds": env_int("RELAY_GIT_TIMEOUT_SECONDS", 120),
 }
 
 if not isinstance(SETTINGS["buildkite_env"], dict):
@@ -83,6 +103,12 @@ if not isinstance(SETTINGS["buildkite_env"], dict):
 
 if not SETTINGS["webhook_token"] and not SETTINGS["signature_secret"]:
     raise RuntimeError("Either GITCODE_WEBHOOK_TOKEN or GITCODE_WEBHOOK_SIGNATURE_SECRET is required")
+
+if SETTINGS["master_tag_path"]:
+    if not SETTINGS["master_tag_pipeline"]:
+        raise RuntimeError("RELAY_MASTER_TAG_BUILDKITE_PIPELINE is required when RELAY_MASTER_TAG_PATH is set")
+    if not SETTINGS["master_tag_repository"]:
+        raise RuntimeError("RELAY_MASTER_TAG_REPOSITORY is required when RELAY_MASTER_TAG_PATH is set")
 
 
 BUILD_DEDUP_CACHE = {}
@@ -178,10 +204,13 @@ def release_build_key(build_key):
         BUILD_DEDUP_CACHE.pop(build_key, None)
 
 
-def trigger_buildkite(branch, commit, message, extra_env):
-    build_env = {**SETTINGS["buildkite_env"], **extra_env}
-    if SETTINGS["buildkite_repository"]:
-        build_env["BUILDKITE_REPO"] = SETTINGS["buildkite_repository"]
+def trigger_buildkite(branch, commit, message, extra_env, overrides=None):
+    overrides = overrides or {}
+    repository = overrides.get("repository", SETTINGS["buildkite_repository"])
+    pipeline = overrides.get("pipeline", SETTINGS["buildkite_pipeline"])
+    build_env = {**SETTINGS["buildkite_env"], **overrides.get("env", {}), **extra_env}
+    if repository:
+        build_env["BUILDKITE_REPO"] = repository
 
     payload = {
         "branch": branch,
@@ -191,7 +220,7 @@ def trigger_buildkite(branch, commit, message, extra_env):
     }
     url = (
         "https://api.buildkite.com/v2/organizations/"
-        f"{SETTINGS['buildkite_org']}/pipelines/{SETTINGS['buildkite_pipeline']}/builds"
+        f"{SETTINGS['buildkite_org']}/pipelines/{pipeline}/builds"
     )
     req = request.Request(
         url,
@@ -211,6 +240,57 @@ def skip_response(reason, details=None):
     if details:
         payload["details"] = details
     return 202, payload
+
+
+def run_git(args, cwd):
+    cmd = ["git", *args]
+    LOGGER.info("running git command: %s", " ".join(cmd))
+    completed = subprocess.run(
+        cmd,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=SETTINGS["git_timeout_seconds"],
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"git command failed: {' '.join(cmd)}; "
+            f"stdout={completed.stdout.strip()}; stderr={completed.stderr.strip()}"
+        )
+    return completed.stdout.strip()
+
+
+def commit_is_on_remote_branch(repository, commit, branch, tag=None):
+    work_dir = tempfile.mkdtemp(prefix="gitcode-relay-")
+    try:
+        run_git(["init", "--bare", "."], work_dir)
+        run_git(["remote", "add", "origin", repository], work_dir)
+        run_git(["fetch", "--filter=blob:none", "origin", branch], work_dir)
+        if tag:
+            run_git(["fetch", "--filter=blob:none", "origin", f"refs/tags/{tag}:refs/tags/{tag}"], work_dir)
+        else:
+            run_git(["fetch", "--filter=blob:none", "origin", commit], work_dir)
+        completed = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit, f"origin/{branch}"],
+            cwd=work_dir,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=SETTINGS["git_timeout_seconds"],
+            check=False,
+        )
+        if completed.returncode == 0:
+            return True
+        if completed.returncode == 1:
+            return False
+        raise RuntimeError(
+            "git merge-base failed: "
+            f"stdout={completed.stdout.strip()}; stderr={completed.stderr.strip()}"
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def handle_push(payload):
@@ -316,6 +396,78 @@ def handle_tag_push(payload, tag):
     }
 
 
+def handle_master_tag_push(payload, tag):
+    patterns = SETTINGS["master_tag_patterns"] or SETTINGS["tag_patterns"]
+    if patterns and not any(fnmatchcase(tag, pattern) for pattern in patterns):
+        return skip_response("master tag filtered", {"tag": tag})
+
+    commit = payload.get("checkout_sha") or payload.get("after")
+    if not commit or is_zero_commit(commit):
+        return skip_response("tag deletion or missing commit", {"tag": tag})
+
+    repository = SETTINGS["master_tag_repository"]
+    branch = SETTINGS["master_tag_branch"]
+    if not commit_is_on_remote_branch(repository, commit, branch, tag=tag):
+        return skip_response(
+            "tag commit is not on master branch",
+            {"tag": tag, "commit": commit, "branch": branch},
+        )
+
+    project = payload.get("project", {}).get("path_with_namespace", "")
+    build_version = normalize_tag_version(tag)
+    build_key = f"master_tag_push:{tag}:{commit}"
+    if not reserve_build_key(build_key):
+        return skip_response("duplicate master tag build trigger", {"tag": tag, "commit": commit})
+
+    message = f"{SETTINGS['message_prefix']}: master tag {project} {tag} {commit[:12]}"
+    publish_env = {
+        "PUBLISH_TEST_PYPI": "1",
+        "PUBLISH_PYPI": "0",
+    }
+    if not is_prerelease_version(build_version):
+        publish_env = {
+            "PUBLISH_TEST_PYPI": "0",
+            "PUBLISH_PYPI": "1",
+        }
+    try:
+        build = trigger_buildkite(
+            branch=tag,
+            commit=commit,
+            message=message,
+            extra_env={
+                "GITCODE_EVENT_KIND": "master_tag_push",
+                "GITCODE_PROJECT_PATH": project,
+                "GITCODE_REF": payload.get("ref", ""),
+                "GITCODE_TAG": tag,
+                "BUILDKITE_TAG": tag,
+                "YR_RELEASE_TAG": tag,
+                "BUILD_VERSION": build_version,
+                "YR_BUILD_VERSION": build_version,
+                **publish_env,
+                "GITCODE_EVENT_UUID": payload.get("uuid", ""),
+            },
+            overrides={
+                "pipeline": SETTINGS["master_tag_pipeline"],
+                "repository": repository,
+                "env": SETTINGS["master_tag_env"],
+            },
+        )
+    except (RuntimeError, ValueError, error.URLError):
+        release_build_key(build_key)
+        raise
+
+    return 200, {
+        "status": "triggered",
+        "event": "master_tag_push",
+        "tag": tag,
+        "version": build_version,
+        "commit": commit,
+        "branch": branch,
+        "build_url": build.get("web_url"),
+        "build_number": build.get("number"),
+    }
+
+
 def handle_merge_request(payload):
     if not SETTINGS["trigger_mr"]:
         return skip_response("merge request trigger disabled")
@@ -401,6 +553,17 @@ def handle_event(payload):
     return skip_response("unsupported event kind", {"object_kind": kind})
 
 
+def handle_master_tag_event(payload):
+    kind = payload.get("object_kind") or payload.get("event_type") or payload.get("event_name")
+    if kind not in {"push", "tag_push"}:
+        return skip_response("unsupported master tag event kind", {"object_kind": kind})
+    ref = payload.get("ref", "")
+    ref_kind, ref_name = parse_push_ref(ref)
+    if ref_kind != "tag":
+        return skip_response("master tag endpoint requires tag ref", {"ref": ref})
+    return handle_master_tag_push(payload, ref_name)
+
+
 class RelayHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         LOGGER.info(
@@ -418,7 +581,11 @@ class RelayHandler(BaseHTTPRequestHandler):
 
     def handle_post(self):
         normalized = self.path.rstrip("/") or "/"
-        if normalized != SETTINGS["path"]:
+        if normalized == SETTINGS["path"]:
+            route = "default"
+        elif SETTINGS["master_tag_path"] and normalized == SETTINGS["master_tag_path"]:
+            route = "master_tag"
+        else:
             respond(self, 404, {"status": "error", "reason": "not found"})
             return
 
@@ -437,7 +604,10 @@ class RelayHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            code, result = handle_event(payload)
+            if route == "master_tag":
+                code, result = handle_master_tag_event(payload)
+            else:
+                code, result = handle_event(payload)
             respond(self, code, result)
         except error.HTTPError as exc:
             details = exc.read().decode("utf-8", errors="replace")
@@ -463,8 +633,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     server = ThreadingHTTPServer(("0.0.0.0", SETTINGS["port"]), RelayHandler)
     LOGGER.info(
-        "gitcode-webhook-relay listening on :%s path=%s",
+        "gitcode-webhook-relay listening on :%s path=%s master_tag_path=%s",
         SETTINGS["port"],
         SETTINGS["path"],
+        SETTINGS["master_tag_path"] or "<disabled>",
     )
     server.serve_forever()

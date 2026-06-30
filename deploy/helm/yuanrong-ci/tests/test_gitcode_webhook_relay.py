@@ -46,6 +46,7 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
     def setUp(self):
         self.original_settings = relay.SETTINGS.copy()
         self.original_trigger_buildkite = relay.trigger_buildkite
+        self.original_commit_is_on_remote_branch = relay.commit_is_on_remote_branch
         relay.SETTINGS.update(
             {
                 "trigger_mr": True,
@@ -60,29 +61,41 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
                 "dedup_ttl_seconds": 900,
                 "message_prefix": "Triggered by GitCode",
                 "buildkite_env": {},
+                "master_tag_path": "/webhook/gitcode/yuanrong-master-tag",
+                "master_tag_pipeline": "yuanrong-master-verify",
+                "master_tag_repository": "https://gitcode.com/openeuler/yuanrong.git",
+                "master_tag_branch": "master",
+                "master_tag_patterns": {"[0-9]*", "v[0-9]*"},
+                "master_tag_env": {
+                    "ENABLE_LINUX_ARM": "true",
+                    "ENABLE_COMPONENT_IMAGE_BUILD": "true",
+                },
             }
         )
         relay.BUILD_DEDUP_CACHE.clear()
         self.triggered = []
 
-        def fake_trigger_buildkite(branch, commit, message, extra_env):
+        def fake_trigger_buildkite(branch, commit, message, extra_env, overrides=None):
             self.triggered.append(
                 {
                     "branch": branch,
                     "commit": commit,
                     "message": message,
                     "extra_env": extra_env,
+                    "overrides": overrides or {},
                 }
             )
             return {"web_url": "https://buildkite.example/build/1", "number": 1}
 
         relay.trigger_buildkite = fake_trigger_buildkite
+        relay.commit_is_on_remote_branch = lambda repository, commit, branch, tag=None: True
 
     def tearDown(self):
         relay.SETTINGS.clear()
         relay.SETTINGS.update(self.original_settings)
         relay.BUILD_DEDUP_CACHE.clear()
         relay.trigger_buildkite = self.original_trigger_buildkite
+        relay.commit_is_on_remote_branch = self.original_commit_is_on_remote_branch
 
     def merged_update_payload(self):
         return {
@@ -257,6 +270,70 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(second_code, 202)
         self.assertEqual(second_result["reason"], "duplicate tag build trigger")
         self.assertEqual(len(self.triggered), 1)
+
+    def test_master_tag_endpoint_triggers_master_pipeline(self):
+        code, result = relay.handle_master_tag_event(
+            {
+                "object_kind": "tag_push",
+                "ref": "refs/tags/v0.8.0",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["event"], "master_tag_push")
+        self.assertEqual(result["branch"], "master")
+        self.assertEqual(result["version"], "0.8.0")
+        self.assertEqual(self.triggered[0]["branch"], "v0.8.0")
+        self.assertEqual(self.triggered[0]["commit"], "abcdef1234567890")
+        self.assertEqual(self.triggered[0]["overrides"]["pipeline"], "yuanrong-master-verify")
+        self.assertEqual(
+            self.triggered[0]["overrides"]["repository"],
+            "https://gitcode.com/openeuler/yuanrong.git",
+        )
+        self.assertEqual(
+            self.triggered[0]["overrides"]["env"]["ENABLE_COMPONENT_IMAGE_BUILD"],
+            "true",
+        )
+        extra_env = self.triggered[0]["extra_env"]
+        self.assertEqual(extra_env["GITCODE_EVENT_KIND"], "master_tag_push")
+        self.assertEqual(extra_env["BUILD_VERSION"], "0.8.0")
+        self.assertEqual(extra_env["PUBLISH_PYPI"], "1")
+
+    def test_master_tag_endpoint_skips_branch_push(self):
+        code, result = relay.handle_master_tag_event(
+            {
+                "object_kind": "push",
+                "ref": "refs/heads/master",
+                "after": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "master tag endpoint requires tag ref")
+        self.assertEqual(self.triggered, [])
+
+    def test_master_tag_endpoint_skips_non_master_commit(self):
+        relay.commit_is_on_remote_branch = lambda repository, commit, branch, tag=None: False
+
+        code, result = relay.handle_master_tag_event(
+            {
+                "object_kind": "tag_push",
+                "ref": "refs/tags/v0.8.0",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "tag commit is not on master branch")
+        self.assertEqual(result["details"]["branch"], "master")
+        self.assertEqual(self.triggered, [])
 
     def test_tag_delete_is_skipped(self):
         code, result = relay.handle_push(
