@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"yuanrong.org/kernel/runtime/libruntime/api"
 
+	"yuanrong.org/kernel/pkg/common/faas_common/datasystemclient"
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
@@ -54,6 +55,9 @@ func TestMain(m *testing.M) {
 			}
 		}),
 		ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient {
+			return &etcd3.EtcdClient{}
+		}),
+		ApplyFunc(etcd3.GetMetaEtcdClient, func() *etcd3.EtcdClient {
 			return &etcd3.EtcdClient{}
 		}),
 	}
@@ -101,6 +105,11 @@ func TestInitHandler(t *testing.T) {
 		}),
 		ApplyFunc(registry.StartRegistry, func() {
 			return
+		}),
+		ApplyFunc(datasystemclient.InitDataSystemLibruntime, func(_ *commonTypes.DataSystemConfig,
+			_ api.LibruntimeAPI, _ <-chan struct{}) {
+		}),
+		ApplyFunc(datasystemclient.StartWatch, func(_ []string, _ <-chan struct{}) {
 		}),
 		ApplyFunc((*registry.FunctionRegistry).WaitForETCDList, func() {}),
 		ApplyFunc(functionscaler.NewFaaSScheduler,

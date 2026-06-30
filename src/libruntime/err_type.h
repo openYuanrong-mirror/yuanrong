@@ -182,7 +182,7 @@ public:
           isCreate(err.IsCreate()),
           isTimeout(err.IsTimeout()),
           isAckTimeout(err.IsAckTimeout()),
-          stackTraceInfos_(std::move(err.GetStackTraceInfos())),
+          stackTraceInfos_(err.GetStackTraceInfos()),
           dsStatusCode_(err.GetDsStatusCode())
     {
     }
@@ -194,7 +194,7 @@ public:
         isCreate = err.IsCreate();
         isTimeout = err.IsTimeout();
         isAckTimeout = err.IsAckTimeout();
-        stackTraceInfos_ = std::move(err.GetStackTraceInfos());
+        stackTraceInfos_ = err.GetStackTraceInfos();
         dsStatusCode_ = err.GetDsStatusCode();
         return *this;
     }

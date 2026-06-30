@@ -18,11 +18,12 @@
 #define OBSERVABILITY_SDK_METRICS_METRIC_EXPORTER_H
 
 #include <chrono>
+#include <functional>
+#include <vector>
 
-#include "metrics/sdk/instruments.h"
 #include "metrics/sdk/metric_data.h"
 
-namespace observability::sdk::metrics {
+namespace observability::exporters::metrics {
 
 /**
  * ExportResult is returned as result of exporting a batch of Records.
@@ -40,25 +41,31 @@ enum class ExportResult {
 
     // The export() function was passed an invalid argument.
     FAILURE_INVALID_ARGUMENT = 3,
+
+    // No data available for export.
+    EMPTY_DATA = 4,
 };
 
-class PushExporter {
+class Exporter {
 public:
-    virtual ~PushExporter() = default;
+    virtual ~Exporter() = default;
 
     /**
      * Exports a batch of metrics data. This method must not be called
      * concurrently for the same exporter instance.
      * @param data metrics data
      */
-    virtual ExportResult Export(const MetricData &data) noexcept = 0;
+    virtual ExportResult Export(const std::vector<observability::sdk::metrics::MetricData> &data) noexcept = 0;
 
     /**
      * Get the AggregationTemporality for given Instrument Type for this exporter.
      *
      * @return AggregationTemporality
      */
-    virtual AggregationTemporality GetAggregationTemporality(InstrumentType instrumentType) const noexcept = 0;
+    virtual observability::sdk::metrics::AggregationTemporality GetAggregationTemporality(
+        observability::sdk::metrics::InstrumentType instrumentType) const noexcept = 0;
+
+    virtual void RegisterOnHealthChangeCb(const std::function<void(bool)> &onChange) noexcept = 0;
 
     /**
      * Force flush the exporter.
@@ -72,6 +79,6 @@ public:
      */
     virtual bool Shutdown(std::chrono::microseconds timeout = std::chrono::microseconds(0)) noexcept = 0;
 };
-}  // namespace observability::sdk::metrics
+}  // namespace observability::exporters::metrics
 
 #endif

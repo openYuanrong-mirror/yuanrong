@@ -146,14 +146,14 @@ type Config struct {
 	SystemAuthSecretKey          string
 	SystemAuthDataKey            string
 	// EnableCallStack whether to enable distribute call stack
-	EnableCallStack              bool
-	CallStackLayerNum            int
-	EncryptPrivateKeyPasswd      string
-	PrimaryKeyStoreFile          string
-	StandbyKeyStoreFile          string
-	EnableDsEncrypt              bool
-	RuntimePublicKeyContextPath  string
-	RuntimePrivateKeyContextPath string
-	DsPublicKeyContextPath       string
-	EnableEvent                  bool
+	EnableCallStack                 bool
+	CallStackLayerNum               int
+	EncryptPrivateKeyPasswd         string
+	PrimaryKeyStoreFile             string
+	StandbyKeyStoreFile             string
+	EnableDsEncrypt                 bool
+	RuntimePublicKeyContextPath     string
+	RuntimePrivateKeyContextPath    string
+	DsPublicKeyContextPath          string
+	EnableEvent                     bool
 }

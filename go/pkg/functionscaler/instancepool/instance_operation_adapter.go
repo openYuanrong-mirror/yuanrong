@@ -29,29 +29,39 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+var (
+	createInstanceForFGFunc         = createInstanceForFG
+	createInstanceForKernelFunc     = createInstanceForKernel
+	deleteInstanceForFGFunc         = deleteInstanceForFG
+	deleteInstanceForKernelFunc     = deleteInstanceForKernel
+	deleteInstanceByIDForFGFunc     = deleteInstanceByIDForFG
+	deleteInstanceByIDForKernelFunc = deleteInstanceByIDForKernel
+	deleteInstanceByIDFunc          = DeleteInstanceByID
+)
+
 // CreateInstance -
 func CreateInstance(request createInstanceRequest) (*types.Instance, error) {
 	if config.GlobalConfig.InstanceOperationBackend == constant.BackendTypeFG {
-		return createInstanceForFG(request)
+		return createInstanceForFGFunc(request)
 	}
-	return createInstanceForKernel(request)
+	return createInstanceForKernelFunc(request)
 }
 
 // DeleteInstance -
 func DeleteInstance(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
 	instance *types.Instance) error {
 	if config.GlobalConfig.InstanceOperationBackend == constant.BackendTypeFG {
-		return deleteInstanceForFG(funcSpec, faasManagerInfo, instance)
+		return deleteInstanceForFGFunc(funcSpec, faasManagerInfo, instance)
 	}
-	return deleteInstanceForKernel(funcSpec, faasManagerInfo, instance)
+	return deleteInstanceForKernelFunc(funcSpec, faasManagerInfo, instance)
 }
 
 // DeleteInstanceByID -
 func DeleteInstanceByID(instanceID, funcKey string) error {
 	if config.GlobalConfig.InstanceOperationBackend == constant.BackendTypeFG {
-		return deleteInstanceByIDForFG(instanceID, funcKey)
+		return deleteInstanceByIDForFGFunc(instanceID, funcKey)
 	}
-	return deleteInstanceByIDForKernel(instanceID, funcKey)
+	return deleteInstanceByIDForKernelFunc(instanceID, funcKey)
 }
 
 // DeleteUnexpectInstance -
@@ -65,7 +75,7 @@ func DeleteUnexpectInstance(parentID, instanceID, funcKey string, logger api.For
 		return
 	}
 	logger.Warnf("instance is belong to this scheduler, but not found function meta, start to delete instance.")
-	err := DeleteInstanceByID(instanceID, funcKey)
+	err := deleteInstanceByIDFunc(instanceID, funcKey)
 	if err != nil {
 		logger.Errorf("failed to delete instance, err: %v", err)
 	}

@@ -15,7 +15,7 @@
  */
 
 import { mount, flushPromises } from '@vue/test-utils';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import CommonCard from '@/components/common-card.vue';
 import JobsChart from '@/pages/jobs/jobs-chart.vue';
 
@@ -37,6 +37,10 @@ describe('JobsChart', () => {
 })
 
 describe('JobsChart.initChart', () => {
+    vi.mock('@/api/api', () => ({
+        ListJobsAPI: vi.fn().mockResolvedValue([]),
+    }));
+
     const wrapper = mount(JobsChart);
     const vm = wrapper.vm;
 

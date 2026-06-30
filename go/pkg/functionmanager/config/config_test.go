@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
-	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/functionmanager/state"
 	"yuanrong.org/kernel/pkg/functionmanager/types"
 )
@@ -100,34 +99,27 @@ func TestInitEtcd(t *testing.T) {
 		stopCh <-chan struct{}
 	}
 	tests := []struct {
-		name        string
-		args        args
-		wantErr     assert.ErrorAssertionFunc
-		patchesFunc mockUtils.PatchesFunc
+		name           string
+		args           args
+		wantErr        assert.ErrorAssertionFunc
+		initClientFunc func(*etcd3.EtcdInitParam) error
 	}{
 		{"case1 succeed to init etcd", args{stopCh: make(<-chan struct{})}, assert.NoError,
-			func() mockUtils.PatchSlice {
-				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdInitParam{}), "InitClient",
-						func(_ *etcd3.EtcdInitParam) error { return nil }),
-				})
-				return patches
+			func(_ *etcd3.EtcdInitParam) error {
+				return nil
 			}},
-		{"case2 failed to init etcd", args{stopCh: make(<-chan struct{})}, assert.Error, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdInitParam{}), "InitClient",
-					func(_ *etcd3.EtcdInitParam) error { return errors.New("e") }),
-			})
-			return patches
+		{"case2 failed to init etcd", args{stopCh: make(<-chan struct{})}, assert.Error, func(_ *etcd3.EtcdInitParam) error {
+			return errors.New("e")
 		}},
 	}
+	oldInitEtcdClient := initEtcdClient
+	defer func() {
+		initEtcdClient = oldInitEtcdClient
+	}()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patches := tt.patchesFunc()
+			initEtcdClient = tt.initClientFunc
 			tt.wantErr(t, InitEtcd(tt.args.stopCh), fmt.Sprintf("InitEtcd(%v)", tt.args.stopCh))
-			patches.ResetAll()
 		})
 	}
 }

@@ -36,7 +36,7 @@ public:
 
     ThreadPool() {}
 
-    virtual ~ThreadPool();
+    virtual ~ThreadPool() noexcept;
 
     ThreadPool(const ThreadPool &) = delete;
     ThreadPool(ThreadPool &&) = delete;

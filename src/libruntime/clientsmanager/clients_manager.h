@@ -29,6 +29,7 @@
 #include "src/libruntime/streamstore/datasystem_stream_store.h"
 #include "src/libruntime/streamstore/stream_store.h"
 #include "src/libruntime/utils/security.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "src/libruntime/utils/utils.h"
 #include "src/utility/logger/logger.h"
 
@@ -64,32 +65,30 @@ public:
 
     ErrorInfo ReleaseFsConn(const std::string &ip, int port, const std::string &dstInstance);
 
+#ifdef ENABLE_DATASYSTEM
     std::pair<DatasystemClients, ErrorInfo> GetOrNewDsClient(const std::shared_ptr<LibruntimeConfig> librtCfg,
                                                              const std::string &ak,
-                                                             const datasystem::SensitiveValue &sk,
+                                                             const SensitiveValue &sk,
                                                              std::int32_t connectTimeout);
 
     ErrorInfo ReleaseDsClient(const std::string &ip, int port);
+#endif  // ENABLE_DATASYSTEM
 
     std::pair<std::shared_ptr<ClientManager>, ErrorInfo> GetOrNewHttpClient(
         const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &librtCfg);
 
     ErrorInfo ReleaseHttpClient(const std::string &ip, int port);
-    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> InitFunctionSystemConn(bool uds, std::string target,
-                                                                                std::shared_ptr<Security> security,
-                                                                                bool isKeepAlive);
+    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> InitFunctionSystemConn(
+        bool uds, std::string target, std::shared_ptr<Security> security, bool isKeepAlive);
 
 private:
+#ifdef ENABLE_DATASYSTEM
     std::pair<DatasystemClients, ErrorInfo> InitDatasystemClient(
         const std::string &ip, int port, bool enableDsAuth, bool encryptEnable, const std::string &runtimePublicKey,
-        const datasystem::SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
-        const datasystem::SensitiveValue &token, const std::string &ak, const datasystem::SensitiveValue &sk,
-        std::int32_t connectTimeout);
-
-    ConnectOptions BuildDsConnectOptions(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-        const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-        const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-        const datasystem::SensitiveValue &sk, std::int32_t connectTimeout);
+        const SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
+        const SensitiveValue &token, const std::string &ak, const SensitiveValue &sk,
+        const std::shared_ptr<LibruntimeConfig> &librtCfg, std::int32_t connectTimeout);
+#endif  // ENABLE_DATASYSTEM
 
     std::pair<std::shared_ptr<ClientManager>, ErrorInfo> InitHttpClient(
         const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &librtCfg);

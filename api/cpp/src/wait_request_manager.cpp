@@ -17,9 +17,10 @@
 #include "yr/api/wait_request_manager.h"
 #include "src/utility/logger/logger.h"
 #include "yr/api/constant.h"
+#include "src/utility/platform_compat.h"
 
 namespace {
-const int S_TO_MS = 1000;
+[[maybe_unused]] const int S_TO_MS = 1000;
 }
 
 namespace YR {
@@ -77,8 +78,10 @@ WaitRequestManager::WaitRequestManager()
     this->ioc = std::make_shared<boost::asio::io_context>();
     this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         boost::asio::make_work_guard(*ioc));
-    this->asyncRunner = std::make_unique<std::thread>([&] { this->ioc->run(); });
-    pthread_setname_np(this->asyncRunner->native_handle(), "wait_request_handler");
+    this->asyncRunner = std::make_unique<std::thread>([this] {
+        YR_SET_THREAD_NAME_CURRENT("wait_request_handler");
+        this->ioc->run();
+    });
 }
 
 WaitRequestManager::~WaitRequestManager()

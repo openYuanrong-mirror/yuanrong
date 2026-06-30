@@ -17,11 +17,10 @@
 #ifndef OBSERVABILITY_SDK_METRICS_OBSERVE_ACTOR_H
 #define OBSERVABILITY_SDK_METRICS_OBSERVE_ACTOR_H
 
-#include <actor/actor.hpp>
-#include <async/asyncafter.hpp>
-#include <async/defer.hpp>
 #include <unordered_set>
-
+#include <map>
+#include <memory>
+#include "src/utility/timer_worker.h"
 #include "metrics/exporters/exporter.h"
 #include "metrics/sdk/metric_processor.h"
 
@@ -31,13 +30,10 @@ namespace MetricsExporter = observability::exporters::metrics;
 
 using CollectFunc = std::function<void(int)>;
 
-class ObserveActor : public litebus::ActorBase {
+class ObserveActor {
 public:
-    explicit ObserveActor()
-        : litebus::ActorBase("observerMetricsActor" + litebus::uuid_generator::UUID::GetRandomUUID().ToString())
-    {
-    }
-    ~ObserveActor() override;
+    ObserveActor() = default;
+    ~ObserveActor();
 
     void RegisterTimer(const int interval);
     void RegisterCollectFunc(const CollectFunc &collectFunc)
@@ -52,14 +48,14 @@ public:
     }
 
     // for test
-    [[maybe_unused]]std::map<int, litebus::Timer> GetCollectTimerMap()
+    [[maybe_unused]]std::map<int, std::shared_ptr<YR::utility::Timer>> GetCollectTimerMap()
     {
         return collectTimerMap_;
     }
 
 private:
     std::unordered_set<int> collectIntervals_;
-    std::map<int, litebus::Timer> collectTimerMap_;
+    std::map<int, std::shared_ptr<YR::utility::Timer>> collectTimerMap_;
     CollectFunc collectFunc_{ nullptr };
 
     void StartCollect(const int interval);

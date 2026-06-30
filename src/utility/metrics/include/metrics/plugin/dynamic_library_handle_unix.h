@@ -85,15 +85,12 @@ inline std::unique_ptr<observability::plugin::metrics::Factory> LoadFactoryFromL
                                                                                        std::string &error)
 {
     char realLibPath[PATH_MAX] = { 0 };
-    if (realpath(libPath.c_str(), realLibPath) != nullptr) {
-        return observability::plugin::metrics::LoadFactory(realLibPath, error);
+    if (realpath(libPath.c_str(), realLibPath) == nullptr) {
+        CopyErrorMessage("failed to get real path of library", error);
+        return nullptr;
     }
-    // Bazel sandbox / runfiles: path may not resolve with realpath(3) but still dlopen(3)-able
-    if (access(libPath.c_str(), F_OK) == 0) {
-        return observability::plugin::metrics::LoadFactory(libPath.c_str(), error);
-    }
-    CopyErrorMessage("failed to get real path of library", error);
-    return nullptr;
+    auto factory = observability::plugin::metrics::LoadFactory(realLibPath, error);
+    return factory;
 }
 
 inline std::shared_ptr<observability::exporters::metrics::Exporter> LoadExporterFromLibrary(const std::string &libPath,
@@ -105,7 +102,7 @@ inline std::shared_ptr<observability::exporters::metrics::Exporter> LoadExporter
         std::cerr << "null factory: " << error << std::endl;
         return nullptr;
     }
-    auto exporter = factory->MakeExpoter(config, error);
+    auto exporter = factory->MakeExporter(config, error);
     return exporter;
 }
 

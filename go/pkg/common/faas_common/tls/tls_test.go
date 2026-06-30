@@ -5,10 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +15,7 @@ import (
 func TestLoadRootCAs(t *testing.T) {
 	convey.Convey("LoadRootCAs", t, func() {
 		convey.Convey("error case 1", func() {
-			caFiles := ""
+			caFiles := filepath.Join(t.TempDir(), "yuanrong-missing-root-ca.pem")
 			_, err := LoadRootCAs(caFiles)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
@@ -63,13 +61,18 @@ func TestVerifyCert2(t *testing.T) {
 		})
 
 		convey.Convey("success", func() {
-			defer gomonkey.ApplyFunc(x509.ParseCertificate, func(der []byte) (*x509.Certificate, error) {
+			oldParseCertificate := parseCertificate
+			oldVerifyCert := verifyCert
+			parseCertificate = func(der []byte) (*x509.Certificate, error) {
 				return &x509.Certificate{}, nil
-			}).Reset()
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&x509.Certificate{}), "Verify",
-				func(_ *x509.Certificate, opts x509.VerifyOptions) (chains [][]*x509.Certificate, err error) {
-					return nil, nil
-				}).Reset()
+			}
+			verifyCert = func(_ *x509.Certificate, opts x509.VerifyOptions) (chains [][]*x509.Certificate, err error) {
+				return nil, nil
+			}
+			defer func() {
+				parseCertificate = oldParseCertificate
+				verifyCert = oldVerifyCert
+			}()
 			rawCerts := [][]byte{[]byte("test1"), []byte("test2")}
 			verifiedChains := [][]*x509.Certificate{}
 			err := VerifyCert(rawCerts, verifiedChains)

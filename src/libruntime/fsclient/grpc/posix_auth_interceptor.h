@@ -54,28 +54,22 @@ protected:
 
 class PosixClientAuthInterceptor : public PosixAuthInterceptor {
 public:
-    explicit PosixClientAuthInterceptor(::grpc::experimental::ClientRpcInfo *info) : info_(info) {}
+    explicit PosixClientAuthInterceptor(::grpc::experimental::ClientRpcInfo *info) { (void)info; }
     ~PosixClientAuthInterceptor() override
     {
         stopped.store(true);
     }
     void Intercept(::grpc::experimental::InterceptorBatchMethods *methods) override;
-
-private:
-    ::grpc::experimental::ClientRpcInfo *info_;
 };
 
 class PosixServerAuthInterceptor : public PosixAuthInterceptor {
 public:
-    explicit PosixServerAuthInterceptor(::grpc::experimental::ServerRpcInfo *info) : info_(info) {}
+    explicit PosixServerAuthInterceptor(::grpc::experimental::ServerRpcInfo *info) { (void)info; }
     ~PosixServerAuthInterceptor() override
     {
         stopped.store(true);
     }
     void Intercept(::grpc::experimental::InterceptorBatchMethods *methods) override;
-
-private:
-    ::grpc::experimental::ServerRpcInfo *info_;
 };
 
 class PosixClientAuthInterceptorFactory : public ::grpc::experimental::ClientInterceptorFactoryInterface {

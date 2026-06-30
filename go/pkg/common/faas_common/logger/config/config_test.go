@@ -21,25 +21,45 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
-
-	"yuanrong.org/kernel/pkg/common/faas_common/utils"
-	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 )
+
+func withEnv(key, value string) func() {
+	oldValue, existed := os.LookupEnv(key)
+	_ = os.Setenv(key, value)
+	return func() {
+		if existed {
+			_ = os.Setenv(key, oldValue)
+			return
+		}
+		_ = os.Unsetenv(key)
+	}
+}
 
 func TestInitConfig(t *testing.T) {
 	convey.Convey("TestInitConfig", t, func() {
 		convey.Convey("test 1", func() {
-			patches := gomonkey.ApplyFunc(GetCoreInfoFromEnv, func() (CoreInfo, error) {
+			oldExtractCoreInfoFromEnv := extractCoreInfoFromEnv
+			oldValidateFilePath := validateFilePath
+			oldMkdirAll := mkdirAll
+			extractCoreInfoFromEnv = func(env string) (CoreInfo, error) {
 				return defaultCoreInfo, nil
-			})
-			defer patches.Reset()
+			}
+			validateFilePath = func(path string) error {
+				return nil
+			}
+			mkdirAll = func(path string, perm os.FileMode) error {
+				return nil
+			}
+			defer func() {
+				extractCoreInfoFromEnv = oldExtractCoreInfoFromEnv
+				validateFilePath = oldValidateFilePath
+				mkdirAll = oldMkdirAll
+			}()
 			coreInfo, err := GetCoreInfoFromEnv()
 			fmt.Printf("log config:%+v\n", coreInfo)
 			convey.So(err, convey.ShouldEqual, nil)
@@ -50,17 +70,7 @@ func TestInitConfig(t *testing.T) {
 func TestInitConfigWithReadFileError(t *testing.T) {
 	convey.Convey("TestInitConfigWithEmptyPath", t, func() {
 		convey.Convey("test 1", func() {
-			patches := [...]*gomonkey.Patches{
-				gomonkey.ApplyFunc(ioutil.ReadFile,
-					func(filename string) ([]byte, error) {
-						return nil, errors.New("mock read file error")
-					}),
-			}
-			defer func() {
-				for _, p := range patches {
-					p.Reset()
-				}
-			}()
+			defer withEnv(logConfigKey, "")()
 			coreInfo, err := GetCoreInfoFromEnv()
 			fmt.Printf("error:%s\n", err)
 			fmt.Printf("log config:%+v\n", coreInfo)
@@ -74,17 +84,7 @@ func TestInitConfigWithErrorJson(t *testing.T) {
 		convey.Convey("test 1", func() {
 			mockErrorJson := "{\n\"filepath\": \"/home/sn/mock\",\n\"level\": \"INFO\",\n\"maxsize\": " +
 				"500,\n\"maxbackups\": 1,\n\"maxage\": 1,\n\"compress\": true\n"
-			patches := [...]*gomonkey.Patches{
-				gomonkey.ApplyFunc(ioutil.ReadFile,
-					func(filename string) ([]byte, error) {
-						return []byte(mockErrorJson), nil
-					}),
-			}
-			defer func() {
-				for _, p := range patches {
-					p.Reset()
-				}
-			}()
+			defer withEnv(logConfigKey, mockErrorJson)()
 			coreInfo, err := GetCoreInfoFromEnv()
 			fmt.Printf("error:%s\n", err)
 			fmt.Printf("log config:%+v\n", coreInfo)
@@ -98,17 +98,7 @@ func TestInitConfigWithEmptyPath(t *testing.T) {
 		convey.Convey("test 1", func() {
 			mockCfgInfo := "{\n\"filepath\": \"\",\n\"level\": \"INFO\",\n\"maxsize\": " +
 				"500,\n\"maxbackups\": 1,\n\"maxage\": 1,\n\"compress\": true\n}"
-			patches := [...]*gomonkey.Patches{
-				gomonkey.ApplyFunc(ioutil.ReadFile,
-					func(filename string) ([]byte, error) {
-						return []byte(mockCfgInfo), nil
-					}),
-			}
-			defer func() {
-				for _, p := range patches {
-					p.Reset()
-				}
-			}()
+			defer withEnv(logConfigKey, mockCfgInfo)()
 			coreInfo, err := GetCoreInfoFromEnv()
 			fmt.Printf("error:%s\n", err)
 			fmt.Printf("log config:%+v\n", coreInfo)
@@ -122,17 +112,7 @@ func TestInitConfigWithValidateError(t *testing.T) {
 		convey.Convey("test 1", func() {
 			mockErrorJson := "{\n\"filepath\": \"some_relative_path\",\n\"level\": \"INFO\",\n\"maxsize\": " +
 				"500,\n\"maxbackups\": 1,\n\"maxage\": 1}"
-			patches := [...]*gomonkey.Patches{
-				gomonkey.ApplyFunc(ioutil.ReadFile,
-					func(filename string) ([]byte, error) {
-						return []byte(mockErrorJson), nil
-					}),
-			}
-			defer func() {
-				for _, p := range patches {
-					p.Reset()
-				}
-			}()
+			defer withEnv(logConfigKey, mockErrorJson)()
 			coreInfo, err := GetCoreInfoFromEnv()
 			fmt.Printf("error:%s\n", err)
 			fmt.Printf("log config:%+v\n", coreInfo)
@@ -172,8 +152,7 @@ func TestGetDefaultCoreInfo(t *testing.T) {
 
 func TestExtractCoreInfoFromEnv(t *testing.T) {
 	normalInfo, _ := json.Marshal(defaultCoreInfo)
-	abnormal1 := mockUtils.PatchSlice{}
-	abnormalInfo1, _ := json.Marshal(abnormal1)
+	abnormalInfo1 := "{"
 	abnormal2 := CoreInfo{
 		FilePath:   "",
 		Level:      "INFO",
@@ -188,64 +167,37 @@ func TestExtractCoreInfoFromEnv(t *testing.T) {
 		env string
 	}
 	tests := []struct {
-		name        string
-		args        args
-		want        CoreInfo
-		wantErr     bool
-		patchesFunc mockUtils.PatchesFunc
+		name     string
+		args     args
+		want     CoreInfo
+		wantErr  bool
+		envValue string
 	}{
 		{
-			name:    "case1",
-			args:    args{logConfigKey},
-			want:    defaultCoreInfo,
-			wantErr: false,
-			patchesFunc: func() mockUtils.PatchSlice {
-				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					gomonkey.ApplyFunc(os.Getenv,
-						func(key string) string {
-							return string(normalInfo)
-						}),
-				})
-				return patches
-			},
+			name:     "case1",
+			args:     args{logConfigKey},
+			want:     defaultCoreInfo,
+			wantErr:  false,
+			envValue: string(normalInfo),
 		},
 		{
-			name:    "case2",
-			args:    args{logConfigKey},
-			want:    defaultCoreInfo,
-			wantErr: true,
-			patchesFunc: func() mockUtils.PatchSlice {
-				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					gomonkey.ApplyFunc(os.Getenv,
-						func(key string) string {
-							return string(abnormalInfo1)
-						}),
-				})
-				return patches
-			},
+			name:     "case2",
+			args:     args{logConfigKey},
+			want:     defaultCoreInfo,
+			wantErr:  true,
+			envValue: abnormalInfo1,
 		},
 		{
-			name:    "case3",
-			args:    args{logConfigKey},
-			want:    defaultCoreInfo,
-			wantErr: true,
-			patchesFunc: func() mockUtils.PatchSlice {
-				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					gomonkey.ApplyFunc(os.Getenv,
-						func(key string) string {
-							return string(abnormalInfo2)
-						}),
-				})
-				return patches
-			},
+			name:     "case3",
+			args:     args{logConfigKey},
+			want:     defaultCoreInfo,
+			wantErr:  true,
+			envValue: string(abnormalInfo2),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patches := tt.patchesFunc()
+			defer withEnv(tt.args.env, tt.envValue)()
 			got, err := ExtractCoreInfoFromEnv(tt.args.env)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ExtractCoreInfoFromEnv() error = %v, wantErr %v", err, tt.wantErr)
@@ -254,7 +206,6 @@ func TestExtractCoreInfoFromEnv(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ExtractCoreInfoFromEnv() got = %v, want %v", got, tt.want)
 			}
-			patches.ResetAll()
 		})
 	}
 }
@@ -262,50 +213,56 @@ func TestExtractCoreInfoFromEnv(t *testing.T) {
 func TestGetCoreInfoFromEnv(t *testing.T) {
 	convey.Convey("GetCoreInfoFromEnv", t, func() {
 		convey.Convey("ValidateFilePath error", func() {
-			defer gomonkey.ApplyFunc(ExtractCoreInfoFromEnv, func(env string) (CoreInfo, error) {
+			oldExtractCoreInfoFromEnv := extractCoreInfoFromEnv
+			extractCoreInfoFromEnv = func(env string) (CoreInfo, error) {
 				return CoreInfo{FilePath: "../test"}, nil
-			}).Reset()
+			}
+			defer func() {
+				extractCoreInfoFromEnv = oldExtractCoreInfoFromEnv
+			}()
 			_, err := GetCoreInfoFromEnv()
 			convey.So(err, convey.ShouldBeError)
 		})
 
 		convey.Convey("MkdirAll error", func() {
-			patches := []*gomonkey.Patches{
-				gomonkey.ApplyFunc(ExtractCoreInfoFromEnv, func(env string) (CoreInfo, error) {
-					return CoreInfo{FilePath: "/home/test"}, nil
-				}),
-				gomonkey.ApplyFunc(utils.ValidateFilePath, func(path string) error {
-					return nil
-				}),
-				gomonkey.ApplyFunc(os.MkdirAll, func(path string, perm os.FileMode) error {
-					return errors.New("create dir error")
-				}),
+			oldExtractCoreInfoFromEnv := extractCoreInfoFromEnv
+			oldValidateFilePath := validateFilePath
+			oldMkdirAll := mkdirAll
+			extractCoreInfoFromEnv = func(env string) (CoreInfo, error) {
+				return CoreInfo{FilePath: "/home/test"}, nil
+			}
+			validateFilePath = func(path string) error {
+				return nil
+			}
+			mkdirAll = func(path string, perm os.FileMode) error {
+				return errors.New("create dir error")
 			}
 			defer func() {
-				for _, patch := range patches {
-					patch.Reset()
-				}
+				extractCoreInfoFromEnv = oldExtractCoreInfoFromEnv
+				validateFilePath = oldValidateFilePath
+				mkdirAll = oldMkdirAll
 			}()
 			_, err := GetCoreInfoFromEnv()
 			convey.So(err, convey.ShouldBeError)
 		})
 
 		convey.Convey("success", func() {
-			patches := []*gomonkey.Patches{
-				gomonkey.ApplyFunc(ExtractCoreInfoFromEnv, func(env string) (CoreInfo, error) {
-					return CoreInfo{FilePath: "/home/test"}, nil
-				}),
-				gomonkey.ApplyFunc(utils.ValidateFilePath, func(path string) error {
-					return nil
-				}),
-				gomonkey.ApplyFunc(os.MkdirAll, func(path string, perm os.FileMode) error {
-					return nil
-				}),
+			oldExtractCoreInfoFromEnv := extractCoreInfoFromEnv
+			oldValidateFilePath := validateFilePath
+			oldMkdirAll := mkdirAll
+			extractCoreInfoFromEnv = func(env string) (CoreInfo, error) {
+				return CoreInfo{FilePath: "/home/test"}, nil
+			}
+			validateFilePath = func(path string) error {
+				return nil
+			}
+			mkdirAll = func(path string, perm os.FileMode) error {
+				return nil
 			}
 			defer func() {
-				for _, patch := range patches {
-					patch.Reset()
-				}
+				extractCoreInfoFromEnv = oldExtractCoreInfoFromEnv
+				validateFilePath = oldValidateFilePath
+				mkdirAll = oldMkdirAll
 			}()
 			env, err := GetCoreInfoFromEnv()
 			convey.So(err, convey.ShouldBeNil)

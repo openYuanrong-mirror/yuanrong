@@ -22,6 +22,9 @@ namespace Libruntime {
 const char *HTTP_CONNECTION_ERROR_MSG = "connection error";
 const int DEFAULT_HTTP_VERSION = 11;
 const uint HTTP_CONNECTION_ERROR_CODE = 999;
+const int HTTP_INFORMATIONAL_STATUS_MIN = 100;
+const int HTTP_INFORMATIONAL_STATUS_MAX = 200;
+
 AsyncHttpClient::AsyncHttpClient(std::shared_ptr<asio::io_context> ctx)
     : resolver_(asio::make_strand(*ctx)), stream_(asio::make_strand(*ctx))
 {
@@ -73,6 +76,7 @@ void AsyncHttpClient::SubmitInvokeRequest(const http::verb &method, const std::s
         req_.set(iter.first, iter.second);
     }
     req_.set("HOST", this->connParam_.ip + ":" + this->connParam_.port);
+    req_.set(http::field::connection, "keep-alive");
     req_.body() = body;
     // set body size in headers
     req_.prepare_payload();
@@ -84,19 +88,12 @@ void AsyncHttpClient::SubmitInvokeRequest(const http::verb &method, const std::s
 
 ErrorInfo AsyncHttpClient::Init(const ConnectionParam &param)
 {
-    YRLOG_DEBUG("Http init, serverAddr = {}:{}", param.ip, param.port);
+    YRLOG_DEBUG("Http init, serverAddr = {}:{} {}", param.ip, param.port, param.timeoutSec);
     connParam_ = param;
     idleTime_ = param.idleTime;
     // sync connection
     try {
-        auto const resolveRes = resolver_.resolve(param.ip, param.port);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            stream_.expires_after(std::chrono::seconds(param.timeoutSec));
-        }
-        stream_.connect(resolveRes);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            stream_.expires_never();
-        }
+        ConnectWithOptionalProxy(stream_, resolver_, param, false);
     } catch (const std::exception &e) {
         std::stringstream ss;
         ss << "failed to connect to cluster, target: ";
@@ -120,6 +117,22 @@ void AsyncHttpClient::OnRead(const std::shared_ptr<std::string> requestId, const
         YRLOG_ERROR("requestId {} failed to read response , err message: {}, client disconnect", *requestId,
                     ec.message().c_str());
         SetConnInActive();
+        if (callback_) {
+            callback_(resParser_->get().body(), ec, resParser_->get().result_int());
+        }
+        CheckResponseHeaderAndReset();
+        return;
+    }
+    // Skip 1xx informational responses (e.g., 102 Processing heartbeat from VIP keepalive)
+    // and continue reading the final response.
+    auto statusCode = resParser_->get().result_int();
+    if (statusCode >= HTTP_INFORMATIONAL_STATUS_MIN && statusCode < HTTP_INFORMATIONAL_STATUS_MAX) {
+        YRLOG_DEBUG("requestId {} received 1xx informational response ({}), continue reading", *requestId, statusCode);
+        resParser_ = std::make_shared<http::response_parser<http::string_body>>();
+        resParser_->body_limit(std::numeric_limits<std::uint64_t>::max());
+        http::async_read(stream_, buf_, *resParser_,
+                         beast::bind_front_handler(&AsyncHttpClient::OnRead, shared_from_this(), requestId));
+        return;
     }
     if (callback_) {
         callback_(resParser_->get().body(), ec, resParser_->get().result_int());

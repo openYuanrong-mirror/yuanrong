@@ -40,10 +40,10 @@ private:
 
 class FactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
 public:
-    std::unique_ptr<observability::plugin::metrics::ExporterHandle> MakeExpoterHandle(
-        std::string expoterConfig, std::unique_ptr<char[]> &) const noexcept override
+    std::unique_ptr<observability::plugin::metrics::ExporterHandle> MakeExporterHandle(
+        std::string exporterConfig, std::unique_ptr<char[]> &) const noexcept override
     {
-        std::shared_ptr<PrometheusPushExporter> exporter = std::make_shared<PrometheusPushExporter>(expoterConfig);
+        std::shared_ptr<PrometheusPushExporter> exporter = std::make_shared<PrometheusPushExporter>(exporterConfig);
         if (exporter == nullptr) {
             return nullptr;
         }

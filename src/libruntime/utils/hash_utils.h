@@ -17,11 +17,10 @@
 #pragma once
 #include <string>
 
-#include "datasystem/utils/sensitive_value.h"
+#include "src/libruntime/utils/sensitive_value.h"
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 std::string GetHMACSha256(const SensitiveValue &key, const std::string &data);
 void SHA256AndHex(const std::string &input, std::stringstream &output);
 }  // namespace Libruntime

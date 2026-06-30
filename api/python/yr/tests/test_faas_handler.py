@@ -117,6 +117,42 @@ class TestFaasExecutor(TestCase):
         res = faas.faas_call_handler(["arg0", "arg1"])
         self.assertTrue("failed to convert the result to a JSON string" in res, res)
 
+    @patch("yr.fnruntime.stream_write", create=True)
+    @patch("yr.fnruntime.get_request_and_instance_id", create=True)
+    @patch("yr.log.get_logger")
+    @patch("yr.executor.faas_executor.parse_faas_param")
+    @patch("yr.executor.faas_executor.get_trace_id_from_params")
+    @patch.object(CodeManager(), 'load')
+    def test_faas_call_handler_writes_sse_eof(
+        self,
+        mock_load,
+        get_trace_id_from_params,
+        mock_parse_faas_param,
+        mock_logger,
+        mock_get_request_and_instance_id,
+        mock_stream_write,
+    ):
+        mock_logger.return_value = logger
+        get_trace_id_from_params.return_value = "traceid"
+        mock_get_request_and_instance_id.return_value = ("request-1", "instance-1")
+
+        def user_call_func(event, context):
+            context.get_stream().write("event-data")
+            return {"body": "hello world"}
+
+        mock_load.return_value = user_call_func
+        mock_parse_faas_param.return_value = {
+            "header": {"Accept": "text/event-stream"},
+            "body": json.dumps({"name": "world"}),
+        }
+        load_context_meta({"funcMetaData": {"timeout": "3"}})
+
+        res = faas.faas_call_handler(["arg0", "arg1"])
+
+        self.assertTrue("hello world" in res, res)
+        mock_stream_write.assert_any_call("event-data", "request-1", "instance-1")
+        mock_stream_write.assert_any_call("yuanrong_event_EOF", "request-1", "instance-1")
+
     @patch("yr.log.get_logger")
     @patch.object(CodeManager(), 'load')
     def test_faas_shutdown_handler(self, mock_load, mock_logger):

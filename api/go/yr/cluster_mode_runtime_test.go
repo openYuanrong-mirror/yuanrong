@@ -20,9 +20,11 @@ package yr
 import (
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
+	"yuanrong.org/kernel/runtime/libruntime/clibruntime"
 )
 
 var clusterRt = &ClusterModeRuntime{}
@@ -73,7 +75,7 @@ func TestCreateInstanceRaw(t *testing.T) {
 		"Test CreateInstanceRaw", t, func() {
 			convey.Convey(
 				"CreateInstanceRaw success", func() {
-					bytes, err := clusterRt.CreateInstanceRaw([]byte{0})
+					bytes, err := clusterRt.CreateInstanceRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},
@@ -87,11 +89,35 @@ func TestInvokeByInstanceIdRaw(t *testing.T) {
 		"Test InvokeByInstanceIdRaw", t, func() {
 			convey.Convey(
 				"InvokeByInstanceIdRaw success", func() {
-					bytes, err := clusterRt.InvokeByInstanceIdRaw([]byte{0})
+					bytes, err := clusterRt.InvokeByInstanceIdRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},
 			)
+		},
+	)
+}
+
+func TestInvokeByInstanceIdPreservesInvokeOptions(t *testing.T) {
+	convey.Convey(
+		"Test InvokeByInstanceId preserves invoke options", t, func() {
+			receivedLabels := map[string]string{}
+			patch := gomonkey.ApplyFunc(clibruntime.InvokeByInstanceId,
+				func(funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
+					invokeOpt api.InvokeOptions) (string, error) {
+					receivedLabels = invokeOpt.InvokeLabels
+					return "object-id", nil
+				})
+			defer patch.Reset()
+
+			invokeOpt := api.InvokeOptions{
+				InvokeLabels: map[string]string{"accept": "text/event-stream"},
+			}
+			objID, err := clusterRt.InvokeByInstanceId(api.FunctionMeta{}, "instanceID", []api.Arg{}, invokeOpt)
+
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(objID, convey.ShouldEqual, "object-id")
+			convey.So(receivedLabels["accept"], convey.ShouldEqual, "text/event-stream")
 		},
 	)
 }
@@ -101,7 +127,7 @@ func TestKillRaw(t *testing.T) {
 		"Test KillRaw", t, func() {
 			convey.Convey(
 				"KillRaw success", func() {
-					bytes, err := clusterRt.KillRaw([]byte{0})
+					bytes, err := clusterRt.KillRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},

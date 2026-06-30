@@ -18,8 +18,6 @@ def yr_go_test(name, sanitizer):
         name = name,
         srcs = [
             "//api/go/libruntime/cpplibruntime:libcpplibruntime.so",
-            "@datasystem_sdk//:shared",
-            "@metrics_sdk//:shared",
             ":go_sources",
         ],
         outs = [package + coverage_suffix for package in go_packages] + [test_result_out],
@@ -27,9 +25,6 @@ def yr_go_test(name, sanitizer):
             BASE_DIR="$$(pwd)" &&
             TEST_RESULT_OUT=$$BASE_DIR/$(location {test_result_out}) &&
             CGO_LINKDIR=$$(dirname $$BASE_DIR/$(location //api/go/libruntime/cpplibruntime:libcpplibruntime.so)) &&
-            DATASYSTEM_DIR=$$(dirname $$BASE_DIR/$(locations @datasystem_sdk//:shared) | head -1) &&
-            METRICS_DIR=$$(dirname $$BASE_DIR/$(locations @metrics_sdk//:shared) | head -1) &&
-            export LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:$$DATASYSTEM_DIR:$$METRICS_DIR:$$CGO_LINKDIR &&
             export CGO_LDFLAGS="{cgo_ldflags} -L$$CGO_LINKDIR -lcpplibruntime" &&
             export ASAN_OPTIONS={asan_options} &&
             OUT_DIR=$$(dirname $$TEST_RESULT_OUT) &&

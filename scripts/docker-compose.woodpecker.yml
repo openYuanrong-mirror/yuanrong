@@ -1,0 +1,61 @@
+# Woodpecker CI Docker Compose
+# 完全免费开源的自托管 CI/CD
+
+services:
+  # Woodpecker Server
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:latest
+    container_name: yr-woodpecker-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"    # Web UI
+      - "9000:9000"    # Agent 连接端口
+    environment:
+      # GitHub 配置
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_HOST=${WOODPECKER_HOST:-http://localhost:8000}
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+
+      # 数据库
+      - WOODPECKER_DATABASE_SECRET=${WOODPECKER_DATABASE_SECRET:-a8f8a9f6ae8f7a9e6f8a9e6f8a9e6f8a9}
+      - WOODPECKER_DATABASE datasource=postgres://woodpecker:password@woodpecker-db:5432/woodpecker?sslmode=disable
+
+      # Agent Secret
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET:-your-secret-key}
+
+    volumes:
+      - woodpecker-server-data:/var/lib/woodpecker/
+
+  # Woodpecker Agent (在 macOS 上运行)
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:latest
+    container_name: yr-woodpecker-agent
+    restart: unless-stopped
+    platform: linux/arm64
+    environment:
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET:-your-secret-key}
+      - WOODPECKER_MAX_PROCS=2
+      - WOODPECKER_BACKEND=docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - woodpecker-server
+
+  # PostgreSQL 数据库
+  woodpecker-db:
+    image: postgres:15-alpine
+    container_name: yr-woodpecker-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=woodpecker
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DATABASE=woodpecker
+    volumes:
+      - woodpecker-db-data:/var/lib/postgresql/data
+
+volumes:
+  woodpecker-server-data:
+  woodpecker-db-data:

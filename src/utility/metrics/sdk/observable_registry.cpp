@@ -16,10 +16,10 @@
 
 #include "metrics/api/observe_result_t.h"
 #include "metrics/sdk/metric_pusher.h"
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 
-#include "sdk/include/observe_actor.h"
-#include "sdk/include/observable_registry.h"
+#include "src/utility/metrics/sdk/include/observe_actor.h"
+#include "src/utility/metrics/sdk/include/observable_registry.h"
 
 namespace observability::sdk::metrics {
 void ObservableRegistry::AddObservableInstrument(api::metrics::CallbackPtr callbackPtr,
@@ -48,7 +48,6 @@ void ObservableRegistry::AddObservableInstrument(api::metrics::CallbackPtr callb
         instrumentDescriptorList.push_back(instrument);
         collectIntervalMap_[interval] = instrumentDescriptorList;
     }
-    litebus::Async(observeActor_->GetAID(), &ObserveActor::RegisterTimer, interval);
 }
 
 void ObservableRegistry::DoPush(std::vector<MetricData> metricDataVec)

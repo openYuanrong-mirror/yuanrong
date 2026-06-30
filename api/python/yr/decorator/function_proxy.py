@@ -31,8 +31,9 @@ from yr.common.types import GroupInfo
 from yr.common import utils
 from yr.common.utils import CrossLanguageInfo, ObjectDescriptor
 from yr.config import InvokeOptions
+from yr.config_manager import ConfigManager
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
-from yr.object_ref import ObjectRef
+from yr.object_ref import ObjectRef, ObjectRefDirect
 from yr.runtime_holder import global_runtime
 from yr.generator import ObjectRefGenerator
 from yr.serialization import Serialization
@@ -107,6 +108,12 @@ class FunctionProxy:
                 return self._invoke(func, args=args, kwargs=kwargs)
 
             self.invoke = _invoke_proxy
+
+        @wraps(func)
+        def _invoke_direct_proxy(*args, **kwargs):
+            return self._invoke_direct(func, args=args, kwargs=kwargs)
+
+        self.invoke_direct = _invoke_direct_proxy
 
     def __call__(self, *args, **kwargs):
         """
@@ -268,24 +275,16 @@ class FunctionProxy:
             "yr.ObjectRef", List["yr.ObjectRef"]]:
         """
         Invoke function for testing purposes.
-
-        This is a public wrapper around _invoke_function for testing.
-
-        Args:
-            opts: The invoke options.
-            func: The function to invoke.
-            args: The positional arguments.
-            kwargs: The keyword arguments.
-
-        Returns:
-            A reference to the data object or list of references.
         """
         return self._invoke_function(opts, func, args, kwargs)
 
-    def _invoke_function(self, opts: InvokeOptions, func, args=None, kwargs=None) -> Union[
+    def _invoke_function(self, opts: InvokeOptions, func, args=None, kwargs=None, ref_cls=None) -> Union[
             "yr.ObjectRef", List["yr.ObjectRef"]]:
         """
         The real realization of the invoke function
+
+        Args:
+            ref_cls: The class to wrap return object IDs. Defaults to ObjectRef with need_incre=False.
 
         Returns:
             A reference to the data object.
@@ -293,6 +292,7 @@ class FunctionProxy:
         Raises:
             TypeError: This exception is thrown if the type of the passed parameter is incorrect.
         """
+        opts = ConfigManager().override_bypass_datasystem(opts)
         function_id = self.designated_urn
         if self.cross_language_info is None:
             args_list = signature.package_args(self.sig, args, kwargs)
@@ -309,19 +309,19 @@ class FunctionProxy:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", func.__qualname__)
-                self._code_ref = ObjectRef(
-                    global_runtime.get_runtime().put_serialized(serialized_object),
-                    need_incre=False
-                )
-                _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
-                              self._code_ref.id, func.__qualname__)
+                else:
+                    runtime = global_runtime.get_runtime()
+                    code_id = runtime.put_serialized(serialized_object)
+                    if not isinstance(code_id, str):
+                        code_id = runtime.put(serialized_object)
+                    self._code_ref = ObjectRef(code_id, need_incre=False)
+                    _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
+                                self._code_ref.id, func.__qualname__)
         with self._lock:
             if self._initializer and self._initializer_code_ref is None:
                 self._initializer_code_ref = yr.put(self._initializer)
 
-        initializer_code_id = ""
-        if self._initializer_code_ref is not None:
-            initializer_code_id = self._initializer_code_ref.id
+        initializer_code_id = self._initializer_code_ref.id if self._initializer_code_ref is not None else ""
         func_meta = FunctionMeta(functionID=function_id,  # if designated_urn is not set,
                                  # use function id in the config
                                  moduleName=self.function_descriptor.module_name,
@@ -346,8 +346,12 @@ class FunctionProxy:
         if self.return_nums == 0:
             return None
         objref_list = []
-        for i in obj_list:
-            objref_list.append(ObjectRef(i, need_incre=False))
+        if ref_cls is not None:
+            for i in obj_list:
+                objref_list.append(ref_cls(i))
+        else:
+            for i in obj_list:
+                objref_list.append(ObjectRef(i, need_incre=False))
 
         if self._is_generator:
             return ObjectRefGenerator(objref_list[0])
@@ -378,6 +382,12 @@ class FunctionProxy:
         Calls the _invoke_function method to perform the function invocation.
         """
         return self._invoke_function(self.invoke_options, func, args, kwargs)
+
+    def _invoke_direct(self, func, args=None, kwargs=None):
+        """Invoke bypassing datasystem. Returns ObjectRefDirect (no ref counting)."""
+        from dataclasses import replace
+        opts = replace(self.invoke_options, bypass_datasystem=True)
+        return self._invoke_function(opts, func, args, kwargs, ref_cls=ObjectRefDirect)
 
 
 def make_decorator(invoke_options=None, return_nums=None, initializer=None) -> callable:

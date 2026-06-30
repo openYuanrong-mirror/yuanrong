@@ -49,7 +49,11 @@ const int MAX_READFILE_TIME = 30;  // seconds
 void AddLibrary(const filesystem::path &path, std::set<filesystem::path> &libPaths)
 {
     YRLOG_DEBUG("path: {}", path.string());
+#if defined(__APPLE__)
+    if (path.extension().string() == ".dylib") {
+#else
     if (path.extension().string() == ".so") {
+#endif
         libPaths.emplace(path);
     }
 }

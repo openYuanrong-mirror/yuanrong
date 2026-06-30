@@ -28,6 +28,19 @@ THIRD_PARTY_PATH=${BASE_DIR}/../../third_party
 [[ ! -f "${THIRD_PARTY_PATH}/health_check.sh" ]] && echo "${THIRD_PARTY_PATH}/health_check.sh is not exist" && exit 1
 . ${THIRD_PARTY_PATH}/health_check.sh
 
+function runtime_launcher_health_check() {
+    local pid=$1
+    local socket_path="${RUNTIME_LAUNCHER_SOCK}"
+    if [ -z "${pid}" ] || ! kill -0 "${pid}" 2>/dev/null; then
+        log_warning >&2 "runtime_launcher exited, pid: ${pid}"
+        return 1
+    fi
+    if [ ! -S "${socket_path}" ]; then
+        log_warning >&2 "runtime_launcher socket is not ready: ${socket_path}"
+        return 1
+    fi
+    return 0
+}
 
 function health_check() {
     case "$1" in
@@ -41,7 +54,7 @@ function health_check() {
         function_system_health_check "$2" "${GLOBAL_SCHEDULER_PORT}" "global-scheduler"
         ;;
     iam_server)
-        function_system_health_check "$2" "${IAM_SERVER_PORT}" "iam-server"
+        function_system_health_check "$2" "${IAM_SERVER_PORT}" "iam-server" "IAM_SSL_ENABLE" "IAM_LOCAL_LISTEN_PORT" "IAM_LOCAL_IP"
         ;;
     ds_worker|ds_master)
         data_system_health_check "$1" "$2"
@@ -54,6 +67,9 @@ function health_check() {
         ;;
     metaservice)
         metaservice_health_check "$2"
+        ;;
+    runtime_launcher)
+        runtime_launcher_health_check "$2"
         ;;
     etcd)
         third_party_health_check "$2"

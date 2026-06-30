@@ -46,8 +46,10 @@ constexpr uint16_t DISABLED_PROMETHEUS_PULL_EXPORTER_PORT = 0;
 class FakeExporter : public MetricsExporters::Exporter {
 public:
     MetricsExporters::ExportResult Export(
-        const std::vector<observability::sdk::metrics::MetricData> & /* data */) noexcept override
+        const std::vector<observability::sdk::metrics::MetricData> &data) noexcept override
     {
+        exportCount_++;
+        lastData_ = data;
         return MetricsExporters::ExportResult::SUCCESS;
     }
 
@@ -68,6 +70,20 @@ public:
     }
 
     void RegisterOnHealthChangeCb(const std::function<void(bool)> & /* onChange */) noexcept override {}
+
+    size_t GetExportCount() const
+    {
+        return exportCount_;
+    }
+
+    const std::vector<observability::sdk::metrics::MetricData> &GetLastData() const
+    {
+        return lastData_;
+    }
+
+private:
+    size_t exportCount_ { 0 };
+    std::vector<observability::sdk::metrics::MetricData> lastData_;
 };
 
 class ScopedPlatformEnv {
@@ -391,6 +407,37 @@ TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
+}
+
+TEST_F(MetricsAdaptorTest, ReportGaugeExportsMetricData)
+{
+    Config::c = Config();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto provider = std::make_shared<MetricsSdk::MeterProvider>(MetricsSdk::LiteBusParams{});
+    MetricsSdk::ExportConfigs exportConfigs;
+    exportConfigs.exporterName = "mock";
+    exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
+    auto exporter = std::make_shared<FakeExporter>();
+    auto exporterRef = exporter;
+    provider->AddMetricProcessor(std::make_shared<MetricsSdk::ImmediatelyExportProcessor>(std::move(exporter),
+                                                                                          exportConfigs));
+    MetricsApi::Provider::SetMeterProvider(provider);
+    metricsAdaptor->userEnable_ = true;
+    metricsAdaptor->Initialized_ = true;
+    metricsAdaptor->metricSampleAllowAll_ = true;
+
+    YR::Libruntime::GaugeData gauge;
+    gauge.name = "norman_test";
+    gauge.description = "";
+    gauge.unit = "ms";
+    gauge.value = 100;
+    gauge.labels["key1"] = "Test_python_gague_task";
+
+    auto err = metricsAdaptor->ReportGauge(gauge);
+    EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
+    EXPECT_EQ(exporterRef->GetExportCount(), 1);
+    ASSERT_EQ(exporterRef->GetLastData().size(), 1);
+    EXPECT_EQ(exporterRef->GetLastData()[0].instrumentDescriptor.name, "norman_test");
 }
 
 TEST_F(MetricsAdaptorTest, SetAlarmTest)

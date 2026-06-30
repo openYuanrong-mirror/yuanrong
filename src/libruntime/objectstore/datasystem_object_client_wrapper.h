@@ -16,11 +16,14 @@
 
 #pragma once
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <memory>
 
 #include "datasystem/object_client.h"
 
 #include "datasystem_client_wrapper.h"
+#include "src/libruntime/utils/datasystem_utils.h"
 
 namespace YR {
 namespace Libruntime {
@@ -30,13 +33,18 @@ public:
     {
         dsClient = client;
     }
-    datasystem::Status GDecreaseRef(const std::vector<std::string> &objectIds,
-                                    std::vector<std::string> &failedObjectIds)
+
+    ErrorInfo GDecreaseRef(const std::vector<std::string> &objectIds,
+                           std::vector<std::string> &failedObjectIds) override
     {
-        return dsClient->GDecreaseRef(objectIds, failedObjectIds);
+        datasystem::Status status = dsClient->GDecreaseRef(objectIds, failedObjectIds);
+        if (!status.IsOk()) {
+            return ErrorInfo(ConvertDatasystemErrorToCore(status.GetCode()), ModuleCode::DATASYSTEM, status.ToString());
+        }
+        return ErrorInfo();
     }
 
-    void SetTenantId(const std::string &tenantId)
+    void SetTenantId(const std::string &tenantId) override
     {
         (void)datasystem::Context::SetTenantId(tenantId);
     }
@@ -47,3 +55,5 @@ private:
 
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

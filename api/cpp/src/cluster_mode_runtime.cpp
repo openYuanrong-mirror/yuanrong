@@ -343,7 +343,10 @@ YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts)
     libOpts.priority = opts.priority;
     libOpts.cpu = opts.cpu;
     libOpts.memory = opts.memory;
+    libOpts.cpuLimit = opts.cpuLimit;
+    libOpts.memoryLimit = opts.memoryLimit;
     libOpts.customResources = opts.customResources;
+    libOpts.bypassDatasystem = opts.bypassDatasystem;
     libOpts.customExtensions = opts.customExtensions;
     libOpts.podLabels = opts.podLabels;
     libOpts.labels = opts.labels;

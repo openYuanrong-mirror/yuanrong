@@ -18,13 +18,23 @@
 
 int main(int argc, char **argv)
 {
-    YR::Config conf;
-    conf.isDriver = false;
-    try {
-        YR::Init(conf, argc, argv);
-    } catch (YR::Exception &e) {
-        std::cerr << "failed to start runtime: " << e.what() << std::endl;
-        return 1;
-    }
-    YR::ReceiveRequestLoop();
+    bool needReInit = false;
+    do {
+        YR::Config conf;
+        conf.isDriver = false;
+        try {
+            YR::Init(conf, argc, argv);
+        } catch (YR::Exception &e) {
+            std::cerr << "failed to start runtime: " << e.what() << std::endl;
+            return 1;
+        }
+        YR::ReceiveRequestLoop();
+
+        needReInit = YR::NeedReInit();
+        if (needReInit) {
+            std::cerr << "Checkpoint restored, re-initializing..." << std::endl;
+            YR::ReInit();
+        }
+    } while (needReInit);
+    return 0;
 }

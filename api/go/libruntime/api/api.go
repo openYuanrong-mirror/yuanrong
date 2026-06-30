@@ -26,11 +26,11 @@ type LibruntimeAPI interface {
 	InvokeByFunctionName(funcMeta FunctionMeta, args []Arg, invokeOpt InvokeOptions) (string, error)
 	AcquireInstance(state string, funcMeta FunctionMeta, acquireOpt InvokeOptions) (InstanceAllocation, error)
 	ReleaseInstance(allocation InstanceAllocation, stateID string, abnormal bool, option InvokeOptions)
-	Kill(instanceID string, signal int, payload []byte) error
+	Kill(instanceID string, signal int, payload []byte, invokeOpt InvokeOptions) error
 
-	CreateInstanceRaw(createReqRaw []byte) ([]byte, error)
-	InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error)
-	KillRaw(killReqRaw []byte) ([]byte, error)
+	CreateInstanceRaw(createReqRaw []byte, option RawRequestOption) ([]byte, error)
+	InvokeByInstanceIdRaw(invokeReqRaw []byte, option RawRequestOption) ([]byte, error)
+	KillRaw(killReqRaw []byte, option RawRequestOption) ([]byte, error)
 
 	SaveState(state []byte) (string, error)
 	LoadState(checkpointID string) ([]byte, error)
@@ -81,6 +81,10 @@ type LibruntimeAPI interface {
 	IncreaseGauge(data GaugeData) error
 	DecreaseGauge(data GaugeData) error
 	IncreaseUInt64Counter(data UInt64CounterData) error
+}
+
+type RawRequestOption struct {
+	TraceParent string
 }
 
 // KvClient -

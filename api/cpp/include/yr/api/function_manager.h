@@ -141,7 +141,7 @@ static std::enable_if_t<std::is_void<R>::value, WrappedRetType> Call(Func func, 
 {
     CallInternal<R>(func, args, std::index_sequence_for<Args...>{});
     localNestedObjList.clear();
-    auto bufPtr = std::make_shared<msgpack::sbuffer>(std::move(VoidReturn()));
+    auto bufPtr = std::make_shared<msgpack::sbuffer>(VoidReturn());
     return std::make_pair(bufPtr, false);
 }
 
@@ -175,7 +175,7 @@ static std::enable_if_t<std::is_void<R>::value, WrappedRetType> MemberCall(Func 
 {
     MemberCallInternal<R>(func, cls, args, std::index_sequence_for<Args...>{});
     localNestedObjList.clear();
-    auto bufPtr = std::make_shared<msgpack::sbuffer>(std::move(VoidReturn()));
+    auto bufPtr = std::make_shared<msgpack::sbuffer>(VoidReturn());
     return std::make_pair(bufPtr, false);
 }
 

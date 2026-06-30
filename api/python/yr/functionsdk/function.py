@@ -24,6 +24,7 @@ import re
 from typing import Tuple, Union, Dict, List
 
 from yr.config import InvokeOptions as YRInvokeOptions
+from yr.config_manager import ConfigManager
 from yr.common import constants
 from yr.common.constants import META_PREFIX
 from yr.libruntime_pb2 import ApiType, FunctionMeta, LanguageType
@@ -189,10 +190,12 @@ class Function:
         call_req = CallReq(body=payload_str)
         args_list = [CallReq().encode(), call_req.encode()]
 
+        invoke_options = ConfigManager().override_bypass_datasystem(
+            _convert_invoke_options(self.invoke_options, self.context))
         obj_list = global_runtime.get_runtime().invoke_by_name(
             func_meta=func_meta,
             args=args_list,
-            opt=_convert_invoke_options(self.invoke_options, self.context),
+            opt=invoke_options,
             return_nums=FAAS_FUNCTION_RETURN_NUM)
 
         return ObjectRef(obj_list[constants.INDEX_FIRST])

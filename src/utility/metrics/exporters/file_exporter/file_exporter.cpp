@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "exporters/file_exporter/include/file_exporter.h"
+#include "metrics/exporters/file_exporter/file_exporter.h"
 
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -21,61 +21,14 @@
 
 #include <exception>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
-#include "common/file/file_sink.h"
-#include "common/include/utils.h"
+#include "src/utility/metrics/common/file/file_sink.h"
+#include "src/utility/metrics/common/include/utils.h"
 #include "metrics/api/alarm_data.h"
 #include "metrics/sdk/instruments.h"
-#include "metrics/exporters/file_exporter/file_exporter.h"
 
 namespace observability {
-namespace metrics {
-
-FileExporter::FileExporter(const FileParam &fileParam)
-{
-    InitLogger(fileParam);
-    InitJsonParser();
-}
-
-bool FileExporter::Export(const std::vector<MetricsData> &data)
-{
-    for (const auto &metric : data) {
-        auto metricString = MetricSerialize(metric);
-
-        metricLogger->Record(metricString);
-    }
-    return true;
-}
-
-bool FileExporter::ForceFlush()
-{
-    metricLogger->Flush();
-    return true;
-}
-
-bool FileExporter::Finalize()
-{
-    return ForceFlush();
-}
-
-void FileExporter::InitLogger(const FileParam &fileParam)
-{
-    metricLogger = std::make_shared<MetricLogger>(fileParam);
-}
-
-void FileExporter::InitJsonParser()
-{
-    jsonParser = std::make_shared<JsonParser>();
-}
-
-std::string FileExporter::MetricSerialize(const MetricsData &metrics)
-{
-    return jsonParser->Serialize(metrics);
-}
-
-}  // namespace metrics
-
 namespace exporters::metrics {
 namespace MetricsSdk = observability::sdk::metrics;
 namespace MetricsApi = observability::api::metrics;

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "exporters/file_exporter/include/file_utils.h"
+#include "src/utility/metrics/exporters/file_exporter/include/file_utils.h"
 
 #include <glob.h>
 #include <zlib.h>
@@ -22,7 +22,7 @@
 #include <cstring>
 #include <sstream>
 
-#include "common/file/file_utils.h"
+#include "src/utility/metrics/common/file/file_utils.h"
 
 namespace observability {
 
@@ -32,7 +32,14 @@ inline std::string StrErr(int errNum)
 {
     char errBuf[256];
     errBuf[0] = '\0';
+#ifdef __APPLE__
+    // macOS version of strerror_r returns int and takes char* as second arg
+    strerror_r(errNum, errBuf, sizeof errBuf);
+    return std::string(errBuf);
+#else
+    // GNU version returns char*
     return strerror_r(errNum, errBuf, sizeof errBuf);
+#endif
 }
 
 bool FileExist(const std::string &filename, int mode)

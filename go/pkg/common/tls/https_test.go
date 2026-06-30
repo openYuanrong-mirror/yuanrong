@@ -21,18 +21,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
-
-	"yuanrong.org/kernel/pkg/common/crypto"
-	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
 )
 
 func TestGetURLScheme(t *testing.T) {
@@ -74,42 +70,64 @@ func Test_loadServerTLSCertificate(t *testing.T) {
 
 	convey.Convey("test loadServerTLSCertificate", t, func() {
 		convey.Convey("LoadCertAndKeyBytes success", func() {
-			patch1 := gomonkey.ApplyFunc(LoadCertAndKeyBytes, func(certFilePath, keyFilePath, passPhase string) (certPEMBlock,
-				keyPEMBlock []byte, err error) {
+			oldLoadCertAndKeyBytes := loadCertAndKeyBytes
+			loadCertAndKeyBytes = func(certFilePath, keyFilePath, passPhase string) (certPEMBlock, keyPEMBlock []byte,
+				err error) {
 				return nil, nil, nil
-			})
+			}
+			defer func() {
+				loadCertAndKeyBytes = oldLoadCertAndKeyBytes
+			}()
 			convey.Convey("X509KeyPair success", func() {
-				patch2 := gomonkey.ApplyFunc(tls.X509KeyPair, func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+				oldX509KeyPair := x509KeyPair
+				x509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
 					return tls.Certificate{}, nil
-				})
+				}
+				defer func() {
+					x509KeyPair = oldX509KeyPair
+				}()
 				_, err := loadServerTLSCertificate()
 				convey.So(err, convey.ShouldBeNil)
+				x509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+					return tls.Certificate{}, nil
+				}
 				_, err = LoadServerTLSCertificate("", "")
 				convey.So(err, convey.ShouldBeNil)
-				defer patch2.Reset()
 			})
 			convey.Convey("X509KeyPair fail", func() {
-				patch3 := gomonkey.ApplyFunc(tls.X509KeyPair, func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+				oldX509KeyPair := x509KeyPair
+				x509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
 					return tls.Certificate{}, errors.New("fail to load X509KeyPair")
-				})
+				}
+				defer func() {
+					x509KeyPair = oldX509KeyPair
+				}()
 				_, err := loadServerTLSCertificate()
 				convey.So(err, convey.ShouldNotBeNil)
+				x509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+					return tls.Certificate{}, errors.New("fail to load X509KeyPair")
+				}
 				_, err = LoadServerTLSCertificate("", "")
 				convey.So(err, convey.ShouldNotBeNil)
-				defer patch3.Reset()
 			})
-			defer patch1.Reset()
 		})
 		convey.Convey("LoadCertAndKeyBytes fail", func() {
-			patch4 := gomonkey.ApplyFunc(LoadCertAndKeyBytes, func(certFilePath, keyFilePath, passPhase string) (certPEMBlock,
-				keyPEMBlock []byte, err error) {
+			oldLoadCertAndKeyBytes := loadCertAndKeyBytes
+			loadCertAndKeyBytes = func(certFilePath, keyFilePath, passPhase string) (certPEMBlock, keyPEMBlock []byte,
+				err error) {
 				return nil, nil, errors.New("fail to LoadCertAndKeyBytes")
-			})
+			}
+			defer func() {
+				loadCertAndKeyBytes = oldLoadCertAndKeyBytes
+			}()
 			_, err := loadServerTLSCertificate()
 			convey.So(err, convey.ShouldNotBeNil)
+			loadCertAndKeyBytes = func(certFilePath, keyFilePath, passPhase string) (certPEMBlock, keyPEMBlock []byte,
+				err error) {
+				return nil, nil, errors.New("fail to LoadCertAndKeyBytes")
+			}
 			_, err = LoadServerTLSCertificate("", "")
 			convey.So(err, convey.ShouldNotBeNil)
-			defer patch4.Reset()
 		})
 	})
 }
@@ -148,86 +166,85 @@ func Test_LoadCertAndKeyBytes(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("ReadFile success", func() {
-			patches := [...]*gomonkey.Patches{
-				gomonkey.ApplyFunc(ioutil.ReadFile, func(filename string) ([]byte, error) {
-					return nil, nil
-				}),
-				gomonkey.ApplyFunc(crypto.GetRootKey, func() []byte {
-					return nil
-				}),
+			oldReadFileWithTimeout := readFileWithTimeout
+			oldGetRootKey := getRootKey
+			oldDecryptByte := decryptByte
+			oldPemDecode := pemDecode
+			oldIsEncryptedPEM := isEncryptedPEM
+			oldLocalAuthDecrypt := localAuthDecrypt
+			oldDecryptPEMBlock := decryptPEMBlock
+			readFileWithTimeout = func(filename string) ([]byte, error) {
+				return nil, nil
+			}
+			getRootKey = func() []byte {
+				return nil
 			}
 			defer func() {
-				for idx := range patches {
-					patches[idx].Reset()
-				}
+				readFileWithTimeout = oldReadFileWithTimeout
+				getRootKey = oldGetRootKey
+				decryptByte = oldDecryptByte
+				pemDecode = oldPemDecode
+				isEncryptedPEM = oldIsEncryptedPEM
+				localAuthDecrypt = oldLocalAuthDecrypt
+				decryptPEMBlock = oldDecryptPEMBlock
 			}()
 
 			convey.Convey("DecryptByte fail", func() {
-				patch := gomonkey.ApplyFunc(crypto.DecryptByte, func(cipherText []byte, secret []byte) ([]byte, error) {
+				decryptByte = func(cipherText []byte, secret []byte) ([]byte, error) {
 					return []byte{}, errors.New("DecryptByte fail")
-				})
-				defer patch.Reset()
+				}
 
 				_, _, err := LoadCertAndKeyBytes("certPath", "keyPath", "pass")
 				convey.So(err, convey.ShouldNotBeNil)
 			})
 			convey.Convey("DecryptByte success", func() {
-				patch := gomonkey.ApplyFunc(crypto.DecryptByte, func(cipherText []byte, secret []byte) ([]byte, error) {
+				decryptByte = func(cipherText []byte, secret []byte) ([]byte, error) {
 					return []byte{}, nil
-				})
-				defer patch.Reset()
+				}
 
 				convey.Convey("Decode fail", func() {
-					patch := gomonkey.ApplyFunc(pem.Decode, func(data []byte) (p *pem.Block, rest []byte) {
+					pemDecode = func(data []byte) (p *pem.Block, rest []byte) {
 						return nil, nil
-					})
-					defer patch.Reset()
+					}
 
 					_, _, err := LoadCertAndKeyBytes("certPath", "keyPath", "pass")
 					convey.So(err, convey.ShouldNotBeNil)
 				})
 				convey.Convey("Decode success", func() {
-					patch := gomonkey.ApplyFunc(pem.Decode, func(data []byte) (p *pem.Block, rest []byte) {
+					pemDecode = func(data []byte) (p *pem.Block, rest []byte) {
 						return &pem.Block{}, nil
-					})
-					defer patch.Reset()
+					}
 
 					convey.Convey("crypto.IsEncryptedPEMBlock fail", func() {
-						patch := gomonkey.ApplyFunc(crypto.IsEncryptedPEMBlock, func(b *pem.Block) bool {
+						isEncryptedPEM = func(b *pem.Block) bool {
 							return false
-						})
-						defer patch.Reset()
+						}
 
 						_, _, err := LoadCertAndKeyBytes("certPath", "keyPath", "pass")
 						convey.So(err, convey.ShouldBeNil)
 					})
 					convey.Convey("crypto.IsEncryptedPEMBlock success", func() {
-						patch := gomonkey.ApplyFunc(crypto.IsEncryptedPEMBlock, func(b *pem.Block) bool {
+						isEncryptedPEM = func(b *pem.Block) bool {
 							return true
-						})
-						defer patch.Reset()
+						}
 
 						convey.Convey("localauth.Decrypt fail", func() {
-							patch := gomonkey.ApplyFunc(localauth.Decrypt, func(src string) ([]byte, error) {
+							localAuthDecrypt = func(src string) ([]byte, error) {
 								return nil, errors.New("localauth.Decrypt fail")
-							})
-							defer patch.Reset()
+							}
 
 							_, _, err := LoadCertAndKeyBytes("certPath", "keyPath", "pass")
 							convey.So(err, convey.ShouldNotBeNil)
 						})
 						convey.Convey("localauth.Decrypt success", func() {
-							patch := gomonkey.ApplyFunc(localauth.Decrypt, func(src string) ([]byte, error) {
+							localAuthDecrypt = func(src string) ([]byte, error) {
 								return []byte{}, nil
-							})
-							defer patch.Reset()
+							}
 
 							convey.Convey("crypto.DecryptPEMBlock fail", func() {
-								patch := gomonkey.ApplyFunc(crypto.DecryptPEMBlock,
-									func(b *pem.Block, password []byte) ([]byte, error) {
-										return nil, errors.New("crypto.DecryptPEMBlock fail")
-									})
-								defer patch.Reset()
+								decryptPEMBlock = func(b *pem.Block, password []byte) ([]byte, error) {
+									return nil, errors.New("crypto.DecryptPEMBlock fail")
+								}
 
 								_, _, err := LoadCertAndKeyBytes("certPath", "keyPath", "pass")
 								convey.So(err, convey.ShouldNotBeNil)

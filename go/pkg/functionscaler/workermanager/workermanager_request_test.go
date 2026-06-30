@@ -19,7 +19,6 @@ package workermanager
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -197,11 +196,9 @@ func TestScaleUpInstance(t *testing.T) {
 			args: mockArg,
 			patchesFunc: func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					ApplyFunc(json.Marshal, func(v any) ([]byte, error) {
-						return nil, errors.New("json marshal error")
-					}),
-				})
+				workerJSONMarshal = func(v any) ([]byte, error) {
+					return nil, errors.New("json marshal error")
+				}
 				return patches
 			},
 			want:    nil,
@@ -233,6 +230,8 @@ func TestScaleUpInstance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			rawWorkerJSONMarshal := workerJSONMarshal
+			defer func() { workerJSONMarshal = rawWorkerJSONMarshal }()
 			patches := tt.patchesFunc()
 			wmInstance, err := ScaleUpInstance(tt.args.scaleUpParam)
 			if err != nil {
@@ -434,11 +433,9 @@ func TestScaleDownInstance(t *testing.T) {
 			},
 			patchesFunc: func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
-				patches.Append(mockUtils.PatchSlice{
-					ApplyFunc(json.Marshal, func(v any) ([]byte, error) {
-						return nil, errors.New("json marshal error")
-					}),
-				})
+				workerJSONMarshal = func(v any) ([]byte, error) {
+					return nil, errors.New("json marshal error")
+				}
 				return patches
 			},
 			wantErr: errors.New("failed to make scale down request"),
@@ -465,6 +462,8 @@ func TestScaleDownInstance(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			rawWorkerJSONMarshal := workerJSONMarshal
+			defer func() { workerJSONMarshal = rawWorkerJSONMarshal }()
 			patches := tt.patchesFunc()
 			err := ScaleDownInstance(tt.args.instanceID, tt.args.functionKey, tt.args.traceID)
 			if err != nil {

@@ -45,6 +45,7 @@ const (
 var (
 	localColdStarter     *wisecloudtool.PodOperator
 	localColdStarterOnce sync.Once
+	delPodFunc           = (*wisecloudtool.PodOperator).DelPod
 )
 
 func newColdStarter(logger api.FormatLogger) *wisecloudtool.PodOperator {
@@ -121,7 +122,7 @@ func (as *WiseCloudScaler) DelNuwaPod(ins *types.Instance) error {
 				time.Sleep(time.Second)
 				continue
 			}
-			err = as.podOperator.DelPod(as.nuwaRuntimeInfo, ins.PodDeploymentName, ins.PodID)
+			err = delPodFunc(as.podOperator, as.nuwaRuntimeInfo, ins.PodDeploymentName, ins.PodID)
 			if err != nil {
 				as.logger.Errorf("failed del nuwa pod %s, %s", ins.PodID, err.Error())
 			}

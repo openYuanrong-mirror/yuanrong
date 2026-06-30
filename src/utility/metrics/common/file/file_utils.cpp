@@ -21,7 +21,7 @@
 #include <cstring>
 #include <sstream>
 
-#include "file_utils.h"
+#include "src/utility/metrics/common/file/file_utils.h"
 
 namespace observability {
 
@@ -35,7 +35,14 @@ inline std::string StrErr(int errNum)
 {
     char errBuf[256];
     errBuf[0] = '\0';
+#ifdef __APPLE__
+    // macOS version of strerror_r returns int and takes char* as second arg
+    strerror_r(errNum, errBuf, sizeof errBuf);
+    return std::string(errBuf);
+#else
+    // GNU version returns char*
     return strerror_r(errNum, errBuf, sizeof errBuf);
+#endif
 }
 
 void Glob(const std::string &pathPattern, std::vector<std::string> &paths)
@@ -76,7 +83,12 @@ void Read(FILE *f, uint8_t *buf, size_t *pSize)
 
     do {
         static_assert(std::is_unsigned<decltype(numReads)>::value);
+#ifdef __APPLE__
+        // macOS doesn't have fread_unlocked, use fread instead
+        numReads = fread(buf, 1, size, f);
+#else
         numReads = fread_unlocked(buf, 1, size, f);
+#endif
     } while (numReads == 0 && ferror(f) == EINTR);
 
     if (numReads < size) {
@@ -104,10 +116,10 @@ int CompressFile(const std::string &src, const std::string &dest)
     }
 
     size_t size = BUFFER_SIZE;
-    uint8_t buf[size] = "\0";
+    std::vector<uint8_t> buf(size, 0);
     while (size != 0) {
         try {
-            Read(file, buf, &size);
+            Read(file, buf.data(), &size);
         } catch (const std::exception &e) {
             (void)gzclose(gzf);
             (void)fclose(file);
@@ -117,7 +129,7 @@ int CompressFile(const std::string &src, const std::string &dest)
         if (size == 0) {
             break;
         }
-        int n = gzwrite(gzf, buf, static_cast<unsigned int>(size));
+        int n = gzwrite(gzf, buf.data(), static_cast<unsigned int>(size));
         if (n <= 0) {
             int err;
             const char *errStr = gzerror(gzf, &err);
@@ -156,6 +168,15 @@ void GetFileModifiedTime(const std::string &filename, int64_t &timestamp)
         return;
     }
 
+#ifdef __APPLE__
+    auto secondBit = statBuf.st_mtimespec.tv_sec * MILLION_OF_MAGNITUDE;
+    if (secondBit / MILLION_OF_MAGNITUDE != statBuf.st_mtimespec.tv_sec) {
+        std::cerr << "invalid value tv_sec: " << statBuf.st_mtimespec.tv_sec <<
+            "; tv_nsec: " << statBuf.st_mtimespec.tv_nsec << std::endl;
+        return;
+    }
+    auto nsecBit = statBuf.st_mtimespec.tv_nsec / THOUSANDS_OF_MAGNITUDE;
+#else
     auto secondBit = statBuf.st_mtim.tv_sec * MILLION_OF_MAGNITUDE;
     if (secondBit / MILLION_OF_MAGNITUDE != statBuf.st_mtim.tv_sec) {
         std::cerr << "invalid value tv_sec: " << statBuf.st_mtim.tv_sec <<
@@ -163,6 +184,7 @@ void GetFileModifiedTime(const std::string &filename, int64_t &timestamp)
         return;
     }
     auto nsecBit = statBuf.st_mtim.tv_nsec / THOUSANDS_OF_MAGNITUDE;
+#endif
     timestamp = INT64_MAX - secondBit < nsecBit ? 0 : secondBit + nsecBit;
 }
 

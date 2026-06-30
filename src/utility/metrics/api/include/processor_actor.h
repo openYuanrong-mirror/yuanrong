@@ -17,15 +17,14 @@
 #ifndef OBSERVABILITY_PROCESSOR_ACTOR_H
 #define OBSERVABILITY_PROCESSOR_ACTOR_H
 
-#include <actor/actor.hpp>
-#include <async/asyncafter.hpp>
-#include <async/defer.hpp>
 #include <chrono>
 #include <unordered_set>
-
-#include "api/include/basic_metric.h"
-#include "common/include/constant.h"
-#include "sdk/include/basic_exporter.h"
+#include <map>
+#include <memory>
+#include "src/utility/timer_worker.h"
+#include "src/utility/metrics/api/include/basic_metric.h"
+#include "src/utility/metrics/common/include/constant.h"
+#include "src/utility/metrics/sdk/include/basic_exporter.h"
 
 namespace observability {
 namespace metrics {
@@ -33,12 +32,10 @@ using CollectFunc = const std::vector<MetricsData>(const std::chrono::system_clo
                                                    const int interval);
 using ExportFunc = bool(const std::vector<MetricsData> &data);
 
-class ProcessorActor : public litebus::ActorBase {
+class ProcessorActor {
 public:
-    explicit ProcessorActor() : ActorBase(PROCESS_ACTOR_NAME)
-    {
-    }
-    ~ProcessorActor() override = default;
+    ProcessorActor() = default;
+    ~ProcessorActor();
     void RegisterTimer(const int interval);
     void RegisterCollectFunc(const std::function<CollectFunc> &collectFunc);
     void RegisterExportFunc(const std::function<ExportFunc> &exportFunc);
@@ -47,22 +44,21 @@ public:
     bool ExportAllData();
     void ExportTemporarilyData(const std::shared_ptr<BasicMetric> &instrument);
 
-protected:
-    void Finalize() override;
-
 private:
+    void Finalize();
     void StartBatchExportTimer(const int interval);
     void CollectAndStore(const int interval);
     void CollectOnceThenExport(const int interval);
     std::vector<MetricsData> GetData(const int interval);
-    litebus::Future<bool> PutData(const std::vector<MetricsData> &data);
+    bool PutData(const std::vector<MetricsData> &data);
     std::vector<MetricsData> GetTemporarilyData(const std::shared_ptr<BasicMetric> &instrument);
+
     std::vector<MetricsData> buffer_;
-    std::map<int, litebus::Timer> collectTimerInfos_;
+    std::map<int, std::shared_ptr<YR::utility::Timer>> collectTimerInfos_;
     void (ProcessorActor::*processMethod_)(const int){ nullptr };
     std::function<CollectFunc> collectFunc_{ nullptr };
     std::function<ExportFunc> exportFunc_{ nullptr };
-    litebus::Timer batchExportTimer_;
+    std::shared_ptr<YR::utility::Timer> batchExportTimer_;
     uint32_t exportBatchSize_ = 0;
     std::unordered_set<int> collectTimers_;
 };

@@ -29,6 +29,13 @@ using namespace YR::utility;
 
 namespace YR {
 namespace test {
+namespace {
+std::string ToString(const datasystem::SensitiveValue &value)
+{
+    return std::string(value.GetData(), value.GetSize());
+}
+}  // namespace
+
 class ObjectStoreTest : public testing::Test {
 public:
     ObjectStoreTest(){};
@@ -196,12 +203,43 @@ TEST_F(ObjectStoreTest, DatasystemObjectClientWrapperTest)
     std::vector<std::string> failedObjectIds;
     auto err = objectStore_->DecreGlobalReference(objectIds);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    ds::ConnectOptions connectOpts;
-    auto dsClient = std::make_shared<ds::ObjectClient>(connectOpts);
+    datasystem::ConnectOptions connectOpts;
+    auto dsClient = std::make_shared<datasystem::ObjectClient>(connectOpts);
     DatasystemObjectClientWrapper wrapper(dsClient);
     auto status = wrapper.GDecreaseRef(objectIds, failedObjectIds);
     ASSERT_EQ(failedObjectIds.size(), 0);
     wrapper.SetTenantId("tenantId");
+}
+
+TEST(ObjectStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
+{
+    DSCacheObjectStore objectStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.9";
+    options.port = 32002;
+    options.connectTimeoutMs = 5678;
+    options.token = "token-value";
+    options.clientPublicKey = "client-public";
+    options.clientPrivateKey = "client-private";
+    options.serverPublicKey = "server-public";
+    options.accessKey = "access-key";
+    options.secretKey = "secret-key";
+    options.tenantId = "tenant-b";
+    options.enableCrossNodeConnection = true;
+
+    ErrorInfo err = objectStore.Init(options);
+
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    EXPECT_EQ(objectStore.connectOpts.host, options.host);
+    EXPECT_EQ(objectStore.connectOpts.port, options.port);
+    EXPECT_EQ(objectStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(objectStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(ToString(objectStore.connectOpts.token), options.token);
+    EXPECT_EQ(objectStore.connectOpts.clientPublicKey, options.clientPublicKey);
+    EXPECT_EQ(objectStore.connectOpts.serverPublicKey, options.serverPublicKey);
+    EXPECT_EQ(objectStore.connectOpts.accessKey, options.accessKey);
+    EXPECT_EQ(objectStore.connectOpts.tenantId, options.tenantId);
+    EXPECT_TRUE(objectStore.connectOpts.enableCrossNodeConnection);
 }
 
 }  // namespace test

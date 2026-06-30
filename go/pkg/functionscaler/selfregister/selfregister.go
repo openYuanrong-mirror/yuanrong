@@ -35,6 +35,14 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+var (
+	isKeyExistFunc     = isKeyExist
+	processEtcdPutFunc = processEtcdPut
+	tryLockFunc        = (*etcd3.EtcdLocker).TryLock
+	tryLockWithPrefix  = (*etcd3.EtcdLocker).TryLockWithPrefix
+	getLockedKeyFunc   = (*etcd3.EtcdLocker).GetLockedKey
+)
+
 const (
 	defaultLeaseTTL = 15
 )
@@ -106,7 +114,7 @@ func contendInstanceInEtcd(stopCh <-chan struct{}) error {
 	log.GetLogger().Infof("start to contend for instance key in etcd")
 	var err error
 	for i := 0; i < maxContendTime; i++ {
-		err = selfLocker.TryLockWithPrefix(constant.SchedulerHashPrefix, contendFilterForInstance)
+		err = tryLockWithPrefix(selfLocker, constant.SchedulerHashPrefix, contendFilterForInstance)
 		if err != nil {
 			log.GetLogger().Errorf("failed to contend for rollout key, lock failed error %s", err.Error())
 			time.Sleep(contendWaitInterval)
@@ -119,8 +127,8 @@ func contendInstanceInEtcd(stopCh <-chan struct{}) error {
 		return err
 	}
 	// succeed to lock instance key, set SelfInstanceName from this key
-	log.GetLogger().Infof("succeed to contend for instance name, lock key is %s", selfLocker.GetLockedKey())
-	return processLockedInstanceKey(selfLocker.GetLockedKey())
+	log.GetLogger().Infof("succeed to contend for instance name, lock key is %s", getLockedKeyFunc(selfLocker))
+	return processLockedInstanceKey(getLockedKeyFunc(selfLocker))
 }
 
 func processLockedInstanceKey(lockedKey string) error {
@@ -185,7 +193,7 @@ func contendFilterForInstance(key, value []byte) bool {
 }
 
 func putInsSpecForInstanceKey(locker *etcd3.EtcdLocker) error {
-	lockedKey := locker.GetLockedKey()
+	lockedKey := getLockedKeyFunc(locker)
 	log.GetLogger().Infof("start to put insSpec for instance key %s", lockedKey)
 	if len(lockedKey) == 0 {
 		log.GetLogger().Errorf("failed to get locked key")
@@ -201,7 +209,7 @@ func putInsSpecForInstanceKey(locker *etcd3.EtcdLocker) error {
 		log.GetLogger().Errorf("failed to marshal insSpec error %s", err.Error())
 		return err
 	}
-	if err = processEtcdPut(locker.EtcdClient, lockedKey, string(selfInsSpecData)); err != nil {
+	if err = processEtcdPutFunc(locker.EtcdClient, lockedKey, string(selfInsSpecData)); err != nil {
 		log.GetLogger().Errorf("failed to put insSpec for instance key into etcd error %s", err.Error())
 		return err
 	}
@@ -210,19 +218,19 @@ func putInsSpecForInstanceKey(locker *etcd3.EtcdLocker) error {
 }
 
 func delInsSpecForInstanceKey(locker *etcd3.EtcdLocker) error {
-	lockedKey := locker.GetLockedKey()
+	lockedKey := getLockedKeyFunc(locker)
 	log.GetLogger().Infof("start to clean insSpec for instance key %s", lockedKey)
 	if len(lockedKey) == 0 {
 		log.GetLogger().Errorf("failed to get locked key")
 		return errors.New("locked key is empty")
 	}
-	if exist, err := isKeyExist(locker.EtcdClient, lockedKey); err != nil || !exist {
+	if exist, err := isKeyExistFunc(locker.EtcdClient, lockedKey); err != nil || !exist {
 		if !exist {
 			err = fmt.Errorf("not exist")
 		}
 		return fmt.Errorf("key not exist or get error %s, no need clean it", err.Error())
 	}
-	if err := processEtcdPut(locker.EtcdClient, lockedKey, ""); err != nil {
+	if err := processEtcdPutFunc(locker.EtcdClient, lockedKey, ""); err != nil {
 		log.GetLogger().Errorf("failed to clean insSpec for instance key in etcd error %s", err.Error())
 		return err
 	}

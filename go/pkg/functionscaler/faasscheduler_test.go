@@ -198,6 +198,20 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+func TestGenerateInstanceResponsePopulatesRouteFields(t *testing.T) {
+	instance := &types.Instance{
+		InstanceID:      "test-inst-001",
+		FunctionProxyID: "proxy-abc",
+		RouteAddress:    "10.0.0.1:7788",
+	}
+	insAlloc := &types.InstanceAllocation{Instance: instance}
+
+	resp := generateInstanceResponse(insAlloc, nil, time.Now())
+
+	assert.Equal(t, "proxy-abc", resp.InstanceAllocationInfo.ProxyID)
+	assert.Equal(t, "10.0.0.1:7788", resp.InstanceAllocationInfo.RouteAddress)
+}
+
 func TestProcessSubscription(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
@@ -210,7 +224,21 @@ func TestProcessSubscription(t *testing.T) {
 		AliasRegistry:          registry.NewAliasRegistry(stopCh),
 		RolloutRegistry:        registry.NewRolloutRegistry(stopCh),
 	}
-	faasScheduler := NewFaaSScheduler(stopCh)
+	faasScheduler := &FaaSScheduler{
+		PoolManager:     instancepool.NewPoolManager(stopCh),
+		funcSpecCh:      make(chan registry.SubEvent, defaultChanSize),
+		insSpecCh:       make(chan registry.SubEvent, defaultChanSize),
+		insConfigCh:     make(chan registry.SubEvent, defaultChanSize),
+		aliasSpecCh:     make(chan registry.SubEvent, defaultChanSize),
+		schedulerCh:     make(chan registry.SubEvent, defaultChanSize),
+		rolloutConfigCh: make(chan registry.SubEvent, defaultChanSize),
+	}
+	go faasScheduler.processFunctionSubscription()
+	go faasScheduler.processInstanceSubscription()
+	go faasScheduler.processInstanceConfigSubscription()
+	go faasScheduler.processAliasSpecSubscription()
+	go faasScheduler.processSchedulerProxySubscription()
+	go faasScheduler.processRolloutConfigSubscription()
 	convey.Convey("test processFunctionSubscription", t, func() {
 		faasScheduler.funcSpecCh <- registry.SubEvent{
 			EventType: registry.SubEventTypeUpdate,
@@ -318,10 +346,6 @@ func TestParseStateOperation(t *testing.T) {
 
 func TestProcessInstanceRequest(t *testing.T) {
 	patches := []*Patches{
-		ApplyMethod(reflect.TypeOf(&registry.Registry{}), "GetFuncSpec", func(_ *registry.Registry,
-			funcKey string) *types.FunctionSpecification {
-			return testFuncSpec
-		}),
 		ApplyMethod(reflect.TypeOf(&registry.Registry{}), "SubscribeFuncSpec", func(_ *registry.Registry,
 			subChan chan registry.SubEvent) {
 		}),
@@ -352,6 +376,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 		for _, patch := range patches {
 			patch.Reset()
 		}
+	}()
+	oldGetFuncSpecFunc := getFuncSpecFunc
+	getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+		return testFuncSpec
+	}
+	defer func() {
+		getFuncSpecFunc = oldGetFuncSpecFunc
 	}()
 	stopCh := make(chan struct{})
 	defer close(stopCh)
@@ -422,14 +453,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 			assert.Equal(t, constant.InsReqSuccessCode, acquireRsp.ErrorCode)
 		})
 		convey.Convey("acquire metrics error", func() {
-			defer ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
-				func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
-					return nil
-				}).Reset()
-			defer ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "FetchSilentFuncSpec",
-				func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
-					return nil
-				}).Reset()
+			oldGetFuncSpecFunc := getFuncSpecFunc
+			getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+				return nil
+			}
+			defer func() {
+				getFuncSpecFunc = oldGetFuncSpecFunc
+			}()
 			releaseRsp := &commonTypes.InstanceResponse{}
 			resData, _ := faasScheduler.ProcessInstanceRequestLibruntime(acquireArgs, "")
 			_ = json.Unmarshal(resData, releaseRsp)
@@ -480,13 +510,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patch := ApplyMethod(reflect.TypeOf(p),
-				"ReleaseStateThread", func(db *instancepool.PoolManager,
-					insAlloc *types.InstanceAllocation) error {
-					return errors.New("release state thread error")
-				})
-			defer patch.Reset()
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, insAlloc *types.InstanceAllocation) error {
+				return errors.New("release state thread error")
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
 			insAlloc := &types.InstanceAllocation{
 				AllocationID: "testFunc-stateThread1",
 				Instance: &types.Instance{
@@ -517,17 +547,20 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patch1 := ApplyMethod(reflect.TypeOf(p), "ReleaseStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return nil
-			})
-			defer patch1.Reset()
-			patch2 := ApplyMethod(reflect.TypeOf(p), "RetainStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
+			oldRetainStateThreadFunc := retainStateThreadFunc
+			retainStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return errors.New("retain state thread error")
-			})
-			defer patch2.Reset()
+			}
+			defer func() {
+				retainStateThreadFunc = oldRetainStateThreadFunc
+			}()
 			insAlloc := &types.InstanceAllocation{
 				AllocationID: "testFunc-stateThread1",
 				Instance: &types.Instance{
@@ -559,17 +592,20 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patch1 := ApplyMethod(reflect.TypeOf(p), "ReleaseStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return nil
-			})
-			defer patch1.Reset()
-			patch2 := ApplyMethod(reflect.TypeOf(p), "RetainStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
+			oldRetainStateThreadFunc := retainStateThreadFunc
+			retainStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return nil
-			})
-			defer patch2.Reset()
+			}
+			defer func() {
+				retainStateThreadFunc = oldRetainStateThreadFunc
+			}()
 			insAlloc := &types.InstanceAllocation{
 				AllocationID: "testFunc-stateThread1",
 				Instance: &types.Instance{
@@ -601,17 +637,20 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patch1 := ApplyMethod(reflect.TypeOf(p), "ReleaseStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return nil
-			})
-			defer patch1.Reset()
-			patch2 := ApplyMethod(reflect.TypeOf(p), "RetainStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
+			oldRetainStateThreadFunc := retainStateThreadFunc
+			retainStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return nil
-			})
-			defer patch2.Reset()
+			}
+			defer func() {
+				retainStateThreadFunc = oldRetainStateThreadFunc
+			}()
 			l := &fakeLease{}
 			patch3 := ApplyMethod(reflect.TypeOf(l), "Release", func(l *fakeLease) error {
 				return errors.New("release error")
@@ -648,19 +687,20 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patch1 := ApplyMethod(reflect.TypeOf(p),
-				"ReleaseStateThread", func(db *instancepool.PoolManager,
-					thread *types.InstanceAllocation) error {
-					return nil
-				})
-			defer patch1.Reset()
-			patch2 := ApplyMethod(reflect.TypeOf(p),
-				"RetainStateThread", func(db *instancepool.PoolManager,
-					thread *types.InstanceAllocation) error {
-					return nil
-				})
-			defer patch2.Reset()
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
+				return nil
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
+			oldRetainStateThreadFunc := retainStateThreadFunc
+			retainStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
+				return nil
+			}
+			defer func() {
+				retainStateThreadFunc = oldRetainStateThreadFunc
+			}()
 			l := &fakeLease{}
 			patch3 := ApplyMethod(reflect.TypeOf(l),
 				"Extend", func(l *fakeLease) error {
@@ -748,11 +788,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			patch := ApplyMethod(reflect.TypeOf(&registry.Registry{}), "GetFuncSpec", func(_ *registry.Registry,
-				funcKey string) *types.FunctionSpecification {
+			oldGetFuncSpecFunc := getFuncSpecFunc
+			getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
 				return nil
-			})
-			defer patch.Reset()
+			}
+			defer func() {
+				getFuncSpecFunc = oldGetFuncSpecFunc
+			}()
 			releaseErrArgs[1].Data = releaseExtraRawData
 			resData, _ := faasScheduler.ProcessInstanceRequestLibruntime(releaseErrArgs, "")
 			_ = json.Unmarshal(resData, releaseRsp)
@@ -773,13 +815,14 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patchGet := ApplyMethod(reflect.TypeOf(p), "GetAndDeleteState",
-				func(db *instancepool.PoolManager, stateID string, funcKey string,
-					funcSpec *types.FunctionSpecification, logger api.FormatLogger) bool {
-					return false
-				})
-			defer patchGet.Reset()
+			oldGetAndDeleteStateFunc := getAndDeleteStateFunc
+			getAndDeleteStateFunc = func(_ *instancepool.PoolManager, stateID string, funcKey string,
+				funcSpec *types.FunctionSpecification, logger api.FormatLogger) bool {
+				return false
+			}
+			defer func() {
+				getAndDeleteStateFunc = oldGetAndDeleteStateFunc
+			}()
 			releaseErrArgs[1].Data = releaseExtraRawData
 			resData, _ := faasScheduler.ProcessInstanceRequestLibruntime(releaseErrArgs, "")
 			_ = json.Unmarshal(resData, releaseRsp)
@@ -800,12 +843,14 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patchGet := ApplyMethod(reflect.TypeOf(p), "GetAndDeleteState", func(db *instancepool.PoolManager,
+			oldGetAndDeleteStateFunc := getAndDeleteStateFunc
+			getAndDeleteStateFunc = func(db *instancepool.PoolManager,
 				stateID string, funcKey string, funcSpec *types.FunctionSpecification, logger api.FormatLogger) bool {
 				return true
-			})
-			defer patchGet.Reset()
+			}
+			defer func() {
+				getAndDeleteStateFunc = oldGetAndDeleteStateFunc
+			}()
 			releaseErrArgs[1].Data = releaseExtraRawData
 			resData, _ := faasScheduler.ProcessInstanceRequestLibruntime(releaseErrArgs, "")
 			_ = json.Unmarshal(resData, releaseRsp)
@@ -847,12 +892,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patchGet := ApplyMethod(reflect.TypeOf(p), "ReleaseStateThread", func(db *instancepool.PoolManager,
-				thread *types.InstanceAllocation) error {
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
 				return errors.New("release state thread error")
-			})
-			defer patchGet.Reset()
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
 			insAlloc := &types.InstanceAllocation{
 				AllocationID: "testFunck-stateThread1",
 				Instance: &types.Instance{
@@ -882,13 +928,13 @@ func TestProcessInstanceRequest(t *testing.T) {
 					Data: []byte(""),
 				},
 			}
-			p := &instancepool.PoolManager{}
-			patchGet := ApplyMethod(reflect.TypeOf(p),
-				"ReleaseStateThread", func(db *instancepool.PoolManager,
-					thread *types.InstanceAllocation) error {
-					return nil
-				})
-			defer patchGet.Reset()
+			oldReleaseStateThreadFunc := releaseStateThreadFunc
+			releaseStateThreadFunc = func(db *instancepool.PoolManager, thread *types.InstanceAllocation) error {
+				return nil
+			}
+			defer func() {
+				releaseStateThreadFunc = oldReleaseStateThreadFunc
+			}()
 			insAlloc := &types.InstanceAllocation{
 				AllocationID: "testFunc-stateThread1",
 				Instance: &types.Instance{
@@ -1058,9 +1104,9 @@ func TestFaaSScheduler_ProcessInstanceRequestLibruntime(t *testing.T) {
 	faasScheduler := &FaaSScheduler{}
 	convey.Convey("test ProcessInstanceRequestLibruntime", t, func() {
 		convey.Convey("baseline", func() {
-			defer ApplyFunc((*FaaSScheduler).handleInstanceAcquire, func(_ *FaaSScheduler,
+			defer ApplyFunc((*FaaSScheduler).handleInstanceAcquireWithTraceParent, func(_ *FaaSScheduler,
 				targetName string, extraData []byte,
-				traceID string) *commonTypes.InstanceResponse {
+				traceID, traceParent string) *commonTypes.InstanceResponse {
 				return &commonTypes.InstanceResponse{
 					ErrorCode: 111,
 				}
@@ -1100,12 +1146,16 @@ func TestFaaSScheduler_ProcessInstanceRequestLibruntime(t *testing.T) {
 			}
 			return &types.Instance{}, nil
 		}).Reset()
-		defer ApplyFunc((*registry.Registry).GetFuncSpec, func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+		oldGetFuncSpecFunc := getFuncSpecFunc
+		getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
 			if funcKey == "testFunc" {
 				return &types.FunctionSpecification{}
 			}
 			return nil
-		}).Reset()
+		}
+		defer func() {
+			getFuncSpecFunc = oldGetFuncSpecFunc
+		}()
 		resData, err := faasScheduler.ProcessInstanceRequestLibruntime([]api.Arg{
 			{
 				Type:            0,
@@ -1312,10 +1362,13 @@ func TestHandleInstanceCreate(t *testing.T) {
 			patches := NewPatches()
 			defer patches.Reset()
 
-			patches.ApplyFunc(registry.GlobalRegistry.GetFuncSpec,
-				func(funcKey string) *types.FunctionSpecification {
-					return tt.mockFuncSpec
-				})
+			oldGetFuncSpecFunc := getFuncSpecFunc
+			getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+				return tt.mockFuncSpec
+			}
+			defer func() {
+				getFuncSpecFunc = oldGetFuncSpecFunc
+			}()
 
 			patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "CreateInstance",
 				func(_ *instancepool.PoolManager, req *types.InstanceCreateRequest) (*types.Instance, snerror.SNError) {
@@ -1358,30 +1411,32 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 			_, err := parseExtraData(dataBytes)
 			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 		})
-		convey.Convey("session full concurrency", func() {
+		convey.Convey("invalid session concurrency", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-1}`),
 			}
 			dataBytes, _ := json.Marshal(data)
 			dataInfo, err := parseExtraData(dataBytes)
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, -1)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
 		convey.Convey("invalid session concurrency zero", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":0}`),
 			}
 			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
 		convey.Convey("invalid session concurrency less than -1", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-2}`),
 			}
 			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
 		convey.Convey("session context ID", func() {
 			dataBytes, _ := json.Marshal(map[string][]byte{
@@ -1799,21 +1854,22 @@ func TestSyncAllocRecord(t *testing.T) {
 				PoolManager: &instancepool.PoolManager{},
 			}
 
-			patches := NewPatches()
-			defer patches.Reset()
-			defer ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
-				func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
-					return tt.mockFuncSpec
-				}).Reset()
+			oldGetFuncSpecFunc := getFuncSpecFunc
+			getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+				return tt.mockFuncSpec
+			}
+			defer func() {
+				getFuncSpecFunc = oldGetFuncSpecFunc
+			}()
 
-			// Mock PoolManager.AcquireInstanceThread
-			patches.ApplyMethod(
-				reflect.TypeOf(fs.PoolManager),
-				"AcquireInstanceThread",
-				func(_ *instancepool.PoolManager, req *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
-					return tt.mockAllocResult, tt.mockAcquireErr
-				},
-			)
+			oldAcquireInstanceThreadFunc := acquireInstanceThreadFunc
+			acquireInstanceThreadFunc = func(_ *instancepool.PoolManager,
+				req *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+				return tt.mockAllocResult, tt.mockAcquireErr
+			}
+			defer func() {
+				acquireInstanceThreadFunc = oldAcquireInstanceThreadFunc
+			}()
 
 			fs.syncAllocRecord(tt.allocRecord)
 
@@ -1830,12 +1886,17 @@ func TestSyncAllocRecord(t *testing.T) {
 func TestReacquireLease(t *testing.T) {
 	patches := NewPatches()
 	defer patches.Reset()
-	patches.ApplyFunc((*instancepool.PoolManager).AcquireInstanceThread, func(_ *instancepool.PoolManager, req *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+	oldAcquireInstanceThreadFunc := acquireInstanceThreadFunc
+	acquireInstanceThreadFunc = func(_ *instancepool.PoolManager, req *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
 		return &types.InstanceAllocation{Instance: &types.Instance{
 			FuncKey: "",
 		}}, nil
-	})
-	patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec", func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
+	}
+	defer func() {
+		acquireInstanceThreadFunc = oldAcquireInstanceThreadFunc
+	}()
+	oldGetFuncSpecFunc := getFuncSpecFunc
+	getFuncSpecFunc = func(_ *registry.Registry, funcKey string) *types.FunctionSpecification {
 		return &types.FunctionSpecification{ResourceMetaData: commonTypes.ResourceMetaData{
 			CPU:                 0,
 			Memory:              0,
@@ -1846,7 +1907,10 @@ func TestReacquireLease(t *testing.T) {
 			EphemeralStorage:    0,
 			CustomResourcesSpec: "",
 		}}
-	})
+	}
+	defer func() {
+		getFuncSpecFunc = oldGetFuncSpecFunc
+	}()
 
 	fs := &FaaSScheduler{
 		allocRecord: sync.Map{},
@@ -1912,58 +1976,17 @@ func TestAcquireNonOwnerSchedulerErrorCode(t *testing.T) {
 		resp := faasScheduler.handleInstanceAcquire(targetName, bytes, "traceId-123")
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 		convey.So(resp.ErrorMessage, convey.ShouldEqual, expectSchedulerInstanceId)
+		resp1 := faasScheduler.handleInstanceBatchRetain(targetName, bytes, "traceId-123")
+		convey.So(resp1.InstanceAllocFailed, convey.ShouldContainKey, targetName)
+		convey.So(resp1.InstanceAllocFailed[targetName].ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 
 		expectOk = true
 		resp = faasScheduler.handleInstanceAcquire(targetName, bytes, "traceId-123")
 		convey.So(resp.ErrorCode, convey.ShouldNotEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		resp1 = faasScheduler.handleInstanceBatchRetain(targetName, bytes, "traceId-123")
+		_, ok := resp1.InstanceAllocFailed[targetName]
+		if ok {
+			convey.So(resp1.InstanceAllocFailed[targetName].ErrorCode, convey.ShouldNotEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		}
 	})
-}
-
-func TestHandleInstanceBatchRetainUsesAllocRecordFuncKeyForOwnerCheck(t *testing.T) {
-	faasScheduler := &FaaSScheduler{
-		allocRecord: sync.Map{},
-		PoolManager: &instancepool.PoolManager{},
-	}
-	faasScheduler.allocRecord.Store("lease-1", &types.InstanceAllocation{
-		AllocationID: "lease-1",
-		Instance: &types.Instance{
-			FuncKey: "func-from-alloc",
-			ResKey:  resspeckey.ResSpecKey{},
-			InstanceStatus: commonTypes.InstanceStatus{
-				Code: int32(constant.KernelInstanceStatusRunning),
-			},
-		},
-		Lease: &fakeLease{},
-	})
-
-	var checkedFuncKey string
-	defer ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "CheckFuncOwner", func(funcKey string) (string, bool) {
-		checkedFuncKey = funcKey
-		return "", true
-	}).Reset()
-
-	metricsData, err := json.Marshal(map[string]*types.InstanceThreadMetrics{
-		"lease-1": {
-			ProcReqNum:  1,
-			AvgProcTime: 10,
-			MaxProcTime: 20,
-		},
-	})
-	assert.NoError(t, err)
-
-	resp := faasScheduler.handleInstanceBatchRetain("lease-1", metricsData, "traceId-123")
-	assert.Equal(t, "func-from-alloc", checkedFuncKey)
-	assert.Contains(t, resp.InstanceAllocSucceed, "lease-1")
-	assert.NotContains(t, resp.InstanceAllocFailed, "lease-1")
-
-	singleMetricsData, err := json.Marshal(&types.InstanceThreadMetrics{
-		ProcReqNum:  1,
-		AvgProcTime: 10,
-		MaxProcTime: 20,
-	})
-	assert.NoError(t, err)
-
-	singleResp := faasScheduler.handleInstanceRetain("lease-1", singleMetricsData, "traceId-123")
-	assert.Equal(t, "func-from-alloc", checkedFuncKey)
-	assert.Equal(t, constant.InsReqSuccessCode, singleResp.ErrorCode)
 }

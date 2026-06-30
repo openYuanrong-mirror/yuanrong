@@ -59,22 +59,23 @@ func (f *FakeLibruntimeSdkClient) ReleaseInstance(allocation api.InstanceAllocat
 }
 
 // Kill -
-func (f *FakeLibruntimeSdkClient) Kill(instanceID string, signal int, payload []byte) error {
+func (f *FakeLibruntimeSdkClient) Kill(instanceID string, signal int, payload []byte,
+	invokeOpt api.InvokeOptions) error {
 	return nil
 }
 
 // CreateInstanceRaw -
-func (f *FakeLibruntimeSdkClient) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (f *FakeLibruntimeSdkClient) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // InvokeByInstanceIdRaw -
-func (f *FakeLibruntimeSdkClient) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (f *FakeLibruntimeSdkClient) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // KillRaw -
-func (f *FakeLibruntimeSdkClient) KillRaw(killReqRaw []byte) ([]byte, error) {
+func (f *FakeLibruntimeSdkClient) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 

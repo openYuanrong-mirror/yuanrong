@@ -21,7 +21,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 typedef struct tagCInvokeLabels {
     char *key;
     char *value;
@@ -91,12 +90,28 @@ typedef struct tagCFunctionMeta {
     char *ns;
 } CFunctionMeta;
 
+typedef struct tagCGaugeData {
+    char *name;
+    char *description;
+    char *unit;
+    double value;
+} CGaugeData;
+
+typedef struct tagCUInt64CounterData {
+    char *name;
+    char *description;
+    char *unit;
+    uint64_t value;
+} CUInt64CounterData;
+
 typedef struct tagCInstanceAllocation {
     char *functionId;
     char *funcSig;
     char *instanceId;
     char *leaseId;
     int tLeaseInterval;
+    char *routeAddress;
+    char *proxyID;
 } CInstanceAllocation;
 
 typedef struct tagCInstanceSession {
@@ -254,6 +269,7 @@ typedef struct tagCInvokeOptions {
     int64_t scheduleTimeoutMs;
     char forceInvoke;
     char isInterrupted;
+    char bypassDatasystem;
     char *sessionCtxId;
 } CInvokeOptions;
 
@@ -333,20 +349,6 @@ typedef struct tagCSubscriptionConfig {
     char *traceId;
 } CSubscriptionConfig;
 
-typedef struct tagCGaugeData {
-    char *name;
-    char *description;
-    char *unit;
-    double value;
-} CGaugeData;
-
-typedef struct tagCUInt64CounterData {
-    char *name;
-    char *description;
-    char *unit;
-    uint64_t value;
-} CUInt64CounterData;
-
 typedef void (*CGetAsyncCallback)(char *cObjectID, CErrorInfo *cErr, void *userData);
 
 typedef void (*CGetEventCallback)(char *cObjectID, CErrorInfo *cErr, void *userData);
@@ -408,18 +410,18 @@ CErrorInfo CAcquireInstance(char *stateId, CFunctionMeta *cFuncMeta, CInvokeOpti
                             CInstanceAllocation *cInsAlloc);
 
 CErrorInfo CReleaseInstance(CInstanceAllocation *insAlloc, char *cStateID, char cAbnormal, CInvokeOptions *cInvokeOpts);
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext);
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext);
-void CKillRaw(CBuffer cReqRaw, char *cContext);
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
+CErrorInfo CSetGauge(CGaugeData *data);
+CErrorInfo CIncreaseGauge(CGaugeData *data);
+CErrorInfo CDecreaseGauge(CGaugeData *data);
+CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data);
 
 extern void GoRawCallback(char *cKey, CErrorInfo cErr, CBuffer cResultRaw);
 
 // object
 CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen);
-CErrorInfo CSetGauge(CGaugeData *data);
-CErrorInfo CIncreaseGauge(CGaugeData *data);
-CErrorInfo CDecreaseGauge(CGaugeData *data);
-CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data);
 void CWait(char **objIds, int size_objIds, int waitNum, int timeoutSec, CWaitResult *result);
 CErrorInfo CPutCommon(char *objectId, CBuffer data, char **nestedIds, int sizeNestedIds, char isPutRaw,
                       CCreateParam param);
@@ -469,10 +471,12 @@ CErrorInfo CConsumerClose(Consumer_p consumerPtr);
 
 // management
 void CExit(int code, char *message);
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData);
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID);
 void CFinalize(void);
 CErrorInfo CInit(CLibruntimeConfig *config);
 void CReceiveRequestLoop(void);
+char CNeedReInit(void);
+void CReInit(void);
 void CExecShutdownHandler(int sigNum);
 char *CGetRealInstanceId(char *objectId, int timeout);
 void CSaveRealInstanceId(char *objectId, char *instanceId);

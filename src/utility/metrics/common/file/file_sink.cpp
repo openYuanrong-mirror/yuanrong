@@ -26,8 +26,8 @@
 #include <stdexcept>
 #include <tuple>
 
-#include "file_utils.h"
-#include "file_sink.h"
+#include "src/utility/metrics/common/file/file_utils.h"
+#include "src/utility/metrics/common/file/file_sink.h"
 
 namespace observability {
 

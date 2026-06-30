@@ -43,7 +43,10 @@ const (
 	noCluster                 = "noCluster"
 )
 
-var dataSystemCache = sync.Map{}
+var (
+	dataSystemCache = sync.Map{}
+	newEtcdWatcher  = etcd3.NewEtcdWatcher
+)
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -343,7 +346,7 @@ func StartWatch(dataSystemKeyPrefixList []string, stopCh <-chan struct{}) {
 		log.GetLogger().Infof("watch dataSystem from meta etcd")
 	}
 	for _, dataSystemKeyPrefix := range dataSystemKeyPrefixList {
-		watcher := etcd3.NewEtcdWatcher(dataSystemKeyPrefix, dataSystemKeyFilter,
+		watcher := newEtcdWatcher(dataSystemKeyPrefix, dataSystemKeyFilter,
 			processDataSystemEvent, stopCh, etcdClient)
 		watcher.StartWatch()
 	}

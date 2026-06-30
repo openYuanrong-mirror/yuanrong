@@ -28,6 +28,11 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/workermanager"
 )
 
+var (
+	scaleUpInstanceFunc   = workermanager.ScaleUpInstance
+	scaleDownInstanceFunc = workermanager.ScaleDownInstance
+)
+
 func createInstanceForFG(request createInstanceRequest) (*types.Instance, error) {
 	createInstanceTraceID := uuid.New().String()
 	logger := log.GetLogger().With(zap.Any("funcKey", request.funcSpec.FuncKey),
@@ -40,7 +45,7 @@ func createInstanceForFG(request createInstanceRequest) (*types.Instance, error)
 		CPU:         int(request.resKey.CPU),
 		Memory:      int(request.resKey.Memory),
 	}
-	wmInstance, err := workermanager.ScaleUpInstance(ScaleOutParam)
+	wmInstance, err := scaleUpInstanceFunc(ScaleOutParam)
 	if err != nil {
 		createErr := err
 		logger.Errorf("createErr is %v , instance %s, cost: %s", createErr, wmInstance, time.Since(createBeginTime))
@@ -62,7 +67,7 @@ func deleteInstanceForFG(funcSpec *types.FunctionSpecification, faasManagerInfo 
 	instance *types.Instance) error {
 	log.GetLogger().Debugf("start to delete instance %s for function %s",
 		instance.InstanceID, funcSpec.FuncKey)
-	err := workermanager.ScaleDownInstance(instance.InstanceID, funcSpec.FuncKey, "")
+	err := scaleDownInstanceFunc(instance.InstanceID, funcSpec.FuncKey, "")
 	if err != nil {
 		log.GetLogger().Errorf("failed to delete instance %s for function %s,err: %s ",
 			instance.InstanceID, funcSpec.FuncKey, err.Error())
@@ -76,7 +81,7 @@ func deleteInstanceForFG(funcSpec *types.FunctionSpecification, faasManagerInfo 
 func deleteInstanceByIDForFG(instanceID, funcKey string) error {
 	log.GetLogger().Debugf("start to delete instance %s for function %s",
 		instanceID, funcKey)
-	err := workermanager.ScaleDownInstance(instanceID, funcKey, "")
+	err := scaleDownInstanceFunc(instanceID, funcKey, "")
 	if err != nil {
 		log.GetLogger().Errorf("failed to delete instance %s for function %s,err: %s ",
 			instanceID, funcKey, err.Error())

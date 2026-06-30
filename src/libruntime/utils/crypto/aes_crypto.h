@@ -22,13 +22,12 @@
 #include <string>
 #include <vector>
 
-#include "datasystem/utils/sensitive_value.h"
 #include "src/libruntime/err_type.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "src/libruntime/utils/raii.h"
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 const size_t AES_IV_MIN_LEN = 12;
 const size_t AES_IV_MAX_LEN = 16;
 const size_t AES_TAG_LEN = 16;

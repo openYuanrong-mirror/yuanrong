@@ -64,6 +64,10 @@ const (
 
 var (
 	etcdClientMap sync.Map
+	getEtcdValues = func(client *EtcdClient, ctxInfo EtcdCtxInfo, key string,
+		opts ...clientv3.OpOption) ([]string, error) {
+		return client.GetValues(ctxInfo, key, opts...)
+	}
 )
 
 // GetEtcdConfigKey generates key for etcd config
@@ -119,7 +123,7 @@ func GetValueFromEtcdWithRetry(key string, etcdClient *EtcdClient) ([]byte, erro
 	)
 	for i := 1; i <= maxRetryTime; i++ {
 		defaultEtcdCtx := CreateEtcdCtxInfoWithTimeout(context.Background(), DurationContextTimeout)
-		values, err = etcdClient.GetValues(defaultEtcdCtx, key)
+		values, err = getEtcdValues(etcdClient, defaultEtcdCtx, key)
 		if err == nil {
 			break
 		}

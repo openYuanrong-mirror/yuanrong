@@ -17,13 +17,12 @@
 #ifndef OBSERVABILITY_METER_H
 #define OBSERVABILITY_METER_H
 
-#include <actor/actor.hpp>
 #include <memory>
 
-#include "api/include/gauge.h"
-#include "api/include/processor_actor.h"
-#include "common/include/validate.h"
-#include "sdk/include/storage.h"
+#include "src/utility/metrics/api/include/gauge.h"
+#include "src/utility/metrics/api/include/processor_actor.h"
+#include "src/utility/metrics/common/include/validate.h"
+#include "src/utility/metrics/sdk/include/storage.h"
 
 namespace observability {
 namespace metrics {
@@ -71,7 +70,9 @@ public:
         }
 
         // interval greater than 0, means data need collect period, need create timer automatically report
-        litebus::Async(processorActor_->GetAID(), &ProcessorActor::RegisterTimer, interval);
+        if (processorActor_) {
+            processorActor_->RegisterTimer(interval);
+        }
         if (callback == nullptr) {
             storage_->AddMetric(metric, interval);
         } else {
@@ -91,8 +92,9 @@ public:
             return;
         }
 
-        litebus::Async(processorActor_->GetAID(), &ProcessorActor::ExportTemporarilyData,
-                       std::static_pointer_cast<BasicMetric>(metric));
+        if (processorActor_) {
+            processorActor_->ExportTemporarilyData(std::static_pointer_cast<BasicMetric>(metric));
+        }
     }
 
 private:

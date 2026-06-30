@@ -20,6 +20,7 @@ package crprocessor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,7 +41,6 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/common/functioncr"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
@@ -204,17 +204,17 @@ func TestProcessFaaSSchedulerProxyEventLoop(t *testing.T) {
 func TestIsCrReconcilerOwner(t *testing.T) {
 	convey.Convey("test isCrReconcilerOwner", t, func() {
 		convey.So(isCrReconcilerOwner(false, "1234"), convey.ShouldBeFalse)
-		p := gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "IsFuncOwner", func(funcKey string) bool {
+		rawIsFuncOwner := isFuncOwner
+		isFuncOwner = func(funcKey string) bool {
 			return false
-		})
+		}
 		convey.So(isCrReconcilerOwner(true, "1234"), convey.ShouldBeFalse)
-		p.Reset()
-		p = gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "IsFuncOwner", func(funcKey string) bool {
+		isFuncOwner = func(funcKey string) bool {
 			return true
-		})
+		}
 		convey.So(isCrReconcilerOwner(false, "1234"), convey.ShouldBeFalse)
 		convey.So(isCrReconcilerOwner(true, "1234"), convey.ShouldBeTrue)
-		p.Reset()
+		isFuncOwner = rawIsFuncOwner
 	})
 }
 
@@ -545,17 +545,29 @@ func TestAgentCRBtchProcess(t *testing.T) {
 			time.Sleep(5 * time.Second)
 			return nil, nil
 		}).Reset()
-		defer gomonkey.ApplyPrivateMethod(&AgentCRReconciler{}, "getCrStatus", func(crObj *unstructured.Unstructured) (*types.AgentCRStatus, error) {
+		oldAgentCRReconcilerGetCrStatusFunc := agentCRReconcilerGetCrStatusFunc
+		defer func() {
+			agentCRReconcilerGetCrStatusFunc = oldAgentCRReconcilerGetCrStatusFunc
+		}()
+		agentCRReconcilerGetCrStatusFunc = func(_ *AgentCRReconciler,
+			crObj *unstructured.Unstructured) (*types.AgentCRStatus, error) {
 			time.Sleep(5 * time.Second)
 			return &types.AgentCRStatus{}, nil
-		}).Reset()
+		}
 		wg := sync.WaitGroup{}
-		defer gomonkey.ApplyPrivateMethod(&AgentCRReconciler{}, "updateCRStatus", func(resource dynamic.NamespaceableResourceInterface,
-			crStatus *types.AgentCRStatus, crObj *unstructured.Unstructured) error {
+		oldAgentCRReconcilerUpdateCRStatusFunc := agentCRReconcilerUpdateCRStatusFunc
+		defer func() {
+			agentCRReconcilerUpdateCRStatusFunc = oldAgentCRReconcilerUpdateCRStatusFunc
+		}()
+		agentCRReconcilerUpdateCRStatusFunc = func(ar *AgentCRReconciler,
+			resource dynamic.NamespaceableResourceInterface, crStatus *types.AgentCRStatus,
+			crObj *unstructured.Unstructured, namespace string) error {
 			time.Sleep(5 * time.Second)
-			wg.Done()
+			if strings.HasPrefix(ar.crKey, "default:crName:") {
+				wg.Done()
+			}
 			return nil
-		}).Reset()
+		}
 		defer gomonkey.ApplyFunc(isExpectedStatus, func(string, *types.AgentCRStatus, map[string]*commontype.InstanceSpecification) bool {
 			return false
 		}).Reset()
@@ -644,16 +656,11 @@ func TestAgentCRReconciler_GetCrStatus(t *testing.T) {
 		convey.Convey("When the CR has a status map but conversion fails", func() {
 			crObj := &unstructured.Unstructured{
 				Object: map[string]interface{}{
-					"status": map[string]interface{}{}, // Empty status that will cause a conversion error
+					"status": map[string]interface{}{
+						"readyReplicas": "invalid",
+					},
 				},
 			}
-			expectedConvertErr := fmt.Errorf("schema do not match")
-
-			// Mock FromUnstructured to return our expected error
-			defer gomonkey.ApplyMethod(runtime.DefaultUnstructuredConverter, "FromUnstructured",
-				func(_ runtime.UnstructuredConverter, input map[string]interface{}, output interface{}) error {
-					return expectedConvertErr
-				}).Reset()
 
 			_, err := reconciler.getCrStatus(crObj)
 
@@ -693,15 +700,13 @@ func TestAgentCRReconciler_UpdateCrStatus(t *testing.T) {
 		crStatus := &types.AgentCRStatus{ReadyReplicas: 10}
 
 		convey.Convey("When updating the status is successful", func() {
-
-			var patches = gomonkey.NewPatches()
-			defer patches.Reset()
-
-			// Mock ToUnstructured to return a predictable map and no error
-			patches.ApplyMethod(runtime.DefaultUnstructuredConverter, "ToUnstructured",
-				func(_ runtime.UnstructuredConverter, input interface{}) (map[string]interface{}, error) {
-					return map[string]interface{}{"readyReplicas": int64(10)}, nil
-				})
+			oldToUnstructuredFunc := toUnstructuredFunc
+			defer func() {
+				toUnstructuredFunc = oldToUnstructuredFunc
+			}()
+			toUnstructuredFunc = func(input interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{"readyReplicas": int64(10)}, nil
+			}
 
 			err := reconciler.updateCRStatus(mockResource, crStatus, crObj, "default")
 
@@ -711,14 +716,14 @@ func TestAgentCRReconciler_UpdateCrStatus(t *testing.T) {
 		})
 
 		convey.Convey("When ToUnstructured fails", func() {
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-
+			oldToUnstructuredFunc := toUnstructuredFunc
+			defer func() {
+				toUnstructuredFunc = oldToUnstructuredFunc
+			}()
 			expectedErr := fmt.Errorf("conversion failed")
-			patches.ApplyMethod(runtime.DefaultUnstructuredConverter, "ToUnstructured",
-				func(_ runtime.UnstructuredConverter, input interface{}) (map[string]interface{}, error) {
-					return nil, expectedErr
-				})
+			toUnstructuredFunc = func(input interface{}) (map[string]interface{}, error) {
+				return nil, expectedErr
+			}
 
 			err := reconciler.updateCRStatus(mockResource, crStatus, crObj, "default")
 
@@ -728,16 +733,19 @@ func TestAgentCRReconciler_UpdateCrStatus(t *testing.T) {
 		})
 
 		convey.Convey("When unstructured.SetNestedField fails", func() {
-			// Simulate an error by providing a crObj.Object that cannot accept the status
-			// This is a bit contrived, but shows how to patch a function from an import.
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-
+			oldToUnstructuredFunc := toUnstructuredFunc
+			oldSetNestedFieldFunc := setNestedFieldFunc
+			defer func() {
+				toUnstructuredFunc = oldToUnstructuredFunc
+				setNestedFieldFunc = oldSetNestedFieldFunc
+			}()
+			toUnstructuredFunc = func(input interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{}, nil
+			}
 			expectedSetErr := fmt.Errorf("cannot set nested field on non-object")
-			patches.ApplyFunc(unstructured.SetNestedField,
-				func(obj map[string]interface{}, value interface{}, fieldPath ...string) error {
-					return expectedSetErr
-				})
+			setNestedFieldFunc = func(obj map[string]interface{}, value interface{}, fieldPath ...string) error {
+				return expectedSetErr
+			}
 
 			err := reconciler.updateCRStatus(mockResource, crStatus, crObj, "default")
 
@@ -753,12 +761,13 @@ func TestAgentCRReconciler_UpdateCrStatus(t *testing.T) {
 				}
 			*/
 
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-			patches.ApplyMethod(runtime.DefaultUnstructuredConverter, "ToUnstructured",
-				func(_ runtime.UnstructuredConverter, input interface{}) (map[string]interface{}, error) {
-					return map[string]interface{}{}, nil
-				})
+			oldToUnstructuredFunc := toUnstructuredFunc
+			defer func() {
+				toUnstructuredFunc = oldToUnstructuredFunc
+			}()
+			toUnstructuredFunc = func(input interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{}, nil
+			}
 
 			err := reconciler.updateCRStatus(mockResource, crStatus, crObj, "default")
 
@@ -773,12 +782,13 @@ func TestAgentCRReconciler_UpdateCrStatus(t *testing.T) {
 				}
 			*/
 
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-			patches.ApplyMethod(runtime.DefaultUnstructuredConverter, "ToUnstructured",
-				func(_ runtime.UnstructuredConverter, input interface{}) (map[string]interface{}, error) {
-					return map[string]interface{}{}, fmt.Errorf("server is on fire")
-				})
+			oldToUnstructuredFunc := toUnstructuredFunc
+			defer func() {
+				toUnstructuredFunc = oldToUnstructuredFunc
+			}()
+			toUnstructuredFunc = func(input interface{}) (map[string]interface{}, error) {
+				return map[string]interface{}{}, fmt.Errorf("server is on fire")
+			}
 
 			err := reconciler.updateCRStatus(mockResource, crStatus, crObj, "default")
 

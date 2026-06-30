@@ -114,13 +114,20 @@ func TestRegisterInstance_PutInstanceToEtcd(t *testing.T) {
 			InstanceKey: "/sn/frontend/instances/CLUSTER_ID/HOST_IP/POD_NAME",
 			Value:       "active",
 		}
+		oldRegisterGrant := registerGrant
+		oldRegisterPut := registerPut
+		defer func() {
+			registerGrant = oldRegisterGrant
+			registerPut = oldRegisterPut
+		}()
 		convey.Convey("lease id not exist", func() {
 			var keyInput string
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "Put", func(_ *EtcdClient,
+			registerGrant = oldRegisterGrant
+			registerPut = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, key string, value string, opts ...clientv3.OpOption) error {
 				keyInput = key
 				return nil
-			}).Reset()
+			}
 			defer gomonkey.ApplyFunc(os.Getenv, func(key string) string {
 				return key
 			}).Reset()
@@ -130,10 +137,11 @@ func TestRegisterInstance_PutInstanceToEtcd(t *testing.T) {
 		})
 
 		convey.Convey("Grant error", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "Grant", func(_ *EtcdClient,
+			registerGrant = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, ttl int64) (clientv3.LeaseID, error) {
 				return 111, fmt.Errorf("grant failed")
-			}).Reset()
+			}
+			registerPut = oldRegisterPut
 			defer gomonkey.ApplyFunc(os.Getenv, func(key string) string {
 				return key
 			}).Reset()
@@ -143,10 +151,11 @@ func TestRegisterInstance_PutInstanceToEtcd(t *testing.T) {
 
 		convey.Convey("put error", func() {
 			var keyInput string
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "Put", func(_ *EtcdClient,
+			registerGrant = oldRegisterGrant
+			registerPut = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, key string, value string, opts ...clientv3.OpOption) error {
 				return fmt.Errorf("put failed")
-			}).Reset()
+			}
 			defer gomonkey.ApplyFunc(os.Getenv, func(key string) string {
 				return key
 			}).Reset()
@@ -188,37 +197,38 @@ func Test_isKeyExist(t *testing.T) {
 			}
 		})
 		defer patch.Reset()
+		oldRegisterGetResponse := registerGetResponse
+		defer func() {
+			registerGetResponse = oldRegisterGetResponse
+		}()
 		register := &EtcdRegister{
 			EtcdClient:  GetMetaEtcdClient(),
 			InstanceKey: "/sn/frontend/instances/CLUSTER_ID/HOST_IP/POD_NAME",
 			Value:       "active",
 		}
 		convey.Convey("get etcd key return empty", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetResponse", func(_ *EtcdClient,
+			registerGetResponse = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 				return &clientv3.GetResponse{Kvs: []*mvccpb.KeyValue{}}, nil
-			})
-			defer patch.Reset()
+			}
 			existed := register.isKeyExist()
 			convey.So(existed, convey.ShouldBeFalse)
 		})
 
 		convey.Convey("succeed to get etcd key", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetResponse", func(_ *EtcdClient,
+			registerGetResponse = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 				return &clientv3.GetResponse{Kvs: []*mvccpb.KeyValue{{Key: []byte("key")}}}, nil
-			})
-			defer patch.Reset()
+			}
 			existed := register.isKeyExist()
 			convey.So(existed, convey.ShouldBeTrue)
 		})
 
 		convey.Convey("failed to get etcd key", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetResponse", func(_ *EtcdClient,
+			registerGetResponse = func(_ *EtcdClient,
 				ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 				return nil, errors.New("failed")
-			})
-			defer patch.Reset()
+			}
 			existed := register.isKeyExist()
 			convey.So(existed, convey.ShouldBeFalse)
 		})

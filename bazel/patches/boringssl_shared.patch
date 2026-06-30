@@ -1,0 +1,14 @@
+--- BUILD
++++ BUILD
+@@ -35,3 +35,8 @@
+ alias(
+     name = "bssl",
+     actual = "//src:bssl",
+     visibility = ["//visibility:public"],
+ )
++
++filegroup(
++    name = "shared",
++    srcs = [],
++    visibility = ["//visibility:public"],
++)

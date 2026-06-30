@@ -21,15 +21,17 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.Map;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Runtime utils.
@@ -70,11 +72,10 @@ public class RuntimeUtils {
         }
     }
 
-
     /**
-     * Load KEY=value lines from a file into JVM system properties (same keys as setJavaProcessEnv).
+     * Load environment variables from a file.
      *
-     * @param envFilePath path to env file; empty or missing file is ignored with log
+     * @param envFilePath environment variable file path
      */
     public static void loadEnvFromFile(String envFilePath) {
         if (envFilePath == null || envFilePath.trim().isEmpty()) {
@@ -96,12 +97,12 @@ public class RuntimeUtils {
                 if (shouldSkip(line)) {
                     continue;
                 }
-                String[] kv = parseLine(line, lineNum, envFilePath);
-                if (kv.length == 0) {
+                Optional<Map.Entry<String, String>> kv = parseLine(line, lineNum, envFilePath);
+                if (!kv.isPresent()) {
                     continue;
                 }
                 // Write into JVM system properties (globally visible)
-                setJavaProcessEnv(kv[0], kv[1]);
+                setJavaProcessEnv(kv.get().getKey(), kv.get().getValue());
                 loaded++;
             }
         } catch (IOException e) {
@@ -117,21 +118,21 @@ public class RuntimeUtils {
         return line.isEmpty() || line.startsWith("#");
     }
 
-    private static String[] parseLine(String line, int lineNum, String filePath) {
+    private static Optional<Map.Entry<String, String>> parseLine(String line, int lineNum, String filePath) {
         // Separate by the first "=" sign.
         int idx = line.indexOf('=');
         if (idx == -1) {
             LOGGER.warn("{}:{}  invalid line, missing '=': {}", filePath, lineNum, line);
-            return new String[0];
+            return Optional.empty();
         }
         String key = line.substring(0, idx).trim();
         // Keep the spaces, no quotes.
         String value = line.substring(idx + 1).trim();
         if (key.isEmpty()) {
             LOGGER.warn("{}:{}  empty key", filePath, lineNum);
-            return new String[0];
+            return Optional.empty();
         }
-        return new String[]{key, value};
+        return Optional.of(new AbstractMap.SimpleEntry<>(key, value));
     }
 
     /**

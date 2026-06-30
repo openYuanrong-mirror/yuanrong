@@ -69,7 +69,7 @@ public:
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         lc->tenantId = "tenantId";
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
-        auto metricsAdaptor = std::make_shared<YR::Libruntime::MetricsAdaptor>();
+        auto metricsAdaptor = YR::Libruntime::MetricsAdaptor::GetInstance();
         sec_ = std::make_shared<MockSecurity>();
         auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
         lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
@@ -143,7 +143,7 @@ TEST_F(LibruntimeTest, PutTest)
 
     lc->jobId = YR::utility::IDGenerator::GenApplicationId();
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -154,6 +154,31 @@ TEST_F(LibruntimeTest, PutTest)
     dataObj->data->MemoryCopy(str.data(), str.size());
     auto [errInfo, objId] = lr->Put(dataObj, {});
     ASSERT_EQ(errInfo.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(LibruntimeTest, KVDelReturnsErrorWhenStateStoreIsMissing)
+{
+    auto localConfig = std::make_shared<LibruntimeConfig>();
+    localConfig->jobId = YR::utility::IDGenerator::GenApplicationId();
+    auto clientsMgr = std::make_shared<ClientsManager>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
+    auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
+    auto localRuntime =
+        std::make_shared<YR::Libruntime::Libruntime>(localConfig, clientsMgr, metricsAdaptor, sec_, socketClient);
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    auto finalizeHandler = []() { return; };
+    DatasystemClients dsclients{objectStore_, nullptr, streamStore_, heteroStore_};
+
+    ASSERT_TRUE(localRuntime->Init(fsClient, dsclients, finalizeHandler).OK());
+
+    auto result = localRuntime->KVDel(std::vector<std::string>{"key"});
+
+    EXPECT_TRUE(result.first.empty());
+    EXPECT_EQ(result.second.Code(), ErrorCode::ERR_DATASYSTEM_FAILED);
+    EXPECT_EQ(result.second.MCode(), ModuleCode::DATASYSTEM);
+    EXPECT_THAT(result.second.Msg(), HasSubstr("StateStore is not initialized"));
+
+    EXPECT_NO_THROW(localRuntime->Finalize(true));
 }
 
 TEST_F(LibruntimeTest, InvokeArgTest)
@@ -203,7 +228,7 @@ TEST_F(LibruntimeTest, When_Not_Driver_Finalize_Should_Kill_Instances)
     lc->dataSystemIpAddr = "127.0.0.1";
     lc->dataSystemPort = 1100;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -297,19 +322,15 @@ TEST_F(LibruntimeTest, CreateFailedTest)
               "invalid opts concurrency, concurrency: -1, please set the concurrency range between 1 and 1000");
     opts.customExtensions[CONCURRENCY] = "1";
 
-    meta.name =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    meta.name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     res = lr->CreateInstance(meta, invokeArgs, opts);
     ASSERT_EQ(res.first.Code(), ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_NE(res.first.Msg().find("exceeds the maximum length of 128 bytes"), std::string::npos);
-    meta.name =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    ASSERT_NE(res.first.Msg().find("exceeds the maximum length of 64 bytes"), std::string::npos);
+    meta.name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     meta.ns = "ns";
     res = lr->CreateInstance(meta, invokeArgs, opts);
     ASSERT_EQ(res.first.Code(), ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_NE(res.first.Msg().find("exceeds the maximum length of 128 bytes"), std::string::npos);
+    ASSERT_NE(res.first.Msg().find("exceeds the maximum length of 64 bytes"), std::string::npos);
 }
 
 TEST_F(LibruntimeTest, AllocReturnObjectSmallTest)
@@ -337,7 +358,7 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     lc->dataSystemIpAddr = "127.0.0.1";
     lc->dataSystemPort = 1100;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -345,13 +366,13 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     lr->Init(fsClient, dsclients);
 
     std::string testObjId("fake_id");
-    size_t testDataSize = 200000;
+    size_t testDataSize = 3 * 1024 * 1024;  // 3MB, above 2MB MEM_STORE_SIZE_THRESHOLD
     char testData[18] = {"a"};
     auto returnObjs = std::make_shared<SharedBuffer>(static_cast<void *>(testData), 18);
     EXPECT_CALL(*this->objectStore_, CreateBuffer(_, _, _, _))
         .WillRepeatedly(DoAll(SetArgReferee<2>(returnObjs), testing::Return(ErrorInfo())));
     uint64_t totalNativeBufferSize = 0;
-    for (int i = 0; i < 2; i++) {
+    for (int _ = 0; _ < 2; _++) {
         auto dataObj = std::make_shared<DataObject>(testObjId);
         auto err = lr->AllocReturnObject(dataObj, 0, testDataSize, {}, totalNativeBufferSize);
         ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
@@ -362,25 +383,21 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
 
 TEST_F(LibruntimeTest, ConstructTraceIdTest)
 {
-    struct TestParam {
-        std::string userTraceId;
-        std::string expectTraceId;
-    } tps[] = {
-        {
-            .userTraceId = "",
-            .expectTraceId = YR::utility::IDGenerator::GenTraceId(lc->jobId),
-        },
-        {
-            .userTraceId = "traceid_test",
-            .expectTraceId = "traceid_test",
-        },
-    };
-
-    for (auto &tp : tps) {
+    // Empty traceId: auto-generated from jobId; verify format, not the random suffix
+    {
         YR::Libruntime::InvokeOptions opts;
-        opts.traceId = tp.userTraceId;
         auto traceId = lr->ConstructTraceId(opts);
-        ASSERT_EQ(traceId, tp.expectTraceId);
+        ASSERT_FALSE(traceId.empty());
+        ASSERT_NE(traceId.find(lc->jobId.substr(4)), std::string::npos);
+        ASSERT_NE(traceId.find("-trace-"), std::string::npos);
+    }
+
+    // Non-empty traceId: returned as-is
+    {
+        YR::Libruntime::InvokeOptions opts;
+        opts.traceId = "traceid_test";
+        auto traceId = lr->ConstructTraceId(opts);
+        ASSERT_EQ(traceId, "traceid_test");
     }
 }
 
@@ -391,7 +408,7 @@ TEST_F(LibruntimeTest, NonDriverSecurityInitTest)
     lc->inCluster = true;
     lc->isDriver = false;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
@@ -407,7 +424,7 @@ TEST_F(LibruntimeTest, DriverSecurityInitTest)
     lc->inCluster = true;
     lc->isDriver = true;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
@@ -636,6 +653,65 @@ TEST_F(LibruntimeTest, SetTenantIdTest)
     EXPECT_NO_THROW(lr->SetTenantId(tenantID));
 }
 
+TEST_F(LibruntimeTest, InitAppliesOffClusterTenantIdToDatasystemStores)
+{
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->jobId = YR::utility::IDGenerator::GenApplicationId();
+    config->tenantId = "default";
+    config->inCluster = false;
+    auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, clientsMgr, YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+    auto gateway = std::make_shared<MockGwClient>();
+    auto objectStore = std::make_shared<MockObjectStore>();
+    auto stateStore = std::make_shared<MockStateStore>();
+    DatasystemClients clients{objectStore, stateStore, streamStore_, heteroStore_};
+
+    EXPECT_CALL(*objectStore, SetTenantId("default")).Times(1);
+    EXPECT_CALL(*stateStore, SetTenantId("default")).Times(1);
+    ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
+
+    EXPECT_CALL(*gateway, KillAsync(_, _, _))
+        .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+            if (cb != nullptr) {
+                YR::Libruntime::KillResponse resp;
+                cb(resp, ErrorInfo());
+            }
+        });
+    runtime->Finalize(true);
+}
+
+TEST_F(LibruntimeTest, InitAppliesInClusterTenantIdWithoutDatasystemAuth)
+{
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->jobId = YR::utility::IDGenerator::GenApplicationId();
+    config->tenantId = "0";
+    config->inCluster = true;
+    config->enableAuth = false;
+    auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, clientsMgr, YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+    auto gateway = std::make_shared<MockGwClient>();
+    auto objectStore = std::make_shared<MockObjectStore>();
+    auto stateStore = std::make_shared<MockStateStore>();
+    DatasystemClients clients{objectStore, stateStore, streamStore_, heteroStore_};
+
+    EXPECT_CALL(*objectStore, SetTenantId("0")).Times(1);
+    EXPECT_CALL(*stateStore, SetTenantId("0")).Times(1);
+    ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
+
+    EXPECT_CALL(*gateway, KillAsync(_, _, _))
+        .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+            if (cb != nullptr) {
+                YR::Libruntime::KillResponse resp;
+                cb(resp, ErrorInfo());
+            }
+        });
+    runtime->Finalize(true);
+}
+
 TEST_F(LibruntimeTest, GetTenantIdTest)
 {
     ASSERT_EQ(lr->GetTenantId(), "tenantId");
@@ -831,7 +907,7 @@ TEST_F(LibruntimeTest, TestGetRaw)
 
 TEST_F(LibruntimeTest, GetCredentialTest)
 {
-    datasystem::SensitiveValue sk = std::string("sk");
+    YR::Libruntime::SensitiveValue sk = std::string("sk");
     lr->security_->SetAKSKAndCredential("ak", sk);
     auto result = lr->GetCredential();
     ASSERT_EQ(result.ak, "ak");
@@ -1064,11 +1140,6 @@ TEST_F(LibruntimeTest, DecreaseReferenceTest)
     EXPECT_NO_THROW(lr->DecreaseReference(objIds));
 }
 
-TEST_F(LibruntimeTest, ReleaseGRefsTest)
-{
-    ASSERT_EQ(lr->ReleaseGRefs("remoteId").OK(), true);
-}
-
 TEST_F(LibruntimeTest, WaitTest)
 {
     ASSERT_EQ(lr->Wait({"objId"}, 1, 0)->readyIds.size(), 1);
@@ -1192,6 +1263,16 @@ TEST_F(LibruntimeTest, KillTest)
 {
     lr->invokeAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
     ASSERT_EQ(lr->Kill("instanceId", 1).OK(), true);
+}
+
+TEST_F(LibruntimeTest, KillWithRoutingTest)
+{
+    auto mockAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
+    lr->invokeAdaptor = mockAdaptor;
+    EXPECT_CALL(*mockAdaptor, EraseFsIntf(_));
+    EXPECT_CALL(*mockAdaptor, KillWithRouting(_, "", 1, "10.0.0.1:7788", "proxy-abc"))
+        .WillOnce(Return(ErrorInfo()));
+    ASSERT_TRUE(lr->KillWithRouting("instanceId", 1, "10.0.0.1:7788", "proxy-abc").OK());
 }
 
 TEST_F(LibruntimeTest, GetThreadPoolSizeTest)
@@ -1323,9 +1404,9 @@ TEST_F(LibruntimeTest, KillAsyncTest)
 {
     auto mock_adaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
     lr->invokeAdaptor = mock_adaptor;
-    EXPECT_CALL(*mock_adaptor, KillAsyncCB(_, _, _, _, _))
+    EXPECT_CALL(*mock_adaptor, KillAsyncCB(_, _, _, _))
         .WillOnce(Invoke([](const std::string &instanceId, const std::string &payload, int signal,
-                            std::function<void(const ErrorInfo &err)> cb, int timeoutSec) { cb(YR::Libruntime::ErrorInfo()); }));
+                            std::function<void(const ErrorInfo &err)> cb) { cb(YR::Libruntime::ErrorInfo()); }));
     auto promise = std::make_shared<std::promise<ErrorInfo>>();
     auto f = promise->get_future();
     lr->KillAsync("instanceId", 1, [promise](const ErrorInfo &err) { promise->set_value(err); });
@@ -1351,30 +1432,6 @@ TEST_F(LibruntimeTest, GetRequestAndInstanceIDTest)
 
     EXPECT_TRUE(result.first.empty());
     EXPECT_TRUE(result.second.empty());
-}
-
-TEST_F(LibruntimeTest, SessionWaitNotifyTest)
-{
-    lr->invokeAdaptor = nullptr;
-    auto [err1, buf1] = lr->SessionWait("sessionId", 100);
-    ASSERT_EQ(err1.Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
-    ASSERT_EQ(buf1, nullptr);
-    ASSERT_EQ(lr->SessionNotify("sessionId", nullptr).Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
-
-    auto mockAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
-    lr->invokeAdaptor = mockAdaptor;
-    std::string payload = "notify";
-    auto data = std::make_shared<StringNativeBuffer>(payload.size());
-    ASSERT_EQ(data->MemoryCopy(payload.data(), payload.size()).Code(), ErrorCode::ERR_OK);
-    auto bufferData = std::static_pointer_cast<Buffer>(data);
-    EXPECT_CALL(*mockAdaptor, SessionWait("sessionId", 200))
-        .WillOnce(Return(std::make_pair(ErrorInfo(), bufferData)));
-    EXPECT_CALL(*mockAdaptor, SessionNotify("sessionId", bufferData)).WillOnce(Return(ErrorInfo()));
-
-    auto [err2, buf2] = lr->SessionWait("sessionId", 200);
-    ASSERT_EQ(err2.Code(), ErrorCode::ERR_OK);
-    ASSERT_NE(buf2, nullptr);
-    ASSERT_EQ(lr->SessionNotify("sessionId", bufferData).Code(), ErrorCode::ERR_OK);
 }
 
 }  // namespace test

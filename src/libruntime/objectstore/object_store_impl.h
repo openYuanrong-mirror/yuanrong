@@ -19,7 +19,9 @@
 #include <iterator>
 #include <sstream>
 
+#ifdef ENABLE_DATASYSTEM
 #include "datasystem/object_client.h"
+#endif  // ENABLE_DATASYSTEM
 #include "reference_count_map.h"
 #include "src/libruntime/objectstore/object_store.h"
 #include "src/libruntime/utils/constants.h"
@@ -30,9 +32,11 @@
 
 namespace YR {
 namespace Libruntime {
+#ifdef ENABLE_DATASYSTEM
 namespace ds = datasystem;
 using namespace std::chrono;
 ErrorInfo IncreaseRefReturnCheck(const ds::Status &status, const std::vector<std::string> &failedObjectIds);
 ErrorInfo DecreaseRefReturnCheck(const ds::Status &status, const std::vector<std::string> &failedObjectIds);
+#endif  // ENABLE_DATASYSTEM
 }  // namespace Libruntime
 }  // namespace YR

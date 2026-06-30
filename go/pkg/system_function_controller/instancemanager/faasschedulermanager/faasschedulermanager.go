@@ -529,7 +529,7 @@ func (s *SchedulerManager) GetInstanceCountFromEtcd() map[string]struct{} {
 }
 
 func (s *SchedulerManager) clearInstanceAfterError(instanceID string) {
-	if err := s.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}); err != nil {
+	if err := s.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 		log.GetLogger().Errorf("failed to kill scheduler instance: %s", instanceID)
 	}
 }
@@ -565,7 +565,7 @@ func (s *SchedulerManager) SyncKillAllInstance() {
 		wg.Add(1)
 		go func(instanceID string) {
 			defer wg.Done()
-			if err := s.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}); err != nil {
+			if err := s.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill scheduler instance(id=%s), err:%s", instanceID, err.Error())
 				return
 			}
@@ -581,7 +581,7 @@ func (s *SchedulerManager) KillInstance(instanceID string) error {
 	return wait.ExponentialBackoffWithContext(
 		context.Background(), createInstanceBackoff, func(context.Context) (bool, error) {
 			var err error
-			err = s.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{})
+			err = s.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}, api.InvokeOptions{})
 			if err != nil && !strings.Contains(err.Error(), "instance not found") {
 				log.GetLogger().Warnf("failed to kill instanceID: %s, err: %s", instanceID, err.Error())
 				return false, nil
@@ -644,7 +644,8 @@ func (s *SchedulerManager) HandleInstanceUpdate(schedulerSpec *types.InstanceSpe
 				currentNum, schedulerSpec.InstanceID, s.tenantID, s.instanceCache)
 			delete(s.instanceCache, schedulerSpec.InstanceID)
 			s.Unlock()
-			if err := s.sdkClient.Kill(schedulerSpec.InstanceID, types.KillSignalVal, []byte{}); err != nil {
+			if err := s.sdkClient.Kill(schedulerSpec.InstanceID, types.KillSignalVal, []byte{},
+				api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill instance %s error:%s", schedulerSpec.InstanceID, err.Error())
 			}
 			return
@@ -783,7 +784,7 @@ func (s *SchedulerManager) RollingUpdate(ctx context.Context, event *types.Confi
 		}
 		s.RUnlock()
 		var err error
-		if err = s.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}); err != nil {
+		if err = s.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 			log.GetLogger().Errorf("failed to sync kill scheduler instance(id=%s), err:%v", insID, err)
 		}
 		s.Lock()

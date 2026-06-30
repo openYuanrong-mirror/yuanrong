@@ -77,7 +77,7 @@ Documentation content is mainly divided into two types:
      ```
 
    - Reference:
-   
+
      **Python API function** Chinese can refer to [yr.init.rst](https://atomgit.com/openeuler/yuanrong/blob/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python/yr.init.rst){target="_blank"}; corresponding English can refer to `def init(conf: Config = None) -> ClientInfo:` in [apis.py](https://atomgit.com/openeuler/yuanrong/blob/master/api/python/yr/apis.py){target="_blank"}.
 
      **Python API class** Chinese can refer to [yr.AlarmInfo.rst](https://atomgit.com/openeuler/yuanrong/blob/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python/yr.AlarmInfo.rst){target="_blank"}; Attributes Chinese can refer to [yr.AlarmInfo.starts_at.rst](https://atomgit.com/openeuler/yuanrong/blob/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python/yr.AlarmInfo.starts_at.rst){target="_blank"}, Methods Chinese can refer to [yr.AlarmInfo.__init__.rst](https://atomgit.com/openeuler/yuanrong/blob/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Python/yr.AlarmInfo.__init__.rst){target="_blank"}, English can refer to `class AlarmInfo` in [runtime.py](https://atomgit.com/openeuler/yuanrong/blob/master/api/python/yr/runtime.py){target="_blank"}.
@@ -94,7 +94,7 @@ Documentation content is mainly divided into two types:
      ```
 
      For Chinese documentation, please create a `.rst` document with the same name as the API in the Chinese document storage path mentioned above for writing. Finally, please find the API type to which your interface belongs in [English index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, [Chinese index](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_zh_cn/multi_language_function_programming_interface/api/distributed_programming/Cpp/index.rst){target="_blank"}, and add your interface there. Refer to the Python API addition method shown above for adding method.
-   - Reference: C++ API English `.md` document can refer to [Get.md](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/Get.md){target="_blank"}; source code can refer to 
+   - Reference: C++ API English `.md` document can refer to [Get.md](https://atomgit.com/openeuler/yuanrong/tree/master/docs/source_en/multi_language_function_programming_interface/api/distributed_programming/Cpp/Get.md){target="_blank"}; source code can refer to
 
      ```C++
      template <typename T>

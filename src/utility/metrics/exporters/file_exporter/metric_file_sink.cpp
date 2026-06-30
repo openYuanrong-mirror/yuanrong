@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "exporters/file_exporter/include/metric_file_sink.h"
+#include "src/utility/metrics/exporters/file_exporter/include/metric_file_sink.h"
 
 #include <spdlog/details/file_helper.h>
 #include <spdlog/details/null_mutex.h>
@@ -23,7 +23,7 @@
 #include <stdexcept>
 #include <tuple>
 
-#include "exporters/file_exporter/include/file_utils.h"
+#include "src/utility/metrics/exporters/file_exporter/include/file_utils.h"
 
 namespace observability {
 namespace metrics {

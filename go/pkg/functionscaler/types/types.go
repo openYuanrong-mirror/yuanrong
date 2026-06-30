@@ -54,6 +54,7 @@ type Configuration struct {
 	DataSystemEtcd               etcd3.EtcdConfig                 `json:"dataSystemEtcd" valid:"optional"`
 	SchedulerNum                 int                              `json:"schedulerNum" valid:"optional"`
 	DockerRootPath               string                           `json:"dockerRootPath"`
+	RawStsConfig                 raw.StsConfig                    `json:"rawStsConfig,omitempty"`
 	ClusterID                    string                           `json:"clusterID" valid:"optional"`
 	ClusterName                  string                           `json:"clusterName" valid:"optional"`
 	DiskMonitorEnable            bool                             `json:"diskMonitorEnable"`
@@ -66,8 +67,6 @@ type Configuration struct {
 	FunctionConfig               []FunctionDefaultConfig          `json:"functionConfig"`
 	HTTPSConfig                  *tls.InternalHTTPSConfig         `json:"httpsConfig" valid:"optional"`
 	LocalAuth                    localauth.AuthConfig             `json:"localAuth"`
-	RawStsConfig                 raw.StsConfig                    `json:"rawStsConfig,omitempty"`
-	SystemAuthConfig             raw.Auth                         `json:"systemAuthConfig,omitempty" valid:"optional"`
 	XpuNodeLabels                []XpuNodeLabel                   `json:"xpuNodeLabels,omitempty"`
 	ServiceAccountJwt            wisecloudTypes.ServiceAccountJwt `json:"serviceAccountJwt,omitempty"`
 	Version                      string                           `json:"version"`
@@ -410,6 +409,8 @@ type Instance struct {
 	ParentID          string
 	PodID             string
 	PodDeploymentName string
+	FunctionProxyID   string
+	RouteAddress      string
 	AZ                string
 	SessionCtxID      *string
 }
@@ -438,6 +439,8 @@ func (i *Instance) Copy() *Instance {
 		ParentID:          i.ParentID,
 		PodID:             i.PodID,
 		PodDeploymentName: i.PodDeploymentName,
+		FunctionProxyID:   i.FunctionProxyID,
+		RouteAddress:      i.RouteAddress,
 		AZ:                i.AZ,
 		SessionCtxID:      i.SessionCtxID,
 	}
@@ -483,6 +486,12 @@ type InstanceAllocation struct {
 // InstanceBuilder will create a instance
 type InstanceBuilder func(string) *Instance
 
+// TraceContext contains request-scoped trace metadata used for cold-start correlation.
+type TraceContext struct {
+	TraceID     string
+	TraceParent string
+}
+
 // InstanceAcquireRequest contains specifications for acquiring an instance
 type InstanceAcquireRequest struct {
 	FuncSpec            *FunctionSpecification
@@ -494,6 +503,7 @@ type InstanceAcquireRequest struct {
 	PoolLabel           string
 	PoolID              string
 	TraceID             string
+	TraceParent         string
 	StateID             string
 	CallerPodName       string
 	TrafficLimited      bool
@@ -508,6 +518,7 @@ type InstanceCreateRequest struct {
 	ResSpec      *resspeckey.ResourceSpecification
 	InstanceName string
 	TraceID      string
+	TraceParent  string
 	CreateEvent  []byte
 }
 

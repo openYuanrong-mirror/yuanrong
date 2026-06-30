@@ -1,0 +1,12 @@
+{{- if or .Values.master.enabled .Values.frontend.enabled .Values.node.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "services") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+data:
+  services.yaml: |-
+{{ tpl .Values.global.services.servicesYaml . | nindent 4 }}
+{{- end }}

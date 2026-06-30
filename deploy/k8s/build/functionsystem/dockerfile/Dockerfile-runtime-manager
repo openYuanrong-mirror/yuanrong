@@ -125,5 +125,6 @@ EXPOSE 8080
 
 WORKDIR /etc/yuanrong/cli
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/runtime/service/python/yr/cli/ /etc/yuanrong/cli/yr/cli/
-RUN pip3.11 install click==8.1.8 tomli_w==1.2.0 jinja2==3.1.6 -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --target /home/sn/.local/lib/python3.11/site-packages
+COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/runtime/service/python/requirements.txt /etc/yuanrong/cli/requirements.txt
+RUN pip3.11 install -r /etc/yuanrong/cli/requirements.txt -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --target /home/sn/.local/lib/python3.11/site-packages
 ENV PYTHONPATH=$PYTHONPATH:/home/sn/.local/lib/python3.11/site-packages

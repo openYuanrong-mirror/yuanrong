@@ -93,76 +93,76 @@ public class LibRuntime {
             List<InvokeArg> args, InvokeOptions opt) throws LibRuntimeException;
 
     /**
-     * Set gauge metric value.
+     * Set a gauge metric.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
      * @param value metric value
-     * @return ErrorInfo indicating success or failure
+     * @return ErrorInfo
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native ErrorInfo setGauge(String name, String description, String unit, double value)
         throws LibRuntimeException;
 
     /**
-     * Increase gauge metric value.
+     * Increase a gauge metric.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
      * @param value metric value
-     * @return ErrorInfo indicating success or failure
+     * @return ErrorInfo
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native ErrorInfo increaseGauge(String name, String description, String unit, double value)
         throws LibRuntimeException;
 
     /**
-     * Decrease gauge metric value.
+     * Decrease a gauge metric.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
      * @param value metric value
-     * @return ErrorInfo indicating success or failure
+     * @return ErrorInfo
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native ErrorInfo decreaseGauge(String name, String description, String unit, double value)
         throws LibRuntimeException;
 
     /**
-     * Get gauge metric value.
+     * Get a gauge metric value.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
-     * @return a pair containing ErrorInfo and the gauge value
+     * @return Pair of ErrorInfo and metric value
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native Pair<ErrorInfo, Double> getValueGauge(String name, String description, String unit)
         throws LibRuntimeException;
 
     /**
-     * Increase uint64 counter metric value.
+     * Increase an unsigned integer counter metric.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
      * @param value metric value
-     * @return ErrorInfo indicating success or failure
+     * @return ErrorInfo
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native ErrorInfo increaseUInt64Counter(String name, String description, String unit, long value)
         throws LibRuntimeException;
 
     /**
-     * Get uint64 counter metric value.
+     * Get an unsigned integer counter metric value.
      *
      * @param name metric name
      * @param description metric description
      * @param unit metric unit
-     * @return a pair containing ErrorInfo and the counter value
+     * @return Pair of ErrorInfo and metric value
      * @throws LibRuntimeException the LibRuntimeException
      */
     public static native Pair<ErrorInfo, Long> getValueUInt64Counter(String name, String description, String unit)
@@ -231,6 +231,20 @@ public class LibRuntime {
      * Native method for Finalize
      */
     public static native void Finalize();
+
+    /**
+     * Native method for needReInit
+     * Check if re-initialization is needed after checkpoint restore.
+     *
+     * @return true if re-initialization is needed
+     */
+    public static native boolean needReInit();
+
+    /**
+     * Native method for reInit
+     * Performs re-initialization after checkpoint restore.
+     */
+    public static native void reInit();
 
     /**
      * Native method for Exit
@@ -562,61 +576,50 @@ public class LibRuntime {
     public static native Pair<String, String> getRequestAndInstanceID();
 
     /**
-     * Load the current session from libruntime's in-memory active session map.
+     * Load current session data.
      *
-     * <p>This does NOT access DataSystem directly. libruntime must have already
-     * called {@code AcquireInvokeSession} before the user function is invoked.</p>
-     *
-     * @param sessionId session ID
-     * @return session JSON string ({"sessionID":"...","histories":[...]}), or null if not found
-     * @throws LibRuntimeException if the native call fails
+     * @param sessionId session id
+     * @return session data
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native String loadCurrentSession(String sessionId) throws LibRuntimeException;
 
     /**
-     * Update the in-memory session held by libruntime.
+     * Update current session data.
      *
-     * <p>This only writes to libruntime's {@code AgentSessionContext}; the
-     * actual DataSystem persist is done by C++ {@code PersistAndReleaseInvokeSession}
-     * after the user function returns.</p>
-     *
-     * @param sessionId   session ID
-     * @param sessionJson serialized session JSON:
-     *                    {@code {"sessionID":"...","histories":[...]}}
-     * @throws LibRuntimeException if the native call fails
+     * @param sessionId session id
+     * @param sessionJson session json
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native void updateCurrentSession(String sessionId, String sessionJson)
         throws LibRuntimeException;
 
     /**
-     * Get the interrupted status of the current session from libruntime.
+     * Check whether a session is interrupted.
      *
-     * <p>This queries the in-memory session state to determine if the session
-     * has been interrupted (e.g., by a cancellation request).</p>
-     *
-     * @param sessionId session ID
-     * @return true if the session has been interrupted, false otherwise
-     * @throws LibRuntimeException if the native call fails
+     * @param sessionId session id
+     * @return true if interrupted
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native boolean isSessionInterrupted(String sessionId) throws LibRuntimeException;
 
     /**
-     * Block until another invocation notifies this session, or timeout.
+     * Wait for session data.
      *
-     * @param sessionId session identifier
-     * @param timeoutMs timeout in milliseconds; -1 means wait indefinitely
-     * @return payload bytes from notify, or null on timeout
-     * @throws LibRuntimeException if the native call fails throws LibRuntimeException
+     * @param sessionId session id
+     * @param timeoutMs timeout in milliseconds
+     * @return session data
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native byte[] sessionWait(String sessionId, long timeoutMs) throws LibRuntimeException;
 
     /**
-     * Wake a thread blocked in {@link #SessionWait} for the same session.
+     * Notify session data.
      *
-     * @param sessionId session identifier
-     * @param data utf-8 json payload
-     * @return error info (ok when notify was applied or intentionally discarded)
-     * @throws LibRuntimeException if the native call fails throws LibRuntimeException
+     * @param sessionId session id
+     * @param data session data
+     * @return ErrorInfo
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native ErrorInfo sessionNotify(String sessionId, byte[] data) throws LibRuntimeException;
 }

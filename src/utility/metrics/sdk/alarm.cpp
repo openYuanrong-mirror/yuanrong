@@ -16,10 +16,10 @@
 
 #include "metrics/sdk/alarm.h"
 
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
-#include "common/include/constant.h"
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/constant.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 #include "metrics/sdk/gauge.h"
 #include "metrics/sdk/metric_recorder.h"
 

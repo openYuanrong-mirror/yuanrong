@@ -73,15 +73,10 @@ static void GenPemCert(EVP_PKEY *pkey, X509 *cert, EVP_PKEY *caPkey = nullptr, X
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char *)"My Root CA", -1, -1, 0);
     X509_set_issuer_name(cert, caCert != nullptr ? X509_get_subject_name(caCert) : name);
 
-    // add subject alt name in extension
-    X509_EXTENSION *ext = X509V3_EXT_conf_nid(nullptr, nullptr, NID_subject_alt_name, "DNS:ServiceDNS");
-    X509_add_ext(cert, ext, -1);
-
     // signature certificate
     X509_sign(cert, caPkey != nullptr ? caPkey : pkey, EVP_sha256());
 
     // releasing memory
-    X509_EXTENSION_free(ext);
     name = nullptr;
     r = nullptr;
     BN_free(bne);

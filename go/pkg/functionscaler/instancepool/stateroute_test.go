@@ -52,7 +52,7 @@ func mockStateRoute() *StateRoute {
 		},
 		deleteInstanceFunc: func(instance *types.Instance) error { return nil },
 		createInstanceFunc: func(resSpec *resspeckey.ResourceSpecification, instanceType types.InstanceType,
-			callerPodName string) (*types.Instance, error) {
+			traceID, traceParent, callerPodName string) (*types.Instance, error) {
 			return nil, nil
 		},
 		stateLeaseManager: make(map[string]*stateinstance.Leaser, utils.DefaultMapSize),
@@ -308,7 +308,7 @@ func TestStateRoute_acquireStateInstanceThread(t *testing.T) {
 		patch := gomonkey.ApplyFunc(state.Update, func(value interface{}, tags ...string) {})
 		defer patch.Reset()
 		stateRoute.createInstanceFunc = func(resSpec *resspeckey.ResourceSpecification, instanceType types.InstanceType,
-			callerPod string) (*types.Instance, error) {
+			traceID, traceParent, callerPod string) (*types.Instance, error) {
 			return &types.Instance{
 				ResKey: resspeckey.ResSpecKey{},
 				InstanceStatus: commonTypes.InstanceStatus{

@@ -42,6 +42,10 @@ public:
                              const std::shared_ptr<std::string> requestId,
                              const HttpCallbackFunction &receiver) override
     {
+        lastMethod_ = method;
+        lastTarget_ = target;
+        lastHeaders_ = headers;
+        lastBody_ = body;
         if (GLOBAL_SCHEDULER_QUERY_RESOURCES == target) {
             auto rsp = BuildQueryResponse();
             std::string rspBody;
@@ -105,6 +109,10 @@ public:
         return rsp;
     }
     bool isSuccess_ = true;
+    http::verb lastMethod_;
+    std::string lastTarget_;
+    std::unordered_map<std::string, std::string> lastHeaders_;
+    std::string lastBody_;
 };
 
 class FmClientTest : public testing::Test {
@@ -171,6 +179,33 @@ TEST_F(FmClientTest, TestGetResourcesWithRetryFailed)
     fmClient_->UpdateActiveMaster("127.0.0.1");
     auto res = fmClient_->GetResourcesWithRetry();
     EXPECT_TRUE(!res.first.OK());
+}
+
+TEST_F(FmClientTest, TestGetResourcesOutOfClusterUsesFrontendClientWithJwt)
+{
+    auto config = std::make_shared<LibruntimeConfig>();
+    config->inCluster = false;
+    config->functionSystemIpAddr = "frontend.example.com";
+    config->functionSystemPort = 8080;
+    config->authToken = "jwt-token";
+
+    std::shared_ptr<FMClient> fmClient_ = std::make_shared<FMClient>(config);
+    auto httpClient = std::make_shared<MockHttpClient>();
+    httpClient->Init(ConnectionParam{config->functionSystemIpAddr, std::to_string(config->functionSystemPort)});
+    httpClient->SetAvailable();
+    fmClient_->frontendHttpClient_ = httpClient;
+
+    auto res = fmClient_->GetResources();
+
+    EXPECT_TRUE(res.first.OK());
+    EXPECT_TRUE(fmClient_->activeMasterAddr_.empty());
+    EXPECT_EQ(http::verb::get, httpClient->lastMethod_);
+    EXPECT_EQ(GLOBAL_SCHEDULER_QUERY_RESOURCES, httpClient->lastTarget_);
+    EXPECT_EQ("protobuf", httpClient->lastHeaders_["Type"]);
+    EXPECT_EQ("jwt-token", httpClient->lastHeaders_["X-Auth"]);
+    EXPECT_FALSE(httpClient->lastBody_.empty());
+    auto unit = res.second.at(0);
+    EXPECT_TRUE(unit.capacity["CPU"] == 400.00);
 }
 
 TEST_F(FmClientTest, TestUpdateActiveMasterWithStopSuccessfully)

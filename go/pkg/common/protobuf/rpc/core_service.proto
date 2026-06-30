@@ -140,9 +140,11 @@ message StateLoadResponse {
 }
 
 message KillRequest {
-  string instanceID = 1;
-  int32  signal     = 2;
-  bytes  payload    = 3;
+  string instanceID   = 1;
+  int32  signal       = 2;
+  bytes  payload      = 3;
+  string routeAddress = 4; // litebus bus URL of owner proxy (for DR kill routing)
+  string proxyID      = 5; // functionProxyID of owner proxy (for DR kill routing)
 }
 
 message KillResponse {

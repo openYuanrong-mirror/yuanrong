@@ -19,7 +19,6 @@ package instancepool
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -27,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey"
+	"github.com/agiledragon/gomonkey/v2"
 	. "github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
@@ -286,12 +285,14 @@ func TestAcquireInstance(t *testing.T) {
 			assert.Equal(t, true, insAlloc != nil)
 		})
 		convey.Convey("InstanceQueue AcquireInstance is not nil", func() {
-			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.ScaledInstanceQueue{}),
-				"AcquireInstance", func(_ *instancequeue.ScaledInstanceQueue) (thread *types.InstanceAllocation,
-					acquireErr snerror.SNError) {
-					return nil, snerror.New(0, "AcquireInstance error")
-				})
-			defer patchGet.Reset()
+			rawInstanceQueueAcquireInstanceFunc := instanceQueueAcquireInstanceFunc
+			defer func() {
+				instanceQueueAcquireInstanceFunc = rawInstanceQueueAcquireInstanceFunc
+			}()
+			instanceQueueAcquireInstanceFunc = func(queue instancequeue.InstanceQueue,
+				insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+				return nil, snerror.New(0, "AcquireInstance error")
+			}
 			insPool := CreateTestInstancePool()
 			insThdApp := &types.InstanceAcquireRequest{}
 			thd, err := insPool.AcquireInstance(insThdApp)
@@ -299,12 +300,14 @@ func TestAcquireInstance(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("acquire on-demand instance", func() {
-			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.OnDemandInstanceQueue{}),
-				"AcquireInstance", func(_ *instancequeue.OnDemandInstanceQueue) (thread *types.InstanceAllocation,
-					acquireErr snerror.SNError) {
-					return nil, snerror.New(0, "AcquireInstance error")
-				})
-			defer patchGet.Reset()
+			rawInstanceQueueAcquireInstanceFunc := instanceQueueAcquireInstanceFunc
+			defer func() {
+				instanceQueueAcquireInstanceFunc = rawInstanceQueueAcquireInstanceFunc
+			}()
+			instanceQueueAcquireInstanceFunc = func(queue instancequeue.InstanceQueue,
+				insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+				return nil, snerror.New(0, "AcquireInstance error")
+			}
 			insPool := CreateTestInstancePool()
 			insThdApp := &types.InstanceAcquireRequest{InstanceName: "testInstance"}
 			thd, err := insPool.AcquireInstance(insThdApp)
@@ -312,17 +315,18 @@ func TestAcquireInstance(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("acquire session instance from on-demand queue records session", func() {
-			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.OnDemandInstanceQueue{}),
-				"AcquireInstance", func(_ *instancequeue.OnDemandInstanceQueue,
-					insAcqReq *types.InstanceAcquireRequest) (thread *types.InstanceAllocation,
-					acquireErr snerror.SNError) {
-					return &types.InstanceAllocation{
-						AllocationID: "alloc-on-demand",
-						Instance:     &types.Instance{InstanceID: "instance-on-demand"},
-						SessionInfo:  types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
-					}, nil
-				})
-			defer patchGet.Reset()
+			rawInstanceQueueAcquireInstanceFunc := instanceQueueAcquireInstanceFunc
+			defer func() {
+				instanceQueueAcquireInstanceFunc = rawInstanceQueueAcquireInstanceFunc
+			}()
+			instanceQueueAcquireInstanceFunc = func(queue instancequeue.InstanceQueue,
+				insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+				return &types.InstanceAllocation{
+					AllocationID: "alloc-on-demand",
+					Instance:     &types.Instance{InstanceID: "instance-on-demand"},
+					SessionInfo:  types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
+				}, nil
+			}
 			insPool := CreateTestInstancePool().(*GenericInstancePool)
 			insThdApp := &types.InstanceAcquireRequest{
 				InstanceName: "testInstance",
@@ -356,7 +360,7 @@ func TestAcquireInstance(t *testing.T) {
 			insPool.FuncSpec.FuncMetaData.IsStatefulFunction = true
 			var createErr snerror.SNError
 			insPool.stateRoute.createInstanceFunc = func(resSpec *resspeckey.ResourceSpecification, instanceType types.InstanceType,
-				callerPodName string) (*types.Instance, error) {
+				traceID, traceParent, callerPodName string) (*types.Instance, error) {
 				if createErr != nil {
 					return nil, createErr
 				}
@@ -407,25 +411,25 @@ func TestAcquireInstance(t *testing.T) {
 		})
 		convey.Convey("acquire session instance from scale queue records session", func() {
 			callCount := 0
-			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.ScaledInstanceQueue{}),
-				"AcquireInstance", func(_ *instancequeue.ScaledInstanceQueue,
-					insAcqReq *types.InstanceAcquireRequest) (thread *types.InstanceAllocation,
-					acquireErr snerror.SNError) {
-					callCount++
-					if callCount == 1 {
-						return nil, snerror.New(statuscode.NoInstanceAvailableErrCode,
-							"no instance available")
-					}
-					return &types.InstanceAllocation{
-						AllocationID: "alloc-scale",
-						Instance: &types.Instance{
-							InstanceID:   "instance-scale",
-							InstanceType: types.InstanceTypeScaled,
-						},
-						SessionInfo: types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
-					}, nil
-				})
-			defer patchGet.Reset()
+			rawInstanceQueueAcquireInstanceFunc := instanceQueueAcquireInstanceFunc
+			defer func() {
+				instanceQueueAcquireInstanceFunc = rawInstanceQueueAcquireInstanceFunc
+			}()
+			instanceQueueAcquireInstanceFunc = func(queue instancequeue.InstanceQueue,
+				insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+				callCount++
+				if callCount == 1 {
+					return nil, snerror.New(statuscode.NoInstanceAvailableErrCode, "no instance available")
+				}
+				return &types.InstanceAllocation{
+					AllocationID: "alloc-scale",
+					Instance: &types.Instance{
+						InstanceID:   "instance-scale",
+						InstanceType: types.InstanceTypeScaled,
+					},
+					SessionInfo: types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
+				}, nil
+			}
 			insPool := CreateTestInstancePool().(*GenericInstancePool)
 			insAcqReq := &types.InstanceAcquireRequest{
 				InstanceSession: commonTypes.InstanceSessionConfig{
@@ -484,16 +488,11 @@ func TestReleaseAbnormalInstance(t *testing.T) {
 	patches := mockInstanceOperation()
 	defer unMockInstanceOperation(patches)
 	convey.Convey("test ReleaseAbnormalInstance", t, func() {
-		patches := []*Patches{
-			ApplyMethod(reflect.TypeOf(&instancequeue.ScaledInstanceQueue{}), "HandleFaultyInstance",
-				func(_ *instancequeue.ScaledInstanceQueue, instance *types.Instance) {
-				}),
-		}
+		rawScaledQueueHandleFaultyInstanceFunc := scaledQueueHandleFaultyInstanceFunc
 		defer func() {
-			for _, patch := range patches {
-				patch.Reset()
-			}
+			scaledQueueHandleFaultyInstanceFunc = rawScaledQueueHandleFaultyInstanceFunc
 		}()
+		scaledQueueHandleFaultyInstanceFunc = func(_ *instancequeue.ScaledInstanceQueue, instance *types.Instance) {}
 		registry.GlobalRegistry = &registry.Registry{FaaSSchedulerRegistry: registry.NewFaasSchedulerRegistry(make(chan struct{}))}
 		insPool := CreateTestInstancePool()
 		instance := &types.Instance{
@@ -553,13 +552,13 @@ func TestAcquireInstanceThreadWithVPC(t *testing.T) {
 
 	// test create instance fail
 	instance, err := insPool.createInstance("",
-		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{}, nil, nil)
+		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{}, nil, "", nil)
 	time.Sleep(10 * time.Millisecond)
 	assert.NotNil(t, err)
 
 	// test create instance fail
 	instance, err = insPool.createInstance("",
-		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{CustomResources: `{"npu":1}`}, nil, nil)
+		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{CustomResources: `{"npu":1}`}, nil, "", nil)
 	time.Sleep(10 * time.Millisecond)
 	assert.NotNil(t, err)
 
@@ -568,13 +567,13 @@ func TestAcquireInstanceThreadWithVPC(t *testing.T) {
 	patche := mockInstanceOperation()
 	defer unMockInstanceOperation(patche)
 	instance, err = insPool.createInstance("",
-		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{}, nil, nil)
+		"", types.InstanceTypeScaled, resspeckey.ResSpecKey{}, nil, "", nil)
 	time.Sleep(10 * time.Millisecond)
 	assert.Nil(t, err)
 	assert.NotNil(t, instance)
 
 	// test createInstanceAndAddCallerPodName success
-	instance, err = insPool.createInstanceAndAddCallerPodName(nil, types.InstanceTypeScaled, "callerPodName")
+	instance, err = insPool.createInstanceAndAddCallerPodName(nil, types.InstanceTypeScaled, "", "", "callerPodName")
 	time.Sleep(10 * time.Millisecond)
 	assert.Nil(t, err)
 	assert.NotNil(t, instance)
@@ -664,10 +663,14 @@ func TestHandleInsEvent(t *testing.T) {
 		})
 		convey.Convey("delete invalid instance", func() {
 			var deleteTime int
-			defer ApplyMethod(reflect.TypeOf(&instancequeue.ScaledInstanceQueue{}), "HandleFaultyInstance",
-				func(_ *instancequeue.ScaledInstanceQueue, instance *types.Instance) {
-					deleteTime++
-				}).Reset()
+			rawScaledQueueHandleFaultyInstanceFunc := scaledQueueHandleFaultyInstanceFunc
+			defer func() {
+				scaledQueueHandleFaultyInstanceFunc = rawScaledQueueHandleFaultyInstanceFunc
+			}()
+			scaledQueueHandleFaultyInstanceFunc = func(_ *instancequeue.ScaledInstanceQueue,
+				instance *types.Instance) {
+				deleteTime++
+			}
 			insPool.HandleInstanceConfigEvent(registry.SubEventTypeUpdate, &instanceconfig.Configuration{
 				FuncKey: "testFunc",
 				InstanceMetaData: commonTypes.InstanceMetaData{
@@ -694,14 +697,20 @@ func TestHandleInsEvent(t *testing.T) {
 				updateTime int
 				deleteTime int
 			)
-			defer ApplyMethod(reflect.TypeOf(&instancequeue.OnDemandInstanceQueue{}), "HandleInstanceUpdate",
-				func(_ *instancequeue.OnDemandInstanceQueue, instance *types.Instance) {
-					updateTime++
-				}).Reset()
-			defer ApplyMethod(reflect.TypeOf(&instancequeue.OnDemandInstanceQueue{}), "HandleInstanceDelete",
-				func(_ *instancequeue.OnDemandInstanceQueue, instance *types.Instance) {
-					deleteTime++
-				}).Reset()
+			rawOnDemandQueueHandleInstanceUpdateFunc := onDemandQueueHandleInstanceUpdateFunc
+			rawOnDemandQueueHandleInstanceDeleteFunc := onDemandQueueHandleInstanceDeleteFunc
+			defer func() {
+				onDemandQueueHandleInstanceUpdateFunc = rawOnDemandQueueHandleInstanceUpdateFunc
+				onDemandQueueHandleInstanceDeleteFunc = rawOnDemandQueueHandleInstanceDeleteFunc
+			}()
+			onDemandQueueHandleInstanceUpdateFunc = func(_ *instancequeue.OnDemandInstanceQueue,
+				instance *types.Instance) {
+				updateTime++
+			}
+			onDemandQueueHandleInstanceDeleteFunc = func(_ *instancequeue.OnDemandInstanceQueue,
+				instance *types.Instance) {
+				deleteTime++
+			}
 			insPool.HandleInstanceEvent(registry.SubEventTypeUpdate, &types.Instance{
 				ResKey:         resspeckey.ResSpecKey{CPU: 500, Memory: 500},
 				InstanceStatus: commonTypes.InstanceStatus{Code: 3},
@@ -1254,9 +1263,11 @@ func Test_initContainerAdd(t *testing.T) {
 			convey.So(string(configData), convey.ShouldEqual, "null")
 		})
 		convey.Convey("json Marsha data error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1292,9 +1303,11 @@ func Test_SideCarAdd(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("json Marsha data error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1316,12 +1329,16 @@ func Test_SideCarAdd(t *testing.T) {
 
 func TestGenericInstancePool_handleManagedChange(t *testing.T) {
 	convey.Convey("HandleSchedulerManaged", t, func() {
-		defer ApplyFunc((*instancequeue.ScaledInstanceQueue).HandleInsConfigUpdate, func(_ *instancequeue.ScaledInstanceQueue,
+		rawScaledQueueHandleInsConfigUpdateFunc := scaledQueueHandleInsConfigUpdateFunc
+		rawScaledQueueEnableInstanceScaleFunc := scaledQueueEnableInstanceScaleFunc
+		defer func() {
+			scaledQueueHandleInsConfigUpdateFunc = rawScaledQueueHandleInsConfigUpdateFunc
+			scaledQueueEnableInstanceScaleFunc = rawScaledQueueEnableInstanceScaleFunc
+		}()
+		scaledQueueHandleInsConfigUpdateFunc = func(_ *instancequeue.ScaledInstanceQueue,
 			insConfig *instanceconfig.Configuration) {
-			return
-		}).Reset()
-		defer ApplyFunc((*instancequeue.ScaledInstanceQueue).EnableInstanceScale, func(_ *instancequeue.ScaledInstanceQueue) {
-		}).Reset()
+		}
+		scaledQueueEnableInstanceScaleFunc = func(_ *instancequeue.ScaledInstanceQueue) {}
 		reservedQueue := map[resspeckey.ResSpecKey]*instancequeue.ScaledInstanceQueue{
 			resspeckey.ResSpecKey{}: CreateScaledInstanceQueue(types.InstanceTypeReserved),
 		}
@@ -1359,12 +1376,16 @@ func TestGenericInstancePool_handleRatioChange(t *testing.T) {
 		}
 	}()
 
-	defer ApplyFunc((*instancequeue.ScaledInstanceQueue).HandleInsConfigUpdate, func(_ *instancequeue.ScaledInstanceQueue,
+	rawScaledQueueHandleInsConfigUpdateFunc := scaledQueueHandleInsConfigUpdateFunc
+	rawScaledQueueEnableInstanceScaleFunc := scaledQueueEnableInstanceScaleFunc
+	defer func() {
+		scaledQueueHandleInsConfigUpdateFunc = rawScaledQueueHandleInsConfigUpdateFunc
+		scaledQueueEnableInstanceScaleFunc = rawScaledQueueEnableInstanceScaleFunc
+	}()
+	scaledQueueHandleInsConfigUpdateFunc = func(_ *instancequeue.ScaledInstanceQueue,
 		insConfig *instanceconfig.Configuration) {
-		return
-	}).Reset()
-	defer ApplyFunc((*instancequeue.ScaledInstanceQueue).EnableInstanceScale, func(_ *instancequeue.ScaledInstanceQueue) {
-	}).Reset()
+	}
+	scaledQueueEnableInstanceScaleFunc = func(_ *instancequeue.ScaledInstanceQueue) {}
 	queue := CreateScaledInstanceQueue(types.InstanceTypeReserved)
 	reservedQueue := map[resspeckey.ResSpecKey]*instancequeue.ScaledInstanceQueue{
 		resspeckey.ResSpecKey{}: queue,
@@ -1413,15 +1434,22 @@ func TestGenericInstancePool_HandleInstanceConfigEvent(t *testing.T) {
 			scaledInstanceQueue:   scaledQueue,
 		}
 		convey.Convey("delete insConfig without label", func() {
-			defer ApplyFunc((*instancequeue.ScaledInstanceQueue).HandleInsConfigUpdate, func(_ *instancequeue.ScaledInstanceQueue,
+			rawScaledQueueHandleInsConfigUpdateFunc := scaledQueueHandleInsConfigUpdateFunc
+			rawScaledQueueEnableInstanceScaleFunc := scaledQueueEnableInstanceScaleFunc
+			rawScaledQueueDestroyFunc := scaledQueueDestroyFunc
+			defer func() {
+				scaledQueueHandleInsConfigUpdateFunc = rawScaledQueueHandleInsConfigUpdateFunc
+				scaledQueueEnableInstanceScaleFunc = rawScaledQueueEnableInstanceScaleFunc
+				scaledQueueDestroyFunc = rawScaledQueueDestroyFunc
+			}()
+			scaledQueueHandleInsConfigUpdateFunc = func(_ *instancequeue.ScaledInstanceQueue,
 				insConfig *instanceconfig.Configuration) {
-			}).Reset()
-			defer ApplyFunc((*instancequeue.ScaledInstanceQueue).EnableInstanceScale, func(_ *instancequeue.ScaledInstanceQueue) {
-			}).Reset()
+			}
+			scaledQueueEnableInstanceScaleFunc = func(_ *instancequeue.ScaledInstanceQueue) {}
 			callDestroy := 0
-			defer ApplyFunc((*instancequeue.ScaledInstanceQueue).Destroy, func(_ *instancequeue.ScaledInstanceQueue) {
+			scaledQueueDestroyFunc = func(_ *instancequeue.ScaledInstanceQueue) {
 				callDestroy++
-			}).Reset()
+			}
 			gi.HandleInstanceConfigEvent(registry.SubEventTypeDelete, &instanceconfig.Configuration{})
 			convey.So(callDestroy, convey.ShouldEqual, 0)
 		})
@@ -1430,9 +1458,13 @@ func TestGenericInstancePool_HandleInstanceConfigEvent(t *testing.T) {
 
 func TestGenericInstancePool_CleanOrphansInstanceQueue(t *testing.T) {
 	callDestroy := 0
-	defer ApplyFunc((*instancequeue.ScaledInstanceQueue).Destroy, func(_ *instancequeue.ScaledInstanceQueue) {
+	rawScaledQueueDestroyFunc := scaledQueueDestroyFunc
+	defer func() {
+		scaledQueueDestroyFunc = rawScaledQueueDestroyFunc
+	}()
+	scaledQueueDestroyFunc = func(_ *instancequeue.ScaledInstanceQueue) {
 		callDestroy++
-	}).Reset()
+	}
 	reservedQueue := map[resspeckey.ResSpecKey]*instancequeue.ScaledInstanceQueue{
 		resspeckey.ResSpecKey{}: CreateScaledInstanceQueue(types.InstanceTypeReserved),
 	}

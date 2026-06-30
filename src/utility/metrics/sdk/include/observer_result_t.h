@@ -18,7 +18,7 @@
 #define OBSERVABILITY_OBSERVER_RESULT_T_H
 #include <memory>
 
-#include "sdk/include/metrics_data.h"
+#include "src/utility/metrics/sdk/include/metrics_data.h"
 namespace observability {
 namespace metrics {
 

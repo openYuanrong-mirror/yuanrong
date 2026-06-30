@@ -44,6 +44,22 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+type fakeMetricsCollector struct {
+	collected bool
+	avgProc   float64
+	procPS    float64
+	reqPS     float64
+}
+
+func (f *fakeMetricsCollector) InvokeMetricsCollected() bool                                   { return f.collected }
+func (f *fakeMetricsCollector) UpdateInvokeRequests(insThdReqNum int)                          {}
+func (f *fakeMetricsCollector) UpdateInvokeMetrics(insThdMetrics *types.InstanceThreadMetrics) {}
+func (f *fakeMetricsCollector) UpdateInsThdMetrics(inUseInsThdDiff int)                        {}
+func (f *fakeMetricsCollector) GetCalculatedInvokeMetrics() (float64, float64, float64) {
+	return f.avgProc, f.procPS, f.reqPS
+}
+func (f *fakeMetricsCollector) Stop() {}
+
 func TestMiscellaneous(t *testing.T) {
 	config.GlobalConfig = types.Configuration{}
 	scaler := NewAutoScaler("test", &metrics.BucketCollector{}, func() int { return 1 },
@@ -74,7 +90,7 @@ func TestReplicaScaler(t *testing.T) {
 }
 
 func TestScaleUpInstances(t *testing.T) {
-	me := metrics.NewBucketMetricsCollector("funcKey123", "resource300")
+	me := &fakeMetricsCollector{collected: true}
 	as := &AutoScaler{
 		metricsCollector: me,
 		autoScaleUpFlag:  true,
@@ -88,34 +104,24 @@ func TestScaleUpInstances(t *testing.T) {
 		return as.pendingInsThdNum + 2
 	}
 	as.checkReqNumFunc = checkNum
-	defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "InvokeMetricsCollected",
-		func(_ *metrics.BucketCollector) bool {
-			return true
-		}).Reset()
 
 	convey.Convey("insThdProcNumPS is 0", t, func() {
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 0, 0
-			}).Reset()
+		me.collected = true
+		me.avgProc, me.procPS, me.reqPS = 0, 0, 0
 		as.scaleUpInstances()
 		convey.So(as.pendingInsThdNum, convey.ShouldEqual, 6)
 		convey.So(as.remainedInsThdReqNum, convey.ShouldEqual, 0)
 	})
 	convey.Convey("procWindow = 0", t, func() {
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 1, 0
-			}).Reset()
+		me.collected = true
+		me.avgProc, me.procPS, me.reqPS = 0, 1, 0
 		as.scaleUpInstances()
 		convey.So(as.pendingInsThdNum, convey.ShouldEqual, 8)
 		convey.So(as.remainedInsThdReqNum, convey.ShouldEqual, 6)
 	})
 	convey.Convey("procWindow > 0", t, func() {
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 1, 0
-			}).Reset()
+		me.collected = true
+		me.avgProc, me.procPS, me.reqPS = 0, 1, 0
 		as.scaleUpWindow = 2 * time.Second
 		as.remainedInsThdReqNum = 1
 		as.scaleUpInstances()
@@ -123,17 +129,14 @@ func TestScaleUpInstances(t *testing.T) {
 		convey.So(as.remainedInsThdReqNum, convey.ShouldEqual, 8)
 	})
 	convey.Convey("InvokeMetricsCollected is false", t, func() {
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "InvokeMetricsCollected",
-			func(_ *metrics.BucketCollector) bool {
-				return false
-			}).Reset()
+		me.collected = false
 		as.scaleUpInstances()
 		convey.So(as.pendingInsThdNum, convey.ShouldEqual, 12)
 	})
 }
 
 func TestScaleDownInstances(t *testing.T) {
-	me := metrics.NewBucketMetricsCollector("funcKey123", "resource300")
+	me := &fakeMetricsCollector{}
 	res := 0
 	as := &AutoScaler{
 		metricsCollector: me,
@@ -152,44 +155,35 @@ func TestScaleDownInstances(t *testing.T) {
 	}
 	as.checkReqNumFunc = checkNum
 
-	defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "InvokeMetricsCollected",
-		func(_ *metrics.BucketCollector) bool {
-			return false
-		}).Reset()
 	convey.Convey("pendingThsThdNum negative and little", t, func() {
+		me.collected = false
 		as.pendingInsThdNum = -2
 		as.scaleDownInstances()
 		convey.So(res, convey.ShouldEqual, 1)
 	})
 	convey.Convey("pendingThsThdNum negative and big", t, func() {
+		me.collected = false
 		as.pendingInsThdNum = -6
 		as.scaleDownInstances()
 		convey.So(res, convey.ShouldEqual, 0)
 	})
 	convey.Convey("pendingThsThdNum positive", t, func() {
+		me.collected = false
 		as.pendingInsThdNum = 2
 		as.scaleDownInstances()
 		convey.So(res, convey.ShouldEqual, 3)
 	})
-	defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "InvokeMetricsCollected",
-		func(_ *metrics.BucketCollector) bool {
-			return true
-		}).Reset()
 	convey.Convey("insThdProcNumPS is 0", t, func() {
 		res = 0
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 0, 0
-			}).Reset()
+		me.collected = true
+		me.avgProc, me.procPS, me.reqPS = 0, 0, 0
 		as.scaleDownInstances()
 		convey.So(res, convey.ShouldEqual, 0)
 	})
 	convey.Convey("insThdProcNumPS is not 0", t, func() {
 		res = 0
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 10, 10
-			}).Reset()
+		me.collected = true
+		me.avgProc, me.procPS, me.reqPS = 0, 10, 10
 		as.scaleDownInstances()
 		convey.So(res, convey.ShouldEqual, 0)
 	})
@@ -359,7 +353,7 @@ func TestHandlePredictUpdate(t *testing.T) {
 }
 
 func TestPredictScalerProcess(t *testing.T) {
-	me := metrics.NewBucketMetricsCollector("funcKey123", "resource300")
+	me := &fakeMetricsCollector{}
 	scaleInsNum := 0
 	res := 0
 	ps := &PredictScaler{
@@ -385,22 +379,17 @@ func TestPredictScalerProcess(t *testing.T) {
 	ps.checkReqNumFunc = checkNum
 
 	convey.Convey("InvokeMetricsCollected is true", t, func() {
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "InvokeMetricsCollected",
-			func(_ *metrics.BucketCollector) bool {
-				return true
-			}).Reset()
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 0, 0, 0
-			}).Reset()
+		me.collected = true
+		me.avgProc = 0
+		me.procPS = 0
+		me.reqPS = 0
 		scaleInsNum = ps.getScaleDownInstancesNum()
 		convey.So(scaleInsNum, convey.ShouldEqual, -1)
 		convey.So(res, convey.ShouldEqual, 0)
 
-		defer gomonkey.ApplyMethod(reflect.TypeOf(&metrics.BucketCollector{}), "GetCalculatedInvokeMetrics",
-			func(_ *metrics.BucketCollector) (float64, float64, float64) {
-				return 3, 1, 0
-			}).Reset()
+		me.avgProc = 3
+		me.procPS = 1
+		me.reqPS = 0
 		ps.totalInsThdNum = 4
 		ps.inUseInsThdNum = 1
 		ps.scaleDownWindow = 60000 * time.Millisecond

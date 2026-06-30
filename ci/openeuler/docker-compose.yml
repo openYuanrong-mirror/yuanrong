@@ -1,0 +1,33 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.${ARCH:-x86_64}
+      args:
+        ARCH: ${ARCH:-x86_64}
+    image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_${ARCH:-x86}:2.1
+    container_name: compile
+    platform: linux/${ARCH:-x86_64}
+    privileged: true
+    restart: unless-stopped
+    working_dir: "/root"
+    ports:
+      - "8888:8888"
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      - /etc/shadow:/etc/shadow:ro
+      - /etc/sudoers:/etc/sudoers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker
+      - /home:/home
+    command: >
+      bash -c "mkdir -p /opt/buildtools/go_workspace;
+      chmod 777 /opt/buildtools/go_workspace;
+      while true; do sleep 300; done"
+    networks:
+      - yr-net
+
+networks:
+  yr-net:
+    name: yr-net

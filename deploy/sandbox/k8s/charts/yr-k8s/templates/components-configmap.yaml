@@ -1,0 +1,17 @@
+{{- if or .Values.master.enabled .Values.frontend.enabled .Values.node.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "yr-k8s.fullname" . }}-components
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+data:
+  config.toml: |-
+    version = "1"
+    [mode]
+{{- if .Values.frontend.enableEvent }}
+    [frontend.args]
+    enableEvent = true
+{{- end }}
+{{- end }}

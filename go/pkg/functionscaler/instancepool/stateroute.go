@@ -63,7 +63,7 @@ type StateRoute struct {
 	resSpec            *resspeckey.ResourceSpecification
 	deleteInstanceFunc func(instance *types.Instance) error
 	createInstanceFunc func(resSpec *resspeckey.ResourceSpecification, instanceType types.InstanceType,
-		callerPodName string) (instance *types.Instance, err error)
+		traceID, traceParent, callerPodName string) (instance *types.Instance, err error)
 	leaseInterval time.Duration
 	logger        api.FormatLogger
 	sync.RWMutex
@@ -339,7 +339,8 @@ func (sr *StateRoute) acquireStateInstanceThread(insThdApp *types.InstanceAcquir
 		resSpec = insThdApp.ResSpec
 	}
 
-	instance, err := sr.createInstanceFunc(resSpec, types.InstanceTypeState, insThdApp.CallerPodName)
+	instance, err := sr.createInstanceFunc(
+		resSpec, types.InstanceTypeState, insThdApp.TraceID, insThdApp.TraceParent, insThdApp.CallerPodName)
 	if err == nil {
 		stateInstance = &StateInstance{
 			StateID:  insThdApp.StateID,

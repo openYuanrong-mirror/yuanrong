@@ -26,7 +26,6 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"yuanrong.org/kernel/runtime/libruntime/api"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
@@ -34,22 +33,20 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
-	"yuanrong.org/kernel/pkg/functionscaler/workermanager"
 )
 
 func TestCreateInstance(t *testing.T) {
-	patches := []*gomonkey.Patches{
-		gomonkey.ApplyFunc(createInstanceForFG, func(request createInstanceRequest) (*types.Instance, error) {
-			return &types.Instance{InstanceID: "instance-fg"}, nil
-		}),
-		gomonkey.ApplyFunc(createInstanceForKernel, func(request createInstanceRequest) (*types.Instance, error) {
-			return &types.Instance{InstanceID: "instance-kernel"}, nil
-		}),
+	rawCreateInstanceForFGFunc := createInstanceForFGFunc
+	rawCreateInstanceForKernelFunc := createInstanceForKernelFunc
+	createInstanceForFGFunc = func(request createInstanceRequest) (*types.Instance, error) {
+		return &types.Instance{InstanceID: "instance-fg"}, nil
+	}
+	createInstanceForKernelFunc = func(request createInstanceRequest) (*types.Instance, error) {
+		return &types.Instance{InstanceID: "instance-kernel"}, nil
 	}
 	defer func() {
-		for _, p := range patches {
-			p.Reset()
-		}
+		createInstanceForFGFunc = rawCreateInstanceForFGFunc
+		createInstanceForKernelFunc = rawCreateInstanceForKernelFunc
 	}()
 	config.GlobalConfig.InstanceOperationBackend = constant.BackendTypeFG
 	ins1, err := CreateInstance(createInstanceRequest{})
@@ -62,20 +59,19 @@ func TestCreateInstance(t *testing.T) {
 }
 
 func TestDeleteInstance(t *testing.T) {
-	patches := []*gomonkey.Patches{
-		gomonkey.ApplyFunc(deleteInstanceForFG, func(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-			instance *types.Instance) error {
-			return nil
-		}),
-		gomonkey.ApplyFunc(deleteInstanceForKernel, func(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-			instance *types.Instance) error {
-			return nil
-		}),
+	rawDeleteInstanceForFGFunc := deleteInstanceForFGFunc
+	rawDeleteInstanceForKernelFunc := deleteInstanceForKernelFunc
+	deleteInstanceForFGFunc = func(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
+		instance *types.Instance) error {
+		return nil
+	}
+	deleteInstanceForKernelFunc = func(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
+		instance *types.Instance) error {
+		return nil
 	}
 	defer func() {
-		for _, p := range patches {
-			p.Reset()
-		}
+		deleteInstanceForFGFunc = rawDeleteInstanceForFGFunc
+		deleteInstanceForKernelFunc = rawDeleteInstanceForKernelFunc
 	}()
 	config.GlobalConfig.InstanceOperationBackend = constant.BackendTypeFG
 	err := DeleteInstance(&types.FunctionSpecification{}, faasManagerInfo{}, &types.Instance{})
@@ -89,10 +85,12 @@ func TestDeleteInstanceRetry(t *testing.T) {
 	cnt := 0
 
 	SetGlobalSdkClient(&mockUtils.FakeLibruntimeSdkClient{})
-	defer gomonkey.ApplyMethod(globalSdkClient, "Kill", func(_ api.LibruntimeAPI, instanceID string, signal int, payload []byte) error {
+	rawKillInstance := killInstance
+	killInstance = func(instanceID string) error {
 		cnt++
 		return fmt.Errorf("error kill")
-	}).Reset()
+	}
+	defer func() { killInstance = rawKillInstance }()
 	config.GlobalConfig.InstanceOperationBackend = constant.BackendTypeKernel
 	coldStartBackoff = wait.Backoff{
 		Duration: 10 * time.Millisecond,
@@ -112,12 +110,16 @@ func TestDeleteUnexpectInstance(t *testing.T) {
 	var deleteInstanceInstanceID string
 	var deleteInstanceFuncKey string
 
-	defer gomonkey.ApplyFunc(DeleteInstanceByID, func(instanceID, funcKey string) error {
+	rawDeleteInstanceByIDFunc := deleteInstanceByIDFunc
+	defer func() {
+		deleteInstanceByIDFunc = rawDeleteInstanceByIDFunc
+	}()
+	deleteInstanceByIDFunc = func(instanceID, funcKey string) error {
 		deleteInstanceCalled = true
 		deleteInstanceInstanceID = instanceID
 		deleteInstanceFuncKey = funcKey
 		return nil
-	}).Reset()
+	}
 
 	originalInstanceIDSelf := selfregister.SelfInstanceID
 	selfregister.SelfInstanceID = "self-id"
@@ -181,10 +183,14 @@ func TestDeleteUnexpectInstance(t *testing.T) {
 
 func TestDeleteInstanceByID(t *testing.T) {
 	scaleDownNum := 0
-	defer gomonkey.ApplyFunc(workermanager.ScaleDownInstance, func(instanceID, functionKey, traceID string) error {
+	rawScaleDownInstanceFunc := scaleDownInstanceFunc
+	defer func() {
+		scaleDownInstanceFunc = rawScaleDownInstanceFunc
+	}()
+	scaleDownInstanceFunc = func(instanceID, functionKey, traceID string) error {
 		scaleDownNum++
 		return nil
-	}).Reset()
+	}
 	SetGlobalSdkClient(&mockUtils.FakeLibruntimeSdkClient{})
 	config.GlobalConfig.InstanceOperationBackend = constant.BackendTypeFG
 	err := DeleteInstanceByID("testInsID", "testFuncKey")

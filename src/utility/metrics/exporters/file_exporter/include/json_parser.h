@@ -16,9 +16,9 @@
 #ifndef OBSERVABILITY_METRICS_JSON_PARSER_H
 #define OBSERVABILITY_METRICS_JSON_PARSER_H
 
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
-#include "sdk/include/metrics_data.h"
+#include "src/utility/metrics/sdk/include/metrics_data.h"
 
 namespace observability {
 namespace metrics {

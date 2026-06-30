@@ -109,7 +109,7 @@ public class JobExecutor {
     /**
      * The Constructor of JobExecutor.
      *
-     * @param yrJobParam job parameters (runtime, entrypoint, affinity, etc.)
+     * @param yrJobParam the job executor parameter object.
      * @throws YRException the actor task exception.
      */
     public JobExecutor(YRJobParam yrJobParam) throws YRException {
@@ -148,20 +148,9 @@ public class JobExecutor {
 
 
     private boolean saveBytesToFile(byte[] data, String pathStr, String fileName) {
-        LOGGER.debug("begin to save entrypoint file. {}", pathStr + fileName);
+        LOGGER.debug("begin to save entrypoint file. path={}, file={}", pathStr, fileName);
         if (data == null) {
             LOGGER.warn("entryPoint data is null");
-            return false;
-        }
-
-        // Validate fileName to prevent path traversal attacks
-        if (fileName == null || fileName.isEmpty()) {
-            LOGGER.error("File name is null or empty");
-            return false;
-        }
-        // Check for path traversal attempts
-        if (fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")) {
-            LOGGER.error("Potentially unsafe file name detected: {}", fileName);
             return false;
         }
 
@@ -173,10 +162,10 @@ public class JobExecutor {
             }
             // 写入文件
             Files.write(path, data);
-            LOGGER.info("File saved successfully: {}{}", pathStr, fileName);
+            LOGGER.info("File saved successfully: {}", path);
             return true;
         } catch (InvalidPathException e) {
-            LOGGER.error("Invalid output path: {}{}", pathStr, fileName);
+            LOGGER.error("Invalid output path. path={}, file={}", pathStr, fileName);
             return false;
         } catch (IOException e) {
             LOGGER.error("Failed to save the file: {}", e.getMessage());
@@ -311,7 +300,11 @@ public class JobExecutor {
                 return;
             }
             writeStatus(YRJobStatus.SUCCEEDED);
-            // One JobExecutor runtime maps to one attached-runtime; close its thread pool when done.
+            /*
+             * There is a one-to-one correspondence between JobExecutor runtime and
+             * attached-runtime. Therefore, after attached-runtime is finished, the thread pool belonging
+             * to JobExecutor runtime can be closed.
+             */
             this.clearThreadPool();
         });
     }

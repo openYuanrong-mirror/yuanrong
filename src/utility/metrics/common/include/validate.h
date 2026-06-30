@@ -18,7 +18,7 @@
 #define METRICS_VALIDATE_H
 #include <algorithm>
 
-#include "common/include/constant.h"
+#include "src/utility/metrics/common/include/constant.h"
 namespace observability {
 namespace metrics {
 const uint8_t ASCII_UPPER_LIMIT = 127;

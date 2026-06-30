@@ -16,7 +16,7 @@
 
 """Sandbox module for isolated code execution."""
 
-__all__ = ["SandBox", "SandBoxInstance", "create"]
+__all__ = ["Sandbox", "SandboxInstance", "create"]
 
 import importlib
 

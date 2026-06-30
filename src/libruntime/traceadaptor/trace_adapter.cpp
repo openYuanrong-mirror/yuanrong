@@ -15,6 +15,8 @@
  */
 
 #include "trace_adapter.h"
+
+#include <array>
 #include <json.hpp>
 
 #include "src/dto/config.h"
@@ -28,13 +30,18 @@ constexpr uint32_t TRACE_ID_LENGTH = 32;
 constexpr uint32_t SPAN_ID_LENGTH = 16;
 constexpr uint32_t TRACE_ID_BUF_LENGTH = 16;
 constexpr uint32_t SPAN_ID_BUF_LENGTH = 8;
+constexpr uint32_t TRACE_PARENT_PARTS = 4;
+constexpr uint32_t TRACE_PARENT_FLAGS_LENGTH = 2;
+constexpr uint32_t TRACE_PARENT_TRACE_ID_INDEX = 1;
+constexpr uint32_t TRACE_PARENT_SPAN_ID_INDEX = 2;
+constexpr uint32_t TRACE_PARENT_FLAGS_INDEX = 3;
 
 static inline bool IsHexDecimal(const std::string &str)
 {
     return std::all_of(str.begin(), str.end(), ::isxdigit);
 }
 
-static void TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LENGTH])
+static bool TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LENGTH])
 {
     // cut trace id prefix job-xxxxxxxx-trace-
     (void)traceID.erase(std::remove(traceID.begin(), traceID.end(), '-'), traceID.end());
@@ -43,11 +50,12 @@ static void TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LEN
     }
     traceID = traceID.substr(traceID.size() - TRACE_ID_LENGTH, TRACE_ID_LENGTH);
     if (!IsHexDecimal(traceID)) {
-        return;
+        YRLOG_WARN("invalid traceID format: {}", traceID);
+        return false;
     }
     if (traceID.length() != TRACE_ID_LENGTH && traceID.length() != (TRACE_ID_LENGTH - 1)) {
         YRLOG_WARN("invalid length: {}, traceID: {}", traceID.length(), traceID);
-        return;
+        return false;
     }
     YRLOG_DEBUG("load trace id: {} string to buffer array", traceID);
     int pivot = 0;
@@ -57,13 +65,18 @@ static void TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LEN
         int value = std::stoi(sub, nullptr, 16);
         arr[pivot++] = uint8_t(value);
     }
+    return pivot == TRACE_ID_BUF_LENGTH;
 }
 
-static void SpanIdStrToArr(const std::string &spanID, uint8_t (&arr)[SPAN_ID_BUF_LENGTH])
+static bool SpanIdStrToArr(const std::string &spanID, uint8_t (&arr)[SPAN_ID_BUF_LENGTH])
 {
     if (spanID.length() != SPAN_ID_LENGTH && spanID.length() != (SPAN_ID_LENGTH - 1)) {
         YRLOG_WARN("invalid length: {}, spanID: {}", spanID.length(), spanID);
-        return;
+        return false;
+    }
+    if (!IsHexDecimal(spanID)) {
+        YRLOG_WARN("invalid spanID format: {}", spanID);
+        return false;
     }
     int pivot = 0;
     // convert each 2 digits to 1 span id element
@@ -72,6 +85,54 @@ static void SpanIdStrToArr(const std::string &spanID, uint8_t (&arr)[SPAN_ID_BUF
         int value = std::stoi(sub, nullptr, 16);
         arr[pivot++] = uint8_t(value);
     }
+    return pivot == SPAN_ID_BUF_LENGTH;
+}
+
+static bool TrySetParentFromTraceParent(opentelemetry::trace::StartSpanOptions &options, const std::string &traceParent)
+{
+    if (traceParent.empty()) {
+        return false;
+    }
+
+    std::array<std::string, TRACE_PARENT_PARTS> parts;
+    size_t start = 0;
+    for (size_t i = 0; i < TRACE_PARENT_PARTS - 1; ++i) {
+        auto end = traceParent.find('-', start);
+        if (end == std::string::npos) {
+            YRLOG_WARN("invalid traceparent format: {}", traceParent);
+            return false;
+        }
+        parts[i] = traceParent.substr(start, end - start);
+        start = end + 1;
+    }
+    parts[TRACE_PARENT_PARTS - 1] = traceParent.substr(start);
+    if (parts[TRACE_PARENT_PARTS - 1].find('-') != std::string::npos) {
+        YRLOG_WARN("invalid traceparent format: {}", traceParent);
+        return false;
+    }
+    if (parts[TRACE_PARENT_FLAGS_INDEX].length() != TRACE_PARENT_FLAGS_LENGTH ||
+        !IsHexDecimal(parts[TRACE_PARENT_FLAGS_INDEX])) {
+        YRLOG_WARN("invalid traceparent trace flags: {}", traceParent);
+        return false;
+    }
+
+    uint8_t traceIdArr[TRACE_ID_BUF_LENGTH] = {};
+    uint8_t spanIdArr[SPAN_ID_BUF_LENGTH] = {};
+    if (!TraceIdStrToArr(parts[TRACE_PARENT_TRACE_ID_INDEX], traceIdArr) ||
+        !SpanIdStrToArr(parts[TRACE_PARENT_SPAN_ID_INDEX], spanIdArr)) {
+        YRLOG_WARN("failed to parse traceparent: {}", traceParent);
+        return false;
+    }
+
+    opentelemetry::trace::TraceId optlTraceId(traceIdArr);
+    opentelemetry::trace::SpanId optlSpanId(spanIdArr);
+    opentelemetry::trace::SpanContext spanContext(optlTraceId, optlSpanId, {}, true);
+    if (!spanContext.IsValid()) {
+        YRLOG_WARN("traceparent resolved to invalid span context: {}", traceParent);
+        return false;
+    }
+    options.parent = spanContext;
+    return true;
 }
 
 TraceAdapter::~TraceAdapter() noexcept
@@ -105,7 +166,7 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
                 YRLOG_INFO("OtelGrpcExporter is enable, endpoint is {}", config.endpoint);
                 processors.push_back(
                     std::unique_ptr<trace_sdk::SpanProcessor>(trace_sdk::BatchSpanProcessorFactory::Create(
-                        std::move(InitOtlpGrpcExporter(config)), batchSpanProcessorOptions)));
+                        InitOtlpGrpcExporter(config), batchSpanProcessorOptions)));
             } else if (element.key() == LOG_FILE_EXPORTER) {
                 if (!element.value().contains("enable")
                     || !element.value().at("enable").get<bool>()) {
@@ -116,7 +177,7 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
                 YRLOG_INFO("logFileExporter is enable");
                 processors.push_back(
                     std::unique_ptr<trace_sdk::SpanProcessor>(trace_sdk::BatchSpanProcessorFactory::Create(
-                        std::move(InitLogFileExporter()), batchSpanProcessorOptions)));
+                        InitLogFileExporter(), batchSpanProcessorOptions)));
             }
         }
     } catch (nlohmann::detail::parse_error &e) {
@@ -139,9 +200,9 @@ void TraceAdapter::InitTrace(const std::string &serviceName, const bool &enableT
         { opentelemetry::sdk::resource::SemanticConventions::kTelemetrySdkVersion, "" },
         { opentelemetry::sdk::resource::SemanticConventions::kServiceName, serviceName },
     };
-    auto provider = std::shared_ptr<trace_api::TracerProvider>(std::make_shared<trace_sdk::TracerProvider>(
+    auto provider = opentelemetry::nostd::shared_ptr<trace_api::TracerProvider>(new trace_sdk::TracerProvider(
         std::move(processors), opentelemetry::sdk::resource::Resource::Create(attributes)));
-    trace_api::Provider::SetTracerProvider(provider);
+    trace_api::Provider::SetTracerProvider(std::move(provider));
 }
 
 void TraceAdapter::ShutDown()
@@ -156,7 +217,7 @@ void TraceAdapter::ShutDown()
     if (traceProvider != nullptr && !traceProvider->ForceFlush()) {
         YRLOG_WARN("traceProvider shutDown failed");
     }
-    std::shared_ptr<trace_api::TracerProvider> none;
+    opentelemetry::nostd::shared_ptr<trace_api::TracerProvider> none;
     trace_api::Provider::SetTracerProvider(none);
 }
 
@@ -188,7 +249,7 @@ OtelSpan TraceAdapter::StartSpan(const std::string &name,
 
 OtelSpan TraceAdapter::StartSpan(
     const std::string &name,
-    OtelAttrVector attrs,
+    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs,
     const opentelemetry::trace::StartSpanOptions &startSpanOptions)
 {
     // preset system attr
@@ -223,29 +284,32 @@ std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> TraceAdapter::InitOtlpG
 }
 
 opentelemetry::trace::StartSpanOptions TraceAdapter::BuildOptWithParent(const std::string &traceID,
-                                                                         const std::string &spanID)
+                                                                        const std::string &spanID,
+                                                                        const std::string &traceParent)
 {
-    YRLOG_DEBUG("build options with parent, traceID: {}, spanID: {}", traceID, spanID);
+    YRLOG_DEBUG("build options with parent, traceID: {}, spanID: {}, traceParent: {}",
+                traceID, spanID, traceParent);
 
     opentelemetry::trace::StartSpanOptions options;
-    if (!traceID.empty()) {
+    if (TrySetParentFromTraceParent(options, traceParent)) {
+        YRLOG_DEBUG("build parent context from traceparent");
+    } else if (!traceID.empty() && !spanID.empty()) {
         uint8_t traceIdArr[TRACE_ID_BUF_LENGTH] = {};
         uint8_t spanIdArr[SPAN_ID_BUF_LENGTH] = {};
-
-        TraceIdStrToArr(traceID, traceIdArr);
-        opentelemetry::trace::TraceId optlTraceId(traceIdArr);
-        if (spanID.empty()) {
-            spanIdArr[SPAN_ID_BUF_LENGTH - 1] = 0x01;
-            YRLOG_DEBUG("spanID is empty, set root span");
-        } else {
-            SpanIdStrToArr(spanID, spanIdArr);
+        if (!TraceIdStrToArr(traceID, traceIdArr) || !SpanIdStrToArr(spanID, spanIdArr)) {
+            YRLOG_WARN("failed to build parent from traceID/spanID, traceID: {}, spanID: {}", traceID, spanID);
+            options.start_steady_time = opentelemetry::common::SteadyTimestamp(std::chrono::steady_clock::now());
+            return options;
         }
+        opentelemetry::trace::TraceId optlTraceId(traceIdArr);
         opentelemetry::trace::SpanId optlSpanId(spanIdArr);
         opentelemetry::trace::SpanContext spanContext(optlTraceId, optlSpanId, {}, false);
 
         YRLOG_DEBUG("option is valid({})", spanContext.IsValid());
 
         options.parent = spanContext;
+    } else if (!traceID.empty()) {
+        YRLOG_DEBUG("traceID exists without parent span, skip synthetic parent");
     } else {
         YRLOG_DEBUG("traceID is empty");
     }
@@ -258,10 +322,20 @@ OtelSpan TraceAdapter::StartSpan(
     const std::string &name,
     const std::string &traceID,
     const std::string &spanID,
-    OtelAttrVector attrs)
+    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs)
+{
+    return StartSpan(name, traceID, spanID, "", std::move(attrs));
+}
+
+OtelSpan TraceAdapter::StartSpan(
+    const std::string &name,
+    const std::string &traceID,
+    const std::string &spanID,
+    const std::string &traceParent,
+    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs)
 {
     YRLOG_DEBUG("start span with traceID and spanID, name: {}, traceID: {}, spanID: {}", name, traceID, spanID);
-    auto options = BuildOptWithParent(traceID, spanID);
+    auto options = BuildOptWithParent(traceID, spanID, traceParent);
     return StartSpan(name, attrs, options);
 }
 }

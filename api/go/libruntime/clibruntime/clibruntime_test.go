@@ -468,13 +468,13 @@ func TestSetTenantID(t *testing.T) {
 func TestKillInstance(t *testing.T) {
 	convey.Convey(
 		"Test KillInstance successfully", t, func() {
-			err := Kill("instanceid", 1, []byte{})
+			err := Kill("instanceid", 1, []byte{}, "10.0.0.1:7788", "proxy-abc")
 			convey.So(err, convey.ShouldBeNil)
 		},
 	)
 	convey.Convey(
 		"Test KillInstance failed", t, func() {
-			err := Kill("instanceid", 128, []byte{})
+			err := Kill("instanceid", 128, []byte{}, "10.0.0.1:7788", "proxy-abc")
 			convey.So(err.Error(), convey.ShouldEqual, "kill instance: failed to kill")
 		},
 	)
@@ -556,6 +556,29 @@ func TestCreateInstance(t *testing.T) {
 	)
 }
 
+func TestCFunctionMetaEmptyNamesUseEmptyCString(t *testing.T) {
+	convey.Convey(
+		"Test cFunctionMeta empty fields use empty C strings", t, func() {
+			cFuncMeta := cFunctionMeta(api.FunctionMeta{FuncID: "default/0-system-faasExecutorPython3.9/$latest"})
+			defer freeCFunctionMeta(cFuncMeta)
+			convey.So(unsafe.Pointer(cFuncMeta.appName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.moduleName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.funcName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.className), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.functionId), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.signature), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.poolLabel), convey.ShouldNotBeNil)
+			convey.So(CSafeGoString(cFuncMeta.appName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.moduleName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.funcName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.className), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.functionId), convey.ShouldEqual, "default/0-system-faasExecutorPython3.9/$latest")
+			convey.So(CSafeGoString(cFuncMeta.signature), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.poolLabel), convey.ShouldEqual, "")
+		},
+	)
+}
+
 func TestInvokeByInstanceId(t *testing.T) {
 	convey.Convey(
 		"Test InvokeByInstanceId", t, func() {
@@ -581,9 +604,18 @@ func TestAcquireInstance(t *testing.T) {
 		"Test AcquireInstance", t, func() {
 			allocation, err := AcquireInstance("", api.FunctionMeta{}, api.InvokeOptions{})
 			convey.So(allocation, convey.ShouldNotBeNil)
+			convey.So(allocation.RouteAddress, convey.ShouldEqual, "10.0.0.1:7788")
+			convey.So(allocation.ProxyID, convey.ShouldEqual, "proxy-abc")
 			convey.So(err, convey.ShouldBeNil)
 		},
 	)
+}
+
+func TestKillSignatureAcceptsRouteParams(t *testing.T) {
+	convey.Convey("Test Kill signature accepts route params", t, func() {
+		err := Kill("test-inst", 9, nil, "10.0.0.1:7788", "proxy-abc")
+		convey.So(err, convey.ShouldBeNil)
+	})
 }
 
 func TestReleaseInstance(t *testing.T) {
@@ -696,9 +728,9 @@ func TestCreateInstanceRaw(t *testing.T) {
 			convey.Convey(
 				"InstanceRaw success", func() {
 					convey.So(func() {
-						go CreateInstanceRaw([]byte{0})
-						go InvokeByInstanceIdRaw([]byte{0})
-						go KillRaw([]byte{0})
+						go CreateInstanceRaw([]byte{0}, api.RawRequestOption{})
+						go InvokeByInstanceIdRaw([]byte{0}, api.RawRequestOption{})
+						go KillRaw([]byte{0}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
@@ -1104,6 +1136,40 @@ func TestCCustomResources(t *testing.T) {
 	)
 }
 
+func TestCAcquireOptions(t *testing.T) {
+	convey.Convey(
+		"Test cAcquireOptions", t, func() {
+			traceParent := "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01"
+			opts := api.InvokeOptions{
+				Cpu:                  1,
+				Memory:               256,
+				CustomResources:      map[string]float64{"npu": 1},
+				CustomExtensions:     map[string]string{"traceparent": traceParent, "k": "v"},
+				SchedulerFunctionID:  "scheduler",
+				SchedulerInstanceIDs: []string{"scheduler-0"},
+				TraceID:              "trace-id",
+				Timeout:              12,
+				AcquireTimeout:       8,
+				TrafficLimited:       true,
+			}
+			cAcquireOpt := cAcquireOptions(opts)
+			defer freeCInvokeOptions(cAcquireOpt)
+
+			convey.So(int(cAcquireOpt.size_customResources), convey.ShouldEqual, len(opts.CustomResources))
+			convey.So(int(cAcquireOpt.size_customExtensions), convey.ShouldEqual, len(opts.CustomExtensions))
+			convey.So(cAcquireOpt.trafficLimited, convey.ShouldNotEqual, 0)
+
+			extensions := unsafe.Slice(cAcquireOpt.customExtensions, int(cAcquireOpt.size_customExtensions))
+			extensionMap := make(map[string]string, len(extensions))
+			for _, extension := range extensions {
+				extensionMap[CSafeGoString(extension.key)] = CSafeGoString(extension.value)
+			}
+			convey.So(extensionMap["traceparent"], convey.ShouldEqual, traceParent)
+			convey.So(extensionMap["k"], convey.ShouldEqual, "v")
+		},
+	)
+}
+
 func TestCCustomExtensions(t *testing.T) {
 	convey.Convey(
 		"Test cCustomExtensions", t, func() {
@@ -1130,6 +1196,42 @@ func TestCCreateOpt(t *testing.T) {
 			)
 		},
 	)
+}
+
+func TestGoFunctionMetaRoundTrip(t *testing.T) {
+	convey.Convey("Test GoFunctionMeta round trip", t, func() {
+		name := "sandbox-name"
+		namespace := "sandbox-ns"
+		goMeta := api.FunctionMeta{
+			AppName:    "app",
+			ModuleName: "yr.sandbox.sandbox",
+			FuncName:   "__init__",
+			ClassName:  "SandboxInstance",
+			Language:   api.Python,
+			Sig:        "sig",
+			PoolLabel:  "pool",
+			Api:        api.ActorApi,
+			FuncID:     "default/0-defaultservice-py39/$latest",
+			Name:       &name,
+			Namespace:  &namespace,
+		}
+
+		cMeta := cFunctionMeta(goMeta)
+		defer freeCFunctionMeta(cMeta)
+
+		roundTrip := GoFunctionMeta(cMeta)
+		convey.So(roundTrip.AppName, convey.ShouldEqual, goMeta.AppName)
+		convey.So(roundTrip.ModuleName, convey.ShouldEqual, goMeta.ModuleName)
+		convey.So(roundTrip.FuncName, convey.ShouldEqual, goMeta.FuncName)
+		convey.So(roundTrip.ClassName, convey.ShouldEqual, goMeta.ClassName)
+		convey.So(roundTrip.Language, convey.ShouldEqual, goMeta.Language)
+		convey.So(roundTrip.Sig, convey.ShouldEqual, goMeta.Sig)
+		convey.So(roundTrip.PoolLabel, convey.ShouldEqual, goMeta.PoolLabel)
+		convey.So(roundTrip.Api, convey.ShouldEqual, goMeta.Api)
+		convey.So(roundTrip.FuncID, convey.ShouldEqual, goMeta.FuncID)
+		convey.So(*roundTrip.Name, convey.ShouldEqual, name)
+		convey.So(*roundTrip.Namespace, convey.ShouldEqual, namespace)
+	})
 }
 
 func TestByteSliceToCBinaryData(t *testing.T) {

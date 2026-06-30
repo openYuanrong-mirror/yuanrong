@@ -33,6 +33,21 @@ func Run() {
 	libruntime.ReceiveRequestLoop()
 }
 
+// RunWithReInit begins loop processing the received request with checkpoint restore re-init support.
+// After checkpoint restore, it will finalize and re-initialize automatically.
+func RunWithReInit(initFunc func() error) {
+	for {
+		libruntime.ReceiveRequestLoop()
+		if !libruntime.NeedReInit() {
+			break
+		}
+		libruntime.ReInit()
+		if err := initFunc(); err != nil {
+			panic("failed to re-initialize after checkpoint restore: " + err.Error())
+		}
+	}
+}
+
 // InitRuntime init runtime
 func InitRuntime() error {
 	conf := common.GetConfig()
@@ -41,7 +56,6 @@ func InitRuntime() error {
 		GrpcAddress:           conf.GrpcAddress,
 		FunctionSystemAddress: conf.FSAddress,
 		DataSystemAddress:     os.Getenv("DATASYSTEM_ADDR"),
-		IamAddress:            conf.IamAddress,
 		JobID:                 conf.JobID,
 		RuntimeID:             conf.RuntimeID,
 		InstanceID:            conf.InstanceID,
@@ -65,18 +79,17 @@ func InitRuntime() error {
 			SignalCb:            intfs.Signal,
 			HealthCheckCb:       intfs.HealthCheck,
 		},
-		FunctionExectionPool:         pool.NewPool(pool.DefaultFuncExecPoolSize),
-		SystemAuthAccessKey:          conf.SystemAuthAccessKey,
-		SystemAuthSecretKey:          conf.SystemAuthSecretKey,
-		SystemAuthDataKey:            conf.SystemAuthDataKey,
-		EncryptPrivateKeyPasswd:      conf.EncryptPrivateKeyPasswd,
-		PrimaryKeyStoreFile:          conf.PrimaryKeyStoreFile,
-		StandbyKeyStoreFile:          conf.StandbyKeyStoreFile,
-		EnableDsEncrypt:              conf.EnableDsEncrypt,
-		RuntimePublicKeyContextPath:  conf.RuntimePublicKeyContextPath,
-		RuntimePrivateKeyContextPath: conf.RuntimePrivateKeyContextPath,
-		DsPublicKeyContextPath:       conf.DsPublicKeyContextPath,
-		EnableEvent:                  conf.EnableEvent,
+		FunctionExectionPool:            pool.NewPool(pool.DefaultFuncExecPoolSize),
+		SystemAuthAccessKey:             conf.SystemAuthAccessKey,
+		SystemAuthSecretKey:             conf.SystemAuthSecretKey,
+		EncryptPrivateKeyPasswd:         conf.EncryptPrivateKeyPasswd,
+		PrimaryKeyStoreFile:             conf.PrimaryKeyStoreFile,
+		StandbyKeyStoreFile:             conf.StandbyKeyStoreFile,
+		EnableDsEncrypt:                 conf.EnableDsEncrypt,
+		RuntimePublicKeyContextPath:     conf.RuntimePublicKeyContextPath,
+		RuntimePrivateKeyContextPath:    conf.RuntimePrivateKeyContextPath,
+		DsPublicKeyContextPath:          conf.DsPublicKeyContextPath,
+		EnableEvent:                     conf.EnableEvent,
 	}
 	if err := libruntime.Init(runtimeConf); err != nil {
 		fmt.Printf("failed to init libruntime, error %s\n", err.Error())

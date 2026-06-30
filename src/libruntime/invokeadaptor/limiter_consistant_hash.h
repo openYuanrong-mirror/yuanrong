@@ -65,7 +65,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<ConcurrentLimiter>> limiters_;
     std::mutex limiterMtx_;
     std::atomic<int> nodeCount_{0};
-    int limiterTime_ = 1;
 };
 
 }  // namespace Libruntime

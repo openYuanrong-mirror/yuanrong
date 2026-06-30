@@ -4,12 +4,10 @@ go 1.24.1
 
 require (
 	clients v1.0.0
-	github.com/agiledragon/gomonkey v2.0.1+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.11.0
 	github.com/asaskevich/govalidator/v11 v11.0.1-0.20250122183457-e11347878e23
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/json-iterator/go v1.1.12
 	github.com/prometheus/client_golang v1.16.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.2.1
@@ -61,6 +59,7 @@ require (
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect

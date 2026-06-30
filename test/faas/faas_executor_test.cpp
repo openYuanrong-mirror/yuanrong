@@ -37,6 +37,16 @@ using namespace YR::internal;
 using namespace Function;
 using namespace YR::utility;
 namespace fs = std::filesystem;
+
+namespace {
+YR::Libruntime::ErrorInfo MockAllocReturnObject(std::shared_ptr<YR::Libruntime::DataObject> &returnObj, size_t metaSize,
+                                                size_t dataSize, const std::vector<std::string> &, uint64_t &)
+{
+    returnObj = std::make_shared<YR::Libruntime::DataObject>(metaSize, dataSize);
+    return {};
+}
+}  // namespace
+
 class FaasExecutorTest : public testing::Test {
 public:
     FaasExecutorTest(){};
@@ -44,20 +54,6 @@ public:
 
     void SetUp() override
     {
-        LogParam g_logParam = {
-            .logLevel = "DEBUG",
-            .logDir = "/tmp/log",
-            .nodeName = "test-runtime",
-            .modelName = "test",
-            .maxSize = 100,
-            .maxFiles = 1,
-            .logFileWithTime = false,
-            .logBufSecs = 30,
-            .maxAsyncQueueSize = 1048510,
-            .asyncThreadCount = 1,
-            .alsoLog2Stderr = true,
-        };
-        InitLog(g_logParam);
         auto lc = std::make_shared<YR::Libruntime::LibruntimeConfig>();
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
@@ -108,14 +104,17 @@ std::string contextMetaStr = R"(
         "enable_cloud_debug":"","isStatefulFunction":false,"isBridgeFunction":false,
         "isStreamEnable":false,"type":"","enable_auth_in_header":false,"dns_domain_cfg":null,"vpcTriggerImage":"",
         "stateConfig":{"lifeCycle":""}},
-        "s3MetaData":{"appId":"","bucketId":"","objectId":"","bucketUrl":"","code_type":"","code_url":"","code_filename":"",
+        "s3MetaData":{"appId":"","bucketId":"","objectId":"","bucketUrl":"","code_type":"","code_url":"",
+            "code_filename":"",
         "func_code":{"file":"","link":""}},
         "codeMetaData":{"sha512":"","storage_type":"s3","code_path":"",
         "appId":"","bucketId":"test","objectId":"cpp.zip","bucketUrl":"https://127.0.0,1:30110","code_type":"",
         "code_url":"","code_filename":"","func_code":{"file":"","link":""}},
         "envMetaData":{"environment":"fa3f8de0d7ac57ed34babf52:db67e7193a6d9ee35a15f92dc8de08f16a58d7810806921ad404bdccde",
+
         "encrypted_user_data":"",
         "envKey":"d79a80e56bd11a37c35ea5e7:d31ee89d52ab7f36094faa015a599149f1d27e295010bd328b319d3316c80bcfdeeefeffe1a3b622fb3c1ea8ffa86511dc7682086c711dc33bdb67d3c21dc93dbfdf487e90010b1905c1d168c1fe57c3",
+
         "cryptoAlgorithm":"GCM"},
         "stsMetaData":{"enableSts":false},
         "resourceMetaData":{"cpu":1000,"memory":1024,"gpu_memory":0,"enable_dynamic_memory":false,"customResources":"",
@@ -137,7 +136,8 @@ std::string contextMetaStr = R"(
         "version":"","imageAddress":""},"custom_health_check":{"timeoutSeconds":0,"periodSeconds":0,
         "failureThreshold":0},"dynamic_config":{"enabled":false,"update_time":"","config_content":null},
         "runtime_graceful_shutdown":{"maxShutdownTimeout":0},"pre_stop":{"pre_stop_handler":"",
-        "pre_stop_timeout":0},"rasp_config":{"init-image":"","rasp-image":"","rasp-server-ip":"","rasp-server-port":""}}}
+        "pre_stop_timeout":0},"rasp_config":{"init-image":"","rasp-image":"","rasp-server-ip":"",
+            "rasp-server-port":""}}}
 )";
 
 std::string createParamStr = R"(
@@ -219,9 +219,8 @@ TEST_F(FaasExecutorTest, ExecuteFunctionSuccessFullyTest)
     traceIdObj->data->MemoryCopy(traceId.data(), traceId.size());
     rawArgs.push_back(traceIdObj);
 
-    auto returnObj2 = std::make_shared<Libruntime::DataObject>(0, 200);
     EXPECT_CALL(*lr.get(), AllocReturnObject(Matcher<std::shared_ptr<YR::Libruntime::DataObject> &>(_), _, _, _, _))
-        .WillOnce(DoAll(SetArgReferee<0>(returnObj2), Return(YR::Libruntime::ErrorInfo())));
+        .WillOnce(Invoke(MockAllocReturnObject));
     err = exec_->ExecuteFunction(function, libruntime::InvokeType::InvokeFunction, rawArgs, returnObjects);
     ASSERT_TRUE(err.OK()) << err.Msg();
     auto result = std::string(static_cast<const char *>(returnObjects[0]->data->ImmutableData()),
@@ -241,9 +240,8 @@ TEST_F(FaasExecutorTest, ExecuteFunctionFailedTest)
     auto contextMetaObj = std::make_shared<YR::Libruntime::DataObject>(0, contextMetaStr.size());
     contextMetaObj->data->MemoryCopy(contextMetaStr.data(), contextMetaStr.size());
     rawArgs.push_back(contextMetaObj);
-    auto returnObj = std::make_shared<Libruntime::DataObject>(0, 200);
     EXPECT_CALL(*lr.get(), AllocReturnObject(Matcher<std::shared_ptr<YR::Libruntime::DataObject> &>(_), _, _, _, _))
-        .WillRepeatedly(DoAll(SetArgReferee<0>(returnObj), Return(YR::Libruntime::ErrorInfo())));
+        .WillRepeatedly(Invoke(MockAllocReturnObject));
 
     auto handlerPtr = std::make_unique<RegisterRuntimeHandler>();
     SetRuntimeHandler(std::move(handlerPtr));

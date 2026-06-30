@@ -50,7 +50,7 @@ public:
             .alsoLog2Stderr = true,
         };
         InitLog(g_logParam);
-        datasystem::ConnectOptions connectOptions;
+        DsConnectOptions connectOptions;
         heteroStore_ = std::make_shared<DatasystemHeteroStore>();
         heteroStore_->Init(connectOptions);
         heteroStore_->InitOnce();

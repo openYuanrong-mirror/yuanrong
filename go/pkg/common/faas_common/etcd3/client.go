@@ -38,6 +38,7 @@ var (
 	metaEtcdClient       *EtcdClient
 	caeMetaEtcdClient    *EtcdClient
 	dataSystemEtcdClient *EtcdClient
+	buildEtcdClient      = buildClient
 )
 
 const (
@@ -296,7 +297,7 @@ func newClient(config *EtcdConfig, stopCh <-chan struct{}, enableAlarm bool,
 	if stopCh == nil {
 		return nil, errors.New("etcd stopCh should not be nil")
 	}
-	client, err := buildClient(config)
+	client, err := buildEtcdClient(config)
 	if err != nil {
 		log.GetLogger().Errorf("failed to new %s etcd client, %s", etcdType, err.Error())
 		return nil, err

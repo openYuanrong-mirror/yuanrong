@@ -1,0 +1,21 @@
+{{- if .Values.etcd.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "yr-k8s.etcdServiceName" . }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: etcd
+    app: {{ include "yr-k8s.etcdServiceName" . }}
+spec:
+  type: {{ .Values.etcd.service.type }}
+  ports:
+    - name: client
+      port: {{ .Values.etcd.service.port }}
+      targetPort: client
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: etcd
+{{- end }}

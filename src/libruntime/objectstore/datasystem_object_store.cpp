@@ -16,6 +16,8 @@
 
 #include "datasystem_object_store.h"
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <unistd.h>
 #include <iterator>
 #include <memory>
@@ -37,6 +39,13 @@ inline void AssignDSBufferToResult(ds::Optional<ds::Buffer> &&buffer, size_t ind
                                    std::vector<std::shared_ptr<Buffer>> &results)
 {
     results[index] = std::make_shared<DataSystemBuffer>(std::move(buffer));
+}
+
+void ApplyTenantContext(const std::string &tenantId)
+{
+    if (!tenantId.empty()) {
+        (void)ds::Context::SetTenantId(tenantId);
+    }
 }
 
 template <typename T>
@@ -177,18 +186,20 @@ ErrorInfo DSCacheObjectStore::Init(const std::string &ip, int port, bool enableD
     return err;
 }
 
-ErrorInfo DSCacheObjectStore::Init(datasystem::ConnectOptions &inputConnOpt)
+ErrorInfo DSCacheObjectStore::Init(DsConnectOptions &inputConnOpt)
 {
     this->connectOpts.host = inputConnOpt.host;
     this->connectOpts.port = inputConnOpt.port;
+    this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
+    this->connectOpts.requestTimeoutMs = inputConnOpt.connectTimeoutMs;
+    this->connectOpts.token = inputConnOpt.token;
     this->connectOpts.clientPublicKey = inputConnOpt.clientPublicKey;
     this->connectOpts.clientPrivateKey = inputConnOpt.clientPrivateKey;
     this->connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
     this->connectOpts.accessKey = inputConnOpt.accessKey;
     this->connectOpts.secretKey = inputConnOpt.secretKey;
-    this->connectOpts.token = inputConnOpt.token;
-    this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
     this->connectOpts.tenantId = inputConnOpt.tenantId;
+    this->connectOpts.enableCrossNodeConnection = inputConnOpt.enableCrossNodeConnection;
     return ErrorInfo();
 }
 
@@ -216,6 +227,7 @@ ErrorInfo DSCacheObjectStore::CreateBuffer(const std::string &objectId, size_t d
                                            std::shared_ptr<Buffer> &dataBuf, const CreateParam &createParam)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     std::shared_ptr<ds::Buffer> dataBuffer;
     ds::CreateParam param;
     param.consistencyType = static_cast<datasystem::ConsistencyType>(createParam.consistencyType);
@@ -238,6 +250,7 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> DSCacheObjectStore::G
 {
     std::vector<std::shared_ptr<Buffer>> results;
     OBJ_STORE_INIT_ONCE_RETURN_PAIR(results);
+    ApplyTenantContext(tenantId);
     results.resize(ids.size());
     ErrorInfo err = GetBuffersImpl(ids, timeoutMS, results);
     return std::make_pair(err, results);
@@ -248,6 +261,7 @@ std::pair<RetryInfo, std::vector<std::shared_ptr<Buffer>>> DSCacheObjectStore::G
 {
     std::vector<std::shared_ptr<Buffer>> results;
     results.resize(ids.size());
+    ApplyTenantContext(tenantId);
     return std::make_pair(GetBuffersWithoutRetryImpl(ids, timeoutMS, results), results);
 }
 
@@ -269,6 +283,7 @@ ErrorInfo DSCacheObjectStore::Put(std::shared_ptr<Buffer> data, const std::strin
                                   const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     std::string msg;
     std::shared_ptr<ds::Buffer> dataBuffer;
     ds::CreateParam param;
@@ -318,12 +333,14 @@ ErrorInfo DSCacheObjectStore::GetImpl(const std::vector<std::string> &ids, int t
                                       std::vector<std::shared_ptr<Buffer>> &sbufferList)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     return ObjectStoreCommonGetImpl(ids, timeoutMS, sbufferList, dsClient);
 }
 
 SingleResult DSCacheObjectStore::Get(const std::string &objId, int timeoutMS)
 {
     OBJ_STORE_INIT_ONCE_RETURN_PAIR(nullptr);
+    ApplyTenantContext(tenantId);
     std::vector<std::string> ids = {objId};
     MultipleResult multiRes = Get(ids, timeoutMS);
     if (multiRes.first.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
@@ -337,6 +354,7 @@ MultipleResult DSCacheObjectStore::Get(const std::vector<std::string> &ids, int 
 {
     std::vector<std::shared_ptr<Buffer>> result;
     OBJ_STORE_INIT_ONCE_RETURN_PAIR(result);
+    ApplyTenantContext(tenantId);
     result.resize(ids.size());
     ErrorInfo err = GetImpl(ids, timeoutMS, result);
     return std::make_pair(err, result);
@@ -345,6 +363,7 @@ MultipleResult DSCacheObjectStore::Get(const std::vector<std::string> &ids, int 
 ErrorInfo DSCacheObjectStore::IncreGlobalReference(const std::vector<std::string> &objectIds)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     std::vector<std::string> failedObjectIds;
     ds::Status status = dsClient->GIncreaseRef(objectIds, failedObjectIds);
     ErrorInfo err = IncreaseRefReturnCheck(status, failedObjectIds);
@@ -365,6 +384,7 @@ std::pair<ErrorInfo, std::vector<std::string>> DSCacheObjectStore::IncreGlobalRe
 {
     std::vector<std::string> failedObjectIds;
     OBJ_STORE_INIT_ONCE_RETURN_PAIR(failedObjectIds);
+    ApplyTenantContext(tenantId);
     ds::Status status = dsClient->GIncreaseRef(objectIds, failedObjectIds);
     auto code =
         YR::Libruntime::ConvertDatasystemErrorToCore(status.GetCode(), static_cast<ErrorCode>(status.GetCode()));
@@ -376,6 +396,7 @@ std::pair<ErrorInfo, std::vector<std::string>> DSCacheObjectStore::IncreGlobalRe
 ErrorInfo DSCacheObjectStore::DecreGlobalReference(const std::vector<std::string> &objectIds)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     ErrorInfo err;
     // if the objectId is not in the map, not decrease
     std::vector<std::string> needDecreObjectIds = refCountMap.DecreRefCount(objectIds);
@@ -394,6 +415,7 @@ std::pair<ErrorInfo, std::vector<std::string>> DSCacheObjectStore::DecreGlobalRe
 {
     std::vector<std::string> failedObjectIds;
     OBJ_STORE_INIT_ONCE_RETURN_PAIR(failedObjectIds);
+    ApplyTenantContext(tenantId);
     ds::Status status = dsClient->GDecreaseRef(objectIds, failedObjectIds);
     auto code =
         YR::Libruntime::ConvertDatasystemErrorToCore(status.GetCode(), static_cast<ErrorCode>(status.GetCode()));
@@ -406,6 +428,7 @@ std::vector<int> DSCacheObjectStore::QueryGlobalReference(const std::vector<std:
 {
     std::vector<int> counting;
     OBJ_STORE_INIT_ONCE_RETURN(counting);
+    ApplyTenantContext(tenantId);
     for (auto &id : objectIds) {
         (void)counting.emplace_back(dsClient->QueryGlobalRefNum(id));
     }
@@ -415,6 +438,7 @@ std::vector<int> DSCacheObjectStore::QueryGlobalReference(const std::vector<std:
 ErrorInfo DSCacheObjectStore::ReleaseGRefs(const std::string &remoteId)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     ds::Status status = dsClient->ReleaseGRefs(YR::utility::ParseRealJobId(remoteId));
     auto code =
         YR::Libruntime::ConvertDatasystemErrorToCore(status.GetCode(), static_cast<ErrorCode>(status.GetCode()));
@@ -427,6 +451,7 @@ ErrorInfo DSCacheObjectStore::GenerateKey(std::string &key, const std::string &p
     // if DS-client is not initialized, do not init here, because it may cause memory occupation
     // just return prefix as key although it does not utilize distributed-master-feature of DS
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     if (!isInit || !isPut) {
         key = prefix;
         return ErrorInfo();
@@ -441,6 +466,7 @@ ErrorInfo DSCacheObjectStore::GenerateKey(std::string &key, const std::string &p
 ErrorInfo DSCacheObjectStore::GetPrefix(const std::string &key, std::string &prefix)
 {
     OBJ_STORE_INIT_ONCE();
+    ApplyTenantContext(tenantId);
     std::string msg;
     ds::Status status = dsClient->GetPrefix(key, prefix);
     msg = "failed to GetPrefix, errMsg:" + status.ToString();
@@ -461,9 +487,16 @@ void DSCacheObjectStore::Clear()
     }
     std::vector<std::string> objectIds = refCountMap.ToArray();
     refCountMap.Clear();
-    if (asyncDecreRef.Push(objectIds, tenantId)) {
-        asyncDecreRef.Stop();
+    if (!objectIds.empty()) {
+        ApplyTenantContext(tenantId);
+        std::vector<std::string> failedObjectIds;
+        ds::Status status = dsClient->GDecreaseRef(objectIds, failedObjectIds);
+        if (!status.IsOk() || !failedObjectIds.empty()) {
+            YRLOG_WARN("Clear object store GDecreaseRef failed. Status: {}, failed object count: {}",
+                       status.ToString(), failedObjectIds.size());
+        }
     }
+    asyncDecreRef.Stop();
 }
 
 void DSCacheObjectStore::Shutdown()
@@ -480,3 +513,5 @@ void DSCacheObjectStore::Shutdown()
 }
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

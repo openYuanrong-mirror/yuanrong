@@ -158,7 +158,7 @@ public:
         return DoMemoryCopy(data_, size_, data, length);
     }
 
-    virtual ErrorInfo Seal(const std::unordered_set<std::string> &nestedIds)
+    virtual ErrorInfo Seal(const std::unordered_set<std::string> &nestedIds) override
     {
         if (buffer_) {
             return buffer_->Seal(nestedIds);
@@ -185,8 +185,9 @@ public:
 class StringNativeBuffer : public Buffer {
 public:
     StringNativeBuffer(uint64_t size) : data_(size, '\0') {}
+    virtual ~StringNativeBuffer() = default;
 
-    virtual bool IsNative()
+    virtual bool IsNative() override
     {
         return true;
     }
@@ -226,6 +227,7 @@ private:
 
 class SharedBuffer : public Buffer {
 public:
+    virtual ~SharedBuffer() = default;
     SharedBuffer(void *data, uint64_t size) : data_(data), size_(size) {}
     SharedBuffer(std::shared_ptr<Buffer> buffer, uint64_t offset, uint64_t size) : size_(size), buffer_(buffer)
     {
@@ -236,7 +238,7 @@ public:
         return DoMemoryCopy(data_, size_, data, length);
     }
 
-    virtual bool IsNative()
+    virtual bool IsNative() override
     {
         return false;
     }

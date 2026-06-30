@@ -16,6 +16,7 @@
 
 #include "src/utility/thread_pool.h"
 #include "src/utility/logger/logger.h"
+#include "src/utility/platform_compat.h"
 
 namespace YR {
 namespace utility {
@@ -53,9 +54,11 @@ std::string ThreadPool::Init(size_t n, const std::string &threadNamePrefix)
     threadNamePrefix_ = prefix;
     for (size_t i = 0; i < n; i++) {
         try {
-            std::thread t([this] { Work(); });
             std::string name = prefix + "." + std::to_string(i);
-            pthread_setname_np(t.native_handle(), name.c_str());
+            std::thread t([this, name] {
+                YR_SET_THREAD_NAME_CURRENT(name.c_str());
+                Work();
+            });
             workers_[t.native_handle()] = std::move(t);
         } catch (const std::system_error &e) {
             return e.what();
@@ -71,9 +74,7 @@ void ThreadPool::InitAndRun(void)
 {
     {
         std::unique_lock<std::mutex> lock(mux_);
-        if (stop_) {
-            return;
-        }
+        // Allow re-initialization after Shutdown() for checkpoint restore scenario
         stop_ = false;
     }
     Work();
@@ -180,8 +181,10 @@ void ThreadPool::ErasePendingThread(const std::string &reqId)
 
     {
         std::unique_lock<std::mutex> lock(mux_);
-        std::thread t([this] { Work(); });
-        pthread_setname_np(t.native_handle(), threadName);
+        std::thread t([this, threadName] {
+            YR_SET_THREAD_NAME_CURRENT(threadName);
+            Work();
+        });
         workers_[t.native_handle()] = std::move(t);
     }
 
@@ -190,7 +193,7 @@ void ThreadPool::ErasePendingThread(const std::string &reqId)
 
 void ThreadPool::Stop(const std::vector<std::string> &requestIds)
 {
-    char threadName[THREAD_NAME_LEN];
+    char threadName[THREAD_NAME_LEN] = {0};
     int ret;
 
     for (auto &reqId : requestIds) {
@@ -199,7 +202,9 @@ void ThreadPool::Stop(const std::vector<std::string> &requestIds)
         }
         std::unique_lock<std::mutex> lock(workThreadMutex_);
         if (workThread_.find(reqId) != workThread_.end()) {
+#ifdef __linux__
             pthread_getname_np(workThread_[reqId], threadName, THREAD_NAME_LEN);
+#endif
             ret = pthread_cancel(workThread_[reqId]);
             if (ret != 0) {
                 continue;
@@ -207,8 +212,17 @@ void ThreadPool::Stop(const std::vector<std::string> &requestIds)
             workers_.erase(workThread_[reqId]);
             workThread_.erase(reqId);
 
-            std::thread t([this] { Work(); });
-            pthread_setname_np(t.native_handle(), threadName);
+#ifdef __linux__
+            std::thread t([this, threadName] {
+                YR_SET_THREAD_NAME_CURRENT(threadName);
+                Work();
+            });
+#else
+            (void)threadName;  // Suppress unused variable warning on non-Linux
+            std::thread t([this] {
+                Work();
+            });
+#endif
             workers_[t.native_handle()] = std::move(t);
         }
     }

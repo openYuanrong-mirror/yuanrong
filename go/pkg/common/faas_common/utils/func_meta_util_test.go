@@ -18,11 +18,9 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
@@ -53,16 +51,24 @@ func TestGetFuncMetaSignature(t *testing.T) {
 		convey.So(signature1, convey.ShouldNotEqual, signature2)
 	})
 	convey.Convey("marshal error", t, func() {
-		defer gomonkey.ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+		oldJSONMarshal := jsonMarshal
+		jsonMarshal = func(v interface{}) ([]byte, error) {
 			return nil, fmt.Errorf("marshal error")
-		}).Reset()
+		}
+		defer func() {
+			jsonMarshal = oldJSONMarshal
+		}()
 		str := GetFuncMetaSignature(&types.FunctionMetaInfo{}, true)
 		convey.So(str, convey.ShouldContainSubstring, "invalid function meta info")
 	})
 	convey.Convey("unmarshal error", t, func() {
-		defer gomonkey.ApplyFunc(json.Unmarshal, func(data []byte, v interface{}) error {
+		oldJSONUnmarshal := jsonUnmarshal
+		jsonUnmarshal = func(data []byte, v interface{}) error {
 			return fmt.Errorf("unmarshal error")
-		}).Reset()
+		}
+		defer func() {
+			jsonUnmarshal = oldJSONUnmarshal
+		}()
 		str := GetFuncMetaSignature(&types.FunctionMetaInfo{}, true)
 		convey.So(str, convey.ShouldContainSubstring, "invalid function meta info")
 	})

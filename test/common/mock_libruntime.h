@@ -125,6 +125,13 @@ public:
 
     MOCK_METHOD3(Kill, ErrorInfo(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data));
 
+    MOCK_METHOD4(KillWithRouting, ErrorInfo(const std::string &instanceId, int sigNo, const std::string &routeAddress,
+                                            const std::string &proxyID));
+
+    MOCK_METHOD5(KillWithRouting,
+                 ErrorInfo(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data,
+                           const std::string &routeAddress, const std::string &proxyID));
+
     MOCK_METHOD3(KillAsync,
                  void(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb));
 
@@ -257,7 +264,8 @@ public:
     MOCK_METHOD0(GetResources, std::pair<ErrorInfo, std::vector<YR::Libruntime::ResourceUnit>>());
     MOCK_METHOD0(IsHealth, bool());
     MOCK_METHOD0(IsDsHealth, bool());
-    MOCK_METHOD1(StreamWrite, ErrorInfo(const std::string &streamMessage));
+    MOCK_METHOD3(StreamWrite, ErrorInfo(const std::string &streamMessage, const std::string &requestId,
+                                        const std::string &instanceId));
 };
 }  // namespace Libruntime
 }  // namespace YR

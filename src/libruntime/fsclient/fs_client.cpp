@@ -178,5 +178,17 @@ int FSClient::GetEventServerPort()
     return this->fsIntf->GetSelfPort();
 }
 
+bool FSClient::NeedReInit() const
+{
+    return fsIntf ? fsIntf->NeedReInit() : false;
+}
+
+void FSClient::ReInit()
+{
+    if (fsIntf) {
+        fsIntf->ReInit();
+    }
+}
+
 }  // namespace Libruntime
 }  // namespace YR

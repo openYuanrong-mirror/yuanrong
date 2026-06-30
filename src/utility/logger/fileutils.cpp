@@ -43,7 +43,7 @@ namespace filesystem = std::filesystem;
 namespace filesystem = std::experimental::filesystem;
 #endif
 
-const int TIME_SINCE_YEAR = 1900;
+[[maybe_unused]] const int TIME_SINCE_YEAR = 1900;
 const int THOUSANDS_OF_MAGNITUDE = 1000;
 const int MILLION_OF_MAGNITUDE = 1000000;
 const mode_t LOG_FILE_PERMISSION = 0440;
@@ -53,7 +53,14 @@ inline std::string StrErr(int errNum)
 {
     char errBuf[256];
     errBuf[0] = '\0';
+#ifdef __APPLE__
+    // macOS version of strerror_r returns int and takes char* as second arg
+    strerror_r(errNum, errBuf, sizeof errBuf);
+    return std::string(errBuf);
+#else
+    // GNU version returns char*
     return strerror_r(errNum, errBuf, sizeof errBuf);
+#endif
 }
 
 size_t FileSize(const std::string &filename)
@@ -119,7 +126,11 @@ void Read(FILE *f, uint8_t *buf, size_t *pSize)
     size_t size = *pSize;
     // If fread_unlocked() return value is EINTR, the system call is interrupted.
     // Need to retry to read.
+#ifdef __APPLE__
+    STREAM_RETRY_ON_EINTR(numReads, f, fread(buf, 1, size, f));
+#else
     STREAM_RETRY_ON_EINTR(numReads, f, fread_unlocked(buf, 1, size, f));
+#endif
     if (numReads < size) {
         if (feof(f)) {
             *pSize = numReads;
@@ -145,10 +156,10 @@ int CompressFile(const std::string &src, const std::string &dest)
     }
 
     size_t size = BUFFER_SIZE;
-    uint8_t buf[size] = "\0";
+    std::vector<uint8_t> buf(size, 0);
     while (true) {
         try {
-            Read(file, buf, &size);
+            Read(file, buf.data(), &size);
         } catch (const std::exception &e) {
             (void)gzclose(gzf);
             (void)fclose(file);
@@ -158,7 +169,7 @@ int CompressFile(const std::string &src, const std::string &dest)
         if (size == 0) {
             break;
         }
-        int n = gzwrite(gzf, buf, static_cast<unsigned int>(size));
+        int n = gzwrite(gzf, buf.data(), static_cast<unsigned int>(size));
         if (n <= 0) {
             int err;
             const char *errStr = gzerror(gzf, &err);
@@ -196,7 +207,12 @@ void GetFileModifiedTime(const std::string &filename, int64_t &timestamp)
         YRLOG_WARN("failed to access modify time from {}", filename);
         return;
     }
+#ifdef __APPLE__
+    timestamp = statBuf.st_mtimespec.tv_sec * MILLION_OF_MAGNITUDE +
+                statBuf.st_mtimespec.tv_nsec / THOUSANDS_OF_MAGNITUDE;
+#else
     timestamp = statBuf.st_mtim.tv_sec * MILLION_OF_MAGNITUDE + statBuf.st_mtim.tv_nsec / THOUSANDS_OF_MAGNITUDE;
+#endif
 }
 
 bool RenameFile(const std::string &srcFile, const std::string &targetFile) noexcept

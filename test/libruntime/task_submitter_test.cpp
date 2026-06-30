@@ -20,12 +20,12 @@
 #include <gtest/gtest.h>
 #include <json.hpp>
 #include <random>
+#include "mock/mock_datasystem.h"
 #include "mock/mock_fs_intf.h"
 #include "mock/mock_fs_intf_with_callback.h"
 #include "src/dto/invoke_options.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/invoke_spec.h"
-#include "src/libruntime/objectstore/datasystem_object_store.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/timer_worker.h"
@@ -73,8 +73,7 @@ public:
         mockFsIntf = std::make_shared<MockFsIntf>();
         auto fsClient = std::make_shared<FSClient>(mockFsIntf);
         std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
-        auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
-        dsObjectStore->Init("127.0.0.1", 8080);
+        auto dsObjectStore = std::make_shared<MockObjectStore>();
         auto wom = std::make_shared<WaitingObjectManager>();
         memoryStore->Init(dsObjectStore, wom);
         KillFunc f = [](const std::string &instanceId, const std::string &payload, int signal) -> ErrorInfo {
@@ -451,8 +450,7 @@ std::shared_ptr<MockGwClient> TaskSubmitterTest::SetMaxConcurrencyInstanceNum(in
     auto mockFsIntf = std::make_shared<MockGwClient>();
     auto fsClient = std::make_shared<FSClient>(mockFsIntf);
     std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
-    auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
-    dsObjectStore->Init("127.0.0.1", 8080);
+    auto dsObjectStore = std::make_shared<MockObjectStore>();
     auto wom = std::make_shared<WaitingObjectManager>();
     memoryStore->Init(dsObjectStore, wom);
     std::string functionId = "";
@@ -564,6 +562,9 @@ TEST_F(TaskSubmitterTest, ScheduleFunction_Benchmark)
     // benchmark
     auto start = std::chrono::high_resolution_clock::now();
     size_t total = 50000;
+    if (std::getenv("CI") != nullptr) {
+        total = 5000;
+    }
     if (const char *env = std::getenv("YR_BENCHMARK_SCALE")) {
         total = std::stoi(env);
     }
@@ -841,6 +842,5 @@ TEST_F(TaskSubmitterTest, HandleFailInvokeIsDelayScaleDownTest)
     req.set_code(common::ErrorCode::ERR_USER_FUNCTION_EXCEPTION);
     ASSERT_FALSE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
 }
-
 }  // namespace test
 }  // namespace YR

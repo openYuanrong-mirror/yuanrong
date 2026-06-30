@@ -185,10 +185,32 @@ struct InvokeOptions {
     int memory = 500;
 
     /*!
+     * @var int cpuLimit
+     * @brief CPU resource limit for container isolation. Unit: m (milli-core).
+     * 0 = not set (default, use cpu value), >0 = explicit limit (must be >= cpu).
+     */
+    int cpuLimit = 0;
+
+    /*!
+     * @var int memoryLimit
+     * @brief Memory resource limit for container isolation. Unit: MB.
+     * 0 = not set (default, use memory value), >0 = explicit limit (must be >= memory).
+     */
+    int memoryLimit = 0;
+
+    /*!
      * @var std::unordered_map<std::string, uint64_t> customResources
      * @brief 指定用户自定义资源，例如gpu、npu等
      */
     std::unordered_map<std::string, float> customResources;
+
+    /*!
+     * @var bool bypassDatasystem
+     * @brief Whether to bypass datasystem for the return path. When True, all return values
+     * are kept in native memory and no IncreaseRef/DecreaseRef is performed.
+     * Return values exceeding 100MB will be truncated.
+     */
+    bool bypassDatasystem = false;
 
     /*!
      * @var std::string customExtensions
@@ -375,6 +397,23 @@ struct InvokeOptions {
             throw YR::Exception::InvalidParamException(
                 "gang scheduling and range scheduling cannot be used at the same time, please select one scheduling to "
                 "set.");
+        }
+
+        if (cpuLimit < 0) {
+            throw YR::Exception::InvalidParamException(
+                "cpuLimit (" + std::to_string(cpuLimit) + ") must be 0 or a positive value");
+        }
+        if (cpuLimit > 0 && cpuLimit < cpu) {
+            throw YR::Exception::InvalidParamException(
+                "cpuLimit (" + std::to_string(cpuLimit) + ") must be >= cpu (" + std::to_string(cpu) + ")");
+        }
+        if (memoryLimit < 0) {
+            throw YR::Exception::InvalidParamException(
+                "memoryLimit (" + std::to_string(memoryLimit) + ") must be 0 or a positive value");
+        }
+        if (memoryLimit > 0 && memoryLimit < memory) {
+            throw YR::Exception::InvalidParamException(
+                "memoryLimit (" + std::to_string(memoryLimit) + ") must be >= memory (" + std::to_string(memory) + ")");
         }
     }
 

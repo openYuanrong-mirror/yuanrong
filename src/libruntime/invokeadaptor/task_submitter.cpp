@@ -24,7 +24,6 @@
 #include "src/dto/config.h"
 #include "src/dto/constant.h"
 #include "src/libruntime/fsclient/protobuf/core_service.grpc.pb.h"
-#include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/invokeadaptor/faas_instance_manager.h"
 #include "src/libruntime/invokeadaptor/normal_instance_manager.h"
 #include "src/libruntime/utils/constants.h"
@@ -40,12 +39,12 @@ namespace Libruntime {
 const std::string INSTANCE_REQUIREMENT_RESOURKEY = "resourcesData";
 const std::string INSTANCE_REQUIREMENT_INSKEY = "designateInstanceID";
 const std::string INSTANCE_REQUIREMENT_POOLLABELKEY = "poolLabel";
-const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
-const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
-const int64_t IDLE_TIMER_INTERNAL = 10;
+[[maybe_unused]] const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
+[[maybe_unused]] const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
+[[maybe_unused]] const int64_t IDLE_TIMER_INTERNAL = 10;
 const int DEFALUT_CANCEL_DELAY_TIME = 5;  // second
 const int ERASE_DELAY_TIME = 30;
-const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
+[[maybe_unused]] const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
 using namespace YR::utility;
 using json = nlohmann::json;
 
@@ -91,7 +90,7 @@ void TaskSubmitter::Init()
     insManagers[libruntime::ApiType::Serve] = faasInsManager;
     insManagers[libruntime::ApiType::Function] = normalInsManager;
     this->UpdateConfig();
-    if (MetricsEnabled()) {
+    if (Config::Instance().ENABLE_METRICS()) {
         this->metricsEnable_ = true;
     }
     faasInsManager->StartBatchRenewTimer();
@@ -171,7 +170,8 @@ void TaskSubmitter::HandleInvokeNotify(const NotifyRequest &req, const ErrorInfo
     }
 }
 
-void TaskSubmitter::DowngradeCallback(const std::string &requestId, ErrorCode code, const std::string &result)
+void TaskSubmitter::DowngradeCallback(const std::string &requestId, Libruntime::ErrorCode code,
+                                      const std::string &result)
 {
     auto spec = requestManager->GetRequest(requestId);
     if (spec == nullptr) {
@@ -307,7 +307,7 @@ void TaskSubmitter::HandleSuccessInvokeNotify(const NotifyRequest &req, const st
             }
         }
     }
-    if (this->libRuntimeConfig->inCluster && !dsObjs.empty()) {
+    if (this->libRuntimeConfig->inCluster && !dsObjs.empty() && !spec->opts.bypassDatasystem) {
         this->memoryStore->IncreDSGlobalReference(dsObjs);
     }
     this->memoryStore->SetReady(spec->returnIds);
@@ -606,7 +606,7 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
         atomicLock.unlock();
         auto weakPtr = weak_from_this();
         downgrade_->Downgrade(
-            invokeSpec, [weakPtr](const std::string &requestId, ErrorCode code, const std::string &result) {
+            invokeSpec, [weakPtr](const std::string &requestId, Libruntime::ErrorCode code, const std::string &result) {
                 if (auto thisPtr = weakPtr.lock(); thisPtr) {
                     thisPtr->DowngradeCallback(requestId, code, result);
                 }
@@ -957,7 +957,7 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
             YRLOG_DEBUG("there is no invoke data of req: {}, no need update", reqId);
             return;
         }
-        if (!this->metricsAdaptor_ || !MetricsEnabled() || this->metricsAdaptor_->IsInited()) {
+        if (!this->metricsAdaptor_ || !Config::Instance().ENABLE_METRICS() || this->metricsAdaptor_->IsInited()) {
             return;
         }
         it->second->endTime = GetCurrentTimestampNs();
@@ -982,11 +982,6 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
         YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
                    data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
     }
-}
-
-bool TaskSubmitter::MetricsEnabled() const
-{
-    return Config::Instance().ENABLE_METRICS() || (libRuntimeConfig != nullptr && libRuntimeConfig->enableMetrics);
 }
 }  // namespace Libruntime
 }  // namespace YR

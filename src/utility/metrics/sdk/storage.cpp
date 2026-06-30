@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#include "api/include/gauge.h"
-#include "common/include/transfer.h"
-#include "sdk/include/storage.h"
+#include "src/utility/metrics/api/include/gauge.h"
+#include "src/utility/metrics/common/include/transfer.h"
+#include "src/utility/metrics/sdk/include/storage.h"
 
 namespace observability {
 namespace metrics {

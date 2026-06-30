@@ -16,14 +16,18 @@
 
 #include "task_scheduler.h"
 
+#include "src/utility/platform_compat.h"
+
 namespace YR {
 namespace Libruntime {
 void TaskScheduler::Run()
 {
     runFlag_ = true;
     // It is possible to optimize to have multiple schedulers share a single thread.
-    t = std::thread([this]() { Schedule(); });
-    pthread_setname_np(t.native_handle(), "task_scheduler");
+    t = std::thread([this]() {
+        YR_SET_THREAD_NAME_CURRENT("task_scheduler");
+        Schedule();
+    });
 }
 
 void TaskScheduler::Schedule()

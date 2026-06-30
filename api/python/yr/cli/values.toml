@@ -86,9 +86,18 @@ port = "{{ 22772|check_port() }}"
 grpc_listen_port = "{{ 22773|check_port() }}"
 exec_grpc_port = "{{ 22774|check_port() }}"
 
+[values.runtime_launcher]
+enable = false
+socket = "/var/run/runtime-launcher.sock"
+backend = "docker"
+docker_host = "unix:///var/run/docker.sock"
+
 [values.function_agent]
 ip = "{{ values.host_ip }}"
 port = "{{ 58866|check_port() }}"
+
+[values.function_scheduler]
+lease_port = "{{ 8889|check_port() }}"
 
 [values.dashboard]
 ip = "{{ values.host_ip }}"

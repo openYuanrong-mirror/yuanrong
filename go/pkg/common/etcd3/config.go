@@ -81,6 +81,12 @@ type pwdAuth struct {
 	passWd []byte
 }
 
+var (
+	getX509CACertPool        = commontls.GetX509CACertPool
+	loadServerTLSCertificate = commontls.LoadServerTLSCertificate
+	decryptPassword          = crypto.Decrypt
+)
+
 // this support no tls so we can leave scc dependencies behind
 func (e *EtcdConfig) getEtcdAuthTypeNoTLS() etcdAuth {
 	if e.SslEnable {
@@ -109,14 +115,14 @@ func (n *noAuth) renewToken(client *clientv3.Client, stop chan struct{}) {
 
 func (t *tlsAuth) getEtcdConfig() (*clientv3.Config, error) {
 	var pool *x509.CertPool
-	pool, err := commontls.GetX509CACertPool(t.cafile)
+	pool, err := getX509CACertPool(t.cafile)
 	if err != nil {
 		log.GetLogger().Errorf("failed to getX509CACertPool: %s", err.Error())
 		return nil, err
 	}
 
 	var certs []tls.Certificate
-	certs, err = commontls.LoadServerTLSCertificate(t.cerfile, t.keyfile)
+	certs, err = loadServerTLSCertificate(t.cerfile, t.keyfile)
 	if err != nil {
 		log.GetLogger().Errorf("failed to loadServerTLSCertificate: %s", err.Error())
 		return nil, err
@@ -138,7 +144,7 @@ func (t *tlsAuth) renewToken(client *clientv3.Client, stop chan struct{}) {
 }
 
 func (p *pwdAuth) getEtcdConfig() (*clientv3.Config, error) {
-	passWd, err := crypto.Decrypt(p.passWd, crypto.GetRootKey())
+	passWd, err := decryptPassword(p.passWd, crypto.GetRootKey())
 	if err != nil {
 		log.GetLogger().Errorf("failed to decrypt, error:%s", err.Error())
 		return nil, err

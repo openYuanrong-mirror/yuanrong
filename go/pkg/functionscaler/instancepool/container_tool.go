@@ -24,6 +24,8 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
 
+var jsonMarshal = json.Marshal
+
 const (
 	// DefaultInstanceLabel is empty
 	DefaultInstanceLabel = ""
@@ -50,6 +52,11 @@ const (
 	RaspInitDefaultMemory = 100
 )
 
+var (
+	sideCarAddFunc       = sideCarAdd
+	initContainerAddFunc = initContainerAdd
+)
+
 func sideCarAdd(funcSpec *types.FunctionSpecification) ([]byte, error) {
 	var sideCars []types.DelegateContainerSideCarConfig
 
@@ -57,7 +64,7 @@ func sideCarAdd(funcSpec *types.FunctionSpecification) ([]byte, error) {
 		sideCars = append(sideCars, makeRaspContainer(funcSpec))
 	}
 
-	configData, err := json.Marshal(sideCars)
+	configData, err := jsonMarshal(sideCars)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +79,7 @@ func initContainerAdd(funcSpec *types.FunctionSpecification) ([]byte, error) {
 	if funcSpec.ExtendedMetaData.UserOtelConfig.Enable {
 		initContainers = []types.DelegateInitContainerConfig{makeOtelInitContainer(funcSpec)}
 	}
-	configData, err := json.Marshal(initContainers)
+	configData, err := jsonMarshal(initContainers)
 	if err != nil {
 		return nil, err
 	}

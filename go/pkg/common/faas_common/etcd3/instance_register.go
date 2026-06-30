@@ -34,6 +34,17 @@ const (
 
 var (
 	refreshInterval = defaultRefreshInterval
+	registerGrant   = func(client *EtcdClient, ctxInfo EtcdCtxInfo, ttl int64) (clientv3.LeaseID, error) {
+		return client.Grant(ctxInfo, ttl)
+	}
+	registerPut = func(client *EtcdClient, ctxInfo EtcdCtxInfo, key string, value string,
+		opts ...clientv3.OpOption) error {
+		return client.Put(ctxInfo, key, value, opts...)
+	}
+	registerGetResponse = func(client *EtcdClient, ctxInfo EtcdCtxInfo, key string,
+		opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+		return client.GetResponse(ctxInfo, key, opts...)
+	}
 )
 
 // EtcdRegister - register to specified ETCD
@@ -114,7 +125,7 @@ func (r *EtcdRegister) refreshLease() {
 
 func (r *EtcdRegister) isKeyExist() bool {
 	ctx := CreateEtcdCtxInfoWithTimeout(context.Background(), DurationContextTimeout)
-	resp, err := r.EtcdClient.GetResponse(ctx, r.InstanceKey,
+	resp, err := registerGetResponse(r.EtcdClient, ctx, r.InstanceKey,
 		clientv3.WithKeysOnly(), clientv3.WithSerializable())
 	if err != nil {
 		log.GetLogger().Errorf("failed to get new key:%s from %s etcd, err:%s",
@@ -126,7 +137,7 @@ func (r *EtcdRegister) isKeyExist() bool {
 
 func (r *EtcdRegister) putInstanceInfoToEtcd() error {
 	grantCtx := CreateEtcdCtxInfoWithTimeout(context.Background(), DurationContextTimeout)
-	id, err := r.EtcdClient.Grant(grantCtx, instanceEtcdKeyTTL)
+	id, err := registerGrant(r.EtcdClient, grantCtx, instanceEtcdKeyTTL)
 	if err != nil {
 		log.GetLogger().Errorf("failed to grant instance lease in %s etcd: %s", r.EtcdClient.GetEtcdType(),
 			err.Error())
@@ -134,7 +145,7 @@ func (r *EtcdRegister) putInstanceInfoToEtcd() error {
 	}
 
 	ctx := CreateEtcdCtxInfoWithTimeout(context.Background(), DurationContextTimeout)
-	err = r.EtcdClient.Put(ctx, r.InstanceKey, r.Value, clientv3.WithLease(id))
+	err = registerPut(r.EtcdClient, ctx, r.InstanceKey, r.Value, clientv3.WithLease(id))
 	if err != nil {
 		log.GetLogger().Errorf("unable to put new key:%s to %s etcd, err:%s",
 			r.InstanceKey, r.EtcdClient.GetEtcdType(), err.Error())

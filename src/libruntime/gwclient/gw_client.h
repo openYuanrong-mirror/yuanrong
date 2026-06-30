@@ -16,12 +16,16 @@
 
 #pragma once
 
+#include <boost/beast/http.hpp>
+
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/libruntime/gwclient/http/client_manager.h"
+#include "src/libruntime/gwclient/transport/transport_client.h"
 #include "src/libruntime/heterostore/hetero_store.h"
 #include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/objectstore/async_decre_ref.h"
 #include "src/libruntime/objectstore/object_store.h"
+#include "src/libruntime/objectstore/reference_count_map.h"
 #include "src/libruntime/statestore/state_store.h"
 #include "src/libruntime/streamstore/stream_store.h"
 #include "src/utility/timer_worker.h"
@@ -54,8 +58,6 @@ const int KEEPALIVE_TIMES = -1;            // unlimited retry
 using InvocationCallback =
     std::function<void(const std::string &requestId, YR::Libruntime::ErrorCode code, const std::string &result)>;
 
-thread_local static std::string threadLocalTenantId;
-
 boost::beast::http::verb StringToVerb(const std::string &method);
 
 class GwClient : public FSIntf,
@@ -87,10 +89,10 @@ public:
                      int timeoutSec = -1) override;
     void InvocationAsync(const std::string &url, const std::shared_ptr<InvokeSpec> spec,
                          const InvocationCallback &callback);
-    virtual void InvocationSync(const std::string &method, const std::string &path,
-                                const std::unordered_map<std::string, std::string> &headers,
-                                const std::string &body, const InvocationCallback &callback);
-    void CallResultAsync(const std::shared_ptr<CallResultMessageSpec> req, CallResultCallBack callback)
+    void InvocationSync(const std::string &method, const std::string &path,
+                        const std::unordered_map<std::string, std::string> &headers,
+                        const std::string &body, const InvocationCallback &callback);
+    void CallResultAsync(const std::shared_ptr<CallResultMessageSpec> req, CallResultCallBack callback) override
     {
         STDERR_AND_THROW_EXCEPTION(ERR_INNER_SYSTEM_ERROR, RUNTIME,
                                    "CallResultAsync method not implemented when inCluster is false");
@@ -100,39 +102,47 @@ public:
     void StateSaveAsync(const StateSaveRequest &req, StateSaveCallBack callback) override;
     void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback) override;
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
-                             int timeoutSec = -1)
+                           int timeoutSec = -1) override
     {
         STDERR_AND_THROW_EXCEPTION(ERR_INNER_SYSTEM_ERROR, RUNTIME,
                                    "CreateRGroupAsync method not implemented when inCluster is false");
     }
     ErrorInfo Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout,
-                   const std::string &authToken = "");
+        const std::string &authToken = "");
     void Init(std::shared_ptr<HttpClient> httpClient);
+    void SetWsTransport(std::shared_ptr<TransportClient> ws);
     ErrorInfo Init(const std::string &ip, int port) override;
-    ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout);
+    ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout) override;
     ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                   const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                   const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                   const datasystem::SensitiveValue &sk) override
+                   const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                   const SensitiveValue &sk) override
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR,
                          "Init method with the nine params is not supported when inCluster is false");
     }
 
-    ErrorInfo Init(datasystem::ConnectOptions &options) override
+    // ObjectStore interface
+    ErrorInfo Init(DsConnectOptions &options) override
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR,
                          "Init method with the ConnectOptions is not supported when inCluster is false");
     }
-    ErrorInfo Init(datasystem::ConnectOptions &options, std::shared_ptr<StateStore> dsStateStore) override
+    // StreamStore interface
+    ErrorInfo Init(const DsConnectOptions &options) override
+    {
+        return ErrorInfo(ERR_INNER_SYSTEM_ERROR,
+                         "Init method with the ConnectOptions is not supported when inCluster is false");
+    }
+    ErrorInfo Init(const DsConnectOptions &options, std::shared_ptr<StateStore> dsStateStore) override
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR,
                          "Init method with the ConnectOptions is not supported when inCluster is false");
     }
     ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                   const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                   const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                   const datasystem::SensitiveValue &sk, std::int32_t connectTimeout) override;
+                   const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                   const SensitiveValue &sk, std::int32_t connectTimeout) override;
 
     ErrorInfo CreateBuffer(const std::string &objectId, size_t dataSize, std::shared_ptr<Buffer> &dataBuf,
                            const CreateParam &createParam) override;
@@ -146,14 +156,14 @@ public:
     MultipleResult Get(const std::vector<std::string> &ids, int timeoutMS) override;
     ErrorInfo IncreGlobalReference(const std::vector<std::string> &objectIds) override;
     ErrorInfo DecreGlobalReference(const std::vector<std::string> &objectIds) override;
-    ErrorInfo UpdateToken(datasystem::SensitiveValue token) override;
-    ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) override;
+    ErrorInfo ReleaseGRefs(const std::string &remoteId) override;
+    ErrorInfo UpdateToken(SensitiveValue token) override;
+    ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) override;
     std::vector<int> QueryGlobalReference(const std::vector<std::string> &objectIds) override
     {
         STDERR_AND_THROW_EXCEPTION(ERR_INNER_SYSTEM_ERROR, RUNTIME,
                                    "QueryGlobalReference method is not supported when inCluster is false");
     }
-    ErrorInfo ReleaseGRefs(const std::string &remoteId) override;
     ErrorInfo GenerateKey(std::string &key, const std::string &prefix, bool isPut) override;
     ErrorInfo GetPrefix(const std::string &key, std::string &prefix) override;
     ErrorInfo Write(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam) override;
@@ -179,11 +189,6 @@ public:
                                 std::shared_ptr<std::vector<std::string>> failedObjectIds);
     void Shutdown() override {}
     void SetTenantId(const std::string &tenantId) override;
-    ErrorInfo Init(const DsConnectOptions &options) override
-    {
-        return ErrorInfo(ERR_INNER_SYSTEM_ERROR,
-                         "Init method with DsConnectOptions not implemented when inCluster is false");
-    }
     ErrorInfo GenerateKey(std::string &returnKey) override
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR, "GenerateKey method is not supported when inCluster is false");
@@ -192,7 +197,7 @@ public:
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR, "HealthCheck method is not supported when inCluster is false");
     }
-    ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey)
+    ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey) override
     {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR, "Write method is not supported when inCluster is false");
     }
@@ -334,6 +339,8 @@ private:
 
 private:
     std::shared_ptr<HttpClient> httpClient_;
+    std::shared_ptr<TransportClient> httpTransport_;   // HTTP transport layer
+    std::shared_ptr<TransportClient> wsTransport_;     // WebSocket transport layer (optional)
     bool init_ = false;
     bool start_ = false;
     std::string funcName_;
@@ -350,6 +357,15 @@ private:
     std::shared_ptr<Security> security_;
     std::string authToken_;
     std::string tenantId_;
+
+    // Select transport: WebSocket if enabled and connected, otherwise HTTP
+    TransportClient *selectTransport()
+    {
+        if (Config::Instance().YR_ENABLE_WEBSOCKET() && wsTransport_ && wsTransport_->IsConnected()) {
+            return wsTransport_.get();
+        }
+        return httpTransport_ ? httpTransport_.get() : nullptr;
+    }
 };
 
 class ClientBuffer : public NativeBuffer {

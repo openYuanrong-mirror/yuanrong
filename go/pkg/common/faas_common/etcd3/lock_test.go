@@ -222,31 +222,32 @@ func TestTryLock(t *testing.T) {
 func TestUnlock(t *testing.T) {
 	stopCh := make(chan struct{})
 	lock := &EtcdLocker{EtcdClient: &EtcdClient{}, StopCh: stopCh}
+	oldDeleteEtcdKey := deleteEtcdKey
+	defer func() {
+		deleteEtcdKey = oldDeleteEtcdKey
+	}()
 	convey.Convey("test Unlock", t, func() {
 		convey.Convey("unlock ok", func() {
-			patch := gomonkey.ApplyFunc((*EtcdClient).Delete, func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
+			deleteEtcdKey = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
 				opts ...clientv3.OpOption) error {
 				return nil
-			})
-			defer patch.Reset()
+			}
 			err := lock.Unlock()
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("unlock error", func() {
-			patch := gomonkey.ApplyFunc((*EtcdClient).Delete, func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
+			deleteEtcdKey = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
 				opts ...clientv3.OpOption) error {
 				return errors.New("some error")
-			})
-			defer patch.Reset()
+			}
 			err := lock.Unlock()
 			convey.So(err.Error(), convey.ShouldEqual, "some error")
 		})
 		convey.Convey("unlock callback", func() {
-			patch := gomonkey.ApplyFunc((*EtcdClient).Delete, func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
+			deleteEtcdKey = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
 				opts ...clientv3.OpOption) error {
 				return nil
-			})
-			defer patch.Reset()
+			}
 			lock.UnlockCallback = func(l *EtcdLocker) error { return errors.New("some error") }
 			err := lock.Unlock()
 			convey.So(err.Error(), convey.ShouldEqual, "some error")
@@ -257,7 +258,7 @@ func TestUnlock(t *testing.T) {
 func TestLockKeeperLoop(t *testing.T) {
 	convey.Convey("test lockKeeperLoop", t, func() {
 		stopCh := make(chan struct{})
-		lock := &EtcdLocker{EtcdClient: &EtcdClient{}, LeaseTTL: 0, StopCh: stopCh}
+		lock := &EtcdLocker{EtcdClient: &EtcdClient{}, LeaseTTL: 2, StopCh: stopCh}
 		getResp := &clientv3.GetResponse{}
 		getErr := error(nil)
 		patches := []*gomonkey.Patches{
@@ -277,10 +278,13 @@ func TestLockKeeperLoop(t *testing.T) {
 		}()
 		convey.Convey("ticker case 1", func() {
 			ticker := time.NewTicker(100 * time.Millisecond)
-			patch1 := gomonkey.ApplyFunc(time.NewTicker, func(d time.Duration) *time.Ticker {
+			oldNewLockKeeperTicker := newLockKeeperTicker
+			newLockKeeperTicker = func(d time.Duration) *time.Ticker {
 				return ticker
-			})
-			defer patch1.Reset()
+			}
+			defer func() {
+				newLockKeeperTicker = oldNewLockKeeperTicker
+			}()
 			patch2 := gomonkey.ApplyFunc((*EtcdLocker).tryLock, func(_ *EtcdLocker, key string) error {
 				return ErrNoKeyCanBeFound
 			})
@@ -294,10 +298,13 @@ func TestLockKeeperLoop(t *testing.T) {
 		})
 		convey.Convey("ticker case 2", func() {
 			ticker := time.NewTicker(100 * time.Millisecond)
-			patch1 := gomonkey.ApplyFunc(time.NewTicker, func(d time.Duration) *time.Ticker {
+			oldNewLockKeeperTicker := newLockKeeperTicker
+			newLockKeeperTicker = func(d time.Duration) *time.Ticker {
 				return ticker
-			})
-			defer patch1.Reset()
+			}
+			defer func() {
+				newLockKeeperTicker = oldNewLockKeeperTicker
+			}()
 			patch2 := gomonkey.ApplyFunc((*EtcdClient).KeepAliveOnce, func(_ *EtcdClient, ctxInfo EtcdCtxInfo,
 				leaseID clientv3.LeaseID) error {
 				return errors.New("context deadline exceeded")
@@ -323,10 +330,13 @@ func TestLockKeeperLoop(t *testing.T) {
 			})
 			defer patch1.Reset()
 			ticker := time.NewTicker(100 * time.Millisecond)
-			patch2 := gomonkey.ApplyFunc(time.NewTicker, func(d time.Duration) *time.Ticker {
+			oldNewLockKeeperTicker := newLockKeeperTicker
+			newLockKeeperTicker = func(d time.Duration) *time.Ticker {
 				return ticker
-			})
-			defer patch2.Reset()
+			}
+			defer func() {
+				newLockKeeperTicker = oldNewLockKeeperTicker
+			}()
 			unlockCh := make(chan struct{})
 			lock.unlockCh = unlockCh
 			close(unlockCh)

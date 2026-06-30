@@ -17,11 +17,12 @@
 #ifndef OBSERVABILITY_SDK_METRICS_PROCESSOR_ACTOR_H
 #define OBSERVABILITY_SDK_METRICS_PROCESSOR_ACTOR_H
 
-#include <actor/actor.hpp>
-#include <async/asyncafter.hpp>
-#include <async/defer.hpp>
 
-#include "common/include/constant.h"
+#include <mutex>
+#include <atomic>
+#include <spdlog/spdlog.h>
+#include "src/utility/timer_worker.h"
+#include "src/utility/metrics/common/include/constant.h"
 #include "metrics/exporters/exporter.h"
 #include "metrics/sdk/metric_processor.h"
 
@@ -31,17 +32,16 @@ namespace MetricsExporter = observability::exporters::metrics;
 
 const yr_spdlog::level::level_enum LOGGER_LEVEL = yr_spdlog::level::info;
 
-class ProcessorActor : public litebus::ActorBase {
+class ProcessorActor {
 public:
     using MetricLogger = std::shared_ptr<yr_spdlog::logger>;
     ProcessorActor(std::shared_ptr<MetricsExporter::Exporter> &&exporter, const ExportConfigs &exportConfigs);
-    ~ProcessorActor() override = default;
+    ~ProcessorActor();
 
     void Start();
     void Export(const MetricData &data);
 
-    litebus::Future<AggregationTemporality> GetAggregationTemporality(MetricsSdk::InstrumentType instrumentType)
-        noexcept;
+    AggregationTemporality GetAggregationTemporality(MetricsSdk::InstrumentType instrumentType) noexcept;
 
     // for test
     [[maybe_unused]] std::vector<MetricData> GetMetricDataQueue()
@@ -67,16 +67,17 @@ public:
         return healthyExporter_;
     }
 
-protected:
-    void Finalize() override;
-
 private:
+    void Finalize();
+
     std::shared_ptr<MetricsExporter::Exporter> exporter_;
     ExportConfigs exportConfigs_;
-    litebus::Timer batchExportTimer_;
+    std::shared_ptr<YR::utility::Timer> batchExportTimer_;
+    std::mutex queueMutex_;
     std::vector<MetricData> metricDataQueue_;
     std::vector<MetricData> failureMetricDataQueue_;
-    std::atomic<bool> healthyExporter_ = true;
+    std::atomic<bool> healthyExporter_{true};
+    std::atomic<bool> running_{false};
 
     MetricLogger metricLogger_{ nullptr };
 

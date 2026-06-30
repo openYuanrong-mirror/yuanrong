@@ -15,6 +15,9 @@
  */
 
 #pragma once
+
+#ifdef ENABLE_DATASYSTEM
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -38,3 +41,5 @@ struct DeviceBufferParam {
 };
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

@@ -147,6 +147,28 @@ public class TestYR {
     }
 
     @Test
+    public void testInitAfterRuntimeInitFailure() throws Exception {
+        PowerMockito.when(LibRuntime.AutoInitYR(any())).thenThrow(new ExceptionInInitializerError("jni init failed"));
+
+        boolean isException = false;
+        try {
+            YR.init(conf);
+        } catch (ExceptionInInitializerError e) {
+            isException = true;
+            Assert.assertTrue(e.getMessage().contains("jni init failed"));
+        }
+        Assert.assertTrue(isException);
+
+        PowerMockito.mockStatic(LibRuntime.class);
+        when(LibRuntime.IsInitialized()).thenReturn(true);
+        when(LibRuntime.Init(any())).thenReturn(new ErrorInfo());
+        PowerMockito.when(LibRuntime.AutoInitYR(any())).thenReturn(null);
+        ClientInfo info = YR.init(conf);
+        Assert.assertNotEquals(info.getJobID(), "");
+        YR.Finalize();
+    }
+
+    @Test
     public void testFinalize() {
         boolean isException = false;
         try {

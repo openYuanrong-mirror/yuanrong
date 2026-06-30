@@ -15,7 +15,11 @@
  */
 
 #pragma once
+#ifdef __APPLE__
+#include <CoreServices/CoreServices.h>
+#else
 #include <sys/inotify.h>
+#endif
 #include <unistd.h>
 #include <atomic>
 #include <cerrno>
@@ -25,8 +29,10 @@
 #include <iostream>
 #include <thread>
 #include "src/utility/logger/logger.h"
+
 namespace YR {
 namespace utility {
+
 class FileWatcher {
 public:
     using Callback = std::function<void(const std::string &)>;
@@ -40,17 +46,23 @@ public:
     void Stop();
 
 private:
+#ifdef __APPLE__
+    struct Impl;
+    Impl* impl_;
+#else
     static constexpr size_t EVENT_BUF_LEN = 1024 * (sizeof(struct inotify_event) + NAME_MAX + 1);
     static constexpr uint32_t WATCH_MASK = IN_CLOSE_WRITE;  // monitor write completion
 
-    void Watch();
+    std::thread watcherThread_;
+    int fd_{-1};
+    int wd_{-1};
+#endif
 
     std::string filename_;
     Callback callback_;
     std::atomic<bool> running_{false};
-    std::thread watcherThread_;
-    int fd_{-1};
-    int wd_{-1};
+
+    void Watch();
 };
 }  // namespace utility
 }  // namespace YR

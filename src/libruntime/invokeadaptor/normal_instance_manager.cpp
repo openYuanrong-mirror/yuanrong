@@ -233,8 +233,13 @@ void NormalInsManager::HandleSuccessCreateNotify(const std::shared_ptr<InvokeSpe
         isErased = this->EraseCreatingInsInfoBare(info, createSpec->instanceId, true);
         if (isErased) {
             this->AddInsInfoBare(createSpec, info);
-            if (req.has_runtimeinfo() && !req.runtimeinfo().route().empty()) {
-                this->memoryStore->SetInstanceRoute(createSpec->returnIds[0].id, req.runtimeinfo().route());
+            if (req.has_runtimeinfo()) {
+                if (!req.runtimeinfo().route().empty()) {
+                    this->memoryStore->SetInstanceRoute(createSpec->returnIds[0].id, req.runtimeinfo().route());
+                }
+                if (!req.runtimeinfo().proxyid().empty()) {
+                    this->memoryStore->SetInstanceProxyID(createSpec->returnIds[0].id, req.runtimeinfo().proxyid());
+                }
             }
         }
     }

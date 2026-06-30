@@ -65,6 +65,16 @@ var (
 	tlsVersionMap = map[string]uint16{
 		"TLSv1.2": tls.VersionTLS12,
 	}
+	loadCertAndKeyBytes = LoadCertAndKeyBytes
+	x509KeyPair         = tls.X509KeyPair
+	readFileWithTimeout = reader.ReadFileWithTimeout
+	getRootKey          = crypto.GetRootKey
+	decryptByte         = crypto.DecryptByte
+	pemDecode           = pem.Decode
+	isEncryptedPEM      = crypto.IsEncryptedPEMBlock
+	localAuthDecrypt    = localauth.Decrypt
+	decryptPEMBlock     = crypto.DecryptPEMBlock
+	pemEncodeToMemory   = pem.EncodeToMemory
 )
 
 // tlsCipherSuiteMap is a set of supported TLS algorithms
@@ -228,13 +238,13 @@ func GetX509CACertPool(caCertFilePath string) (caCertPool *x509.CertPool, err er
 }
 
 func loadServerTLSCertificate() (tlsCert []tls.Certificate, err error) {
-	certContent, keyContent, err := LoadCertAndKeyBytes(HTTPSConfigs.CertFile, HTTPSConfigs.SecretKeyFile,
+	certContent, keyContent, err := loadCertAndKeyBytes(HTTPSConfigs.CertFile, HTTPSConfigs.SecretKeyFile,
 		HTTPSConfigs.KeyPassPhase)
 	if err != nil {
 		return nil, err
 	}
 
-	cert, err := tls.X509KeyPair(certContent, keyContent)
+	cert, err := x509KeyPair(certContent, keyContent)
 	if err != nil {
 		log.GetLogger().Errorf("failed to load the X509 key pair from cert file %s with key file %s: %s",
 			HTTPSConfigs.CertFile, HTTPSConfigs.SecretKeyFile, err.Error())
@@ -249,12 +259,12 @@ func loadServerTLSCertificate() (tlsCert []tls.Certificate, err error) {
 
 // LoadServerTLSCertificate generates tls certificate by certfile and keyfile
 func LoadServerTLSCertificate(cerfile, keyfile string) (tlsCert []tls.Certificate, err error) {
-	certContent, keyContent, err := LoadCertAndKeyBytes(cerfile, keyfile, "")
+	certContent, keyContent, err := loadCertAndKeyBytes(cerfile, keyfile, "")
 
 	if err != nil {
 		return nil, err
 	}
-	cert, err := tls.X509KeyPair(certContent, keyContent)
+	cert, err := x509KeyPair(certContent, keyContent)
 	if err != nil {
 		log.GetLogger().Errorf("failed to load the X509 key pair from cert file %s with key file %s: %s",
 			cerfile, keyfile, err.Error())
@@ -267,33 +277,33 @@ func LoadServerTLSCertificate(cerfile, keyfile string) (tlsCert []tls.Certificat
 
 // LoadCertAndKeyBytes load cert and key bytes
 func LoadCertAndKeyBytes(certFilePath, keyFilePath, passPhase string) (certPEMBlock, keyPEMBlock []byte, err error) {
-	certContent, err := reader.ReadFileWithTimeout(certFilePath)
+	certContent, err := readFileWithTimeout(certFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read cert file %s", err.Error())
 		return nil, nil, err
 	}
 
-	keyContent, err := reader.ReadFileWithTimeout(keyFilePath)
+	keyContent, err := readFileWithTimeout(keyFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read key file %s", err.Error())
 		return nil, nil, err
 	}
 
-	keyContent, err = crypto.DecryptByte(keyContent, crypto.GetRootKey())
+	keyContent, err = decryptByte(keyContent, getRootKey())
 	if err != nil {
 		log.GetLogger().Errorf("failed to decrypt key content, err: %s", err.Error())
 		return nil, nil, err
 	}
-	keyBlock, _ := pem.Decode(keyContent)
+	keyBlock, _ := pemDecode(keyContent)
 	if keyBlock == nil {
 		log.GetLogger().Errorf("failed to decode key file")
 		return nil, nil, errors.New("failed to decode key file")
 	}
 
-	if crypto.IsEncryptedPEMBlock(keyBlock) {
+	if isEncryptedPEM(keyBlock) {
 		var plainPassPhase []byte
 		if len(passPhase) > 0 {
-			plainPassPhase, err = localauth.Decrypt(passPhase)
+			plainPassPhase, err = localAuthDecrypt(passPhase)
 			if err != nil {
 				log.GetLogger().Errorf("failed to decrypt the ssl passPhase(%d): %s", len(passPhase),
 					err.Error())
@@ -301,7 +311,7 @@ func LoadCertAndKeyBytes(certFilePath, keyFilePath, passPhase string) (certPEMBl
 			}
 		}
 
-		keyData, err := crypto.DecryptPEMBlock(keyBlock, plainPassPhase)
+		keyData, err := decryptPEMBlock(keyBlock, plainPassPhase)
 		clearByteMemory(plainPassPhase)
 		if err != nil {
 			log.GetLogger().Errorf("failed to decrypt key file, error: %s", err.Error())
@@ -314,7 +324,7 @@ func LoadCertAndKeyBytes(certFilePath, keyFilePath, passPhase string) (certPEMBl
 			Bytes: keyData,
 		}
 
-		keyContent = pem.EncodeToMemory(plainKeyBlock)
+		keyContent = pemEncodeToMemory(plainKeyBlock)
 	}
 
 	return certContent, keyContent, nil

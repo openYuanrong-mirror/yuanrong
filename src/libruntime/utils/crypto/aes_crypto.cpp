@@ -83,7 +83,7 @@ YR::Libruntime::ErrorInfo CipherCut(std::string &cipher, std::string &iv, std::s
     }
 
     // Cut tag hex string.
-    tag = std::move(cipher.substr(cipher.size() - tagHexLen));
+    tag = cipher.substr(cipher.size() - tagHexLen);
     cipher = cipher.substr(0, cipher.size() - tagHexLen);
 
     // The range of ':' is [24, 32].
@@ -94,8 +94,8 @@ YR::Libruntime::ErrorInfo CipherCut(std::string &cipher, std::string &iv, std::s
     }
     
     // the range of iv is [0, cutPos), and the range of cipher is [cutPos+1, str.size-cutPos-1]
-    iv = std::move(cipher.substr(0, cutPos)); // salt
-    content = std::move(cipher.substr(cutPos + 1));
+    iv = cipher.substr(0, cutPos); // salt
+    content = cipher.substr(cutPos + 1);
     return ErrorInfo();
 }
 
@@ -163,7 +163,7 @@ YR::Libruntime::ErrorInfo DecryptWithGCMSpecifyKey(SensitiveValue &encryptData, 
         YRLOG_ERROR("decrypt by gcm failed, err: {}", err.Msg());
         return err;
     }
-    encryptData = std::move(std::string(reinterpret_cast<const char*>(result.data()), result.size()));
+    encryptData = std::string(reinterpret_cast<const char*>(result.data()), result.size());
     return ErrorInfo();
 }
 }  // namespace Libruntime

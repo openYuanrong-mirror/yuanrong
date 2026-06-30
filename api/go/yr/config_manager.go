@@ -62,7 +62,6 @@ func GetConfigManager() *ConfigManager {
 	manager.FunctionSystemAddress = ""
 	manager.DataSystemIPAddr = ""
 	manager.DataSystemPort = 0
-	manager.IamAddress = ""
 	manager.LogDir = ""
 	manager.LogLevel = "DEBUG"
 	manager.ThreadPoolSize = 10

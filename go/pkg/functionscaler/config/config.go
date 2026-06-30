@@ -50,9 +50,13 @@ const (
 
 var (
 	// GlobalConfig is the global config
-	GlobalConfig     types.Configuration
-	configEnvKey     = "SCHEDULER_CONFIG"
-	dockerRootPrefix = []byte("Docker Root Dir: ")
+	GlobalConfig      types.Configuration
+	configEnvKey      = "SCHEDULER_CONFIG"
+	dockerRootPrefix  = []byte("Docker Root Dir: ")
+	getEnv            = os.Getenv
+	setEnv            = os.Setenv
+	initStsSDK        = sts.InitStsSDK
+	getDecryptFromEnv = localauth.GetDecryptFromEnv
 )
 
 // InitModuleConfig initializes config for module
@@ -67,7 +71,7 @@ func InitModuleConfig() error {
 }
 
 func loadConfigFromEnv() (*types.Configuration, error) {
-	configJSON := os.Getenv(configEnvKey)
+	configJSON := getEnv(configEnvKey)
 	config := &types.Configuration{}
 	err := json.Unmarshal([]byte(configJSON), config)
 	if err != nil {
@@ -88,7 +92,7 @@ func InitConfig(configData []byte) error {
 
 func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 	setETCDConfig(GlobalConfig)
-	decryptEnvMap, err := localauth.GetDecryptFromEnv()
+	decryptEnvMap, err := getDecryptFromEnv()
 	if err != nil {
 		log.GetLogger().Errorf("get decrypt from env error: %v", err)
 		return err
@@ -104,24 +108,23 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 	}
 
 	if GlobalConfig.DockerRootPath != "" {
-		if err = os.Setenv(DockerRootPathEnv, GlobalConfig.DockerRootPath); err != nil {
+		if err = setEnv(DockerRootPathEnv, GlobalConfig.DockerRootPath); err != nil {
 			log.GetLogger().Warnf("cannot set env DOCKER_ROOT_DIR")
 		}
 	} else {
-		if err = os.Setenv(DockerRootPathEnv, defaultDockerRootPath); err != nil {
+		if err = setEnv(DockerRootPathEnv, defaultDockerRootPath); err != nil {
 			log.GetLogger().Warnf("cannot set default env DOCKER_ROOT_DIR")
 		}
 	}
 	if GlobalConfig.RawStsConfig.StsEnable {
-		if err := sts.InitStsSDK(GlobalConfig.RawStsConfig.ServerConfig); err != nil {
+		if err := initStsSDK(GlobalConfig.RawStsConfig.ServerConfig); err != nil {
 			log.GetLogger().Errorf("failed to init sts sdk, err: %s", err.Error())
 			return err
 		}
-		if err = os.Setenv(sts.EnvSTSEnable, "true"); err != nil {
+		if err = setEnv(sts.EnvSTSEnable, "true"); err != nil {
 			log.GetLogger().Errorf("failed to set env of %s, err: %s", sts.EnvSTSEnable, err.Error())
 			return err
 		}
-		GlobalConfig.SystemAuthConfig = sts.DecryptSystemAuthConfig(GlobalConfig.RawStsConfig.SensitiveConfigs.Auth)
 	}
 	if len(GlobalConfig.Scenario) == 0 {
 		GlobalConfig.Scenario = types.ScenarioWiseCloud
@@ -146,19 +149,10 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 }
 
 func setServiceAccountJwt(cfg *types.Configuration) error {
-	if cfg.RawStsConfig.StsEnable && len(cfg.ServiceAccountJwt.ServiceAccountKeyStr) > 0 {
-		var err error
-		cfg.ServiceAccountJwt.ServiceAccount, err =
-			serviceaccount.ParseServiceAccount(cfg.ServiceAccountJwt.ServiceAccountKeyStr)
-		if err != nil {
-			return err
-		}
-	}
 	if cfg.ServiceAccountJwt.TlsConfig != nil &&
 		len(cfg.ServiceAccountJwt.TlsConfig.TlsCipherSuitesStr) > 0 {
 		var err error
-		cfg.ServiceAccountJwt.TlsConfig.TlsCipherSuites, err =
-			serviceaccount.ParseTlsCipherSuites(cfg.ServiceAccountJwt.TlsConfig.TlsCipherSuitesStr)
+		cfg.ServiceAccountJwt.TlsConfig.TlsCipherSuites, err = serviceaccount.ParseTlsCipherSuites(cfg.ServiceAccountJwt.TlsConfig.TlsCipherSuitesStr)
 		if err != nil {
 			return err
 		}

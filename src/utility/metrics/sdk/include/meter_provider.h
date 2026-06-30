@@ -16,11 +16,10 @@
 
 #ifndef OBSERVABILITY_METER_PROVIDER_H
 #define OBSERVABILITY_METER_PROVIDER_H
-#include <litebus.hpp>
 
-#include "api/include/meter.h"
-#include "api/include/processor_actor.h"
-#include "sdk/include/storage.h"
+#include "src/utility/metrics/api/include/meter.h"
+#include "src/utility/metrics/api/include/processor_actor.h"
+#include "src/utility/metrics/sdk/include/storage.h"
 
 namespace observability {
 namespace metrics {

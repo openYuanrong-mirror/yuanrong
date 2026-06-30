@@ -19,8 +19,8 @@
 
 #include <vector>
 
-#include "common/include/constant.h"
-#include "sdk/include/metrics_data.h"
+#include "src/utility/metrics/common/include/constant.h"
+#include "src/utility/metrics/sdk/include/metrics_data.h"
 
 namespace observability {
 namespace metrics {

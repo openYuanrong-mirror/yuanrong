@@ -15,13 +15,27 @@
  */
 
 #pragma once
+
+#include <memory>
+#include <mutex>
 #include "yr/api/config.h"
 #include "yr/api/runtime.h"
+
+// Ensure singleton instance is exported from shared library
+#if defined(_WIN32) || defined(_WIN64)
+    #define YR_RUNTIME_SINGLETON_EXPORT __declspec(dllexport)
+#else
+    #define YR_RUNTIME_SINGLETON_EXPORT __attribute__((visibility("default")))
+#endif
+
 namespace YR {
 namespace internal {
 class LocalModeRuntime;
+
 struct RuntimeManager {
-    static RuntimeManager &GetInstance();
+    YR_RUNTIME_SINGLETON_EXPORT static RuntimeManager &GetInstance();
+
+    YR_RUNTIME_SINGLETON_EXPORT static void Cleanup();
 
     void Initialize(Config::Mode mode);
 
@@ -45,9 +59,14 @@ struct RuntimeManager {
         return localModeRuntime_;
     }
 
-private:
-    RuntimeManager() = default;
     ~RuntimeManager() = default;
+
+protected:
+
+    // Static pointer for singleton to avoid duplication when statically linked
+    static std::unique_ptr<RuntimeManager> instance_;
+    static std::mutex instanceMutex_;
+
     std::shared_ptr<YR::Runtime> yrRuntime;
     std::shared_ptr<LocalModeRuntime> localModeRuntime_;
     Config::Mode mode_;

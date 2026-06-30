@@ -410,7 +410,7 @@ func (fm *FunctionManager) recreateInstance() {
 }
 
 func (fm *FunctionManager) clearInstanceAfterError(instanceID string) {
-	if err := fm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}); err != nil {
+	if err := fm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 		log.GetLogger().Errorf("failed to kill manager instance: %s", instanceID)
 	}
 }
@@ -457,7 +457,7 @@ func (fm *FunctionManager) KillInstance(instanceID string) error {
 	return wait.ExponentialBackoffWithContext(
 		context.Background(), createInstanceBackoff, func(context.Context) (bool, error) {
 			var err error
-			err = fm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{})
+			err = fm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}, api.InvokeOptions{})
 			if err != nil && !strings.Contains(err.Error(), "instance not found") {
 				log.GetLogger().Warnf("failed to kill funcManager instanceID: %s, err: %s",
 					instanceID, err.Error())
@@ -477,7 +477,7 @@ func (fm *FunctionManager) SyncKillAllInstance() {
 		wg.Add(1)
 		go func(instanceID string) {
 			defer wg.Done()
-			if err := fm.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}); err != nil {
+			if err := fm.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill manager instance(id=%s), err:%s", instanceID, err.Error())
 				return
 			}
@@ -539,7 +539,8 @@ func (fm *FunctionManager) HandleInstanceUpdate(instanceSpec *types.InstanceSpec
 				currentNum, instanceSpec.InstanceID)
 			delete(fm.instanceCache, instanceSpec.InstanceID)
 			fm.Unlock()
-			if err := fm.sdkClient.Kill(instanceSpec.InstanceID, types.KillSignalVal, []byte{}); err != nil {
+			if err := fm.sdkClient.Kill(instanceSpec.InstanceID, types.KillSignalVal, []byte{},
+				api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill instance %s error:%s", instanceSpec.InstanceID,
 					err.Error())
 			}
@@ -672,7 +673,7 @@ func (fm *FunctionManager) RollingUpdate(ctx context.Context, event *types.Confi
 		fm.RUnlock()
 		log.GetLogger().Infof("start to terminate instance:%d", insID)
 		var err error
-		if err = fm.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}); err != nil {
+		if err = fm.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 			log.GetLogger().Errorf("failed to kill faasManager instance(id=%s), err:%v", insID, err)
 		}
 		fm.Lock()

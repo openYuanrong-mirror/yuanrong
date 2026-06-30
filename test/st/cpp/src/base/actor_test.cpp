@@ -207,7 +207,7 @@ TEST_F(ActorTest, DependentMutliRefError)
     auto ret = creator.Function(&Counter::Raise).Invoke();
     auto ret2 = creator.Function(&Counter::Add).Invoke(ret);
     auto ret3 = creator.Function(&Counter::Add).Invoke(ret2);
-    ASSERT_THROW(YR::Get(ret3), YR::Exception);
+    ASSERT_THROW(YR::Get(ret3, 5), YR::Exception);
 }
 
 /*case
@@ -243,7 +243,7 @@ TEST_F(ActorTest, DependentTwoMemberRetRefError)
     auto ret = creator.Function(&Counter::Raise).Invoke();
     auto ret2 = creator.Function(&Counter::Add).Invoke(1);
     auto ret3 = creator.Function(&Counter::AddTwo).Invoke(ret, ret2);
-    ASSERT_THROW(YR::Get(ret3), YR::Exception);
+    ASSERT_THROW(YR::Get(ret3, 5), YR::Exception);
 }
 
 /*case
@@ -261,8 +261,8 @@ TEST_F(ActorTest, DependentSameErrorRef)
     auto ret = creator.Function(&Counter::Raise).Invoke();
     auto ret2 = creator.Function(&Counter::Add).Invoke(ret);
     auto ret3 = creator.Function(&Counter::Add).Invoke(ret);
-    ASSERT_THROW(YR::Get(ret2), YR::Exception);
-    ASSERT_THROW(YR::Get(ret3), YR::Exception);
+    ASSERT_THROW(YR::Get(ret2, 5), YR::Exception);
+    ASSERT_THROW(YR::Get(ret3, 5), YR::Exception);
 }
 
 /*case
@@ -306,10 +306,10 @@ TEST_F(ActorTest, InvokeFailedWhenRuntimeSEGV)
     auto ret2 = creator.Function(&Counter::SEGV).Invoke();
     bool raise = false;
     try {
-        YR::Get(ret2);
+        YR::Get(ret2, 5);
     } catch (YR::Exception &e) {
         std::cout << e.Msg() << std::endl;
-        ASSERT_FALSE(e.Msg().find("SEGV") == std::string::npos);
+        SignalErrorMsgCheck("SEGV", "exit code:139", e.Msg());
         raise = true;
     }
     ASSERT_TRUE(raise);
@@ -328,7 +328,7 @@ TEST_F(ActorTest, DISABLED_NotEnoughGpuCheck)
         option.customResources.insert({"nvidia.com/gpu", 1.0});
         auto creator = YR::Instance(Counter::FactoryCreate).Options(std::move(option)).Invoke(1);
         auto member = creator.Function(&Counter::Add).Invoke(3);
-        auto res = *YR::Get(member);
+        auto res = *YR::Get(member, 5);
     } catch (YR::Exception &e) {
         std::string errorCode = "ErrCode: 1006";
         std::string errorMsg = "invalid resource parameter, request resource is greater than each node's max resource";
@@ -358,7 +358,7 @@ TEST_F(ActorTest, InvalidResource)
     try {
         auto creator = YR::Instance(Counter::FactoryCreate).Options(std::move(option)).Invoke(1);
         auto member = creator.Function(&Counter::Add).Invoke(3);
-        auto res = *YR::Get(member);
+        auto res = *YR::Get(member, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
@@ -373,7 +373,7 @@ TEST_F(ActorTest, InvalidResource)
     try {
         auto creator = YR::Instance(Counter::FactoryCreate).Options(std::move(option)).Invoke(1);
         auto member = creator.Function(&Counter::Add).Invoke(3);
-        auto res = *YR::Get(member);
+        auto res = *YR::Get(member, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
@@ -388,11 +388,11 @@ TEST_F(ActorTest, InvalidResource)
     try {
         auto creator = YR::Instance(Counter::FactoryCreate).Options(std::move(option)).Invoke(1);
         auto member = creator.Function(&Counter::Add).Invoke(3);
-        auto res = *YR::Get(member);
+        auto res = *YR::Get(member, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
-        std::string errorMsg = "Required memory resource size 127 MB is invalid. Valid value range is [128,1073741824] MB";
+        std::string errorMsg = "Required memory resource size 127 MB is invalid. Valid value range is [128, 1073741824] MB";
         std::string excepMsg = e.what();
         ErrorMsgCheck(errorCode, errorMsg, excepMsg);
     }
@@ -412,8 +412,8 @@ TEST_F(ActorTest, ZeroGPU)
     option.customResources.insert({"nvidia.com/gpu", 0.0});
     auto creator = YR::Instance(Counter::FactoryCreate).Options(std::move(option)).Invoke(1);
     auto member = creator.Function(&Counter::Add).Invoke(3);
-    auto res = *YR::Get(member);
-    printf("instance result is %d\n", *YR::Get(member));
+    auto res = *YR::Get(member, 5);
+    printf("instance result is %d\n", *YR::Get(member, 5));
     EXPECT_EQ(res, 4);
     creator.Terminate();
 }
@@ -503,7 +503,7 @@ TEST_F(ActorTest, NotExistInstanceMsgCheck)
     sleep(2);
     try {
         auto r2 = instance.Function(&CounterC::Add).Invoke(1);
-        auto v2 = *YR::Get(r2);
+        auto v2 = *YR::Get(r2, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCodeExit = "ErrCode: 1007";
@@ -529,13 +529,14 @@ TEST_F(ActorTest, ExceptionIllegalInstruction)
     auto instance = YR::Instance(Actor::FactoryCreate).Invoke(100);
     auto ins = instance.Function(&Actor::get_sigill).Invoke();
     try {
-        int n1 = *YR::Get(ins);
+        int n1 = *YR::Get(ins, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
         std::string errorMsg = "SIGILL";
+        std::string exitCodeMsg = "exit code:132";
         std::string excepMsg = e.what();
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
+        SignalErrorMsgCheck(errorCode, errorMsg, exitCodeMsg, excepMsg);
     }
 }
 
@@ -552,7 +553,7 @@ TEST_F(ActorTest, ExceptionInterruptSignal)
     auto instance = YR::Instance(Actor::FactoryCreate).Invoke(100);
     auto ins = instance.Function(&Actor::get_sigint).Invoke();
     try {
-        int n1 = *YR::Get(ins);
+        int n1 = *YR::Get(ins, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -687,7 +688,7 @@ TEST_F(ActorTest, CreateCppActorFailed)
                            .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                            .Invoke(1);
         auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -701,7 +702,7 @@ TEST_F(ActorTest, CreateCppActorFailed)
                            .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                            .Invoke(std::string("one"));
         auto ret = creator.CppFunction<int>("&Counter::Add").Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -787,7 +788,7 @@ TEST_F(ActorTest, DISABLED_CreateJavaActorFailed)
                            .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                            .Invoke();
         auto ret = creator.JavaFunction<int>("returnInt").Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -907,7 +908,7 @@ TEST_F(ActorTest, GroupInvokeAfterTerminate)
     bool raise = false;
     try {
         auto obj = ins.Function(&Counter::Add).Invoke(1);
-        auto res = *YR::Get(obj);
+        auto res = *YR::Get(obj, 5);
     } catch (YR::Exception &e) {
         std::string errorCode = "ErrCode: 9000";
         std::string errorMsg = "group ins had been terminated";
@@ -1312,7 +1313,7 @@ TEST_F(ActorTest, testLogMessageOfSigterm)
     auto instance = YR::Instance(Counter::FactoryCreate).Invoke(1);
     auto ins = instance.Function(&Counter::GetSigterm).Invoke();
     try {
-        int n1 = *YR::Get(ins);
+        int n1 = *YR::Get(ins, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string error_code = "ErrCode: 2002";
@@ -1491,7 +1492,7 @@ TEST_F(ActorTest, ActorTaskPendingTest)
     auto instance = YR::Instance(Counter::FactoryCreate).Options(opts).Invoke(1);
     auto ret1 = instance.Function(&Counter::Sleep).Options(opts).Invoke();
     auto ret2 = instance.Function(&Counter::Sleep).Options(opts).Invoke();
-    ASSERT_THROW(*YR::Get(ret1), YR::Exception);
+    ASSERT_THROW(*YR::Get(ret1, 5), YR::Exception);
 
     auto ret3 = instance.Function(&Counter::Add).Invoke(1);
     auto res = *YR::Get(ret3);

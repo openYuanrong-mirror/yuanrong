@@ -973,12 +973,12 @@ def test_handle_resource_group_failed(init_yr):
         print(e)
         assert "bundle index: 0, please set the value of cpu >= 0." in str(e)
     try:
-        rg = yr.create_resource_group([{"CPU": 500, "memory": 500}], "rgname1")
+        rg = yr.create_resource_group([{"CPU": 500, "memory": 500}], "rgname_invalid_wait")
         rg.wait(-2)
     except Exception as e:
         print(e)
         assert "should be greater than or equal to -1" in str(e)
-        yr.remove_resource_group("rgname1")
+        yr.remove_resource_group("rgname_invalid_wait")
     try:
         rg = yr.remove_resource_group("")
     except Exception as e:
@@ -1022,12 +1022,12 @@ def test_task_in_resource_group(init_yr):
     def get_num(x):
         return x
     rg = yr.create_resource_group(
-        [{"CPU": 1000, "Memory": 1000}], "rgname1")
+        [{"CPU": 1000, "Memory": 1000}], "rgname_task")
     rg.wait(10)
     rgp = yr.ResourceGroupOptions()
-    rgp.resource_group_name = "rgname1"
+    rgp.resource_group_name = "rgname_task"
     opts = yr.InvokeOptions()
     opts.resource_group_options = rgp
     results = [get_num.invoke(6) for i in range(1)]
     assert yr.get(results[0]) == 6
-    yr.remove_resource_group("rgname1")
+    yr.remove_resource_group("rgname_task")

@@ -66,16 +66,17 @@ func (k *KvMock) Txn(ctx context.Context) clientv3.Txn {
 
 func TestInitEtcdClientOK(t *testing.T) {
 	stopCh := make(chan struct{})
-	patches := []*gomonkey.Patches{
-		gomonkey.ApplyFunc(buildClient, func(config *EtcdConfig) (*EtcdClient, error) {
-			return &EtcdClient{clientExitCh: make(chan struct{}), cond: sync.NewCond(&sync.Mutex{})}, nil
-		}),
+	oldBuildEtcdClient := buildEtcdClient
+	buildEtcdClient = func(config *EtcdConfig) (*EtcdClient, error) {
+		return &EtcdClient{clientExitCh: make(chan struct{}), cond: sync.NewCond(&sync.Mutex{})}, nil
 	}
 	defer func() {
 		close(stopCh)
-		for _, patch := range patches {
-			patch.Reset()
-		}
+		buildEtcdClient = oldBuildEtcdClient
+		routerEtcdClient = nil
+		metaEtcdClient = nil
+		caeMetaEtcdClient = nil
+		dataSystemEtcdClient = nil
 	}()
 
 	convey.Convey("new RouteClient", t, func() {
@@ -113,6 +114,14 @@ func TestInitEtcdClientOK(t *testing.T) {
 
 func TestInitEtcdClientFail(t *testing.T) {
 	var stopCh chan struct{}
+	oldBuildEtcdClient := buildEtcdClient
+	defer func() {
+		buildEtcdClient = oldBuildEtcdClient
+		routerEtcdClient = nil
+		metaEtcdClient = nil
+		caeMetaEtcdClient = nil
+		dataSystemEtcdClient = nil
+	}()
 	routerEtcdClient = nil
 	metaEtcdClient = nil
 	caeMetaEtcdClient = nil
@@ -130,13 +139,21 @@ func TestInitEtcdClientFail(t *testing.T) {
 		convey.So(err, convey.ShouldNotBeNil)
 	})
 	convey.Convey("new RouteClient", t, func() {
+		routerEtcdClient = nil
 		stopCh = make(chan struct{})
+		buildEtcdClient = func(config *EtcdConfig) (*EtcdClient, error) {
+			return nil, errors.New("build client error")
+		}
 		err := InitParam().
 			WithRouteEtcdConfig(EtcdConfig{}).
 			WithStopCh(stopCh).InitClient()
 		convey.So(err, convey.ShouldNotBeNil)
 	})
 	convey.Convey("new  CAE MetadataClient", t, func() {
+		caeMetaEtcdClient = nil
+		buildEtcdClient = func(config *EtcdConfig) (*EtcdClient, error) {
+			return nil, errors.New("build client error")
+		}
 		err := InitParam().
 			WithCAEMetaEtcdConfig(EtcdConfig{}).
 			WithStopCh(stopCh).InitClient()

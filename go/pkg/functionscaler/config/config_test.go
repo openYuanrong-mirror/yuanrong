@@ -21,16 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/alarm"
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
-	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
-	"yuanrong.org/kernel/pkg/common/faas_common/sts"
 	"yuanrong.org/kernel/pkg/common/faas_common/sts/raw"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
@@ -60,9 +56,9 @@ func TestInitConfig(t *testing.T) {
 			MgmtServerConfig: raw.MgmtServerConfig{},
 		},
 	}
-	p1 := gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg raw.ServerConfig) error {
-		return nil
-	})
+	rawInitStsSDK := initStsSDK
+	initStsSDK = func(serverCfg raw.ServerConfig) error { return nil }
+	defer func() { initStsSDK = rawInitStsSDK }()
 	cfgByte, _ := json.Marshal(cfg)
 	convey.Convey("success", t, func() {
 		err := InitConfig(cfgByte)
@@ -98,17 +94,21 @@ func TestInitConfig(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 	})
 	convey.Convey("GetDecryptFromEnv success", t, func() {
-		defer gomonkey.ApplyFunc(localauth.GetDecryptFromEnv, func() (map[string]string, error) {
+		rawGetDecryptFromEnv := getDecryptFromEnv
+		getDecryptFromEnv = func() (map[string]string, error) {
 			return map[string]string{"metaEtcdPwd": "qwerdf"}, nil
-		}).Reset()
+		}
+		defer func() { getDecryptFromEnv = rawGetDecryptFromEnv }()
 		err := InitConfig(cfgByte)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(GlobalConfig.MetaETCDConfig.Password, convey.ShouldEqual, "qwerdf")
 	})
 	convey.Convey("GetDecryptFromEnv error", t, func() {
-		defer gomonkey.ApplyFunc(localauth.GetDecryptFromEnv, func() (map[string]string, error) {
+		rawGetDecryptFromEnv := getDecryptFromEnv
+		getDecryptFromEnv = func() (map[string]string, error) {
 			return nil, fmt.Errorf("get decrypt from env error")
-		}).Reset()
+		}
+		defer func() { getDecryptFromEnv = rawGetDecryptFromEnv }()
 		err := InitConfig(cfgByte)
 		convey.So(err, convey.ShouldNotBeNil)
 	})
@@ -122,24 +122,23 @@ func TestInitConfig(t *testing.T) {
 		err := InitConfig(cfgByte)
 		convey.So(err, convey.ShouldNotBeNil)
 	})
-	p1.Reset()
-
 	convey.Convey("sts init error", t, func() {
-		p2 := gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg raw.ServerConfig) error {
+		initStsSDK = func(serverCfg raw.ServerConfig) error {
 			return errors.New("init sts error")
-		})
+		}
+		defer func() { initStsSDK = rawInitStsSDK }()
 		err := InitConfig(cfgByte)
 		convey.So(err, convey.ShouldNotBeNil)
-		p2.Reset()
 	})
 
 	convey.Convey("sts init error", t, func() {
-		defer gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg raw.ServerConfig) error {
-			return nil
-		}).Reset()
-		defer gomonkey.ApplyFunc(os.Setenv, func(key, value string) error {
+		initStsSDK = func(serverCfg raw.ServerConfig) error { return nil }
+		defer func() { initStsSDK = rawInitStsSDK }()
+		rawSetEnv := setEnv
+		setEnv = func(key, value string) error {
 			return errors.New("set env error")
-		}).Reset()
+		}
+		defer func() { setEnv = rawSetEnv }()
 		err := InitConfig(cfgByte)
 		convey.So(err, convey.ShouldNotBeNil)
 	})
@@ -166,16 +165,20 @@ func TestInitModuleConfig(t *testing.T) {
 	}
 	cfgByte, _ := json.Marshal(cfg)
 	convey.Convey("success", t, func() {
-		defer gomonkey.ApplyFunc(os.Getenv, func(key string) string {
+		rawGetEnv := getEnv
+		getEnv = func(key string) string {
 			return string(cfgByte)
-		}).Reset()
+		}
+		defer func() { getEnv = rawGetEnv }()
 		err := InitModuleConfig()
 		convey.So(err, convey.ShouldBeNil)
 	})
 	convey.Convey("Unmarshal error", t, func() {
-		defer gomonkey.ApplyFunc(os.Getenv, func(key string) string {
+		rawGetEnv := getEnv
+		getEnv = func(key string) string {
 			return "{"
-		}).Reset()
+		}
+		defer func() { getEnv = rawGetEnv }()
 		err := InitModuleConfig()
 		convey.So(err, convey.ShouldNotBeNil)
 	})

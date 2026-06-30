@@ -79,10 +79,20 @@ void Runtime::Start(int argc, char *argv[])
 {
     this->BuildRegisterRuntimeHandler();
     YR::internal::ExecutorHolder::Singleton().SetExecutor(std::make_shared<FaasExecutor>());
-    YR::Config conf;
-    conf.isDriver = false;
-    YR::Init(conf, argc, argv);
-    YRLOG_INFO("success to init faas binrary runtime.");
-    YR::ReceiveRequestLoop();
+
+    bool needReInit = false;
+    do {
+        YR::Config conf;
+        conf.isDriver = false;
+        YR::Init(conf, argc, argv);
+        YRLOG_INFO("success to init faas binrary runtime.");
+        YR::ReceiveRequestLoop();
+
+        needReInit = YR::NeedReInit();
+        if (needReInit) {
+            YRLOG_INFO("Checkpoint restored, re-initializing faas runtime...");
+            YR::ReInit();
+        }
+    } while (needReInit);
 }
 }  // namespace Function

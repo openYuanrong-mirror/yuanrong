@@ -45,6 +45,8 @@ var (
 	// DefaultRequestTimeout is defined here for the convenience of mocking
 	DefaultRequestTimeout   = time.Duration(30) * time.Second
 	errInsThdReqReachMaxNum = errors.New("instance thread request reach max number")
+	needTryErrorFunc        = workermanager.NeedTryError
+	clearReqQueueWithError  = (*InsAcqReqQueue).ClearReqQueueWithError
 )
 
 // ScheduleFunction -
@@ -321,7 +323,7 @@ func (iq *InsAcqReqQueue) HandleCreateError(createError error) {
 			iq.Lock()
 			iq.unrecoverableError = createError
 			if iq.insNum == 0 {
-				iq.ClearReqQueueWithError(createError)
+				clearReqQueueWithError(iq, createError)
 			}
 			iq.Unlock()
 			return
@@ -338,11 +340,11 @@ func (iq *InsAcqReqQueue) handlerWorkMangerError(createError error) {
 	iq.Lock()
 	currentInstanceNum := iq.insNum
 	iq.Unlock()
-	if currentInstanceNum == 0 && !workermanager.NeedTryError(createError) {
+	if currentInstanceNum == 0 && !needTryErrorFunc(createError) {
 		log.GetLogger().Errorf("worker manager return error %s for function %s, returning all request now",
 			createError.Error(), iq.funcKeyWithRes)
 		iq.Lock()
-		iq.ClearReqQueueWithError(createError)
+		clearReqQueueWithError(iq, createError)
 		iq.Unlock()
 		return
 	}

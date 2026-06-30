@@ -15,11 +15,14 @@
  */
 
 #pragma once
+#include <cstdint>
+#include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include "datasystem/utils/sensitive_value.h"
 #include "src/libruntime/utils/hash_utils.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "src/libruntime/utils/utils.h"
 namespace YR {
 namespace Libruntime {
@@ -42,7 +45,6 @@ const int32_t FIRST_FOUR_BIT_MOVE = 4;
 const std::string STR_WHITESPACE = " \t\n\r";
 // Flags indicating how 'remove' or 'trim' should operate.
 enum class Mode { PREFIX, SUFFIX, ANY };
-using SensitiveValue = datasystem::SensitiveValue;
 
 std::string HashToHex(const std::string &message);
 

@@ -17,15 +17,21 @@
 #pragma once
 
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
 #include "absl/synchronization/mutex.h"
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
+#include "src/libruntime/utils/utils.h"
+#include "src/utility/logger/logger.h"
+#include "src/utility/string_utility.h"
 namespace http = boost::beast::http;
 namespace ssl = boost::asio::ssl;
 namespace beast = boost::beast;
@@ -49,6 +55,140 @@ struct ConnectionParam {
     int idleTime{120};
     int timeoutSec = CONNECTION_NO_TIMEOUT;
 };
+
+inline std::string GetProxyUrlFromEnv(bool forHttps)
+{
+    if (!Config::Instance().YR_ENABLE_HTTP_PROXY()) {
+        return "";
+    }
+    if (forHttps) {
+        for (const char *key : {"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"}) {
+            const std::string val = YR::GetEnvValue(key);
+            if (!val.empty()) {
+                return val;
+            }
+        }
+    } else {
+        for (const char *key : {"http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"}) {
+            const std::string val = YR::GetEnvValue(key);
+            if (!val.empty()) {
+                return val;
+            }
+        }
+    }
+    return "";
+}
+
+struct ProxyEndpoint {
+    std::string host;
+    std::string port = "80";
+    std::string auth;
+};
+
+const size_t URL_PERCENT_HEX_LEN = 2;
+const int URL_HEX_NIBBLE_BITS = 4;
+const size_t URL_SCHEME_SEPARATOR_LEN = 3;
+
+inline std::string UrlDecodePercent(const std::string &in)
+{
+    auto hexVal = [](char c) -> int {
+        if (c >= '0' && c <= '9') {
+            return c - '0';
+        }
+        if (c >= 'a' && c <= 'f') {
+            return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F') {
+            return c - 'A' + 10;
+        }
+        return -1;
+    };
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (in[i] == '%' && i + URL_PERCENT_HEX_LEN < in.size()) {
+            const int hi = hexVal(in[i + 1]);
+            const int lo = hexVal(in[i + URL_PERCENT_HEX_LEN]);
+            if (hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << URL_HEX_NIBBLE_BITS) | lo));
+                i += URL_PERCENT_HEX_LEN;
+                continue;
+            }
+        }
+        out.push_back(in[i]);
+    }
+    return out;
+}
+
+inline ProxyEndpoint ParseProxyUrl(std::string url)
+{
+    if (const auto pos = url.find("://"); pos != std::string::npos) {
+        url = url.substr(pos + URL_SCHEME_SEPARATOR_LEN);
+    }
+    ProxyEndpoint proxy;
+    if (const auto pos = url.rfind('@'); pos != std::string::npos && pos > 0) {
+        const std::string userinfo = UrlDecodePercent(url.substr(0, pos));
+        std::string encoded = YR::utility::EncodedToString(userinfo);
+        while (!encoded.empty() && encoded.back() == '\0') {
+            encoded.pop_back();
+        }
+        proxy.auth = "Basic " + encoded;
+        url = url.substr(pos + 1);
+    }
+    proxy.host = url;
+    if (const auto pos = url.rfind(':'); pos != std::string::npos) {
+        proxy.host = url.substr(0, pos);
+        proxy.port = url.substr(pos + 1);
+    }
+    if (const auto pos = proxy.port.find('/'); pos != std::string::npos) {
+        proxy.port = proxy.port.substr(0, pos);
+    }
+    return proxy;
+}
+
+inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::resolver &resolver,
+                                     const ConnectionParam &param, bool forHttps,
+                                     beast::flat_buffer *connectPrefix = nullptr)
+{
+    const std::string proxyUrl = GetProxyUrlFromEnv(forHttps);
+    if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+        stream.expires_after(std::chrono::seconds(param.timeoutSec));
+    }
+
+    const std::string target = param.ip + ":" + param.port;
+    if (proxyUrl.empty()) {
+        stream.connect(resolver.resolve(param.ip, param.port));
+    } else {
+        const auto proxy = ParseProxyUrl(proxyUrl);
+        YRLOG_INFO("HTTP CONNECT {} via proxy {}:{}", target, proxy.host, proxy.port);
+        stream.connect(resolver.resolve(proxy.host, proxy.port));
+
+        http::request<http::empty_body> req{http::verb::connect, target, 11};
+        req.set(http::field::host, target);
+        req.set(http::field::connection, "keep-alive");
+        req.set(http::field::proxy_connection, "keep-alive");
+        if (!proxy.auth.empty()) {
+            req.set(http::field::proxy_authorization, proxy.auth);
+        }
+        http::write(stream, req);
+
+        beast::flat_buffer buffer;
+        http::response_parser<http::empty_body> parser;
+        http::read_header(stream, buffer, parser);
+        if (parser.get().result() != http::status::ok) {
+            throw std::runtime_error("HTTP CONNECT rejected, status " +
+                                     std::to_string(parser.get().result_int()));
+        }
+        // Header 之后的字节（含 TLS 首包）留在 buffer 中，勿当作 HTTP body 消费掉。
+        if (connectPrefix != nullptr) {
+            *connectPrefix = std::move(buffer);
+        }
+    }
+
+    if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+        stream.expires_never();
+    }
+}
 
 class HttpClient {
 public:
@@ -111,8 +251,21 @@ public:
 
     void SetAvailable()
     {
+        std::function<void()> releaseCallback;
+        {
+            absl::WriterMutexLock l(&mu_);
+            isUsed_ = false;
+            releaseCallback = std::move(onRelease_);
+        }
+        if (releaseCallback) {
+            releaseCallback();
+        }
+    }
+
+    void SetOnRelease(std::function<void()> callback)
+    {
         absl::WriterMutexLock l(&mu_);
-        isUsed_ = false;
+        onRelease_ = std::move(callback);
     }
 
     void ResetConnActive()
@@ -192,11 +345,12 @@ protected:
     beast::flat_buffer buf_;
     std::shared_ptr<http::response_parser<http::string_body>> resParser_;
     http::request<http::string_body> req_;
-    bool isUsed_{true} ABSL_GUARDED_BY(mu_);
-    bool isConnectionAlive_{false} ABSL_GUARDED_BY(mu_);
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_ ABSL_GUARDED_BY(mu_);
+    bool isUsed_{true};
+    bool isConnectionAlive_{false};
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_;
     bool retried_{false};
     int idleTime_{120};
+    std::function<void()> onRelease_;
     mutable absl::Mutex mu_;
 };
 

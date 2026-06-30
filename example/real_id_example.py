@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding=UTF-8
-# Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,16 @@
 
 """E2E validation: InstanceProxy.real_id property"""
 
+import logging
+
 import yr
+
+LOGGER = logging.getLogger(__name__)
+
+
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
 
 
 @yr.instance
@@ -37,23 +46,22 @@ def main():
         logic_id = ins.instance_id
         real_id = ins.real_id
 
-        print(f"logic_id : {logic_id}")
-        print(f"real_id  : {real_id}")
+        LOGGER.info("logic_id : %s", logic_id)
+        LOGGER.info("real_id  : %s", real_id)
 
-        if not isinstance(real_id, str) or len(real_id) == 0:
-            raise RuntimeError("real_id should be a non-empty string")
-        print("real_id type/length check passed")
+        require(isinstance(real_id, str) and len(real_id) > 0, "real_id should be a non-empty string")
+        LOGGER.info("real_id type/length check passed")
 
         result = yr.get(ins.inc.invoke())
-        if result != 1:
-            raise RuntimeError(f"expected 1, got {result}")
-        print(f"actor method invoke passed: count={result}")
+        require(result == 1, f"expected 1, got {result}")
+        LOGGER.info("actor method invoke passed: count=%s", result)
 
         ins.terminate()
-        print("PASS: InstanceProxy.real_id e2e validation succeeded")
+        LOGGER.info("PASS: InstanceProxy.real_id e2e validation succeeded")
     finally:
         yr.finalize()
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     main()

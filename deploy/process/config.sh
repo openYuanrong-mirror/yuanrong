@@ -41,10 +41,10 @@ ds_log_level:,ds_log_path:,ds_log_rolling_max_size:,ds_log_rolling_max_files:,\
 is_schedule_tolerate_abnormal:,max_instance_cpu_size:,max_instance_memory_size:,\
 min_instance_cpu_size:,min_instance_memory_size:,\
 ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
-ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,\
+ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,enable_event:,enable_function_token_auth:,\
+enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,quota_config_file:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
@@ -60,28 +60,28 @@ ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_sto
 is_partial_watch_instances:,\
 ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,frontend_client_auth_type:,meta_service_ssl_enable:,\
 meta_service_client_auth_type:,\
-iam_ssl_enable:,\
+iam_ssl_enable:,iam_local_listen_port:,iam_local_ip:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
 etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key_file:,etcd_ca_file:,\
 local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_store:,enable_persistence:,enable_jemalloc:,enable_inherit_env:,\
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
-max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
+max_priority:,enable_preemption:,enable_direct_routing:,force_low_reliability_instance:,kill_process_timeout_seconds:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
 prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
 dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
 user_log_auto_flush_interval_ms:,user_log_buffer_flush_threshold:,\
 user_log_rolling_size_limit_mb:,user_log_rolling_file_count_limit:,\
-fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
+fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,fc_agent_mgr_retry_times:,fc_agent_mgr_retry_cycle:,disable_nc_check,\
 runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
 etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
-runtime_metrics_config:,runtime_metrics_config_file:,\
+runtime_metrics_config:,runtime_metrics_config_file:,enable_runtime_launcher:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
-enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_enable_tls:,traefik_servers_transport:,\
+enable_traefik_registry:,enable_traefik_provider:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_http_entry_point:,traefik_enable_tls:,traefik_servers_transport:,traefik_forward_timeout_ms:,\
 meta_service_address:,\
 system_tenant_id:,\
 help"
@@ -103,6 +103,21 @@ LOG_ROTATE_CONFIG="{{logConfigPath}}/runtime-*.out {{logConfigPath}}/runtime-*.e
 }
 "
 
+function default_metrics_config_file() {
+  local candidate
+  for candidate in \
+    "${BASE_DIR}/../../functionsystem/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../functionsystem/scripts/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../../functionsystem/scripts/config/metrics/metrics_config.json"; do
+    if [ -f "${candidate}" ]; then
+      readlink -m "${candidate}"
+      return
+    fi
+  done
+  echo ""
+}
+
 # General Configuration
 FUNCTION_MASTER_IP=""
 ENABLE_MASTER="false"
@@ -118,6 +133,8 @@ DATA_PLANE_INSTALL_DIR=""
 MASTER_INFO_OUT_FILE=""
 CPU_ALL=0
 MEM_ALL=0
+ENABLE_RUNTIME_LAUNCHER="false"
+RUNTIME_LAUNCHER_SOCK=""
 CPU4COMP=0
 MEM4COMP=0
 MEM4DATA=0
@@ -136,16 +153,19 @@ STATUS_COLLECT_INTERVAL=300
 ENABLE_TRACE=false
 TRACE_CONFIG=""
 ENABLE_TRAEFIK_REGISTRY=false
+ENABLE_TRAEFIK_PROVIDER=false
 TRAEFIK_DOMAIN=""
 TRAEFIK_ETCD_PREFIX="traefik"
 TRAEFIK_LEASE_TTL=300000
 TRAEFIK_HTTP_ENTRYPOINT="websecure"
+TRAEFIK_HTTP_ENTRY_POINT="websecure"
 TRAEFIK_ENABLE_TLS="true"
 TRAEFIK_SERVERS_TRANSPORT="yr-backend-tls@file"
+TRAEFIK_FORWARD_TIMEOUT_MS=3000
 RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
-METRICS_CONFIG_FILE=$(readlink -m '${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json')
+METRICS_CONFIG_FILE=$(default_metrics_config_file)
 RUNTIME_METRICS_CONFIG=""
 RUNTIME_METRICS_CONFIG_FILE=""
 STATE_STORAGE_TYPE="datasystem"
@@ -156,6 +176,8 @@ ELECTION_MODE="standalone"
 FS_HEALTH_CHECK_RETRY_TIMES=60
 FS_HEALTH_CHECK_RETRY_INTERVAL=0
 FS_HEALTH_CHECK_TIMEOUT=1
+FC_AGENT_MGR_RETRY_TIMES=9
+FC_AGENT_MGR_RETRY_CYCLE=20000
 DISABLE_NC_CHECK="false"
 ETCD_TABLE_PREFIX=""
 ETCD_TARGET_NAME_OVERRIDE=""
@@ -200,6 +222,7 @@ LOCAL_IP=""
 ENABLE_DPOSIX_UDS=false
 DPOSIX_UDS_PATH=""
 GLOBAL_SCHEDULER_PORT=22770
+FUNCTION_SCHEDULER_LEASE_PORT=8889
 RUNTIME_INIT_PORT=21006
 DASHBOARD_PORT=9080
 DASHBOARD_GRPC_PORT=9081
@@ -243,6 +266,8 @@ LOCAL_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterog
 DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
 SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
+ENABLE_DIRECT_ROUTING=false
+FORCE_LOW_RELIABILITY_INSTANCE=false
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
 MAX_PRIORITY=0
 # Use snlib to adapt old or new runtime params
@@ -278,7 +303,9 @@ FAAS_FRONTEND_HTTP_PORT=8888
 FAAS_FRONTEND_GRPC_PORT=31223
 ENABLE_FUNCTION_SCHEDULER="false"
 ENABLE_EVENT="false"
+FRONTEND_LEASE_BYPASS="false"
 ENABLE_FUNCTION_TOKEN_AUTH="false"
+QUOTA_CONFIG_FILE=""
 # Data System Configuration
 DS_MASTER_IP=""
 DS_MASTER_PORT=12123
@@ -300,6 +327,7 @@ DS_L2_CACHE_TYPE="none"
 DS_SFS_PATH=""
 DS_ENABLE_THP="false"
 ENABLE_DISTRIBUTED_MASTER="false"
+DS_NODE_ROLE=""
 # Third Party Configuration
 ETCD_MODE="inner"
 ETCD_IP=""
@@ -340,9 +368,14 @@ FRONTEND_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_SSL_ENABLE="false"
 META_SERVICE_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_ADDRESS=""
-# iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
-# certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
+# iam ssl config - IAM_SSL_ENABLE independently toggles mTLS for IAM server
+# cert paths reuse global SSL_BASE_PATH/SSL_ROOT_FILE/SSL_CERT_FILE/SSL_KEY_FILE
 IAM_SSL_ENABLE="false"
+# iam local plaintext listener for co-deployed access (0 = disabled)
+IAM_LOCAL_LISTEN_PORT="0"
+# IAM_LOCAL_IP: bind address for the local plaintext listener.
+# Must be a loopback address (127.x.x.x or ::1). Default: 127.0.0.1.
+IAM_LOCAL_IP="127.0.0.1"
 SSL_ROOT_FILE="ca.crt"
 SSL_CERT_FILE="module.crt"
 SSL_KEY_FILE="module.key"
@@ -383,7 +416,7 @@ ENCRYPT_DS_PUBLIC_KEY_CONTEXT=""
 USER_LOG_AUTO_FLUSH_INTERVAL_MS=10000
 USER_LOG_BUFFER_FLUSH_THRESHOLD=1048576
 USER_LOG_MAX_ROLLING_FILE_SIZE_MB=100
-USER_LOG_MAX_ROLLING_LOG_FILE_NUM=100
+USER_LOG_MAX_ROLLING_LOG_FILE_NUM=0
 
 LOG_EXPIRATION_ENABLE="true"
 LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
@@ -533,15 +566,22 @@ function usage() {
   echo -e "     --fs_health_check_timeout                           timeout of function system component health check, unit s (default 1)"
   echo -e "     --fs_health_check_retry_interval                    retry interval of function system component health check, unit s (default 0)"
   echo -e "     --fs_health_check_retry_times                       retry times of function system component health check (default 60)"
+  echo -e "     --fc_agent_mgr_retry_times                          retry times of function agent manager (default 9)"
+  echo -e "     --fc_agent_mgr_retry_cycle                          retry cycle of function agent manager, unit ms (default 20000)"
   echo -e "     --enable_faas_frontend                              enable faasfrontend, options:true/false (default false)"
   echo -e "     --faas_frontend_http_port                           faas frontend http port (default 8888)"
   echo -e "     --faas_frontend_grpc_port                           faas frontend grpc port (default 31223)"
   echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
+  echo -e "     --function_scheduler_lease_port                     function scheduler lease http port (default 8889)"
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
+  echo -e "     --quota_config_file                                 path to quota config JSON file; empty string disables quota enforcement (default \"\")"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
   echo -e "     --enable_event                                      faas frontend enable stream event mode"
+  echo -e "     --frontend_lease_bypass                             faas frontend bypass all lease processing, options:true/false (default false)"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
+  echo -e "     --enable_direct_routing                             enable direct routing optimization to bypass proxy for same-node invocations (default false)"
+  echo -e "     --force_low_reliability_instance                    force all instances to use low-reliability persistence semantics (default false)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
   echo -e "     --runtime_home_dir                                  runtime home dir(default is Home environment variable of the OpenYuanrong component deployment user)"
   echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
@@ -573,6 +613,7 @@ function usage() {
   echo -e "     --runtime_ds_encrypt_enable                         runtime and data system encrypt enable(default false)"
   echo -e "     --runtime_ds_connect_timeout                        runtime and data system connection timeout(s)(default 1800)"
   echo -e "     --enable_distributed_master                         to enable distributed deploy master(default false)"
+  echo -e "     --ds_node_role                                      data system node role, options: master/worker (default: master for --master nodes, worker for agent nodes)"
   echo -e "     --enable_lossless_data_exit_mode                    to enable lossless data exit mode(default false)"
   echo -e "     --cache_storage_auth_type                           for cache storage service auth type, eg: Noauth, ZMQ, AK/SK"
   echo -e "     --cache_storage_auth_enable                         for cache storage service auth"
@@ -613,8 +654,8 @@ function usage() {
   echo -e "     --oom_kill_enable                                   enable runtime oom kill base on process memory usage"
   echo -e "     --oom_kill_control_limit                            configure the control limit for the runtime OOM kill based on process memory usage, unit is MB."
   echo -e "     --oom_consecutive_detection_count                   number of consecutive times the memory usage must exceed the control limit before triggering OOM kill"
-  echo -e "     --runtime_metrics_config                            runtime inline metrics config json, default is empty"
-  echo -e "     --runtime_metrics_config_file                       runtime metrics config file path, default is metrics_config_file"
+  echo -e "     --runtime_metrics_config                            runtime_metrics_config, default is false"
+  echo -e "     --enable_runtime_launcher                           enable runtime launcher for sandbox container backend, default is false"
 }
 
 function help_msg() {
@@ -645,6 +686,7 @@ function parse_opt() {
     --master) ENABLE_MASTER="true" && shift 1 ;;
     --master_info) MASTER_INFO=$2 && shift 2 ;;
     --enable_distributed_master) ENABLE_DISTRIBUTED_MASTER="true" && shift 1 ;;
+    --ds_node_role) DS_NODE_ROLE=$2 && shift 2 ;;
     -p|--services_path) SERVICES_PATH=$2 && shift 2 ;;
     --custom_resources) CUSTOM_RESOURCES=$2 && shift 2 ;;
     --labels) LABELS=$2 && shift 2 ;;
@@ -704,12 +746,17 @@ function parse_opt() {
     --fs_health_check_timeout) FS_HEALTH_CHECK_TIMEOUT=$2 && shift 2 ;;
     --fs_health_check_retry_times) FS_HEALTH_CHECK_RETRY_TIMES=$2 && shift 2 ;;
     --fs_health_check_retry_interval) FS_HEALTH_CHECK_RETRY_INTERVAL=$2 && shift 2 ;;
+    --fc_agent_mgr_retry_times) FC_AGENT_MGR_RETRY_TIMES=$2 && shift 2 ;;
+    --fc_agent_mgr_retry_cycle) FC_AGENT_MGR_RETRY_CYCLE=$2 && shift 2 ;;
     --enable_faas_frontend) ENABLE_FAAS_FRONTEND=$2 && shift 2 ;;
     --enable_event) ENABLE_EVENT=$2 && shift 2 ;;
+    --frontend_lease_bypass) FRONTEND_LEASE_BYPASS=$2 && shift 2 ;;
     --faas_frontend_http_port) FAAS_FRONTEND_HTTP_PORT=$2 && port_policy_table["faas_frontend_http_port"]="FIX" && shift 2 ;;
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
+    --function_scheduler_lease_port) FUNCTION_SCHEDULER_LEASE_PORT=$2 && shift 2 ;;
     --enable_function_token_auth) ENABLE_FUNCTION_TOKEN_AUTH=$2 && shift 2 ;;
+    --quota_config_file) QUOTA_CONFIG_FILE=$2 && shift 2 ;;
     --enable_meta_service) ENABLE_META_SERVICE=$2 && shift 2 ;;
     --enable_iam_server) ENABLE_IAM_SERVER=$2 && shift 2 ;;
     --iam_server_port) IAM_SERVER_PORT=$2 && port_policy_table["iam_server_port"]="FIX" && shift 2 ;;
@@ -736,7 +783,8 @@ function parse_opt() {
     --runtime_direct_connection_enable) RUNTIME_DIRECT_CONNECTION_ENABLE=$2 && shift 2 ;;
     --runtime_instance_debug_enable) RUNTIME_INSTANCE_DEBUG_ENABLE=$2 && shift 2 ;;
     --runtime_default_config) RUNTIME_DEFAULT_CONFIG=$2 && shift 2 ;;
-    --runtime_metrics_config) RUNTIME_METRICS_CONFIG=$2 && shift 2 ;;
+    --runtime_metrics_config)  RUNTIME_METRICS_CONFIG=$2 && shift 2 ;;
+    --enable_runtime_launcher) ENABLE_RUNTIME_LAUNCHER=$2 && shift 2 ;;
     --npu_collection_mode) NPU_COLLECTION_MODE=$2 && shift 2 ;;
     --gpu_collection_enable) GPU_COLLECTION_ENABLE=$2 && shift 2 ;;
     --runtime_init_call_timeout_seconds) RUNTIME_INIT_CALL_TIMEOUT_SECONDS=$2 && shift 2 ;;
@@ -751,12 +799,15 @@ function parse_opt() {
     --domain_schedule_plugins) DOMAIN_SCHEDULE_PLUGINS=$2 && shift 2 ;;
     --enable_print_perf) ENABLE_PRINT_PERF=$2 && shift 2 ;;
     --enable_traefik_registry) ENABLE_TRAEFIK_REGISTRY=$2 && shift 2 ;;
+    --enable_traefik_provider) ENABLE_TRAEFIK_PROVIDER=$2 && shift 2 ;;
     --traefik_domain) TRAEFIK_DOMAIN=$2 && shift 2 ;;
     --traefik_etcd_prefix) TRAEFIK_ETCD_PREFIX=$2 && shift 2 ;;
     --traefik_lease_ttl) TRAEFIK_LEASE_TTL=$2 && shift 2 ;;
     --traefik_http_entrypoint) TRAEFIK_HTTP_ENTRYPOINT=$2 && shift 2 ;;
+    --traefik_http_entry_point) TRAEFIK_HTTP_ENTRY_POINT=$2 && shift 2 ;;
     --traefik_enable_tls) TRAEFIK_ENABLE_TLS=$2 && shift 2 ;;
     --traefik_servers_transport) TRAEFIK_SERVERS_TRANSPORT=$2 && shift 2 ;;
+    --traefik_forward_timeout_ms) TRAEFIK_FORWARD_TIMEOUT_MS=$2 && shift 2 ;;
     --enable_meta_store) ENABLE_META_STORE=$2 && shift 2 ;;
     --enable_dashboard) ENABLE_DASHBOARD=$2 && shift 2 ;;
     --enable_collector) ENABLE_COLLECTOR=$2 && shift 2 ;;
@@ -823,6 +874,8 @@ function parse_opt() {
     --meta_service_client_auth_type) META_SERVICE_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
     --meta_service_address) META_SERVICE_ADDRESS=$2 && shift 2 ;;
     --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
+    --iam_local_listen_port) IAM_LOCAL_LISTEN_PORT=$2 && shift 2 ;;
+    --iam_local_ip) IAM_LOCAL_IP=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
     --ssl_cert_file) SSL_CERT_FILE=$2 && shift 2 ;;
     --ssl_key_file) SSL_KEY_FILE=$2 && shift 2 ;;
@@ -848,6 +901,8 @@ function parse_opt() {
     --oom_consecutive_detection_count) OOM_CONSECUTIVE_DETECTION_COUNT=$2 && shift 2 ;;
     --max_priority) MAX_PRIORITY=$2 && shift 2 ;;
     --enable_preemption) ENABLE_PREEMPTION=$2 && shift 2 ;;
+    --enable_direct_routing) ENABLE_DIRECT_ROUTING=$2 && shift 2 ;;
+    --force_low_reliability_instance) FORCE_LOW_RELIABILITY_INSTANCE=$2 && shift 2 ;;
     --kill_process_timeout_seconds) KILL_PROCESS_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
@@ -951,6 +1006,8 @@ function check_number_input() {
   check_greater_than_zero "fs_health_check_timeout" $FS_HEALTH_CHECK_TIMEOUT
   check_greater_than_zero "fs_health_check_retry_times" $FS_HEALTH_CHECK_RETRY_TIMES
   check_greater_equal_zero "fs_health_check_retry_interval" $FS_HEALTH_CHECK_RETRY_INTERVAL
+  check_greater_than_zero "fc_agent_mgr_retry_times" $FC_AGENT_MGR_RETRY_TIMES
+  check_greater_than_zero "fc_agent_mgr_retry_cycle" $FC_AGENT_MGR_RETRY_CYCLE
   check_greater_than_zero "zmq_chunk_sz" $ZMQ_CHUNK_SZ
   check_greater_than_zero "meta_store_max_flush_concurrency" $META_STORE_MAX_FLUSH_CONCURRENCY
   check_greater_than_zero "meta_store_max_flush_batch_size" $META_STORE_MAX_FLUSH_BATCH_SIZE
@@ -1215,6 +1272,14 @@ function check_input() {
        log_error "is_schedule_tolerate_abnormal can only be 'true' or 'false'"
        return 1
     fi
+  if [ "X${ENABLE_DIRECT_ROUTING}" != "Xtrue" ] && [ "X${ENABLE_DIRECT_ROUTING}" != "Xfalse" ]; then
+    log_error "enable_direct_routing can only be 'true' or 'false'"
+    return 1
+  fi
+  if [ "X${FORCE_LOW_RELIABILITY_INSTANCE}" != "Xtrue" ] && [ "X${FORCE_LOW_RELIABILITY_INSTANCE}" != "Xfalse" ]; then
+    log_error "force_low_reliability_instance can only be 'true' or 'false'"
+    return 1
+  fi
   if [ "X${ETCD_PROXY_ENABLE}" = "Xtrue" ] ; then
     ETCD_PROXY_ENABLE="TRUE"
   fi
@@ -1374,6 +1439,7 @@ function process_log_config() {
 
 
   DATA_PLANE_INSTALL_DIR="${INSTALL_DIR_PARENT}"/"${NODE_ID}"
+  [ "${RUNTIME_LAUNCHER_SOCK}X" = "X" ] && RUNTIME_LAUNCHER_SOCK="${DATA_PLANE_INSTALL_DIR}/runtime-launcher.sock"
   [ "${DS_SPILL_DIRECTORY}X" = "X" ] && DS_SPILL_DIRECTORY="${DATA_PLANE_INSTALL_DIR}/data_system/spill"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logLevel\}\}/$FS_LOG_LEVEL}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logCompressEnable\}\}/$FS_LOG_COMPRESS_ENABLE}"
@@ -1473,7 +1539,7 @@ function parse_etcd_cluster()
   # set ds-worker distributed master to true
   ENABLE_DISTRIBUTED_MASTER="true"
   ETCD_NO_FSYNC="false"
-  ELECTION_MODE="etcd"
+  ELECTION_MODE="txn"
   if [ "X${ETCD_ADDR_LIST}" = "X" ]; then
     log_warning "etcd_addr_list is empty, set it to local ip ${IP_ADDRESS}"
     ETCD_ADDR_LIST=$IP_ADDRESS
@@ -1558,6 +1624,7 @@ function export_config() {
   export RUNTIME_LOG_PATH RUNTIME_LOG_LEVEL DS_LOG_LEVEL_STR MIN_INSTANCE_CPU_SIZE MIN_INSTANCE_MEMORY_SIZE
   export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT FUNCTION_PROXY_EXEC_GRPC_PORT
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
+  export ENABLE_RUNTIME_LAUNCHER RUNTIME_LAUNCHER_SOCK
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
   export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE
@@ -1574,7 +1641,7 @@ function export_config() {
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
   export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
-  export ENABLE_TRAEFIK_REGISTRY TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL TRAEFIK_HTTP_ENTRYPOINT TRAEFIK_ENABLE_TLS TRAEFIK_SERVERS_TRANSPORT
+  export ENABLE_TRAEFIK_REGISTRY ENABLE_TRAEFIK_PROVIDER TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL TRAEFIK_HTTP_ENTRYPOINT TRAEFIK_HTTP_ENTRY_POINT TRAEFIK_ENABLE_TLS TRAEFIK_SERVERS_TRANSPORT TRAEFIK_FORWARD_TIMEOUT_MS
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS
@@ -1584,8 +1651,10 @@ function export_config() {
   export BLOCK CUSTOM_RESOURCES LABELS SEPARATED_REDIRECT_RUNTIME_STD USER_LOG_EXPORT_MODE
   export USER_LOG_AUTO_FLUSH_INTERVAL_MS USER_LOG_BUFFER_FLUSH_THRESHOLD
   export USER_LOG_MAX_ROLLING_FILE_SIZE_MB USER_LOG_MAX_ROLLING_LOG_FILE_NUM
-  export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK
-  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
+  export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK DS_NODE_ROLE
+  export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
+  export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
+  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING FORCE_LOW_RELIABILITY_INSTANCE KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
   export RUNTIME_USER_HOME_DIR CACHE_STORAGE_AUTH_TYPE CACHE_STORAGE_AUTH_ENABLE
@@ -1600,7 +1669,7 @@ function export_config() {
   # meta_service
   export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
-  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER ENABLE_FUNCTION_TOKEN_AUTH
+  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS QUOTA_CONFIG_FILE
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration

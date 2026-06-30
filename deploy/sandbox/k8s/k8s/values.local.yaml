@@ -1,0 +1,43 @@
+global:
+  namespace:
+    name: yr
+  cluster:
+    name: yr
+    region: dev
+    azId: local-dev-az1
+  imageRegistry: localhost:5000
+  images:
+    controlplane:
+      tag: local
+    node:
+      tag: local
+    runtime:
+      tag: local
+    traefik:
+      registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
+      repository: traefik
+      tag: v2.11.14
+  externalEtcd:
+    addrList: yr-etcd.yr.svc.cluster.local:2379
+    metaStoreAddress: http://yr-etcd.yr.svc.cluster.local:2379
+
+traefik:
+  service:
+    type: ClusterIP
+    annotations: {}
+
+frontend:
+  service:
+    type: LoadBalancer
+    annotations:
+      kubernetes.io/elb.class: union
+      kubernetes.io/elb.autocreate: '{"type":"public","bandwidth_name":"yr-frontend-elb","bandwidth_chargemode":"traffic","bandwidth_sharetype":"PER","bandwidth_size":5,"eip_type":"5_bgp"}'
+
+master:
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi

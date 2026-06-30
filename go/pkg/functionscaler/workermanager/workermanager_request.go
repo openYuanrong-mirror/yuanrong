@@ -38,6 +38,8 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+var workerJSONMarshal = json.Marshal
+
 var nodeID = os.Getenv("NODE_IP")
 
 // ScaleUpParam scale up param
@@ -229,7 +231,7 @@ func makeScaleUpRequest(ctx context.Context, scaleUpParam *ScaleUpParam) *http.R
 			OwnedNum: -1,
 		},
 	}
-	data, err := json.Marshal(param)
+	data, err := workerJSONMarshal(param)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal scaleUp request: %s", err.Error())
 		return nil
@@ -263,7 +265,7 @@ func makeScaleDownRequest(ctx context.Context, instanceID, functionKey string) *
 		TenantID:    tenantID,
 		Applier:     selfregister.SelfInstanceID,
 	}
-	data, err := json.Marshal(param)
+	data, err := workerJSONMarshal(param)
 	if err != nil {
 		log.GetLogger().Errorf("marshal error when make scale down request")
 		return nil

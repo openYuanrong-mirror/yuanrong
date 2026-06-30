@@ -15,23 +15,59 @@
 # limitations under the License.
 
 import asyncio
+import base64
+import binascii
+import builtins
 import json
 import logging
 import os
 import shutil
 import subprocess
-import sys
+import tempfile
 import traceback
 import uuid
+import sys
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+import urllib.error
+import urllib.request
+from urllib.parse import urlencode
 
 import click
 import requests
 from requests.exceptions import RequestException
 
 import yr
-from yr.cli.exec import TerminalClientParams, run_client
+from yr.cli.exec import (
+    CopyRequest,
+    ExecConnection,
+    ExecInvocation,
+    choose_cp_mode,
+    copy_from_remote,
+    copy_from_remote_streaming,
+    copy_to_remote,
+    copy_to_remote_streaming,
+    run_client,
+)
+
+QUERY_INSTANCES_MAX_PAGE = 10000
+QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
+SANDBOX_CREATE_HTTP_TIMEOUT = 180
+DEFAULT_SANDBOX_NAMESPACE = "default"
+DEFAULT_SANDBOX_RUNTIME = "python3.10"
+LOGGER = logging.getLogger(__name__)
+
+# Frontend-exposed instance kill (delete) interface. The frontend accepts a JSON
+# body ({"instanceID": ..., "signal": ...}) and replies with JSON
+# ({"code": <int>, "message": <str>}); the frontend transcodes JSON to/from the
+# core_service.KillRequest/KillResponse protobuf internally, so the CLI never has
+# to deal with protobuf encoding.
+FRONTEND_INSTANCE_KILL_PATH = "/frontend/v1/instance/kill"
+# libruntime Signal.KillInstance == SHUT_DOWN_SIGNAL, terminates a single instance.
+KILL_SIGNAL_INSTANCE = 1
+# KillResponse.code value that maps to common.ErrorCode.ERR_NONE (success).
+KILL_RESPONSE_CODE_OK = 0
 
 
 __server_address = None
@@ -40,40 +76,39 @@ __client_cert = None
 __client_key = None
 __ca_cert = None
 __insecure = False
-__server_name = None
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
 __jwt_token = None
 
 
 @dataclass
-class CliGlobalOptions:
-    """Grouped CLI global flags (reduces parameter count on entry command)."""
+class SandboxCreateOptions:
+    namespace: str
+    name: str
+    runtime: str
+    image: Any = None
+    ports: Any = None
+    upstream: Any = None
+    proxy_port: int = 8766
 
-    server_address: Optional[str] = None
-    ds_address: Optional[str] = None
-    client_cert: Optional[str] = None
-    client_key: Optional[str] = None
-    ca_cert: Optional[str] = None
-    insecure: bool = False
-    server_name: Optional[str] = None
-    client_auth_type: str = "mutual"
-    jwt_token: Optional[str] = None
-    log_level: str = "INFO"
-    user: str = "default"
+    @classmethod
+    def from_call(cls, *args, **kwargs):
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        values = dict(zip(fields, args))
+        values.update(kwargs)
+        return cls(
+            namespace=values["namespace"],
+            name=values["name"],
+            runtime=values["runtime"],
+            image=values.get("image"),
+            ports=values.get("ports"),
+            upstream=values.get("upstream"),
+            proxy_port=values.get("proxy_port", 8766),
+        )
 
 
-@dataclass
-class DeployOptions:
-    """Grouped deploy command parameters."""
-
-    backend: str = "ds"
-    code_path: str = "."
-    package_format: str = "zip"
-    function_json: Optional[str] = None
-    skip_package: bool = False
-    update: bool = False
-    requirements: Optional[str] = None
+def use_tls_for_server_address(server_address):
+    return bool(server_address and server_address.rsplit(":", 1)[-1] == "443")
 
 
 class FunctionName:
@@ -84,10 +119,13 @@ class FunctionName:
         self.type = "0"
         self.service = None
         self.name = None
+        self.simple_name = None
         self.version = version
         self.parse()
 
     def __str__(self):
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
         return f"{self.service}@{self.name}:{self.version}"
 
     def parse(self):
@@ -107,14 +145,26 @@ class FunctionName:
                 self.name = parts[1]
             else:
                 raise ValueError(f"Invalid function name format: {self.raw_name}")
+        else:
+            self.simple_name = name_part
 
     def full_name(self):
         """Get full function name"""
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
         return f"{self.type}@{self.service}@{self.name}:{self.version}"
 
     def full_name_no_version(self):
         """Get full function name without version"""
+        if self.simple_name:
+            return self.simple_name
         return f"{self.type}@{self.service}@{self.name}"
+
+    def invocation_path(self):
+        """Get URL path components used by the FaaS invocation endpoint."""
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
+        return "/".join([self.service, f"{self.name}:{self.version}"])
 
 
 class HTTPClient:
@@ -127,9 +177,9 @@ class HTTPClient:
         client_key: Optional[str] = None,
         ca_cert: Optional[str] = None,
         insecure: bool = False,
-        server_name: Optional[str] = None,
         client_auth_type: str = "mutual",  # "mutual" or "one-way"
         jwt_token: Optional[str] = None,
+        accept_status: tuple = (200,),  # Status codes to consider as success
     ):
         self.timeout = timeout
         self.session = requests.Session()
@@ -137,9 +187,10 @@ class HTTPClient:
         self.client_key = client_key
         self.ca_cert = ca_cert
         self.insecure = insecure
-        self.server_name = server_name
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
+        self.accept_status = accept_status
+        self.verify = False
 
     def request(
         self,
@@ -183,58 +234,26 @@ class HTTPClient:
             elif self.client_cert:
                 cert = self.client_cert
         # For "one-way" TLS, cert remains None (only verify server)
-        verify = self.ca_cert if self.ca_cert else True
-        if url.startswith("http://") and verify:
-            url = url.replace("http://", "https://", 1)
         if self.insecure:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             verify = False
-
-        # If server_name is specified, use hostname overwrite
-        if self.server_name:
-            from requests.adapters import HTTPAdapter
-
-            class SNIAdapter(HTTPAdapter):
-                def __init__(self, sni_hostname, *args, **kwargs):
-                    self.sni_hostname = sni_hostname
-                    super().__init__(*args, **kwargs)
-
-                def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-                    # server_hostname sets SNI, assert_hostname sets certificate verification hostname
-                    pool_kwargs['server_hostname'] = self.sni_hostname
-                    pool_kwargs['assert_hostname'] = self.sni_hostname
-                    super().init_poolmanager(connections, maxsize, block, **pool_kwargs)
-
-                def cert_verify(self, conn, url, verify, cert):
-                    # Ensure SNI is set during connection
-                    conn.server_hostname = self.sni_hostname
-                    super().cert_verify(conn, url, verify, cert)
-
-            # Create temporary session for this request
-            temp_session = requests.Session()
-            adapter = SNIAdapter(self.server_name)
-            temp_session.mount("https://", adapter)
-
-            response = temp_session.request(
-                method.upper(),
-                url,
-                json=data,
-                headers=default_headers,
-                timeout=self.timeout,
-                cert=cert,
-                verify=verify,
-            )
+            if url.startswith("http://"):
+                url = url.replace("http://", "https://", 1)
         else:
-            response = self.session.request(
-                method.upper(),
-                url,
-                json=data,
-                headers=default_headers,
-                timeout=self.timeout,
-                cert=cert,
-                verify=verify,
-            )
+            verify = self.ca_cert if self.ca_cert else False
+            if url.startswith("http://") and verify:
+                url = url.replace("http://", "https://", 1)
+
+        response = self.session.request(
+            method.upper(),
+            url,
+            json=data,
+            headers=default_headers,
+            timeout=self.timeout,
+            cert=cert,
+            verify=verify,
+        )
 
         try:
             try:
@@ -245,7 +264,7 @@ class HTTPClient:
             logging.debug("response: %s\n%s", response.headers, result)
 
             return {
-                "success": response.status_code == 200,
+                "success": response.status_code in self.accept_status,
                 "error": result,
                 "status_code": response.status_code,
                 "data": result,
@@ -273,8 +292,13 @@ class YRContext:
         self.__user = user
 
     def __enter__(self):
+        if os.environ.get("YR_RUNTIME_ID"):
+            os.environ.pop("YR_WORKING_DIR", None)
+            cfg = yr.Config()
+            cfg.in_cluster = True
+            return yr.init(cfg)
         cfg = yr.Config()
-        cfg.log_dir = "/tmp/yr_sessions/driver"
+        cfg.log_dir = os.path.join(tempfile.gettempdir(), "yr_sessions", "driver")
         if self.__user:
             cfg.tenant_id = self.__user
         if self.__server_address and self.__ds_address:
@@ -305,7 +329,6 @@ def deploy_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -330,7 +353,6 @@ def update_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -352,14 +374,11 @@ def delete_function(function_name, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = (
-        f"http://{__server_address}/admin/v1/functions/"
-        f"{function_name.full_name_no_version()}?versionNumber={function_name.version}"
-    )
+    function_path = function_name.full_name_no_version()
+    url = f"http://{__server_address}/admin/v1/functions/{function_path}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -377,17 +396,14 @@ def query_function(function_name, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
     if function_name is None:
         url = f"http://{__server_address}/admin/v1/functions"
     else:
-        url = (
-        f"http://{__server_address}/admin/v1/functions/"
-        f"{function_name.full_name_no_version()}?versionNumber={function_name.version}"
-    )
+        function_path = function_name.full_name_no_version()
+        url = f"http://{__server_address}/admin/v1/functions/{function_path}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -401,7 +417,7 @@ def query_function(function_name, user=None):
         return False, resp
 
 
-def query_instances(user=None):
+def query_instances(user=None, page=None, page_size=None, instance_id=None, fields=None):
     """Query instance list for a specific tenant"""
     http_client = HTTPClient(
         timeout=30,
@@ -409,38 +425,57 @@ def query_instances(user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
     tenant_id = user if user else "default"
-    url = f"http://{__server_address}/api/instances?tenant_id={tenant_id}"
+    query_params = {"tenant_id": tenant_id}
+    if instance_id is not None:
+        query_params["instance_id"] = instance_id
+    if page is not None:
+        query_params["page"] = page
+    if page_size is not None:
+        query_params["page_size"] = page_size
+    if fields is not None:
+        query_params["fields"] = fields
+    url = f"http://{__server_address}/api/instances?{urlencode(query_params)}"
     resp = http_client.request(url, {}, method="GET")
     if resp["success"]:
         return True, resp["data"]
     else:
         return False, resp
+
+
+def get_instance_list(resp):
+    """Extract the instance list from paginated or legacy instance responses."""
+    if isinstance(resp, dict):
+        if "instances" not in resp:
+            return None, {"error": "invalid instances response: missing instances"}
+        instances = resp["instances"]
+    elif isinstance(resp, builtins.list):
+        instances = resp
+    else:
+        return None, {"error": "invalid instances response: expected list or object"}
+    if not isinstance(instances, builtins.list):
+        return None, {"error": "invalid instances response: instances must be a list"}
+    return [instance for instance in instances if isinstance(instance, dict)], None
 
 
 def query_instance(instance_id, user=None):
     """Query single instance detail by instance ID"""
-    http_client = HTTPClient(
-        timeout=30,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        insecure=__insecure,
-        server_name=__server_name,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-    )
     tenant_id = user if user else "default"
-    url = f"http://{__server_address}/api/instances/{instance_id}?tenant_id={tenant_id}"
-    resp = http_client.request(url, {}, method="GET")
-    if resp["success"]:
-        return True, resp["data"]
-    else:
+    ret, resp = query_instances(tenant_id, instance_id=instance_id)
+    if not ret:
         return False, resp
+
+    instances, error = get_instance_list(resp)
+    if error is not None:
+        return False, error
+
+    for instance in instances:
+        if instance.get("id") == instance_id:
+            return True, instance
+    return False, {"error": "instance not found"}
 
 
 def publish_function(function_name, publish_json, user=None):
@@ -450,7 +485,6 @@ def publish_function(function_name, publish_json, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -477,10 +511,10 @@ def install_requirements(requirements_file, target_dir):
         True if successful, False otherwise
     """
     if not os.path.exists(requirements_file):
-        logging.error(f"Requirements file not found: {requirements_file}")
+        print(f"Requirements file not found: {requirements_file}")
         return False
 
-    logging.info(f"Installing dependencies from {requirements_file} to {target_dir}...")
+    print(f"Installing dependencies from {requirements_file} to {target_dir}...")
 
     try:
         result = subprocess.run(
@@ -500,21 +534,21 @@ def install_requirements(requirements_file, target_dir):
         )
 
         if result.returncode != 0:
-            logging.error(f"Failed to install dependencies: {result.stderr}")
+            print(f"Failed to install dependencies: {result.stderr}")
             return False
 
-        logging.info(f"Successfully installed dependencies to {target_dir}")
+        print(f"Successfully installed dependencies to {target_dir}")
         return True
 
     except Exception as e:
-        logging.error(f"Error installing dependencies: {str(e)}")
+        print(f"Error installing dependencies: {str(e)}")
         return False
 
 
-def package(backend, code_path, package_format):
+def package(backend, code_path, package_format, user=None):
     real_code_path = os.path.realpath(code_path)
     file_name = f"code-{uuid.uuid4().hex}"
-    archive_file = os.path.join("/tmp", file_name)
+    archive_file = os.path.join(tempfile.gettempdir(), file_name)
     if package_format == "zip":
         shutil.make_archive(archive_file, package_format, real_code_path)
     elif package_format == "img":
@@ -528,11 +562,11 @@ def package(backend, code_path, package_format):
             ]
         )
         if result.returncode != 0:
-            raise click.ClickException(f"mkfs.erofs failed with exit code {result.returncode}")
+            raise click.ClickException(f"mkfs.erofs failed with code {result.returncode}")
     else:
-        raise click.ClickException(f"unknown format: {package_format}")
+        raise click.ClickException(f"unkown format: {package_format}")
     if backend == "ds":
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, user):
             with open(f"{archive_file}.{package_format}", "rb") as f:
                 yr.kv_write(file_name, f.read())
 
@@ -551,16 +585,476 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
-        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
     )
-    url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
+    url = f"http://{__server_address}/invocations/{user}/{function_name.invocation_path()}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         return True, resp["data"]
     else:
         return False, resp
+
+
+def parse_cp_targets(src: str, dst: str) -> Dict[str, Any]:
+    """Resolve cp operands where exactly one side is remote."""
+
+    def parse_remote(spec: str) -> Optional[Dict[str, str]]:
+        if ":" not in spec:
+            return None
+        instance, remote_path = spec.split(":", 1)
+        if not instance or not remote_path:
+            raise ValueError("remote path must use INSTANCE:/path format")
+        return {"instance": instance, "path": remote_path}
+
+    src_remote = parse_remote(src)
+    dst_remote = parse_remote(dst)
+    if (src_remote is None) == (dst_remote is None):
+        raise ValueError("exactly one side must be remote, format INSTANCE:/path")
+
+    if dst_remote is not None:
+        return {
+            "upload": True,
+            "instance": dst_remote["instance"],
+            "local_path": src,
+            "remote_path": dst_remote["path"],
+        }
+
+    return {
+        "upload": False,
+        "instance": src_remote["instance"],
+        "local_path": dst,
+        "remote_path": src_remote["path"],
+    }
+
+
+def sandbox_runtime_function_id(runtime, tenant_id):
+    if runtime.startswith("python3."):
+        suffix = f"py{runtime.replace('python', '').replace('.', '')}"
+    else:
+        suffix = runtime
+    return f"sn:cn:yrk:{tenant_id}:function:0-defaultservice-{suffix}:$latest"
+
+
+def decode_frontend_sandbox_instance_id(data):
+    if not isinstance(data, dict):
+        return ""
+    if isinstance(data.get("instance_id"), str):
+        return data["instance_id"]
+    inner = data.get("data", "")
+    if isinstance(inner, dict):
+        instance_id = inner.get("instance_id", "")
+        return instance_id if isinstance(instance_id, str) else ""
+    if not isinstance(inner, str) or not inner:
+        return ""
+    try:
+        decoded = json.loads(base64.b64decode(inner).decode())
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    instance_id = decoded.get("instance_id", "")
+    return instance_id if isinstance(instance_id, str) else ""
+
+
+def should_fallback_to_sdk_for_sandbox_create(resp):
+    status_code = resp.get("status_code")
+    if status_code in (404, 405, 501):
+        return True
+    error_text = json.dumps(resp.get("error", resp), ensure_ascii=False).lower()
+    fallback_markers = (
+        "404 page not found",
+        "no route",
+        "not support",
+        "unsupported",
+        "executable path of python3.9",
+        "0-defaultservice-py39",
+    )
+    return any(marker in error_text for marker in fallback_markers)
+
+
+def should_fallback_to_frontend_for_sandbox_create(error):
+    error_text = str(error).lower()
+    if "same instance id" in error_text or "already exists" in error_text:
+        return False
+    fallback_markers = (
+        "function not found",
+        "not found",
+        "not support",
+        "unsupported",
+        "invalid function",
+        "failed to create sandbox",
+        "0-defaultservice-py310",
+    )
+    return any(marker in error_text for marker in fallback_markers)
+
+
+def parse_sandbox_port_forwardings(ports):
+    port_forwardings = []
+    for port_forward in ports or ():
+        parts = port_forward.split(":")
+        if len(parts) == 1:
+            protocol = "TCP"
+            port_str = parts[0]
+        elif len(parts) == 2:
+            protocol, port_str = parts
+            protocol = protocol.upper()
+        else:
+            raise ValueError(
+                f"invalid port forwarding format: {port_forward}. Expected PORT or PROTOCOL:PORT"
+            )
+
+        try:
+            port = int(port_str)
+        except ValueError as e:
+            raise ValueError(f"invalid port number: {port_str}") from e
+        if port < 1 or port > 65535:
+            raise ValueError(f"port must be in [1, 65535], got {port}")
+        if protocol not in ("TCP", "UDP"):
+            raise ValueError(f"protocol must be TCP or UDP, got {protocol}")
+        port_forwardings.append(yr.PortForwarding(port=port, protocol=protocol))
+    return port_forwardings
+
+
+def build_sandbox_rootfs_option(image):
+    return json.dumps(
+        {
+            "runtime": "runsc",
+            "type": "image",
+            "imageurl": image,
+        }
+    )
+
+
+def build_sandbox_network_option(port_forwardings):
+    return json.dumps(
+        {
+            "portForwardings": [
+                {"port": pf.port, "protocol": pf.protocol} for pf in port_forwardings
+            ]
+        }
+    )
+
+
+def print_sandbox_port_forwarding_urls(instance_id, port_forwardings):
+    if not port_forwardings:
+        return
+    from yr.sandbox.sandbox import _print_gateway_urls
+
+    _print_gateway_urls(instance_id, port_forwardings)
+
+
+def wait_sandbox_gateway_route(url, timeout=30):
+    deadline = time.time() + timeout
+    last_error = None
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=2).close()
+            return True
+        except urllib.error.HTTPError as err:
+            if err.code != 404:
+                return True
+            last_error = err
+        except Exception as err:
+            last_error = err
+        time.sleep(1)
+    logging.debug("sandbox gateway route is not ready: url=%s, error=%s", url, last_error)
+    return False
+
+
+def setup_sandbox_tunnel(sandbox_instance, instance_id, upstream, proxy_port):
+    tunnel_port = proxy_port - 1
+    yr.get(sandbox_instance.start_tunnel_server.invoke(tunnel_port, proxy_port))
+
+    from yr.sandbox.sandbox import _build_gateway_url, _get_gateway_host
+    from yr.sandbox.tunnel_client import TunnelClient
+
+    gateway_host = _get_gateway_host()
+    tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
+    tunnel_ws_url = tunnel_url.replace("https://", "wss://").replace("http://", "ws://")
+    if not wait_sandbox_gateway_route(tunnel_url, timeout=30):
+        logging.warning("sandbox gateway route is not ready, continuing tunnel startup: %s", tunnel_url)
+    tunnel_client = TunnelClient(upstream)
+    connected = tunnel_client.start(tunnel_ws_url, timeout=30.0)
+    return {
+        "tunnel_client": tunnel_client,
+        "tunnel_ws_url": tunnel_ws_url,
+        "proxy_url": f"http://127.0.0.1:{proxy_port}",
+        "connected": connected,
+    }
+
+
+def create_sandbox_via_frontend(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
+    if upstream:
+        return False, "", {"error": "frontend sandbox create fallback does not support --upstream tunnel"}
+    http_client = HTTPClient(
+        timeout=SANDBOX_CREATE_HTTP_TIMEOUT,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/api/sandbox/create"
+    headers = {}
+    if __user:
+        headers["X-Tenant-ID"] = __user
+    payload = {"name": name, "namespace": namespace, "runtime": runtime}
+    if image:
+        payload["rootfs"] = image
+    if ports:
+        payload["ports"] = builtins.list(ports)
+    resp = http_client.request(url, payload, headers=headers, method="POST")
+    if resp["success"]:
+        data = resp["data"]
+        return True, decode_frontend_sandbox_instance_id(data), data
+    if should_fallback_to_sdk_for_sandbox_create(resp):
+        return False, "", resp
+    raise RuntimeError(resp.get("error", resp))
+
+
+def build_sandbox_sdk_config(runtime):
+    tenant_id = __user or "default"
+    cfg = yr.Config(
+        server_address=__server_address,
+        function_id=sandbox_runtime_function_id(runtime, tenant_id),
+        in_cluster=False,
+    )
+    cfg.auth_token = __jwt_token or ""
+    cfg.tenant_id = tenant_id
+    if use_tls_for_server_address(__server_address):
+        cfg.enable_tls = True
+    return cfg
+
+
+def create_sandbox_via_sdk(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
+    proxy_port = options.proxy_port
+    cfg = build_sandbox_sdk_config(runtime)
+    yr.init(cfg)
+    try:
+        opt = yr.InvokeOptions()
+        opt.custom_extensions["lifecycle"] = "detached"
+        opt.idle_timeout = 60 * 60 * 24 * 7
+        opt.cpu = 1000
+        opt.memory = 2048
+        opt.name = name
+        opt.namespace = namespace
+        opt.skip_serialize = True
+        if image:
+            opt.custom_extensions["rootfs"] = build_sandbox_rootfs_option(image)
+        port_forwardings = parse_sandbox_port_forwardings(ports)
+        if upstream:
+            tunnel_port = proxy_port - 1
+            port_forwardings.append(yr.PortForwarding(port=tunnel_port, protocol="TCP"))
+        opt.port_forwardings = port_forwardings
+        if port_forwardings:
+            opt.custom_extensions["network"] = build_sandbox_network_option(port_forwardings)
+
+        sandbox_instance = yr.sandbox.SandboxInstance.options(opt).invoke()
+        instance_id = resolve_created_sandbox_instance_id(namespace, name, sandbox_instance.real_id)
+        if port_forwardings:
+            print_sandbox_port_forwarding_urls(instance_id, port_forwardings)
+        tunnel_info = None
+        if upstream:
+            tunnel_info = setup_sandbox_tunnel(sandbox_instance, instance_id, upstream, proxy_port)
+        return instance_id, tunnel_info
+    finally:
+        yr.finalize()
+
+
+def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30):
+    candidates = []
+    if instance_id:
+        candidates.append(instance_id)
+    if namespace and name:
+        candidates.append(f"{namespace}-{name}")
+    deadline = time.time() + timeout
+    while True:
+        for candidate in dict.fromkeys(candidates):
+            ret, resp = query_instance(candidate, __user)
+            if ret:
+                return resp.get("id", candidate)
+        if time.time() >= deadline:
+            break
+        time.sleep(1)
+    return instance_id
+
+
+def create_sandbox_auto(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
+    proxy_port = options.proxy_port
+    sdk_error = None
+    try:
+        instance_id, tunnel_info = create_sandbox_via_sdk(
+            namespace,
+            name,
+            runtime,
+            image=image,
+            ports=ports,
+            upstream=upstream,
+            proxy_port=proxy_port,
+        )
+        resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
+        ret, instance = query_instance(resolved_id, __user)
+        if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
+            return resolved_id, tunnel_info
+        sdk_error = RuntimeError(
+            f"SDK sandbox create returned an instance that is not visible or usable: {resolved_id}"
+        )
+        if upstream:
+            raise sdk_error
+    except Exception as sdk_error:
+        if not should_fallback_to_frontend_for_sandbox_create(sdk_error):
+            raise
+        if upstream:
+            raise RuntimeError("SDK sandbox create is required for --upstream tunnel") from sdk_error
+
+    supported, instance_id, data = create_sandbox_via_frontend(
+        namespace,
+        name,
+        runtime,
+        image=image,
+        ports=ports,
+        upstream=upstream,
+        proxy_port=proxy_port,
+    )
+    if supported:
+        resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
+        ret, instance = query_instance(resolved_id, __user)
+        if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
+            return resolved_id, None
+        instance_detail = json.dumps(instance if ret else data, ensure_ascii=False)
+        raise RuntimeError(f"frontend sandbox create produced incompatible instance: {instance_detail}")
+    raise RuntimeError(data.get("error", data) if isinstance(data, dict) else data)
+
+
+def delete_sandbox_via_sdk(sandbox_id, runtime=DEFAULT_SANDBOX_RUNTIME):
+    cfg = build_sandbox_sdk_config(runtime)
+    yr.init(cfg)
+    try:
+        yr.runtime_holder.global_runtime.get_runtime().terminate_instance(sandbox_id)
+    finally:
+        yr.finalize()
+
+
+def kill_instance_via_frontend(instance_id):
+    """Delete an instance through the frontend-exposed instance kill interface.
+
+    Sends a route-less kill request (no proxyID/routeAddress) as JSON to
+    ``POST /frontend/v1/instance/kill``. The frontend transcodes the JSON body to
+    a core_service.KillRequest protobuf and replies with a JSON KillResponse, so
+    the CLI does not deal with protobuf at all. Returns a dict:
+        {"success": bool, "code": int, "message": str, "status_code": int}
+    ``success`` is True only when the HTTP call succeeded and KillResponse.code
+    is ERR_NONE (0). Any non-zero code (including ERR_INSTANCE_NOT_FOUND returned
+    when neither the function_proxy nor function_master can locate the instance)
+    is treated as a deletion failure.
+    """
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}{FRONTEND_INSTANCE_KILL_PATH}"
+    payload = {"instanceID": instance_id, "signal": KILL_SIGNAL_INSTANCE}
+    resp = http_client.request(url, payload)
+    if not resp.get("success"):
+        return {
+            "success": False,
+            "code": None,
+            "message": resp.get("error", "frontend kill request failed"),
+            "status_code": resp.get("status_code"),
+        }
+    data = resp.get("data") or {}
+    if not isinstance(data, dict):
+        data = {}
+    code = data.get("code", KILL_RESPONSE_CODE_OK)
+    return {
+        "success": code == KILL_RESPONSE_CODE_OK,
+        "code": code,
+        "message": data.get("message", ""),
+        "status_code": resp.get("status_code"),
+    }
+
+
+def get_sandbox_status(instance):
+    return (
+        instance.get("status")
+        or instance.get("state")
+        or instance.get("phase")
+        or instance.get("instanceStatus")
+        or instance.get("statusMessage")
+        or "N/A"
+    )
+
+
+def format_resource_quota(value):
+    if value is None or value == "":
+        return "N/A"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def format_runtime_seconds(value):
+    if value is None or value == "":
+        return "N/A"
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{seconds}s"
+
+
+def sandbox_instance_matches_runtime(instance, runtime):
+    function = str(instance.get("function", "")).lower()
+    if runtime == "python3.10":
+        return "0-defaultservice-py310" in function
+    return True
+
+
+def sandbox_instance_is_usable(instance):
+    status = get_sandbox_status(instance).lower()
+    return status not in ("fatal", "failed", "error")
+
+
+def sandbox_exists(sandbox_id):
+    ret, _ = query_instance(sandbox_id, __user)
+    return ret
+
+
+def wait_until_sandbox_deleted(sandbox_id, timeout=90):
+    deadline = time.time() + timeout
+    while True:
+        if not sandbox_exists(sandbox_id):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(1)
 
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -600,13 +1094,6 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     help="CA certificate file path",
 )
 @click.option(
-    "--server-name",
-    required=False,
-    type=str,
-    envvar="YR_SERVER_NAME",
-    help="Server name for certificate verification (SNI)",
-)
-@click.option(
     "--insecure",
     is_flag=True,
     default=False,
@@ -635,44 +1122,50 @@ def cli(**kwargs):
     """
     run command
     """
-    opts = CliGlobalOptions(**kwargs)
-    if opts.server_address:
+    server_address = kwargs["server_address"]
+    ds_address = kwargs["ds_address"]
+    client_cert = kwargs["client_cert"]
+    client_key = kwargs["client_key"]
+    ca_cert = kwargs["ca_cert"]
+    insecure = kwargs["insecure"]
+    client_auth_type = kwargs["client_auth_type"]
+    jwt_token = kwargs["jwt_token"]
+    log_level = kwargs["log_level"]
+    user = kwargs["user"]
+    if server_address:
         global __server_address
-        __server_address = opts.server_address
-    if opts.ds_address:
+        __server_address = server_address
+    if ds_address:
         global __ds_address
-        __ds_address = opts.ds_address
-    if opts.client_cert:
+        __ds_address = ds_address
+    if client_cert:
         global __client_cert
-        __client_cert = opts.client_cert
-    if opts.client_key:
+        __client_cert = client_cert
+    if client_key:
         global __client_key
-        __client_key = opts.client_key
-    if opts.ca_cert:
+        __client_key = client_key
+    if ca_cert:
         global __ca_cert
-        __ca_cert = opts.ca_cert
-    if opts.insecure:
+        __ca_cert = ca_cert
+    if insecure:
         global __insecure
-        __insecure = opts.insecure
-    if opts.server_name:
-        global __server_name
-        __server_name = opts.server_name
-    if opts.client_auth_type:
+        __insecure = insecure
+    if client_auth_type:
         global __client_auth_type
-        __client_auth_type = opts.client_auth_type.lower()
-    if opts.jwt_token:
+        __client_auth_type = client_auth_type.lower()
+    if jwt_token:
         global __jwt_token
-        __jwt_token = opts.jwt_token
-    if opts.user:
+        __jwt_token = jwt_token
+    if user:
         global __user
-        __user = opts.user
-    logging.basicConfig(level=getattr(logging, opts.log_level.upper(), None))
+        __user = user
+    logging.basicConfig(level=getattr(logging, log_level.upper(), None))
 
 
-@cli.command("help")
+@cli.command(name="help")
 @click.argument("command_name", required=False)
 @click.pass_context
-def show_help(ctx, command_name):
+def help_command(ctx, command_name):
     """Show help for commands
 
     Examples:
@@ -682,7 +1175,7 @@ def show_help(ctx, command_name):
     """
     if command_name is None:
         # Show general help
-        click.echo(ctx.parent.get_help())  # Using built-in help() is fine here
+        click.echo(ctx.parent.get_help())
     else:
         # Show help for specific command
         cmd = cli.commands.get(command_name)
@@ -691,7 +1184,7 @@ def show_help(ctx, command_name):
             click.echo("\nAvailable commands:")
             for name in sorted(cli.commands.keys()):
                 click.echo(f"  {name}")
-            raise click.ClickException("")
+            raise click.ClickException(f"No such command '{command_name}'.")
         else:
             click.echo(cmd.get_help(ctx))
 
@@ -712,14 +1205,13 @@ def show_help(ctx, command_name):
     help="Path to requirements.txt file for installing dependencies",
 )
 def deploy(**kwargs):
-    opts = DeployOptions(**kwargs)
-    backend = opts.backend
-    code_path = opts.code_path
-    package_format = opts.package_format
-    function_json = opts.function_json
-    skip_package = opts.skip_package
-    update = opts.update
-    requirements = opts.requirements
+    backend = kwargs["backend"]
+    code_path = kwargs["code_path"]
+    package_format = kwargs["package_format"]
+    function_json = kwargs["function_json"]
+    skip_package = kwargs["skip_package"]
+    update = kwargs["update"]
+    requirements = kwargs["requirements"]
     if function_json:
         with open(function_json, "r") as f:
             function_json = json.load(f)
@@ -727,15 +1219,14 @@ def deploy(**kwargs):
     if requirements and not skip_package:
         real_code_path = os.path.realpath(code_path)
         if not install_requirements(requirements, real_code_path):
-            logging.error("Failed to install dependencies. Deployment aborted.")
-            raise click.ClickException("")
+            raise click.ClickException("Failed to install dependencies. Deployment aborted.")
     if not skip_package:
-        real_code_path, package_key = package(backend, code_path, package_format)
+        real_code_path, package_key = package(backend, code_path, package_format, __user)
         if function_json:
             function_json["storageType"] = "working_dir"
             function_json["codePath"] = package_key
         else:
-            logging.info(
+            print(
                 f"""already upload {real_code_path} to {backend}.
 export YR_WORKING_DIR={package_key} to set this package.
 yrcli clear {package_key} to delete this package.
@@ -745,31 +1236,29 @@ yrcli download {package_key} to download this package."""
     if function_json:
         name = function_json.get("name")
         if name is None:
-            logging.error("function name is required to deploy function.")
-            raise click.ClickException("")
+            raise click.ClickException("function name is required to deploy function.")
         version = "latest" if function_json.get("kind", "faas") == "faas" else "$latest"
         name = FunctionName(name, version)
         query_ret, function_info = query_function(name, __user)
         if query_ret and not update:
-            logging.warning(f"function {name} already exists, use --update to update it.")
-            raise click.ClickException("")
+            raise click.ClickException(f"function {name} already exists, use --update to update it.")
         if query_ret:
             function_json["revisionId"] = function_info.get("revisionId")
             ret = update_function(function_json, __user)
             if ret[0]:
                 name = get_name_from_info(ret[1])
-                logging.info(f"succeed to update function: {name}")
+                print(f"succeed to update function: {name}")
             else:
-                logging.error(f"failed to update function: {ret[1]['error']}")
+                print(f"failed to update function: {ret[1]['error']}")
         else:
             ret = deploy_function(function_json, __user)
             if ret[0]:
                 name = get_name_from_info(ret[1])
-                logging.info(f"succeed to deploy function: {name}")
+                print(f"succeed to deploy function: {name}")
             else:
-                logging.error(f"failed to deploy function: {ret[1]}")
+                print(f"failed to deploy function: {ret[1]}")
     else:
-        logging.error("function json is required to deploy function.")
+        raise click.ClickException("function json is required to deploy function.")
 
 
 @cli.command()
@@ -793,9 +1282,9 @@ def publish(function_name, version):
         publish_json["versionNumber"] = version
     ret = publish_function(function_name, publish_json, __user)
     if ret[0]:
-        logging.info(f"succeed to publish function: {ret[1]}")
+        print(f"succeed to publish function: {ret[1]}")
     else:
-        logging.error(f"failed to publish function: {ret[1]}")
+        print(f"failed to publish function: {ret[1]}")
 
 
 @cli.command()
@@ -823,10 +1312,10 @@ def query(function_name, instance_id):
         yrcli query -i db6126e0-0000-4000-8000-00faf8d1692b  # Query instance
     """
     if function_name and instance_id:
-        raise click.ClickException("Error: Cannot specify both function-name and instance-id")
+        raise click.ClickException("Cannot specify both function-name and instance-id")
 
     if not function_name and not instance_id:
-        raise click.ClickException("Error: Must specify either --function-name or --instance-id")
+        raise click.ClickException("Must specify either --function-name or --instance-id")
 
     if function_name:
         # Query function
@@ -835,7 +1324,7 @@ def query(function_name, instance_id):
         if ret:
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
-            logging.warning(f"function not found: {function_name}")
+            print(f"function not found: {function_name}")
 
     if instance_id:
         # Query instance
@@ -843,10 +1332,15 @@ def query(function_name, instance_id):
         if ret:
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
-            logging.warning(f"instance not found: {instance_id}")
+            if isinstance(resp, dict) and resp.get("error"):
+                print(f"Error: {resp['error']}")
+            else:
+                print(f"instance not found: {instance_id}")
 
 
 @cli.command("list")
+@click.option("--page", required=False, type=int, default=None, help="Page number for instance listing")
+@click.option("--page-size", required=False, type=int, default=None, help="Page size for instance listing")
 @click.argument(
     "resource_type",
     type=click.Choice(
@@ -865,7 +1359,7 @@ def query(function_name, instance_id):
     default="function",
     required=False,
 )
-def list_resources(resource_type):
+def list_resources(page, page_size, resource_type):
     """List functions or instances
 
     Examples:
@@ -874,14 +1368,26 @@ def list_resources(resource_type):
         yrcli list instance         # List instances
     """
     if resource_type in ("instance", "instances", "inst", "ins"):
+        if page is not None and page <= 0:
+            raise click.ClickException("--page must be a positive integer")
+        if page is not None and page > QUERY_INSTANCES_MAX_PAGE:
+            raise click.ClickException(f"--page must be less than or equal to {QUERY_INSTANCES_MAX_PAGE}")
+        if page_size is not None and page_size <= 0:
+            raise click.ClickException("--page-size must be a positive integer")
+        if page_size is not None and page_size > QUERY_INSTANCES_MAX_PAGE_SIZE:
+            raise click.ClickException(f"--page-size must be less than or equal to {QUERY_INSTANCES_MAX_PAGE_SIZE}")
         # List instances
-        ret, resp = query_instances(__user)
-        if ret and len(resp) > 0:
-            for instance in resp:
+        ret, resp = query_instances(__user, page=page, page_size=page_size, fields="summary")
+        instances, error = get_instance_list(resp) if ret else ([], None)
+        if ret and error is not None:
+            raise click.ClickException(error["error"])
+        if ret and len(instances) > 0:
+            for instance in instances:
                 instance_id = instance.get("id", "N/A")
-                print(instance_id)
+                tenant_id = instance.get("tenantID", "N/A")
+                print(f"{instance_id}\t{tenant_id}")
         else:
-            logging.info(f"user {__user} has no instance.")
+            print(f"user {__user} has no instance.")
     elif resource_type in ("function", "functions", "func", "fun"):
         # List functions (default)
         ret, resp = query_function(None, __user)
@@ -889,7 +1395,7 @@ def list_resources(resource_type):
             for function in resp:
                 print(f"{function['name'][2:]}:{function['versionNumber']}")
         else:
-            logging.info(f"user {__user} has no function.")
+            print(f"user {__user} has no function.")
 
 
 @cli.group("sandbox")
@@ -907,36 +1413,113 @@ def sandbox():
 @sandbox.command("create")
 @click.option(
     "--namespace",
-    required=True,
+    required=False,
     type=str,
     help="Namespace for sandbox instance",
 )
 @click.option(
     "--name",
-    required=True,
+    required=False,
     type=str,
     help="Name for sandbox instance",
 )
-def sandbox_create(namespace, name):
-    """Create a detached sandbox instance directly in YR runtime context."""
-    os.environ.pop("YR_WORKING_DIR", None)
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            opt = yr.InvokeOptions()
-            opt.custom_extensions["lifecycle"] = "detached"
-            opt.idle_timeout = 60 * 60 * 24 * 1
-            opt.cpu = 1000
-            opt.memory = 2048
-            opt.name = name
-            opt.namespace = namespace
+@click.option(
+    "--runtime",
+    required=False,
+    type=click.Choice(["python3.10"], case_sensitive=False),
+    default=DEFAULT_SANDBOX_RUNTIME,
+    show_default=True,
+    help="Runtime for sandbox instance",
+)
+@click.option(
+    "--image",
+    "--rootfs",
+    "image",
+    required=False,
+    type=str,
+    help="Custom sandbox rootfs/container image",
+)
+@click.option(
+    "--port",
+    "--port-forward",
+    "ports",
+    multiple=True,
+    type=str,
+    help="Forward sandbox port through gateway, format PORT or PROTOCOL:PORT",
+)
+@click.option(
+    "--upstream",
+    required=False,
+    type=str,
+    default=None,
+    help="Local upstream address for reverse tunnel, for example 127.0.0.1:8000",
+)
+@click.option(
+    "--proxy-port",
+    required=False,
+    type=int,
+    default=8766,
+    show_default=True,
+    help="HTTP proxy port inside sandbox when --upstream is set",
+)
+def sandbox_create(*args, **kwargs):
+    """Create a detached sandbox instance."""
+    if args:
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        values = dict(zip(fields, args))
+        values.update(kwargs)
+    else:
+        values = kwargs
+    namespace = values["namespace"]
+    name = values["name"]
+    runtime = values["runtime"]
+    image = values.get("image")
+    ports = values.get("ports", ())
+    upstream = values.get("upstream")
+    proxy_port = values.get("proxy_port", 8766)
+    if not __server_address:
+        raise click.ClickException("server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+    if upstream and (proxy_port < 2 or proxy_port > 65535):
+        raise click.ClickException("--proxy-port must be in [2, 65535].")
+    namespace = namespace or DEFAULT_SANDBOX_NAMESPACE
+    name = name or uuid.uuid4().hex
 
-            sandbox_inst = yr.sandbox.SandBoxInstance.options(opt).invoke()
-            instance_name = yr.get(sandbox_inst.get_name.invoke())
-            if not instance_name:
-                instance_name = f"{namespace}-{name}"
-            logging.info(f"sandbox created, instance_name={instance_name}")
-    except Exception as e:
-        raise click.ClickException(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
+    try:
+        instance_id, data = create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=image,
+            ports=ports,
+            upstream=upstream,
+            proxy_port=proxy_port,
+        )
+    except Exception as err:
+        raise click.ClickException(
+            f"sandbox create failed, name={name}, namespace={namespace}, runtime={runtime}, error={err}"
+        ) from err
+    if instance_id:
+        print(f"sandbox created, instance_id={instance_id}")
+    else:
+        print(f"sandbox created, response={json.dumps(data, ensure_ascii=False)}")
+    if data and data.get("tunnel_client"):
+        print(f"tunnel websocket: {data['tunnel_ws_url']}")
+        print(f"sandbox upstream proxy: {data['proxy_url']}")
+        if data.get("connected"):
+            print("tunnel connected, press Ctrl+C to stop the local tunnel client")
+        else:
+            print("tunnel connecting in background, press Ctrl+C to stop the local tunnel client")
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            tunnel_client = data.get("tunnel_client")
+            if tunnel_client:
+                try:
+                    tunnel_client.stop()
+                except Exception as e:
+                    print(f"failed to stop tunnel client: {e}")
+            print("tunnel disconnected")
 
 
 @sandbox.command("list")
@@ -949,12 +1532,16 @@ def sandbox_create(namespace, name):
 )
 def sandbox_list(namespace):
     """List sandbox instances."""
-    ret, resp = query_instances(__user)
+    ret, resp = query_instances(__user, fields="summary")
     if not ret:
         raise click.ClickException(f"failed to list instances: {resp.get('error', resp)}")
 
-    sandbox_ids = []
-    for instance in resp:
+    instances, error = get_instance_list(resp) if ret else ([], None)
+    if error is not None:
+        raise click.ClickException(f"failed to list instances: {error['error']}")
+
+    sandboxes = []
+    for instance in instances:
         instance_id = instance.get("id", "")
         if not instance_id:
             continue
@@ -964,14 +1551,32 @@ def sandbox_list(namespace):
             continue
         if namespace and not instance_id.startswith(f"{namespace}-"):
             continue
-        sandbox_ids.append(instance_id)
+        tenant_id = instance.get("tenantID", "N/A")
+        sandboxes.append((
+            instance_id,
+            tenant_id,
+            get_sandbox_status(instance),
+            format_resource_quota(instance.get("required_cpu")),
+            format_resource_quota(instance.get("required_mem")),
+            format_resource_quota(instance.get("required_gpu")),
+            format_resource_quota(instance.get("required_npu")),
+            format_runtime_seconds(instance.get("runtime_seconds")),
+        ))
 
-    if not sandbox_ids:
-        logging.info("no sandbox instance found")
+    if not sandboxes:
+        print("no sandbox instance found")
         return
 
-    for sandbox_id in sandbox_ids:
-        print(sandbox_id)
+    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS", "CPU", "MEMORY", "GPU", "NPU", "RUNTIME")
+    widths = [
+        max(len(header), *(len(str(row[index])) for row in sandboxes))
+        for index, header in enumerate(headers)
+    ]
+    formatter = "  ".join(f"{{:<{width}}}" for width in widths)
+
+    print(formatter.format(*headers).rstrip())
+    for sandbox in sandboxes:
+        print(formatter.format(*sandbox).rstrip())
 
 
 @sandbox.command("query")
@@ -979,7 +1584,7 @@ def sandbox_list(namespace):
 def sandbox_query(sandbox_id):
     """Query sandbox instance detail by instance id."""
     if not __server_address:
-        raise click.ClickException("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+        raise click.ClickException("server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
 
     ret, resp = query_instance(sandbox_id, __user)
     if ret:
@@ -991,13 +1596,26 @@ def sandbox_query(sandbox_id):
 @sandbox.command("delete")
 @click.argument("sandbox_id", type=str)
 def sandbox_delete(sandbox_id):
-    """Delete (terminate) a sandbox instance by instance id."""
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            yr.kill_instance(sandbox_id)
-        logging.info(f"succeed to delete sandbox: {sandbox_id}")
-    except Exception as e:
-        raise click.ClickException(f"failed to delete sandbox {sandbox_id}: {e}")
+    """Delete (terminate) a sandbox instance via the frontend instance kill interface."""
+    if not __server_address:
+        raise click.ClickException("server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
+
+    # Delete directly through the frontend-exposed instance kill interface
+    # (POST /frontend/v1/instance/kill). The request carries no routing info, so
+    # function_proxy resolves the owner locally or forwards to function_master.
+    result = kill_instance_via_frontend(sandbox_id)
+    if result["success"] and wait_until_sandbox_deleted(sandbox_id):
+        print(f"succeed to delete sandbox: {sandbox_id}")
+        return
+
+    if not result["success"]:
+        error_message = (
+            f"failed to delete sandbox {sandbox_id}: "
+            f"code={result.get('code')}, {result.get('message')}"
+        )
+    else:
+        error_message = f"failed to delete sandbox {sandbox_id}: instance still exists after delete"
+    raise click.ClickException(error_message)
 
 
 @cli.command()
@@ -1009,42 +1627,42 @@ def delete(function_name, no_clear_package, version):
     if not no_clear_package:
         ret, function_info = query_function(function_name, __user)
         if not ret:
-            logging.warning(f"function not found.")
+            print(f"function not found.")
             return
         code_path = function_info.get("codePath")
         if code_path and code_path.startswith("ds://"):
             key = code_path.strip("ds://").split(".")[0]
-            with YRContext(__server_address, __ds_address):
+            with YRContext(__server_address, __ds_address, __user):
                 yr.kv_del(key)
-            logging.info(f"succeed to del package {code_path}")
+            print(f"succeed to del package {code_path}")
     ret, _ = delete_function(function_name, __user)
     if not ret:
-        logging.warning(f"function not found.")
+        print(f"function not found.")
     else:
-        logging.info(f"succeed to delete function: {function_name}")
+        print(f"succeed to delete function: {function_name}")
 
 
 @cli.command
-@click.argument("package_uri", metavar="PACKAGE", type=str)
+@click.argument("package", type=str)
 def clear(package_uri):
     if package_uri.startswith("ds://"):
         key = package_uri.strip("ds://").split(".")[0]
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, __user):
             yr.kv_del(key)
-        logging.info(f"succeed to del {package_uri}")
+        print(f"succeed to del {package_uri}")
 
 
 @cli.command
-@click.argument("package_uri", metavar="PACKAGE", type=str)
+@click.argument("package", type=str)
 def download(package_uri):
     if package_uri.startswith("ds://"):
         key = package_uri.strip("ds://").split(".")[0]
         file_name = package_uri.strip("ds://")
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, __user):
             with open(file_name, "wb") as f:
                 value = yr.kv_get(key)
                 f.write(value)
-        logging.info(f"save {package_uri} to {file_name}")
+        print(f"save {package_uri} to {file_name}")
 
 
 @cli.command
@@ -1052,15 +1670,21 @@ def download(package_uri):
 @click.option("--payload", required=False, type=str, default=None)
 @click.option("--timeout", required=False, type=int, default=30)
 @click.option("--header", required=False, type=str, multiple=True)
-def invoke(function_name, payload, timeout, header):
+@click.option("--async", "async_mode", is_flag=True, default=False, help="Invoke function asynchronously")
+def invoke(function_name, payload, timeout, header, async_mode):
     headers = {}
-    for hdr in header:
-        if ":" in hdr:
-            key, value = hdr.split(":", 1)
+    for header_item in header:
+        if ":" in header_item:
+            key, value = header_item.split(":", 1)
             headers[key.strip()] = value.strip()
+    if async_mode:
+        headers["X-Invoke-Type"] = "async"
     function_name = FunctionName(function_name)
     if payload:
-        payload_dict = json.loads(payload)
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            raise click.ClickException(f"Invalid JSON payload: {e}") from e
     else:
         payload_dict = {}
     ret, resp = invoke_function(
@@ -1068,8 +1692,107 @@ def invoke(function_name, payload, timeout, header):
     )
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
+        if async_mode and "requestId" in resp:
+            print(f"\nAsync invocation started. Use 'yrcli result {resp['requestId']}' to check status.")
     else:
-        logging.error(f"failed to invoke function: {resp['error']}")
+        raise click.ClickException(f"failed to invoke function: {resp['error']}")
+
+
+@cli.command
+@click.option("-f", "--function-name", required=True, type=str, default=None)
+@click.option("--payload", required=False, type=str, default=None)
+@click.option("--timeout", required=False, type=int, default=30)
+@click.option("--header", required=False, type=str, multiple=True)
+@click.option("--webhook", required=False, type=str, default=None, help="Webhook URL for async callback")
+def async_invoke(function_name, payload, timeout, header, webhook):
+    """Asynchronously invoke a function and return immediately with a request ID"""
+    headers = {}
+    for header_item in header:
+        if ":" in header_item:
+            key, value = header_item.split(":", 1)
+            headers[key.strip()] = value.strip()
+    # Add async invoke header
+    headers["X-Invoke-Type"] = "async"
+    if webhook:
+        headers["X-Webhook-Url"] = webhook
+
+    function_name = FunctionName(function_name)
+    if payload:
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            raise click.ClickException(f"Invalid JSON payload: {e}") from e
+    else:
+        payload_dict = {}
+
+    http_client = HTTPClient(
+        timeout=timeout,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
+    )
+    # Parse function name for short URL format: [tenant-id@]namespace@function-name[:version]
+    func_str = str(function_name)
+    parts = func_str.split('@')
+
+    if len(parts) >= 3:
+        tenant_id = parts[0]
+        namespace = parts[1]
+        function_name_only = parts[2].split(':')[0]
+    elif len(parts) == 2:
+        tenant_id = __user  # Use the user as tenant
+        namespace = parts[0]
+        function_name_only = parts[1].split(':')[0]
+    else:
+        # Fallback to old format
+        tenant_id = __user
+        namespace = func_str.split(':')[0] if ':' in func_str else func_str
+        function_name_only = func_str.split(':')[0] if ':' in func_str else func_str
+
+    # Build URL with trailing slash as required by the route
+    url = f"http://{__server_address}/invocations/{tenant_id}/{namespace}/{function_name_only}/"
+    resp = http_client.request(url, payload_dict, headers=headers, method="POST")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps({
+            "requestId": data.get("requestId", ""),
+            "status": "pending",
+            "message": "Async invocation started. Use 'async-result' command to get the result."
+        }, indent=2, ensure_ascii=False))
+    else:
+        raise click.ClickException(f"failed to invoke function: {resp.get('error', resp)}")
+
+
+@cli.command
+@click.option("-r", "--request-id", required=True, type=str, help="Request ID from async-invoke")
+@click.option("--timeout", required=False, type=int, default=30)
+def async_result(request_id, timeout):
+    """Get the result of an asynchronous function invocation"""
+    http_client = HTTPClient(
+        timeout=timeout,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/serverless/v1/functions/async-results/{request_id}"
+    resp = http_client.request(url, None, headers={}, method="GET")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        status_code = resp.get("status_code")
+        if status_code == 404:
+            raise click.ClickException(f"Async result not found for request ID: {request_id}")
+        else:
+            error_msg = resp.get("error", "Unknown error")
+            raise click.ClickException(f"failed to get async result: {error_msg}")
 
 
 @cli.command(
@@ -1131,7 +1854,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
     else:
         # Validate runtime is provided when not using function_json
         if not runtime:
-            raise click.ClickException("Error: --runtime is required when not using --function-json")
+            raise click.ClickException("--runtime is required when not using --function-json")
 
         # Generate function name based on runtime and sdk flag
         # sdk + python3.x -> 0-defaultservice-py3xx (e.g. python3.11 -> py311, python3.9 -> py39)
@@ -1187,7 +1910,6 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
             },
         }
 
-    # Apply overrides from command line arguments using dot notation (see docstring for examples).
     for override in overrides:
         if override.startswith("--"):
             override = override[2:]  # Remove leading --
@@ -1221,12 +1943,11 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
     # Get function name from the json data
     function_name = function_json_data.get("name")
     if not function_name:
-        raise click.ClickException("Error: function name is required in configuration")
+        raise click.ClickException("function name is required in configuration")
 
     # Check if function already exists
     version = "$latest"
-    full_name = f"{function_name}:{version}"
-    query_ret, function_info = query_function(full_name, current_user)
+    query_ret, function_info = query_function(FunctionName(function_name, version), current_user)
 
     if query_ret:
         # Update existing function
@@ -1234,23 +1955,21 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
         ret = update_function(function_json_data, current_user)
         if ret[0]:
             name = get_name_from_info(ret[1])
-            logging.info(f"Successfully updated FaaS language runtime function: {name}")
+            print(f"Successfully updated FaaS language runtime function: {name}")
             if runtime:
-                logging.info(f"Runtime: {runtime}")
+                print(f"Runtime: {runtime}")
         else:
-            logging.error(f"Failed to update FaaS language runtime function: {ret[1]['error']}")
-            raise click.ClickException("")
+            raise click.ClickException(f"Failed to update FaaS language runtime function: {ret[1]['error']}")
     else:
         # Deploy new function
         ret = deploy_function(function_json_data, current_user)
         if ret[0]:
             name = get_name_from_info(ret[1])
-            logging.info(f"Successfully deployed FaaS language runtime function: {name}")
+            print(f"Successfully deployed FaaS language runtime function: {name}")
             if runtime:
-                logging.info(f"Runtime: {runtime}")
+                print(f"Runtime: {runtime}")
         else:
-            logging.error(f"Failed to deploy FaaS language runtime function: {ret[1]}")
-            raise click.ClickException("")
+            raise click.ClickException(f"Failed to deploy FaaS language runtime function: {ret[1]}")
 
 
 @cli.command("run-spark")
@@ -1276,7 +1995,7 @@ def run_spark(script, args):
     """
     # Validate script path
     if not os.path.exists(script):
-        raise click.ClickException(f"Error: Script file not found: {script}")
+        raise click.ClickException(f"Script file not found: {script}")
 
     # Get absolute path
     script_path = os.path.abspath(script)
@@ -1293,25 +2012,23 @@ def run_spark(script, args):
 
     cmd.append("com.SparkJobExample")
 
-    logging.info("Running Spark job with script: %s", script_path)
-    logging.debug("Command: %s", " ".join(cmd))
+    print(f"Running Spark job with script: {script_path}")
+    print(f"Command: {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.stderr:
-            logging.debug("Spark job stderr: %s", result.stderr)
+        # Execute the Java command with stdout/stderr redirected to terminal
+        result = subprocess.run(cmd)
+
+        # Check return code
         if result.returncode != 0:
-            raise click.ClickException(
-                f"\nSpark job failed with exit code: {result.returncode}"
-            )
-    except FileNotFoundError as e:
-        raise click.ClickException(
-            "Error: Java command not found. Make sure Java is installed and in PATH."
-        ) from e
-    except click.ClickException:
-        raise
-    except Exception as e:
-        raise click.ClickException(f"Error executing Spark job: {str(e)}") from e
+            raise click.ClickException(f"Spark job failed with exit code: {result.returncode}")
+
+    except FileNotFoundError as err:
+        raise click.ClickException("Java command not found. Make sure Java is installed and in PATH.") from err
+    except Exception as err:
+        if isinstance(err, click.ClickException):
+            raise
+        raise click.ClickException(f"Error executing Spark job: {err}") from err
 
 
 @cli.command("exec")
@@ -1344,30 +2061,120 @@ def run_spark(script, args):
 @click.argument("instance", type=str)
 @click.argument("command", type=str)
 def exec_command(stdin, tty, verify_server, instance, command):
-    use_ssl = __client_cert is not None and __client_key is not None
+    use_ssl = (
+        use_tls_for_server_address(__server_address)
+        or __insecure
+        or __ca_cert is not None
+        or (__client_cert is not None and __client_key is not None)
+    )
     try:
         host, port = __server_address.split(":")
+        connection = ExecConnection(
+            host=host,
+            port=port,
+            user=__user,
+            use_ssl=use_ssl,
+            cert_file=__client_cert,
+            key_file=__client_key,
+            ca_file=__ca_cert,
+            verify_server=verify_server and not __insecure,
+            token=__jwt_token,
+            quiet=not tty,
+        )
+        invocation = ExecInvocation(
+            instance=instance,
+            command=command,
+            allocate_tty=tty,
+            stdin=stdin,
+        )
         asyncio.run(
             run_client(
-                TerminalClientParams(
-                    host=host,
-                    port=port,
-                    instance=instance,
-                    command=command,
-                    allocate_tty=tty,
-                    stdin=stdin,
-                    user=__user,
-                    use_ssl=use_ssl,
-                    cert_file=__client_cert,
-                    key_file=__client_key,
-                    ca_file=__ca_cert,
-                    verify_server=verify_server,
-                    token=__jwt_token,
-                )
+                connection,
+                invocation,
             )
         )
     except KeyboardInterrupt:
-        logging.warning("\nDisconnected")
+        if tty:
+            print("\nDisconnected", file=sys.stderr)
+
+
+@cli.command("cp")
+@click.argument("src")
+@click.argument("dst")
+@click.option(
+    "--streaming/--no-streaming",
+    "-s/-S",
+    default=None,
+    help=(
+        "Force streaming (gzip-compressed, full-pipeline) or non-streaming mode. "
+        "When neither flag is given, the mode is chosen automatically based on "
+        "file size and compressibility (Shannon entropy of the first 64 KB)."
+    ),
+)
+def cp(src, dst, streaming):
+    """Copy a file to or from an instance via the exec websocket channel.
+
+    Transfer mode is selected automatically by default:
+
+    \b
+      * Small files (<256 KB)          → non-streaming (overhead dominates)
+      * Incompressible data            → non-streaming (gzip provides no benefit)
+      * Large compressible files       → streaming     (gzip reduces channel load)
+
+    Use --streaming / --no-streaming to override the automatic selection.
+    """
+    if not __server_address:
+        raise click.ClickException("--server-address is required")
+
+    try:
+        target = parse_cp_targets(src, dst)
+    except ValueError as err:
+        raise click.ClickException(str(err)) from err
+
+    if target["upload"] and not os.path.exists(target["local_path"]):
+        raise click.ClickException(f"local file not found: {target['local_path']}")
+
+    use_ssl = __client_cert is not None and __client_key is not None
+    host, port = __server_address.split(":")
+    connection = ExecConnection(
+        host=host,
+        port=port,
+        user=__user,
+        use_ssl=use_ssl,
+        cert_file=__client_cert,
+        key_file=__client_key,
+        ca_file=__ca_cert,
+        verify_server=not __insecure,
+        token=__jwt_token,
+    )
+
+    if target["upload"]:
+        use_streaming = (
+            streaming
+            if streaming is not None
+            else choose_cp_mode(target["local_path"], target["remote_path"], upload=True)
+        )
+        fn = copy_to_remote_streaming if use_streaming else copy_to_remote
+        asyncio.run(
+            fn(
+                connection,
+                CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
+            )
+        )
+        return
+
+    use_streaming = (
+        streaming
+        if streaming is not None
+        else choose_cp_mode(target["local_path"], target["remote_path"], upload=False)
+    )
+    fn = copy_from_remote_streaming if use_streaming else copy_from_remote
+    asyncio.run(
+        fn(
+            connection,
+            CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
+        )
+    )
 
 
 @cli.command(
@@ -1405,7 +2212,7 @@ def token_auth(token, iam_address):
     resp = http_client.request(url, {}, headers=headers, method="GET")
 
     if resp["success"]:
-        logging.info("Token is valid. Authentication successful.")
+        print("Token is valid. Authentication successful.")
     else:
         raise click.ClickException(f"Token authentication failed: {resp.get('error', 'Unknown error')}")
 
@@ -1464,10 +2271,10 @@ def token_abandon(token, tenant_id, iam_address):
     """Abandon/revoke a JWT token
 
     Example:
-        yrcli token-abandon --iam-address 127.0.0.1:31112 \\
-            --token "<jwt>"
-        yrcli token-abandon --iam-address 127.0.0.1:31112 \\
-            --token "<jwt>" --tenant-id user
+        yrcli token-abandon --iam-address 127.0.0.1:31112 \
+            --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        yrcli token-abandon --iam-address 127.0.0.1:31112 \
+            --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." --tenant-id user
     """
     http_client = HTTPClient(timeout=30)
     url = f"http://{iam_address}/iam-server/v1/token/abandon"
@@ -1478,7 +2285,7 @@ def token_abandon(token, tenant_id, iam_address):
     resp = http_client.request(url, {}, headers=headers, method="POST")
 
     if resp["success"]:
-        logging.info("Token successfully abandoned/revoked")
+        print("Token successfully abandoned/revoked")
     else:
         raise click.ClickException(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
 
@@ -1488,5 +2295,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
-
+    raise SystemExit(main())

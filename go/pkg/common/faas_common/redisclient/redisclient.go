@@ -95,6 +95,8 @@ var (
 var (
 	mu       sync.RWMutex
 	redisCmd *Client
+
+	newRedisClient = New
 )
 
 // Option -
@@ -488,7 +490,7 @@ func checkAndReconnectRedis(clientRedisConfig *NewRedisClientParam, client *Clie
 }
 
 func initClient(clientRedisConfig *NewRedisClientParam, stopCh <-chan struct{}) (*Client, error) {
-	c, err := New(NewRedisClientParam{
+	c, err := newRedisClient(NewRedisClientParam{
 		ServerMode: clientRedisConfig.ServerMode,
 		ServerAddr: clientRedisConfig.ServerAddr,
 		Password:   clientRedisConfig.Password,

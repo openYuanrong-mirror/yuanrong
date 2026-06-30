@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -157,10 +156,6 @@ func auth(ctx *fasthttp.RequestCtx) error {
 		return nil
 	}
 	sign := string(ctx.Request.Header.Peek(constant.HeaderAuthorization))
-	if strings.HasPrefix(sign, localauth.AuthPrefixHmacSha256) {
-		return localauth.VerifySignWithHmacSha256(ctx, config.GlobalConfig.SystemAuthConfig.AccessKey,
-			config.GlobalConfig.SystemAuthConfig.SecretKey)
-	}
 	timestamp := string(ctx.Request.Header.Peek(constant.HeaderAuthTimestamp))
 	return localauth.AuthCheckLocally(config.GlobalConfig.LocalAuth.AKey, config.GlobalConfig.LocalAuth.SKey, sign,
 		timestamp, config.GlobalConfig.LocalAuth.Duration)
@@ -168,6 +163,7 @@ func auth(ctx *fasthttp.RequestCtx) error {
 
 func invokeHandler(ctx *fasthttp.RequestCtx) {
 	traceID := string(ctx.Request.Header.Peek(constant.HeaderTraceID))
+	traceParent := string(ctx.Request.Header.Peek(constant.HeaderTraceParent))
 	logger := log.GetLogger().With(zap.Any("traceId", traceID))
 	if isShutDown.Load() {
 		ctx.SetStatusCode(http.StatusOK)
@@ -188,7 +184,8 @@ func invokeHandler(ctx *fasthttp.RequestCtx) {
 		logger.Errorf("scheduler is nil")
 		return
 	}
-	respBody, err := functionscaler.GetGlobalScheduler().ProcessInstanceRequestLibruntime(args, traceID)
+	respBody, err := functionscaler.GetGlobalScheduler().ProcessInstanceRequestLibruntimeWithTraceParent(
+		args, traceID, traceParent)
 	if err != nil {
 		ctx.SetStatusCode(http.StatusInternalServerError)
 		logger.Errorf("marshl response body, err %s", err.Error())

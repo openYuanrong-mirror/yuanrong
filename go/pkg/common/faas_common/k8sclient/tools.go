@@ -46,20 +46,26 @@ var (
 	// dynamicClient -
 	dynamicClient     dynamic.Interface
 	dynamicClientOnce sync.Once
+
+	inClusterConfigFunc = rest.InClusterConfig
+	newKubeClientFunc   = kubernetes.NewForConfig
+	newDynamicFunc      = func(config *rest.Config) (dynamic.Interface, error) {
+		return dynamic.NewForConfig(config)
+	}
 )
 
 // GetkubeClient is used to obtain a K8S Client
 func GetkubeClient() *KubeClient {
 	kubeClientOnce.Do(func() {
 		// create Kubernetes config
-		config, err := rest.InClusterConfig()
+		config, err := inClusterConfigFunc()
 		if err != nil {
 			log.GetLogger().Errorf("Failed to create Kubernetes config: %v", err)
 			return
 		}
 
 		// create Kubernetes Client
-		client, err := kubernetes.NewForConfig(config)
+		client, err := newKubeClientFunc(config)
 		if err != nil {
 			log.GetLogger().Errorf("Failed to create Kubernetes Client: %v", err)
 			return
@@ -76,13 +82,13 @@ func GetkubeClient() *KubeClient {
 func GetDynamicClient() dynamic.Interface {
 	dynamicClientOnce.Do(func() {
 		// create Kubernetes config
-		config, err := rest.InClusterConfig()
+		config, err := inClusterConfigFunc()
 		if err != nil {
 			log.GetLogger().Errorf("Failed to create Kubernetes config: %s", err.Error())
 			return
 		}
 		// create dynamic client
-		dynamicClient, err = dynamic.NewForConfig(config)
+		dynamicClient, err = newDynamicFunc(config)
 		if err != nil {
 			log.GetLogger().Errorf("failed to create dynamic client: %s", err.Error())
 			return

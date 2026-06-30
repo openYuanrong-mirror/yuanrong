@@ -1,0 +1,28 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traefik
+{{- with .Values.traefik.service.annotations }}
+  annotations:
+{{ toYaml . | nindent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.traefik.service.type }}
+  ports:
+    - name: web
+      port: {{ .Values.traefik.service.port }}
+      targetPort: web
+      protocol: TCP
+    - name: frontend-direct
+      port: {{ .Values.traefik.service.frontendDirectPort }}
+      targetPort: frontend-direct
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: traefik
+{{- end }}

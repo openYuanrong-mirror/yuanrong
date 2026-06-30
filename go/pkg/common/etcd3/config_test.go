@@ -22,10 +22,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
 	. "github.com/smartystreets/goconvey/convey"
 
-	"yuanrong.org/kernel/pkg/common/crypto"
 	commontls "yuanrong.org/kernel/pkg/common/tls"
 )
 
@@ -68,28 +66,34 @@ func TestGetETCDCertificatePath(t *testing.T) {
 
 func TestGetEtcdConfigTlsAuth(t *testing.T) {
 	tlsAuth := &tlsAuth{}
-	Convey("GetX509CACertPool success", t, func() {
-		patch := gomonkey.ApplyFunc(commontls.GetX509CACertPool, func(string) (*x509.CertPool, error) {
-			return nil, nil
-		})
-		defer patch.Reset()
-		Convey("LoadServerTLSCertificate success", func() {
-			patch := gomonkey.ApplyFunc(commontls.LoadServerTLSCertificate, func(string, string) ([]tls.Certificate, error) {
-				return nil, nil
-			})
-			defer patch.Reset()
-			_, err := tlsAuth.getEtcdConfig()
-			So(err, ShouldBeNil)
-		})
-		Convey("LoadServerTLSCertificate fail", func() {
-			patch := gomonkey.ApplyFunc(commontls.LoadServerTLSCertificate, func(string, string) ([]tls.Certificate, error) {
-				return nil, errors.New("LoadServerTLSCertificate fail")
-			})
-			defer patch.Reset()
-			_, err := tlsAuth.getEtcdConfig()
-			So(err, ShouldNotBeNil)
-		})
-	})
+	oldGetX509CACertPool := getX509CACertPool
+	oldLoadServerTLSCertificate := loadServerTLSCertificate
+	defer func() {
+		getX509CACertPool = oldGetX509CACertPool
+		loadServerTLSCertificate = oldLoadServerTLSCertificate
+	}()
+
+	getX509CACertPool = func(string) (*x509.CertPool, error) {
+		return nil, nil
+	}
+	loadServerTLSCertificate = func(string, string) ([]tls.Certificate, error) {
+		return nil, nil
+	}
+	_, err := tlsAuth.getEtcdConfig()
+	if err != nil {
+		t.Fatalf("getEtcdConfig() error = %v", err)
+	}
+
+	getX509CACertPool = func(string) (*x509.CertPool, error) {
+		return nil, nil
+	}
+	loadServerTLSCertificate = func(string, string) ([]tls.Certificate, error) {
+		return nil, errors.New("LoadServerTLSCertificate fail")
+	}
+	_, err = tlsAuth.getEtcdConfig()
+	if err == nil {
+		t.Fatal("getEtcdConfig() error = nil, want non-nil")
+	}
 }
 
 func TestRenewTokenTlsAuth(t *testing.T) {
@@ -109,19 +113,21 @@ func TestRenewTokenPwdAuth(t *testing.T) {
 
 func TestGetEtcdConfigPwdAuth(t *testing.T) {
 	pwdAuth := &pwdAuth{}
+	oldDecryptPassword := decryptPassword
+	defer func() {
+		decryptPassword = oldDecryptPassword
+	}()
 	Convey("Decrypt success", t, func() {
-		patch := gomonkey.ApplyFunc(crypto.Decrypt, func([]byte, []byte) (string, error) {
+		decryptPassword = func([]byte, []byte) (string, error) {
 			return "", nil
-		})
-		defer patch.Reset()
+		}
 		_, err := pwdAuth.getEtcdConfig()
 		So(err, ShouldBeNil)
 	})
 	Convey("Decrypt fail", t, func() {
-		patch := gomonkey.ApplyFunc(crypto.Decrypt, func([]byte, []byte) (string, error) {
+		decryptPassword = func([]byte, []byte) (string, error) {
 			return "", errors.New("decrypt fail")
-		})
-		defer patch.Reset()
+		}
 		_, err := pwdAuth.getEtcdConfig()
 		So(err, ShouldNotBeNil)
 	})

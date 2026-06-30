@@ -47,3 +47,20 @@ func NewObjectRef() *ObjectRef {
 	o := &ObjectRef{objId: objId}
 	return o
 }
+
+// ObjectRefDirect is a reference to a data object that bypasses datasystem.
+// Unlike ObjectRef, it does not require IncreaseRef/DecreaseRef operations
+// because the underlying data is always stored in native memory (never in datasystem).
+type ObjectRefDirect struct {
+	ObjectRef
+}
+
+// NewObjectRefDirect wraps an existing object ID as an ObjectRefDirect
+func NewObjectRefDirect(objId string) *ObjectRefDirect {
+	return &ObjectRefDirect{ObjectRef{objId: objId}}
+}
+
+// GetObjectRef returns the underlying ObjectRef for interop with existing APIs
+func (ref *ObjectRefDirect) GetObjectRef() *ObjectRef {
+	return &ref.ObjectRef
+}

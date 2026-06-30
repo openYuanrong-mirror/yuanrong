@@ -1,0 +1,75 @@
+{{- if .Values.bazelRemote.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bazel-remote
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: bazel-remote
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bazel-remote
+  template:
+    metadata:
+      labels:
+        app: bazel-remote
+    spec:
+      {{- if .Values.global.buildNode }}
+      nodeSelector:
+        kubernetes.io/hostname: {{ .Values.global.buildNode | quote }}
+      {{- end }}
+      imagePullSecrets:
+        - name: swr-pull-secret
+      containers:
+        - name: bazel-remote
+          image: {{ .Values.bazelRemote.image }}
+          imagePullPolicy: Always
+          args:
+            - --max_size={{ .Values.bazelRemote.maxSizeGb }}
+            - --dir=/data/bazel-cache
+            - --port={{ .Values.bazelRemote.service.httpPort }}
+            - --grpc_port={{ .Values.bazelRemote.service.grpcPort }}
+          env:
+            # Override K8s service env var injection (BAZEL_REMOTE_PORT=tcp://...)
+            # that would otherwise be parsed as int and cause a startup failure.
+            - name: BAZEL_REMOTE_PORT
+              value: {{ .Values.bazelRemote.service.httpPort | quote }}
+          ports:
+            - containerPort: {{ .Values.bazelRemote.service.httpPort }}
+            - containerPort: {{ .Values.bazelRemote.service.grpcPort }}
+          resources:
+            {{- toYaml .Values.bazelRemote.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache-storage
+              mountPath: /data
+      volumes:
+        - name: cache-storage
+          hostPath:
+            path: {{ .Values.bazelRemote.hostPath }}
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bazel-remote
+  namespace: {{ .Values.namespaces.buildTools }}
+  labels:
+    app: bazel-remote
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: yuanrong-ci
+spec:
+  selector:
+    app: bazel-remote
+  ports:
+    - name: http
+      port: {{ .Values.bazelRemote.service.httpPort }}
+      targetPort: {{ .Values.bazelRemote.service.httpPort }}
+    - name: grpc
+      port: {{ .Values.bazelRemote.service.grpcPort }}
+      targetPort: {{ .Values.bazelRemote.service.grpcPort }}
+{{- end }}

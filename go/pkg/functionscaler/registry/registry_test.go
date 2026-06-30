@@ -45,6 +45,10 @@ import (
 
 func TestInitRegistry(t *testing.T) {
 	config.GlobalConfig = types.Configuration{}
+	rawGetValueFromEtcdWithRetryFunc := getValueFromEtcdWithRetryFunc
+	getValueFromEtcdWithRetryFunc = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+		return nil, fmt.Errorf("get value failed")
+	}
 	patches := []*Patches{
 		ApplyMethod(reflect.TypeOf(&etcd3.EtcdInitParam{}), "InitClient",
 			func(_ *etcd3.EtcdInitParam) error {
@@ -65,6 +69,7 @@ func TestInitRegistry(t *testing.T) {
 		ApplyFunc((*FaasSchedulerRegistry).WaitForETCDList, func() {}),
 	}
 	defer func() {
+		getValueFromEtcdWithRetryFunc = rawGetValueFromEtcdWithRetryFunc
 		time.Sleep(1000 * time.Millisecond)
 		for _, patch := range patches {
 			time.Sleep(100 * time.Millisecond)
@@ -292,9 +297,13 @@ func TestAgencyWatcherHandler(t *testing.T) {
 			},
 		}
 		convey.Convey("agencyWatcherHandler put unmarshal failed", func() {
-			defer ApplyFunc(json.Unmarshal, func(data []byte, v interface{}) error {
+			oldUserAgencyJSONUnmarshal := userAgencyJSONUnmarshal
+			defer func() {
+				userAgencyJSONUnmarshal = oldUserAgencyJSONUnmarshal
+			}()
+			userAgencyJSONUnmarshal = func(data []byte, v interface{}) error {
 				return fmt.Errorf("unmarshal failed")
-			}).Reset()
+			}
 			event := &etcd3.Event{
 				Type:  etcd3.PUT,
 				Key:   "/sn/agency/business/yrk/tenant/123/domain/123/agency/123",
@@ -811,42 +820,58 @@ func TestFunctionRegistryWatcherHandler(t *testing.T) {
 		convey.So(res, convey.ShouldBeNil)
 	})
 	convey.Convey("fetchSilentFuncSpec", t, func() {
-		defer ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-			func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-				funcSpec := types.FunctionSpecification{}
-				spec, _ := json.Marshal(funcSpec)
-				return spec, nil
-			}).Reset()
-		defer ApplyPrivateMethod(reflect.TypeOf(&FunctionRegistry{}), "buildFuncSpec",
-			func(_ *FunctionRegistry, etcdKey string, etcdValue []byte,
-				funcKey string) *types.FunctionSpecification {
-				return &types.FunctionSpecification{
-					FuncKey: "1234/test-func/latest",
-				}
-			}).Reset()
+		rawGetValueFromEtcdWithRetryFunc := getValueFromEtcdWithRetryFunc
+		rawBuildFuncSpecFunc := buildFuncSpecFunc
+		rawGetMetaEtcdClientFunc := getMetaEtcdClientFunc
+		defer func() {
+			getValueFromEtcdWithRetryFunc = rawGetValueFromEtcdWithRetryFunc
+			buildFuncSpecFunc = rawBuildFuncSpecFunc
+			getMetaEtcdClientFunc = rawGetMetaEtcdClientFunc
+		}()
+		getMetaEtcdClientFunc = func() *etcd3.EtcdClient {
+			return &etcd3.EtcdClient{}
+		}
+		getValueFromEtcdWithRetryFunc = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+			funcSpec := types.FunctionSpecification{}
+			spec, _ := json.Marshal(funcSpec)
+			return spec, nil
+		}
+		buildFuncSpecFunc = func(_ *FunctionRegistry, etcdKey string, etcdValue []byte,
+			funcKey string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{
+				FuncKey: "1234/test-func/latest",
+			}
+		}
 		res := fr.fetchSilentFuncSpec("1234/test-func/latest")
 		convey.So(res.FuncKey, convey.ShouldEqual, "1234/test-func/latest")
 	})
 	convey.Convey("EtcdList", t, func() {
+		rawGetMetaEtcdClientFunc := getMetaEtcdClientFunc
+		rawEtcdClientGetFunc := etcdClientGetFunc
+		defer func() {
+			getMetaEtcdClientFunc = rawGetMetaEtcdClientFunc
+			etcdClientGetFunc = rawEtcdClientGetFunc
+		}()
 		client, _ := clientv3.New(clientv3.Config{Endpoints: []string{"127.0.0.1"}})
+		defer client.Close()
 		etcdClient := &etcd3.EtcdClient{
 			Client: client,
 		}
-		defer ApplyFunc(etcd3.GetMetaEtcdClient, func() *etcd3.EtcdClient {
+		getMetaEtcdClientFunc = func() *etcd3.EtcdClient {
 			return etcdClient
-		}).Reset()
-		defer ApplyMethodFunc(client, "Get", func(ctx context.Context,
+		}
+		etcdClientGetFunc = func(_ *clientv3.Client, ctx context.Context,
 			key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 			getRsp := &clientv3.GetResponse{
 				Kvs: []*mvccpb.KeyValue{
 					{
 						Key:   []byte("/sn/functions/business/yrk/tenant/0/function/0-system-faasscheduler/version/$latest"),
-						Value: []byte("{}"),
+						Value: []byte("invalid function meta"),
 					},
 				},
 			}
 			return getRsp, nil
-		}).Reset()
+		}
 		funcList := fr.EtcdList()
 		convey.So(len(funcList), convey.ShouldEqual, 0)
 	})
@@ -1267,44 +1292,35 @@ func TestAliasRegistry_RunWatcher(t *testing.T) {
 			RolloutRegistry:           NewRolloutRegistry(stopCh),
 			AgentRegistry:             NewAgentRegistry(stopCh),
 		}
-		ProcessETCDList()
 		convey.Convey("update", func() {
-			defer ApplyMethod(reflect.TypeOf(&etcd3.EtcdWatcher{}), "StartWatch",
-				func(ew *etcd3.EtcdWatcher) {
-					alias := &aliasroute.AliasElement{AliasURN: "123456"}
-					bytes, _ := json.Marshal(alias)
-					ew.ResultChan <- &etcd3.Event{
-						Type:      etcd3.PUT,
-						Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
-						Value:     bytes,
-						PrevValue: nil,
-						Rev:       0,
-					}
-				}).Reset()
-			GlobalRegistry.AliasRegistry.RunWatcher()
 			ch := make(chan SubEvent, 1)
 			GlobalRegistry.AliasRegistry.addSubscriberChan(ch)
+			alias := &aliasroute.AliasElement{AliasURN: "123456"}
+			bytes, _ := json.Marshal(alias)
+			GlobalRegistry.AliasRegistry.watcherHandler(&etcd3.Event{
+				Type:      etcd3.PUT,
+				Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
+				Value:     bytes,
+				PrevValue: nil,
+				Rev:       0,
+			})
 			envet := <-ch
 			convey.So(envet.EventType, convey.ShouldEqual, SubEventTypeUpdate)
 			convey.So(envet.EventMsg.(string), convey.ShouldEqual, "123456")
 		})
 
 		convey.Convey("delete", func() {
-			defer ApplyMethod(reflect.TypeOf(&etcd3.EtcdWatcher{}), "StartWatch",
-				func(ew *etcd3.EtcdWatcher) {
-					alias := &aliasroute.AliasElement{AliasURN: "123456"}
-					bytes, _ := json.Marshal(alias)
-					ew.ResultChan <- &etcd3.Event{
-						Type:      etcd3.DELETE,
-						Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
-						Value:     bytes,
-						PrevValue: nil,
-						Rev:       0,
-					}
-				}).Reset()
-			GlobalRegistry.AliasRegistry.RunWatcher()
 			ch := make(chan SubEvent, 1)
 			GlobalRegistry.AliasRegistry.addSubscriberChan(ch)
+			alias := &aliasroute.AliasElement{AliasURN: "123456"}
+			bytes, _ := json.Marshal(alias)
+			GlobalRegistry.AliasRegistry.watcherHandler(&etcd3.Event{
+				Type:      etcd3.DELETE,
+				Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
+				Value:     bytes,
+				PrevValue: nil,
+				Rev:       0,
+			})
 			envet := <-ch
 			convey.So(envet.EventType, convey.ShouldEqual, SubEventTypeDelete)
 			convey.So(envet.EventMsg.(string), convey.ShouldEqual,
@@ -1312,28 +1328,24 @@ func TestAliasRegistry_RunWatcher(t *testing.T) {
 		})
 
 		convey.Convey("error", func() {
-			defer ApplyMethod(reflect.TypeOf(&etcd3.EtcdWatcher{}), "StartWatch",
-				func(ew *etcd3.EtcdWatcher) {
-					alias := &aliasroute.AliasElement{AliasURN: "123456"}
-					bytes, _ := json.Marshal(alias)
-					ew.ResultChan <- &etcd3.Event{
-						Type:      etcd3.ERROR,
-						Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
-						Value:     bytes,
-						PrevValue: nil,
-						Rev:       0,
-					}
-					ew.ResultChan <- &etcd3.Event{
-						Type:      4,
-						Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
-						Value:     bytes,
-						PrevValue: nil,
-						Rev:       0,
-					}
-				}).Reset()
-			GlobalRegistry.AliasRegistry.RunWatcher()
 			ch := make(chan SubEvent, 1)
 			GlobalRegistry.AliasRegistry.addSubscriberChan(ch)
+			alias := &aliasroute.AliasElement{AliasURN: "123456"}
+			bytes, _ := json.Marshal(alias)
+			GlobalRegistry.AliasRegistry.watcherHandler(&etcd3.Event{
+				Type:      etcd3.ERROR,
+				Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
+				Value:     bytes,
+				PrevValue: nil,
+				Rev:       0,
+			})
+			GlobalRegistry.AliasRegistry.watcherHandler(&etcd3.Event{
+				Type:      4,
+				Key:       "/sn/aliases/xxx/xxx/tenant/1234567890/function/functionName/requestID",
+				Value:     bytes,
+				PrevValue: nil,
+				Rev:       0,
+			})
 			convey.So(len(ch), convey.ShouldEqual, 0)
 		})
 	})
@@ -1391,7 +1403,6 @@ func TestFaaSFrontendRegistry_RunWatcher(t *testing.T) {
 			TenantQuotaRegistry:       NewTenantQuotaRegistry(stopCh),
 			RolloutRegistry:           NewRolloutRegistry(stopCh),
 		}
-		ProcessETCDList()
 		convey.Convey("update", func() {
 			errEv := &etcd3.Event{
 				Type:      etcd3.PUT,

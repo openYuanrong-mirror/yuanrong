@@ -17,7 +17,7 @@
 #ifndef OBSERVABILITY_METRICS_HTTP_HEARTBEAT_CLIENT_H
 #define OBSERVABILITY_METRICS_HTTP_HEARTBEAT_CLIENT_H
 
-#include "http_heartbeat_observer.h"
+#include "src/utility/metrics/exporters/http_exporter/http_heartbeat_observer.h"
 
 namespace observability::exporters::metrics {
 class HttpHeartBeatClient {

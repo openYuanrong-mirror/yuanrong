@@ -68,6 +68,7 @@ class FaaSSchedulerLauncher(ComponentLauncher):
             "{etcdCertFile}": etcd_cert,
             "{etcdKeyFile}": etcd_key,
             "{passphraseFile}": pass_phrase,
+            "{functionSchedulerLeasePort}": str(values["function_scheduler"]["lease_port"]),
         }
 
         for placeholder, value in replacements.items():

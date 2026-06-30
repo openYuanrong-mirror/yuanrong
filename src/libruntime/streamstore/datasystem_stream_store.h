@@ -16,6 +16,8 @@
 
 #pragma once
 
+#ifdef ENABLE_DATASYSTEM
+
 #include <mutex>
 
 #include "datasystem/stream_client.h"
@@ -36,9 +38,9 @@ public:
                    const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
                    const datasystem::SensitiveValue &sk) override;
 
-    ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) override;
+    ErrorInfo Init(const DsConnectOptions &options) override;
 
-    ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt, std::shared_ptr<StateStore> dsStateStore) override;
+    ErrorInfo Init(const DsConnectOptions &options, std::shared_ptr<StateStore> dsStateStore) override;
 
     ErrorInfo CreateStreamProducer(const std::string &streamName, std::shared_ptr<StreamProducer> &producer,
                                    ProducerConf producerConf = {}) override;
@@ -105,3 +107,114 @@ private:
 
 }  // namespace Libruntime
 }  // namespace YR
+
+#else  // !ENABLE_DATASYSTEM
+
+#include "src/libruntime/streamstore/stream_store.h"
+
+namespace YR {
+namespace Libruntime {
+
+static const ErrorInfo STREAMSTORE_NOT_ENABLED_ERROR(
+    ErrorCode::ERR_DATASYSTEM_FAILED, ModuleCode::DATASYSTEM,
+    "StreamStore operations require ENABLE_DATASYSTEM to be enabled");
+
+class DatasystemStreamStore : public StreamStore {
+public:
+    ErrorInfo Init(const std::string &ip, int port) override
+    {
+        (void)ip;
+        (void)port;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
+                   const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                   const SensitiveValue &sk) override
+    {
+        (void)ip;
+        (void)port;
+        (void)enableDsAuth;
+        (void)encryptEnable;
+        (void)runtimePublicKey;
+        (void)runtimePrivateKey;
+        (void)dsPublicKey;
+        (void)token;
+        (void)ak;
+        (void)sk;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Init(const DsConnectOptions &options) override
+    {
+        (void)options;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo Init(const DsConnectOptions &options, std::shared_ptr<StateStore> dsStateStore) override
+    {
+        (void)options;
+        (void)dsStateStore;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo CreateStreamProducer(const std::string &streamName, std::shared_ptr<StreamProducer> &producer,
+                                   ProducerConf producerConf = {}) override
+    {
+        (void)streamName;
+        (void)producer;
+        (void)producerConf;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
+                                   std::shared_ptr<StreamConsumer> &consumer, bool autoAck = false) override
+    {
+        (void)streamName;
+        (void)config;
+        (void)consumer;
+        (void)autoAck;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo DeleteStream(const std::string &streamName) override
+    {
+        (void)streamName;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum) override
+    {
+        (void)streamName;
+        (void)gProducerNum;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum) override
+    {
+        (void)streamName;
+        (void)gConsumerNum;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    void Shutdown() override {}
+
+    ErrorInfo UpdateToken(SensitiveValue token) override
+    {
+        (void)token;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+
+    ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) override
+    {
+        (void)ak;
+        (void)sk;
+        return STREAMSTORE_NOT_ENABLED_ERROR;
+    }
+};
+
+}  // namespace Libruntime
+}  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

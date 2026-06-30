@@ -45,6 +45,11 @@ type writes struct {
 	withPrefix bool
 }
 
+var getEtcdResponse = func(client *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, key string,
+	opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	return client.GetResponse(ctxInfo, key, opts...)
+}
+
 // Transaction utilities etcd v3 transaction to perform transaction with separated expressions
 type Transaction struct {
 	etcdClient *etcd3.EtcdClient
@@ -100,7 +105,7 @@ func (t *Transaction) Get(key string) (string, error) {
 	}
 
 	etcdCtxInfo := etcd3.CreateEtcdCtxInfo(t.ctx)
-	resp, err := t.etcdClient.GetResponse(etcdCtxInfo, key)
+	resp, err := getEtcdResponse(t.etcdClient, etcdCtxInfo, key)
 	if err != nil {
 		log.GetLogger().Errorf("failed to get from etcd, error: %s", err.Error())
 		return "", err
@@ -135,7 +140,7 @@ func (t *Transaction) GetPrefix(key string) (keys, values []string, err error) {
 	}
 
 	etcdCtxInfo := etcd3.CreateEtcdCtxInfo(t.ctx)
-	resp, err := t.etcdClient.GetResponse(etcdCtxInfo, key, clientv3.WithPrefix())
+	resp, err := getEtcdResponse(t.etcdClient, etcdCtxInfo, key, clientv3.WithPrefix())
 	if err != nil {
 		log.GetLogger().Errorf("failed to get with prefix from etcd, error: %s", err.Error())
 		return nil, nil, err
@@ -236,7 +241,7 @@ func (t *Transaction) printError() {
 
 func (t *Transaction) rereadPrefix(k string, revision int64) error {
 	etcdCtxInfo := etcd3.CreateEtcdCtxInfo(t.ctx)
-	resp, err := t.etcdClient.GetResponse(etcdCtxInfo, k, clientv3.WithPrefix())
+	resp, err := getEtcdResponse(t.etcdClient, etcdCtxInfo, k, clientv3.WithPrefix())
 	if err != nil {
 		log.GetLogger().Errorf("failed to reread data with prefix from etcd, error: %s", err.Error())
 		return err
@@ -274,7 +279,7 @@ func (t *Transaction) printCachedPrefixValue(prefix string, key string) {
 
 func (t *Transaction) rereadKey(k string, revision int64) error {
 	etcdCtxInfo := etcd3.CreateEtcdCtxInfo(t.ctx)
-	resp, err := t.etcdClient.GetResponse(etcdCtxInfo, k)
+	resp, err := getEtcdResponse(t.etcdClient, etcdCtxInfo, k)
 	if err != nil {
 		log.GetLogger().Errorf("invalid key, k: %s, error: %s", k, err.Error())
 		return err

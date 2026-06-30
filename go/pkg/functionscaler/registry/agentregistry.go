@@ -45,6 +45,8 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
 
+var getDynamicClient = k8sclient.GetDynamicClient
+
 const (
 	// consistency with 1.x
 	defaultMaxRetryTimes = 12
@@ -96,7 +98,7 @@ func NewAgentRegistry(stopCh <-chan struct{}) *AgentRegistry {
 	if os.Getenv(constant.EnableAgentCRDRegistry) == "" {
 		return nil
 	}
-	dynamicClient := k8sclient.GetDynamicClient()
+	dynamicClient := getDynamicClient()
 	// Different CR events share the same rate-limiting queue
 	workQueue := workqueue.NewNamedRateLimitingQueue(
 		workqueue.DefaultControllerRateLimiter(),

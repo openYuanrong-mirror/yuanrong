@@ -17,8 +17,8 @@
 #include "metrics/sdk/immediately_export_processor.h"
 
 #include "metrics/sdk/instruments.h"
-#include "sdk/include/processor_actor.h"
-#include "common/include/utils.h"
+#include "src/utility/metrics/sdk/include/processor_actor.h"
+#include "src/utility/metrics/common/include/utils.h"
 
 namespace observability::sdk::metrics {
 ImmediatelyExportProcessor::ImmediatelyExportProcessor(std::shared_ptr<MetricsExporter::Exporter> &&exporter)
@@ -27,7 +27,7 @@ ImmediatelyExportProcessor::ImmediatelyExportProcessor(std::shared_ptr<MetricsEx
     auto exportConfigs = ExportConfigs { .exporterName = "immediatelyExporterDefault",
                                          .exportMode = ExportMode::IMMEDIATELY, .batchSize = 1 };
     processorActor_ = std::make_shared<ProcessorActor>(std::move(exporter), std::move(exportConfigs));
-    litebus::Spawn(processorActor_);
+    processorActor_->Start();
 }
 
 ImmediatelyExportProcessor::ImmediatelyExportProcessor(
@@ -36,19 +36,21 @@ ImmediatelyExportProcessor::ImmediatelyExportProcessor(
     observability::metrics::ValidateExportConfigs(exportConfigs);
     exportConfigs.batchSize = 1;
     processorActor_ = std::make_shared<ProcessorActor>(std::move(exporter), std::move(exportConfigs));
-    litebus::Spawn(processorActor_);
-    litebus::Async(processorActor_->GetAID(), &ProcessorActor::Start);
+    processorActor_->Start();
 }
 
 AggregationTemporality ImmediatelyExportProcessor::GetAggregationTemporality(
     sdk::metrics::InstrumentType instrumentType) const noexcept
 {
-    return litebus::Async(processorActor_->GetAID(), &ProcessorActor::GetAggregationTemporality, instrumentType).Get();
+    return processorActor_->GetAggregationTemporality(instrumentType);  // Direct call
 }
 
 void ImmediatelyExportProcessor::Export(const MetricData &data) noexcept
 {
-    (void)litebus::Async(processorActor_->GetAID(), &ProcessorActor::Export, data);
+    if (processorActor_ == nullptr) {
+        return;
+    }
+    processorActor_->Export(data);
 }
 
 }  // namespace observability::sdk::metrics

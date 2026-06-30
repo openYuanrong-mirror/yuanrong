@@ -31,10 +31,10 @@ public:
     {}
 };
 
-class Counter {
+class FMCounter {
 public:
-    Counter() {}
-    Counter(int init)
+    FMCounter() {}
+    FMCounter(int init)
     {
         count = init;
     }
@@ -50,18 +50,18 @@ public:
 
 
 TEST_F(FunctionManagerTest, RegisterShutdownFunctionsTest) {
-    YR_SHUTDOWN(&Counter::Shutdown);
-    auto func = internal::FunctionManager::Singleton().GetShutdownFunction("Counter");
+    YR_SHUTDOWN(&FMCounter::Shutdown);
+    auto func = internal::FunctionManager::Singleton().GetShutdownFunction("FMCounter");
     EXPECT_TRUE(func.has_value());
 }
 
 TEST_F(FunctionManagerTest, CheckpointRecoverTest) {
-    auto clsPtr = new Counter();
+    auto clsPtr = new FMCounter();
     clsPtr->key = "1234";
     auto instancePtr = YR::internal::Serialize((uint64_t)clsPtr);
-    msgpack::sbuffer instanceBuf = YR::internal::Checkpoint<Counter>(instancePtr);
-    instancePtr = YR::internal::Recover<Counter>(instanceBuf);
-    Counter clsRef = YR::internal::ParseClassRef<Counter>(instancePtr);
+    msgpack::sbuffer instanceBuf = YR::internal::Checkpoint<FMCounter>(instancePtr);
+    instancePtr = YR::internal::Recover<FMCounter>(instanceBuf);
+    FMCounter clsRef = YR::internal::ParseClassRef<FMCounter>(instancePtr);
     EXPECT_EQ(clsRef.key, clsPtr->key);
 }
 

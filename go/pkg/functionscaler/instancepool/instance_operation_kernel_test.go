@@ -47,7 +47,6 @@ import (
 	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 	wisecloudTypes "yuanrong.org/kernel/pkg/common/faas_common/wisecloudtool/types"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/signalmanager"
 	"yuanrong.org/kernel/pkg/functionscaler/sts"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
@@ -77,10 +76,11 @@ func TestKillInstanceAndIgnoreNotFoundError(t *testing.T) {
 		mockClient := &mockUtils.FakeLibruntimeSdkClient{}
 		mockErr := fmt.Errorf("")
 
-		defer gomonkey.ApplyMethodFunc(mockClient, "Kill", func(instanceID string, signal int, payload []byte) error {
+		defer gomonkey.ApplyMethodFunc(mockClient, "Kill", func(instanceID string, signal int, payload []byte,
+			invokeOpt api.InvokeOptions) error {
 			return mockErr
 		}).Reset()
-		SetGlobalSdkClient(&mockUtils.FakeLibruntimeSdkClient{})
+		SetGlobalSdkClient(mockClient)
 		cases := []struct {
 			mockErr error
 			isOk    bool
@@ -372,10 +372,11 @@ func TestSetCreateOptionForDownloadData(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey(" marshal delegate download data error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			funcSpec := &types.FunctionSpecification{
 				S3MetaData: commonTypes.S3MetaData{},
 			}
@@ -384,14 +385,15 @@ func TestSetCreateOptionForDownloadData(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey(" marshal delegate layer download data error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				_, ok := v.(commonTypes.S3MetaData)
 				if ok {
 					return []byte{}, nil
 				}
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			funcSpec := &types.FunctionSpecification{
 				S3MetaData: commonTypes.S3MetaData{},
 				FuncMetaData: commonTypes.FuncMetaData{
@@ -417,6 +419,46 @@ func Test_setCreateOptionForLifeCycleDetached(t *testing.T) {
 		t.Errorf("do setCreateOptionForLifeCycleDetached failed, lifeCyle = %s", lifeCycle)
 		return
 	}
+}
+
+func TestSetCreateOptionForUserAgencyAndEnv(t *testing.T) {
+	convey.Convey("Test setCreateOptionForUserAgencyAndEnv", t, func() {
+		convey.Convey("merge agent session and metrics env without dropping existing env", func() {
+			funcSpec := &types.FunctionSpecification{
+				FuncKey: "default/0-session-func/$latest",
+				ExtendedMetaData: commonTypes.ExtendedMetaData{
+					EnableAgentSession: true,
+					EnableMetrics:      true,
+				},
+			}
+			createOpt := map[string]string{
+				constant.DelegateEnvVar: `{"EXISTING_ENV":"keep"}`,
+			}
+
+			err := setCreateOptionForUserAgencyAndEnv(funcSpec, createOpt)
+			convey.So(err, convey.ShouldBeNil)
+
+			envs := map[string]string{}
+			err = json.Unmarshal([]byte(createOpt[constant.DelegateEnvVar]), &envs)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(envs["EXISTING_ENV"], convey.ShouldEqual, "keep")
+			convey.So(envs[enableAgentSessionEnvKey], convey.ShouldEqual, "true")
+			convey.So(envs[enableMetricsEnvKey], convey.ShouldEqual, "true")
+		})
+		convey.Convey("invalid existing delegate env returns error", func() {
+			funcSpec := &types.FunctionSpecification{
+				ExtendedMetaData: commonTypes.ExtendedMetaData{
+					EnableAgentSession: true,
+				},
+			}
+			createOpt := map[string]string{
+				constant.DelegateEnvVar: `{invalid`,
+			}
+
+			err := setCreateOptionForUserAgencyAndEnv(funcSpec, createOpt)
+			convey.So(err, convey.ShouldNotBeNil)
+		})
+	})
 }
 
 func Test_setCreateOptionForNuwaRuntimeInfo(t *testing.T) {
@@ -545,9 +587,11 @@ func Test_setCreateOptionForRASP(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("initContainerAdd error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawInitContainerAddFunc := initContainerAddFunc
+			initContainerAddFunc = func(funcSpec *types.FunctionSpecification) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { initContainerAddFunc = rawInitContainerAddFunc }()
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -616,10 +660,11 @@ func TestSetCreateOptionForContainerSideCar(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("json Marshal CustomFilebeatConfig error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawSideCarAddFunc := sideCarAddFunc
+			sideCarAddFunc = func(funcSpec *types.FunctionSpecification) ([]byte, error) {
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { sideCarAddFunc = rawSideCarAddFunc }()
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{},
 			}
@@ -628,10 +673,11 @@ func TestSetCreateOptionForContainerSideCar(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("json Marshal config error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawSideCarAddFunc := sideCarAddFunc
+			sideCarAddFunc = func(funcSpec *types.FunctionSpecification) ([]byte, error) {
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { sideCarAddFunc = rawSideCarAddFunc }()
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					CustomFilebeatConfig: commonTypes.CustomFilebeatConfig{
@@ -682,9 +728,11 @@ func Test_setCustomPodSeccompProfile(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("json Marsha data error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			createOpt := map[string]string{}
 			funcSpec := &types.FunctionSpecification{
 				FuncMetaData: commonTypes.FuncMetaData{
@@ -731,9 +779,11 @@ func Test_setFunctionAgentInitContainer(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("json Marsha data error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			createOpt := map[string]string{}
 			funcSpec := &types.FunctionSpecification{
 				FuncMetaData: commonTypes.FuncMetaData{
@@ -999,9 +1049,11 @@ func TestSetCreateOptionForNodeAffinity(t *testing.T) {
 func Test_PrepareCreateArguments(t *testing.T) {
 	convey.Convey("test Test_PrepareCreateArguments", t, func() {
 		convey.Convey("json marshal error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			arg := prepareCreateArguments(createInstanceRequest{
 				funcSpec: &types.FunctionSpecification{},
 				resKey:   resspeckey.ResSpecKey{},
@@ -1009,9 +1061,14 @@ func Test_PrepareCreateArguments(t *testing.T) {
 			convey.So(arg, convey.ShouldBeNil)
 		})
 		convey.Convey("prepareCreateParamsData error", func() {
-			defer ApplyFunc(prepareCreateParamsData, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			rawPrepareCreateParamsDataFunc := prepareCreateParamsDataFunc
+			defer func() {
+				prepareCreateParamsDataFunc = rawPrepareCreateParamsDataFunc
+			}()
+			prepareCreateParamsDataFunc = func(funcSpec *types.FunctionSpecification,
+				resKey resspeckey.ResSpecKey) ([]byte, error) {
 				return nil, fmt.Errorf("prepareCreateParamsData error")
-			}).Reset()
+			}
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1028,12 +1085,19 @@ func Test_PrepareCreateArguments(t *testing.T) {
 			convey.So(arg, convey.ShouldBeNil)
 		})
 		convey.Convey("prepareSchedulerArg error", func() {
-			defer ApplyFunc(prepareCreateParamsData, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			rawPrepareCreateParamsDataFunc := prepareCreateParamsDataFunc
+			rawPrepareSchedulerArgFunc := prepareSchedulerArgFunc
+			defer func() {
+				prepareCreateParamsDataFunc = rawPrepareCreateParamsDataFunc
+				prepareSchedulerArgFunc = rawPrepareSchedulerArgFunc
+			}()
+			prepareCreateParamsDataFunc = func(funcSpec *types.FunctionSpecification,
+				resKey resspeckey.ResSpecKey) ([]byte, error) {
 				return []byte("createParamsData"), nil
-			}).Reset()
-			defer ApplyFunc(signalmanager.PrepareSchedulerArg, func() ([]byte, error) {
+			}
+			prepareSchedulerArgFunc = func() ([]byte, error) {
 				return nil, fmt.Errorf("prepareSchedulerArg error")
-			}).Reset()
+			}
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1057,15 +1121,24 @@ func Test_PrepareCreateArguments(t *testing.T) {
 			defer func() {
 				config.GlobalConfig = rawGConfig
 			}()
-			defer ApplyFunc(prepareCreateParamsData, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			rawPrepareCreateParamsDataFunc := prepareCreateParamsDataFunc
+			rawPrepareSchedulerArgFunc := prepareSchedulerArgFunc
+			rawPrepareCustomUserArgFunc := prepareCustomUserArgFunc
+			defer func() {
+				prepareCreateParamsDataFunc = rawPrepareCreateParamsDataFunc
+				prepareSchedulerArgFunc = rawPrepareSchedulerArgFunc
+				prepareCustomUserArgFunc = rawPrepareCustomUserArgFunc
+			}()
+			prepareCreateParamsDataFunc = func(funcSpec *types.FunctionSpecification,
+				resKey resspeckey.ResSpecKey) ([]byte, error) {
 				return []byte("createParamsData"), nil
-			}).Reset()
-			defer ApplyFunc(signalmanager.PrepareSchedulerArg, func() ([]byte, error) {
+			}
+			prepareSchedulerArgFunc = func() ([]byte, error) {
 				return []byte("prepareSchedulerArg"), nil
-			}).Reset()
-			defer ApplyFunc(prepareCustomUserArg, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			}
+			prepareCustomUserArgFunc = func(funcSpec *types.FunctionSpecification) ([]byte, error) {
 				return nil, fmt.Errorf("prepareSchedulerArg error")
-			}).Reset()
+			}
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1089,15 +1162,24 @@ func Test_PrepareCreateArguments(t *testing.T) {
 			defer func() {
 				config.GlobalConfig = rawGConfig
 			}()
-			defer ApplyFunc(prepareCreateParamsData, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			rawPrepareCreateParamsDataFunc := prepareCreateParamsDataFunc
+			rawPrepareSchedulerArgFunc := prepareSchedulerArgFunc
+			rawPrepareCustomUserArgFunc := prepareCustomUserArgFunc
+			defer func() {
+				prepareCreateParamsDataFunc = rawPrepareCreateParamsDataFunc
+				prepareSchedulerArgFunc = rawPrepareSchedulerArgFunc
+				prepareCustomUserArgFunc = rawPrepareCustomUserArgFunc
+			}()
+			prepareCreateParamsDataFunc = func(funcSpec *types.FunctionSpecification,
+				resKey resspeckey.ResSpecKey) ([]byte, error) {
 				return []byte("createParamsData"), nil
-			}).Reset()
-			defer ApplyFunc(signalmanager.PrepareSchedulerArg, func() ([]byte, error) {
+			}
+			prepareSchedulerArgFunc = func() ([]byte, error) {
 				return []byte("prepareSchedulerArg"), nil
-			}).Reset()
-			defer ApplyFunc(prepareCustomUserArg, func(funcSpec *types.FunctionSpecification) ([]byte, error) {
+			}
+			prepareCustomUserArgFunc = func(funcSpec *types.FunctionSpecification) ([]byte, error) {
 				return []byte("prepareCustomUserArg"), nil
-			}).Reset()
+			}
 			funcSpec := &types.FunctionSpecification{
 				ExtendedMetaData: commonTypes.ExtendedMetaData{
 					RaspConfig: commonTypes.RaspConfig{
@@ -1112,6 +1194,7 @@ func Test_PrepareCreateArguments(t *testing.T) {
 				resKey:   resspeckey.ResSpecKey{},
 			})
 			convey.So(len(arg), convey.ShouldEqual, 4)
+			convey.So(string(arg[3].Data), convey.ShouldEqual, "{}")
 		})
 	})
 }
@@ -1129,9 +1212,11 @@ func Test_PrepareCustomUserArg(t *testing.T) {
 	}()
 	convey.Convey("test PrepareCustomUserArg", t, func() {
 		convey.Convey("json Marshal error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, errors.New("json marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			_, err := prepareCustomUserArg(&types.FunctionSpecification{})
 			convey.So(err, convey.ShouldNotBeNil)
 		})
@@ -1152,9 +1237,11 @@ func Test_addInstanceCallerPodName(t *testing.T) {
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("json Marsha data error", func() {
-			defer ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return nil, fmt.Errorf("marshal error")
-			}).Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			createOpt := map[string]string{
 				commonconstant.DelegatePodLabels: "{\"funcName\":\"testcustom1024001\"}",
 			}
@@ -1418,22 +1505,24 @@ func TestSetCreateOptionForVPC(t *testing.T) {
 		natConfigJson, _ := json.Marshal(natConfig)
 		createOption := make(map[string]string, utils.DefaultMapSize)
 		convey.Convey("marshal network config error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			setCreateOptionForVPC(createOption, natConfig)
 			assert.Equal(t, "", createOption[types.NetworkConfigKey])
 		})
 		convey.Convey("marshal delegateNetworkConfigData error", func() {
-			patch := ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
+			rawJSONMarshal := jsonMarshal
+			jsonMarshal = func(v interface{}) ([]byte, error) {
 				_, ok := v.([]types.NetworkConfig)
 				if ok {
 					return natConfigJson, nil
 				}
 				return []byte{}, errors.New("marshal error")
-			})
-			defer patch.Reset()
+			}
+			defer func() { jsonMarshal = rawJSONMarshal }()
 			setCreateOptionForVPC(createOption, natConfig)
 			assert.Equal(t, string(natConfigJson), createOption[types.NetworkConfigKey])
 			assert.Equal(t, "", createOption[commonconstant.DelegateNetworkConfig])
@@ -1525,13 +1614,9 @@ func Test_setCreateOptionForPodInitLabel(t *testing.T) {
 		{
 			"case2 succeeded to set createOption for label",
 			args{
-				funcSpec: &types.FunctionSpecification{
-					FuncMetaData: commonTypes.FuncMetaData{
-						FuncName: "test",
-						TenantID: "tenantID", Service: "serviceID", Version: "$latest",
-					},
-					FuncKey: "default/test/$latest",
-				},
+				funcSpec: &types.FunctionSpecification{FuncMetaData: commonTypes.FuncMetaData{FuncName: "test",
+					TenantID: "tenantID", Service: "serviceID", Version: "$latest"},
+					FuncKey: "default/test/$latest"},
 				resSpec:      &resspeckey.ResourceSpecification{CPU: 500, Memory: 500},
 				instanceType: types.InstanceTypeReserved,
 			},
@@ -1713,8 +1798,32 @@ func TestCreateInvokeOptions(t *testing.T) {
 		},
 		ExtendedMetaData: commonTypes.ExtendedMetaData{},
 	}
-	opt := createInvokeOptions(funcSpec, &types.SchedulingOptions{}, nil, "")
+	opt := createInvokeOptions(funcSpec, &types.SchedulingOptions{}, nil, "", "trace-id", "trace-parent")
 	assert.NotNil(t, opt)
+	assert.Equal(t, "trace-id", opt.TraceID)
+	assert.Equal(t, "trace-parent", opt.CustomExtensions["traceparent"])
+}
+
+func TestCreateInvokeOptionsDoesNotMutateSchedulingExtensions(t *testing.T) {
+	funcSpec := &types.FunctionSpecification{
+		FuncKey: "testVpcFuncKey",
+		FuncMetaData: commonTypes.FuncMetaData{
+			VPCTriggerImage: "vpc trigger image url",
+		},
+		ExtendedMetaData: commonTypes.ExtendedMetaData{},
+	}
+	schedulingOptions := &types.SchedulingOptions{
+		Extension: map[string]string{
+			"existing": "value",
+		},
+	}
+	opt := createInvokeOptions(funcSpec, schedulingOptions, nil, "", "trace-id", "trace-parent")
+
+	assert.Equal(t, "value", schedulingOptions.Extension["existing"])
+	_, exists := schedulingOptions.Extension["traceparent"]
+	assert.False(t, exists)
+	assert.Equal(t, "trace-parent", opt.CustomExtensions["traceparent"])
+	assert.Equal(t, "value", opt.CustomExtensions["existing"])
 }
 
 func TestCreatePATService(t *testing.T) {
@@ -1735,16 +1844,15 @@ func TestCreatePATService(t *testing.T) {
 		})
 
 		convey.Convey("case: InvokeByInstanceId error", func() {
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-			sdk := &mockUtils.FakeLibruntimeSdkClient{}
-			SetGlobalSdkClient(sdk)
-			patches.ApplyMethod(reflect.TypeOf(sdk), "InvokeByInstanceId",
-				func(_ *mockUtils.FakeLibruntimeSdkClient, funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
-					invokeOpt api.InvokeOptions,
-				) (string, error) {
-					return "", errors.New("invoke error")
-				})
+			rawSdkInvokeByInstanceIDFunc := sdkInvokeByInstanceIDFunc
+			defer func() {
+				sdkInvokeByInstanceIDFunc = rawSdkInvokeByInstanceIDFunc
+			}()
+			sdkInvokeByInstanceIDFunc = func(funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
+				invokeOpt api.InvokeOptions,
+			) (string, error) {
+				return "", errors.New("invoke error")
+			}
 			natConfig, err := createPATService("", funcSpec, managerInfo, extMetaData, vpcConfig)
 			assert.NotNil(t, err)
 			assert.Nil(t, natConfig)
@@ -1752,21 +1860,21 @@ func TestCreatePATService(t *testing.T) {
 		})
 
 		convey.Convey("case: GetAsync error", func() {
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-			sdk := &mockUtils.FakeLibruntimeSdkClient{}
-			SetGlobalSdkClient(sdk)
-			patches.ApplyMethod(reflect.TypeOf(sdk), "InvokeByInstanceId",
-				func(_ *mockUtils.FakeLibruntimeSdkClient, funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
-					invokeOpts api.InvokeOptions,
-				) (string, error) {
-					return "test-obj-id", nil
-				})
-			patches.ApplyMethod(reflect.TypeOf(sdk), "GetAsync",
-				func(_ *mockUtils.FakeLibruntimeSdkClient, objectID string, cb api.GetAsyncCallback) {
-					err := snerror.New(statuscode.NotEnoughNIC, statuscode.VpcErMsg(statuscode.NotEnoughNIC))
-					cb(nil, err)
-				})
+			rawSdkInvokeByInstanceIDFunc := sdkInvokeByInstanceIDFunc
+			rawSdkGetAsyncFunc := sdkGetAsyncFunc
+			defer func() {
+				sdkInvokeByInstanceIDFunc = rawSdkInvokeByInstanceIDFunc
+				sdkGetAsyncFunc = rawSdkGetAsyncFunc
+			}()
+			sdkInvokeByInstanceIDFunc = func(funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
+				invokeOpts api.InvokeOptions,
+			) (string, error) {
+				return "test-obj-id", nil
+			}
+			sdkGetAsyncFunc = func(objectID string, cb api.GetAsyncCallback) {
+				err := snerror.New(statuscode.NotEnoughNIC, statuscode.VpcErMsg(statuscode.NotEnoughNIC))
+				cb(nil, err)
+			}
 			natConfig, err := createPATService("", funcSpec, managerInfo, extMetaData, vpcConfig)
 			assert.NotNil(t, err)
 			assert.Nil(t, natConfig)
@@ -1774,21 +1882,21 @@ func TestCreatePATService(t *testing.T) {
 		})
 
 		convey.Convey("case: createPATService success", func() {
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-			sdk := &mockUtils.FakeLibruntimeSdkClient{}
-			SetGlobalSdkClient(sdk)
-			patches.ApplyMethod(reflect.TypeOf(sdk), "InvokeByInstanceId",
-				func(_ *mockUtils.FakeLibruntimeSdkClient, funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
-					invokeOpts api.InvokeOptions,
-				) (string, error) {
-					return "test-obj-id", nil
-				})
-			patches.ApplyMethod(reflect.TypeOf(sdk), "GetAsync",
-				func(_ *mockUtils.FakeLibruntimeSdkClient, objectID string, cb api.GetAsyncCallback) {
-					result := []byte(`{"code":6030,"message":"{\"patPods\":[{\"namespace\":\"default\",\"patContainerIP\":\"10.0.0.100\",\"patVmIP\":\"10.1.0.100\",\"patPortIP\":\"182.0.0.100\",\"patMacAddr\":\"xxxxx-xxx\",\"patGateway\":\"182.0.0.1\",\"patPodName\":\"pod1\",\"tenantCidr\":\"182.20.0.0/14\",\"subMetaDigest\":\"xxxxxx\"},{\"namespace\":\"default\",\"patContainerIP\":\"10.0.0.101\",\"patVmIP\":\"10.1.0.101\",\"patPortIP\":\"182.0.0.101\",\"patMacAddr\":\"xxxxx-xxx\",\"patGateway\":\"182.0.0.2\",\"patPodName\":\"pod2\",\"tenantCidr\":\"182.20.0.0/14\",\"subMetaDigest\":\"xxxxxx\"}]}"}`)
-					cb(result, nil)
-				})
+			rawSdkInvokeByInstanceIDFunc := sdkInvokeByInstanceIDFunc
+			rawSdkGetAsyncFunc := sdkGetAsyncFunc
+			defer func() {
+				sdkInvokeByInstanceIDFunc = rawSdkInvokeByInstanceIDFunc
+				sdkGetAsyncFunc = rawSdkGetAsyncFunc
+			}()
+			sdkInvokeByInstanceIDFunc = func(funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
+				invokeOpts api.InvokeOptions,
+			) (string, error) {
+				return "test-obj-id", nil
+			}
+			sdkGetAsyncFunc = func(objectID string, cb api.GetAsyncCallback) {
+				result := []byte(`{"code":6030,"message":"{\"patPods\":[{\"namespace\":\"default\",\"patContainerIP\":\"10.0.0.100\",\"patVmIP\":\"10.1.0.100\",\"patPortIP\":\"182.0.0.100\",\"patMacAddr\":\"xxxxx-xxx\",\"patGateway\":\"182.0.0.1\",\"patPodName\":\"pod1\",\"tenantCidr\":\"182.20.0.0/14\",\"subMetaDigest\":\"xxxxxx\"},{\"namespace\":\"default\",\"patContainerIP\":\"10.0.0.101\",\"patVmIP\":\"10.1.0.101\",\"patPortIP\":\"182.0.0.101\",\"patMacAddr\":\"xxxxx-xxx\",\"patGateway\":\"182.0.0.2\",\"patPodName\":\"pod2\",\"tenantCidr\":\"182.20.0.0/14\",\"subMetaDigest\":\"xxxxxx\"}]}"}`)
+				cb(result, nil)
+			}
 			natConfig, err := createPATService("", funcSpec, managerInfo, extMetaData, vpcConfig)
 			assert.Nil(t, err)
 			assert.NotNil(t, natConfig)
@@ -1987,25 +2095,11 @@ func TestHasD910b(t *testing.T) {
 	var nilResSpec *resspeckey.ResourceSpecification
 	assert.False(t, hasD910b(nilResSpec), "Expected false when resKey is nil")
 
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-
-	patches.ApplyFunc(utils.GetNpuTypeAndInstanceType,
-		func(customRes map[string]int64, customResSpec map[string]interface{}) (string, string) {
-			return types.AscendResourceD910B, ""
-		})
-
 	resSpecWithD910B := &resspeckey.ResourceSpecification{
-		CustomResources:     map[string]int64{"mock-key": 1},
-		CustomResourcesSpec: map[string]interface{}{"mock-key": "mock-value"},
+		CustomResources:     map[string]int64{types.AscendResourceD910B: 1},
+		CustomResourcesSpec: map[string]interface{}{types.AscendResourceD910BInstanceType: "376T"},
 	}
 	assert.True(t, hasD910b(resSpecWithD910B), "Expected true when resKey has D910B resource")
-
-	patches.Reset()
-	patches.ApplyFunc(utils.GetNpuTypeAndInstanceType,
-		func(customRes map[string]int64, customResSpec map[string]interface{}) (string, string) {
-			return "non-D910B-resource", ""
-		})
 
 	resSpecWithoutD910B := &resspeckey.ResourceSpecification{
 		CustomResources:     map[string]int64{"mock-key": 1},

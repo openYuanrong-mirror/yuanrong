@@ -63,7 +63,7 @@ public:
         auto lc = std::make_shared<YR::Libruntime::LibruntimeConfig>();
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
-        auto metricsAdaptor = std::make_shared<YR::Libruntime::MetricsAdaptor>();
+        auto metricsAdaptor = YR::Libruntime::MetricsAdaptor::GetInstance();
         auto sec = std::make_shared<YR::Libruntime::Security>();
         auto socketClient = std::make_shared<YR::Libruntime::DomainSocketClient>("/home/snuser/socket/runtime.sock");
         lr = std::make_shared<YR::Libruntime::MockLibruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
@@ -75,6 +75,7 @@ public:
         YR::Libruntime::LibruntimeManager::Instance().Finalize();
         lr.reset();
         rt.reset();
+        YR::Libruntime::LibruntimeManager::Cleanup();
     }
     std::shared_ptr<ClusterModeRuntime> rt;
     std::shared_ptr<YR::Libruntime::MockLibruntime> lr;
@@ -1080,7 +1081,7 @@ protected:
         auto lc = std::make_shared<YR::Libruntime::LibruntimeConfig>();
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
-        auto metricsAdaptor = std::make_shared<YR::Libruntime::MetricsAdaptor>();
+        auto metricsAdaptor = YR::Libruntime::MetricsAdaptor::GetInstance();
         auto sec = std::make_shared<YR::Libruntime::Security>();
         auto socketClient = std::make_shared<YR::Libruntime::DomainSocketClient>("/home/snuser/socket/runtime.sock");
         lr = std::make_shared<YR::Libruntime::MockLibruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);

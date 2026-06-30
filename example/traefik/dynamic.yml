@@ -1,0 +1,72 @@
+tls:
+  certificates:
+    - certFile: /etc/traefik/cert/wyc.pc.crt
+      keyFile: /etc/traefik/cert/wyc.pc.key
+
+http:
+  routers:
+    # Dashboard: Traefik 管理界面
+    dashboard-http:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/dashboard`) || PathPrefix(`/api/traefik`)"
+      priority: 100
+      service: api@internal
+
+    dashboard-https:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/dashboard`) || PathPrefix(`/api/traefik`)"
+      priority: 100
+      service: api@internal
+      tls: {}
+
+    # Casdoor: 身份认证服务路由
+    # /signup 路由到 Casdoor 用于注册页面
+    # /api 仅匹配 Casdoor 特定路径，避免与前端 /api/instances 等冲突
+    casdoor-http:
+      entryPoints:
+        - web
+      rule: "Path(`/login`) || PathPrefix(`/login/oauth`) || PathPrefix(`/signup`) || PathPrefix(`/cas`) || PathPrefix(`/.well-known`) || PathPrefix(`/api/get-oauth-token`) || PathPrefix(`/api/login`) || PathPrefix(`/api/logout`) || PathPrefix(`/api/signup`) || PathPrefix(`/api/user`) || PathPrefix(`/api/get-account`) || PathPrefix(`/api/get-app-login`) || PathPrefix(`/api/get-application`) || PathPrefix(`/api/get-organization-names`) || PathPrefix(`/api/get-dashboard`) || PathPrefix(`/api/get-captcha`) || PathPrefix(`/api/get-captcha-status`) || PathPrefix(`/api/send-verification-code`) || PathPrefix(`/api/verify-captcha`) || PathPrefix(`/api/verify-code`) || Path(`/favicon.ico`) || PathPrefix(`/static/`)"
+      priority: 50
+      service: casdoor
+
+    casdoor-https:
+      entryPoints:
+        - web
+      rule: "Path(`/login`) || PathPrefix(`/login/oauth`) || PathPrefix(`/signup`) || PathPrefix(`/cas`) || PathPrefix(`/.well-known`) || PathPrefix(`/api/get-oauth-token`) || PathPrefix(`/api/login`) || PathPrefix(`/api/logout`) || PathPrefix(`/api/signup`) || PathPrefix(`/api/user`) || PathPrefix(`/api/get-account`) || PathPrefix(`/api/get-app-login`) || PathPrefix(`/api/get-application`) || PathPrefix(`/api/get-organization-names`) || PathPrefix(`/api/get-dashboard`) || PathPrefix(`/api/get-captcha`) || PathPrefix(`/api/get-captcha-status`) || PathPrefix(`/api/send-verification-code`) || PathPrefix(`/api/verify-captcha`) || PathPrefix(`/api/verify-code`) || Path(`/favicon.ico`) || PathPrefix(`/static/`)"
+      priority: 50
+      service: casdoor
+      tls: {}
+
+    # Frontend: 门户前端路由
+    frontend-http:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: frontend
+
+    frontend-https:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: frontend
+      tls: {}
+
+  services:
+    casdoor:
+      loadBalancer:
+        servers:
+          - url: "http://casdoor:8000"
+
+    frontend:
+      loadBalancer:
+        serversTransport: insecureTransport
+        servers:
+          - url: "https://dev:8888"
+
+  serversTransports:
+    insecureTransport:
+      insecureSkipVerify: true

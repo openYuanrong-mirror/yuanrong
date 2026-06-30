@@ -15,9 +15,11 @@
  */
 
 #include "src/libruntime/gwclient/gw_client.h"
-#include "datasystem/object_client.h"
+
 #include "json.hpp"
+
 #include "src/libruntime/gwclient/gw_datasystem_client_wrapper.h"
+#include "src/libruntime/gwclient/transport/http_transport.h"
 #include "src/libruntime/utils/http_utils.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/notification_utility.h"
@@ -29,9 +31,26 @@ const std::string TRACE_ID_KEY = "traceId";
 const std::string TENANT_ID_KEY = "tenantId";
 const std::string TENANT_ID_KEY_NEW = "X-Tenant-Id";
 const std::string X_AUTH_TOKEN = "X-Auth";
+const int DEFAULT_GW_CONNECT_TIMEOUT_SEC = 5;
 
 using json = nlohmann::json;
 using YR::utility::NotificationUtility;
+
+boost::beast::http::verb StringToVerb(const std::string &method)
+{
+    if (method == "GET") {
+        return boost::beast::http::verb::get;
+    } else if (method == "POST") {
+        return boost::beast::http::verb::post;
+    } else if (method == "PUT") {
+        return boost::beast::http::verb::put;
+    } else if (method == "DELETE") {
+        return boost::beast::http::verb::delete_;
+    } else {
+        return boost::beast::http::verb::unknown;
+    }
+}
+
 ErrorInfo ClientBuffer::Seal(const std::unordered_set<std::string> &nestedIds)
 {
     std::shared_ptr<GwClient> gwClient = gwClientWeak_.lock();
@@ -58,12 +77,14 @@ ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t co
     }
     this->httpClient_ = std::move(httpClient);
     this->authToken_ = authToken;
+    // Initialize HTTP transport wrapper
+    this->httpTransport_ = std::make_shared<HttpTransport>(this->httpClient_);
     return Init("", 0, connectTimeout);
 }
 
 ErrorInfo GwClient::Init(const std::string &ip, int port)
 {
-    return Init(ip, port, DS_CONNECT_TIMEOUT);
+    return Init(ip, port, DEFAULT_GW_CONNECT_TIMEOUT_SEC);
 }
 
 void GwClient::Init(std::shared_ptr<HttpClient> httpClient)
@@ -72,19 +93,26 @@ void GwClient::Init(std::shared_ptr<HttpClient> httpClient)
         return;
     }
     this->httpClient_ = std::move(httpClient);
+    // Initialize HTTP transport wrapper
+    this->httpTransport_ = std::make_shared<HttpTransport>(this->httpClient_);
     init_ = true;
+}
+
+void GwClient::SetWsTransport(std::shared_ptr<TransportClient> ws)
+{
+    wsTransport_ = std::move(ws);
 }
 
 ErrorInfo GwClient::Init(const std::string &addr, int port, std::int32_t connectTimeout)
 {
-    return Init(addr, port, false, false, "", datasystem::SensitiveValue{}, "", datasystem::SensitiveValue{}, "",
-                datasystem::SensitiveValue{}, connectTimeout);
+    return Init(addr, port, false, false, "", SensitiveValue{}, "", SensitiveValue{}, "",
+                SensitiveValue{}, connectTimeout);
 }
 
 ErrorInfo GwClient::Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                         const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                         const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                         const datasystem::SensitiveValue &sk, std::int32_t connectTimeout)
+                         const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                         const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                         const SensitiveValue &sk, std::int32_t connectTimeout)
 {
     std::shared_ptr<DatasystemClientWrapper> dsClientWrapper =
         std::make_shared<GwDatasystemClientWrapper>(shared_from_this());
@@ -104,6 +132,7 @@ ErrorInfo GwClient::Start(const std::string &jobID, const std::string &instanceI
     if (start_) {
         return ErrorInfo();
     }
+
     auto error = Lease();
     if (!error.OK()) {
         return error;
@@ -136,6 +165,11 @@ void GwClient::Stop(void)
     if (timer_ != nullptr) {
         timer_->cancel();
     }
+    // Close WebSocket transport
+    if (wsTransport_) {
+        wsTransport_->Stop();
+        wsTransport_.reset();
+    }
     Release();
     init_ = false;
     start_ = false;
@@ -164,21 +198,6 @@ std::string VerbToString(const boost::beast::http::verb &v)
             return "DELETE";
         default:
             return "UNKNOWN";
-    }
-}
-
-boost::beast::http::verb StringToVerb(const std::string &method)
-{
-    if (method == "GET") {
-        return boost::beast::http::verb::get;
-    } else if (method == "POST") {
-        return boost::beast::http::verb::post;
-    } else if (method == "PUT") {
-        return boost::beast::http::verb::put;
-    } else if (method == "DELETE") {
-        return boost::beast::http::verb::delete_;
-    } else {
-        return boost::beast::http::verb::unknown;
     }
 }
 
@@ -222,20 +241,19 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
                            int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req.requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
+    auto headers = this->BuildHeaders(this->jobId_, req.traceid(), this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     YRLOG_DEBUG("create request, requestId :{}", *requestId);
-    httpClient_->SubmitInvokeRequest(
-        POST, POSIX_CREATE, headers, body, requestId,
-        [requestId, createRespCallback, callback](const std::string &result, const boost::beast::error_code &errorCode,
-                                                  const uint statusCode) {
+
+    selectTransport()->SubmitRequest(
+        POSIX_CREATE, headers, body, requestId,
+        [requestId, createRespCallback, callback](const std::string &result, const ErrorInfo &err, uint statusCode) {
             CreateResponse createRsp;
             NotifyRequest notifyReq;
             std::stringstream ss;
-            if (errorCode) {
-                ss << "network error between client and frontend, error_code: " << errorCode.message()
-                   << ", requestId: " << *requestId;
+            if (!err.OK()) {
+                ss << "transport error: " << err.Msg() << ", requestId: " << *requestId;
                 createRsp.set_code(common::ERR_INNER_COMMUNICATION);
                 createRsp.set_message(ss.str());
             } else if (!IsResponseSuccessful(statusCode)) {
@@ -263,19 +281,18 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
 void GwClient::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req->Immutable().requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
+    auto headers = this->BuildHeaders(this->jobId_, req->Immutable().traceid(), this->tenantId_);
     std::string body;
     req->Immutable().SerializeToString(&body);
     YRLOG_DEBUG("invoke request, requestId :{}, instanceId: {}", *requestId, req->Immutable().instanceid());
-    httpClient_->SubmitInvokeRequest(
-        POST, POSIX_INVOKE, headers, body, requestId,
-        [requestId, callback](const std::string &result, const boost::beast::error_code &errorCode,
-                              const uint statusCode) {
+
+    selectTransport()->SubmitRequest(
+        POSIX_INVOKE, headers, body, requestId,
+        [requestId, callback](const std::string &result, const ErrorInfo &err, uint statusCode) {
             NotifyRequest notifyReq;
             std::stringstream ss;
-            if (errorCode) {
-                ss << "network error between client and frontend, error_code: " << errorCode.message()
-                   << ", requestId: " << *requestId;
+            if (!err.OK()) {
+                ss << "transport error: " << err.Msg() << ", requestId: " << *requestId;
                 notifyReq.set_requestid(*requestId);
                 notifyReq.set_code(common::ERR_INNER_COMMUNICATION);
                 notifyReq.set_message(ss.str());
@@ -393,12 +410,12 @@ MultipleResult GwClient::Get(const std::vector<std::string> &ids, int timeoutMS)
     return std::make_pair(err, *result);
 }
 
-ErrorInfo GwClient::UpdateToken(datasystem::SensitiveValue token)
+ErrorInfo GwClient::UpdateToken(SensitiveValue token)
 {
     return ErrorInfo();
 };
 
-ErrorInfo GwClient::UpdateAkSk(std::string ak, datasystem::SensitiveValue sk)
+ErrorInfo GwClient::UpdateAkSk(std::string ak, SensitiveValue sk)
 {
     return ErrorInfo();
 };
@@ -444,6 +461,12 @@ ErrorInfo GwClient::DecreGlobalReference(const std::vector<std::string> &objectI
         }
     }
     return err;
+}
+
+ErrorInfo GwClient::ReleaseGRefs(const std::string &remoteId)
+{
+    (void)remoteId;
+    return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "not support out of cluster");
 }
 
 ErrorInfo GwClient::Write(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam)
@@ -880,11 +903,6 @@ ErrorInfo GwClient::ParseDecreaseRefResponse(const std::string &result,
                                                                  ModuleCode::DATASYSTEM, decreaseRefRsp.message());
 }
 
-ErrorInfo GwClient::ReleaseGRefs(const std::string &remoteId)
-{
-    return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "not support out of cluster");
-}
-
 LeaseRequest GwClient::BuildLeaseRequest()
 {
     LeaseRequest leaseReq;
@@ -1041,12 +1059,12 @@ std::pair<std::unordered_map<std::string, std::string>, std::string> GwClient::B
     if (!spec->traceId.empty()) {
         headers.emplace(TRACE_ID_KEY_NEW, spec->traceId);
     }
-    headers.emplace(REMOTE_CLIENT_ID_KEY, jobId_);       // for llt test
-    headers.emplace(REMOTE_CLIENT_ID_KEY_NEW, jobId_);   // keep in sync with BuildHeaders
+    headers.emplace(REMOTE_CLIENT_ID_KEY, jobId_);  // for llt test
+    headers.emplace(REMOTE_CLIENT_ID_KEY_NEW, jobId_);  // keep in sync with BuildHeaders
     headers.emplace(INSTANCE_CPU_KEY, std::to_string(spec->opts.cpu));
     headers.emplace(INSTANCE_MEMORY_KEY, std::to_string(spec->opts.memory));
     std::string ak;
-    datasystem::SensitiveValue sk;
+    SensitiveValue sk;
     security_->GetAKSK(ak, sk);
     if (ak.empty() || sk.Empty()) {
         YRLOG_WARN("ak or sk is empty");

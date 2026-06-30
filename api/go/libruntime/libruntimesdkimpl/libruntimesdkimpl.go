@@ -20,6 +20,7 @@ package libruntimesdkimpl
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
 	"yuanrong.org/kernel/runtime/libruntime/clibruntime"
@@ -27,7 +28,9 @@ import (
 	"yuanrong.org/kernel/runtime/libruntime/common/utils"
 )
 
-type libruntimeSDKImpl struct{}
+type libruntimeSDKImpl struct {
+	routeCache sync.Map
+}
 
 // NewLibruntimeSDKImpl creates and returns a new libruntimeSDK instance
 func NewLibruntimeSDKImpl() api.LibruntimeAPI {
@@ -51,30 +54,40 @@ func (l *libruntimeSDKImpl) InvokeByFunctionName(
 	return clibruntime.InvokeByFunctionName(funcMeta, args, invokeOpt)
 }
 
-func (l libruntimeSDKImpl) AcquireInstance(state string, funcMeta api.FunctionMeta,
+func (l *libruntimeSDKImpl) AcquireInstance(state string, funcMeta api.FunctionMeta,
 	acquireOpt api.InvokeOptions) (api.InstanceAllocation, error) {
-	return clibruntime.AcquireInstance(state, funcMeta, acquireOpt)
+	allocation, err := clibruntime.AcquireInstance(state, funcMeta, acquireOpt)
+	if err == nil && allocation.InstanceID != "" {
+		l.routeCache.Store(allocation.InstanceID, [2]string{allocation.RouteAddress, allocation.ProxyID})
+	}
+	return allocation, err
 }
 
-func (l libruntimeSDKImpl) ReleaseInstance(allocation api.InstanceAllocation, stateID string,
+func (l *libruntimeSDKImpl) ReleaseInstance(allocation api.InstanceAllocation, stateID string,
 	abnormal bool, option api.InvokeOptions) {
 	clibruntime.ReleaseInstance(allocation, stateID, abnormal, option)
 }
 
-func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte) error {
-	return clibruntime.Kill(instanceID, signal, payload)
+func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
+	_ = invokeOpt
+	routeAddress, proxyID := "", ""
+	if v, ok := l.routeCache.Load(instanceID); ok {
+		pair := v.([2]string)
+		routeAddress, proxyID = pair[0], pair[1]
+	}
+	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
 
-func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
-	return clibruntime.CreateInstanceRaw(createReqRaw)
+func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.CreateInstanceRaw(createReqRaw, option)
 }
 
-func (l *libruntimeSDKImpl) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
-	return clibruntime.InvokeByInstanceIdRaw(invokeReqRaw)
+func (l *libruntimeSDKImpl) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.InvokeByInstanceIdRaw(invokeReqRaw, option)
 }
 
-func (l *libruntimeSDKImpl) KillRaw(killReqRaw []byte) ([]byte, error) {
-	return clibruntime.KillRaw(killReqRaw)
+func (l *libruntimeSDKImpl) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.KillRaw(killReqRaw, option)
 }
 
 func (l *libruntimeSDKImpl) SaveState(state []byte) (string, error) {
@@ -192,12 +205,6 @@ func (l *libruntimeSDKImpl) GDecreaseRefRaw(objectIDs []string, remoteClientID .
 	return clibruntime.GDecreaseRefRaw(objectIDs, remoteClientID...)
 }
 
-// ReleaseGRefs release object refs by remote client id
-func (l *libruntimeSDKImpl) ReleaseGRefs(remoteClientID string) error {
-	err := clibruntime.ReleaseGRefs(remoteClientID)
-	return err
-}
-
 func (l *libruntimeSDKImpl) GetAsync(objectID string, cb api.GetAsyncCallback) {
 	clibruntime.GetAsync(objectID, cb)
 }
@@ -251,19 +258,8 @@ func (l *libruntimeSDKImpl) GetCredential() api.Credential {
 	return clibruntime.GetCredential()
 }
 
-// IsHealth -
-func (l *libruntimeSDKImpl) IsHealth() bool {
-	return clibruntime.IsHealth()
-}
-
-// IsDsHealth -
-func (l *libruntimeSDKImpl) IsDsHealth() bool {
-	return clibruntime.IsDsHealth()
-}
-
-// GetActiveMasterAddr for getting active master address
-func (l *libruntimeSDKImpl) GetActiveMasterAddr() string {
-	return clibruntime.GetActiveMasterAddr()
+func (l *libruntimeSDKImpl) ReleaseGRefs(remoteClientID string) error {
+	return clibruntime.ReleaseGRefs(remoteClientID)
 }
 
 func (l *libruntimeSDKImpl) SetGauge(data api.GaugeData) error {
@@ -280,4 +276,19 @@ func (l *libruntimeSDKImpl) DecreaseGauge(data api.GaugeData) error {
 
 func (l *libruntimeSDKImpl) IncreaseUInt64Counter(data api.UInt64CounterData) error {
 	return clibruntime.IncreaseUInt64Counter(data)
+}
+
+// IsHealth -
+func (l *libruntimeSDKImpl) IsHealth() bool {
+	return clibruntime.IsHealth()
+}
+
+// IsDsHealth -
+func (l *libruntimeSDKImpl) IsDsHealth() bool {
+	return clibruntime.IsDsHealth()
+}
+
+// GetActiveMasterAddr for getting active master address
+func (l *libruntimeSDKImpl) GetActiveMasterAddr() string {
+	return clibruntime.GetActiveMasterAddr()
 }

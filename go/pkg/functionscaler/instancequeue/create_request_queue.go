@@ -22,11 +22,13 @@ import (
 	"sync"
 
 	"yuanrong.org/kernel/pkg/functionscaler/scaler"
+	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
 // InstanceCreateRequest is the request to create instance
 type InstanceCreateRequest struct {
-	callback scaler.ScaleUpCallback
+	callback     scaler.ScaleUpCallback
+	traceContext *types.TraceContext
 }
 
 // InstanceCreateQueue stores instance create requests

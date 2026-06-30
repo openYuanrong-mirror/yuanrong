@@ -29,8 +29,9 @@ public:
                   std::shared_ptr<FSClient> client, std::shared_ptr<WaitingObjectManager> waitManager,
                   std::shared_ptr<MemoryStore> memStore, std::shared_ptr<InvokeOrderManager> invokeOrderMgr,
                   std::shared_ptr<RequestManager> requestManager = nullptr, ReturnedObjectHandler handler = nullptr);
+    virtual ~FunctionGroup() = default;
     void SetInvokeSpec(std::shared_ptr<InvokeSpec> invokeSpec);
-    ErrorInfo Accelerate(const AccelerateMsgQueueHandle &handle, HandleReturnObjectCallback callback);
+    ErrorInfo Accelerate(const AccelerateMsgQueueHandle &handle, HandleReturnObjectCallback callback) override;
     void AddInstance(const std::vector<std::string> &insIds);
     void Stop();
 

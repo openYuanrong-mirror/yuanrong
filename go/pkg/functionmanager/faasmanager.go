@@ -469,7 +469,7 @@ func (m *Manager) saveStateLoop() {
 
 func killInstanceOuter(clientID string, traceID string) {
 	log.GetLogger().Infof("start to kill instance outer, clientID: %s, traceID:%s", clientID, traceID)
-	if err := libruntimeClient.Kill(clientID, types.KillSignalVal, []byte{}); err != nil {
+	if err := libruntimeClient.Kill(clientID, types.KillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 		log.GetLogger().Warnf("failed to clean instances when delete lease, traceID: %s, "+
 			"remoteClientID:%s, status:%s", traceID, clientID, err.Error())
 	}

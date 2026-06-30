@@ -87,6 +87,8 @@ func TestLibruntimeSDKImpl(t *testing.T) {
 				"AcquireInstance success", func() {
 					allocation, err := libruntimeAPI.AcquireInstance("state", api.FunctionMeta{}, api.InvokeOptions{})
 					convey.So(allocation, convey.ShouldNotBeNil)
+					convey.So(allocation.RouteAddress, convey.ShouldEqual, "10.0.0.1:7788")
+					convey.So(allocation.ProxyID, convey.ShouldEqual, "proxy-abc")
 					convey.So(err, convey.ShouldBeNil)
 				},
 			)
@@ -99,28 +101,28 @@ func TestLibruntimeSDKImpl(t *testing.T) {
 			)
 			convey.Convey(
 				"Kill success", func() {
-					err := libruntimeAPI.Kill("instanceID", 0, []byte{})
+					err := libruntimeAPI.Kill("instanceID", 0, []byte{}, api.InvokeOptions{})
 					convey.So(err, convey.ShouldBeNil)
 				},
 			)
 			convey.Convey(
 				"CreateInstanceRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.CreateInstanceRaw([]byte{})
+						go libruntimeAPI.CreateInstanceRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
 			convey.Convey(
 				"InvokeByInstanceIdRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.InvokeByInstanceIdRaw([]byte{})
+						go libruntimeAPI.InvokeByInstanceIdRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
 			convey.Convey(
 				"KillRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.KillRaw([]byte{})
+						go libruntimeAPI.KillRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)

@@ -1,0 +1,12 @@
+- service: defaultservice
+  kind: yrlib
+  description: minimal smoke test service
+  functions:
+    default:
+      cpu: 0
+      memory: 0
+      runtime: python3.9
+    py39:
+      cpu: 0
+      memory: 0
+      runtime: python3.9

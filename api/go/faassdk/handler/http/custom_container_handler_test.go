@@ -65,11 +65,7 @@ func (s *fakeSnError) Error() string {
 }
 
 type fakeSDKClient struct {
-	returnErr        bool
-	metricErr        error
-	lastGauge        *api.GaugeData
-	lastCounter      *api.UInt64CounterData
-	lastMetricMethod string
+	returnErr bool
 }
 
 func (f *fakeSDKClient) CreateInstance(funcMeta api.FunctionMeta, args []api.Arg, invokeOpt api.InvokeOptions) (string, error) {
@@ -100,17 +96,17 @@ func (f *fakeSDKClient) Kill(instanceID string, signal int, payload []byte) erro
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) KillRaw(killReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -246,7 +242,7 @@ func (f *fakeSDKClient) GetEvent(objectID string, cb api.GetEventCallback) {
 	cb([]byte("success"), nil)
 }
 
-func (f *fakeSDKClient) DeleteGetEventCallback(objectID string) {
+func (f *fakeSDKClient) DeleteGetEvent(objectID string) {
 
 }
 
@@ -263,7 +259,7 @@ func (f *fakeSDKClient) CreateClient(config api.ConnectArguments) (api.KvClient,
 	return &FakeDataSystemClinet{}, nil
 }
 
-func (f *fakeSDKClient) ReleaseGRefs(remoteClientID string) error {
+func (f *fakeSDKClient) ReleaseGRfs(remoteClientID string) error {
 	// TODO implement me
 	panic("implement me")
 }
@@ -302,30 +298,6 @@ func (f *fakeSDKClient) IsDsHealth() bool {
 
 func (f *fakeSDKClient) GetActiveMasterAddr() string {
 	return "fakeMasterAddr"
-}
-
-func (f *fakeSDKClient) SetGauge(data api.GaugeData) error {
-	f.lastMetricMethod = "set_gauge"
-	f.lastGauge = &data
-	return f.metricErr
-}
-
-func (f *fakeSDKClient) IncreaseGauge(data api.GaugeData) error {
-	f.lastMetricMethod = "increase_gauge"
-	f.lastGauge = &data
-	return f.metricErr
-}
-
-func (f *fakeSDKClient) DecreaseGauge(data api.GaugeData) error {
-	f.lastMetricMethod = "decrease_gauge"
-	f.lastGauge = &data
-	return f.metricErr
-}
-
-func (f *fakeSDKClient) IncreaseUInt64Counter(data api.UInt64CounterData) error {
-	f.lastMetricMethod = "increase_counter"
-	f.lastCounter = &data
-	return f.metricErr
 }
 
 func newFuncSpec() *types.FuncSpec {
@@ -1813,78 +1785,6 @@ func TestCustomContainerHandler_handleCircuitBreak(t *testing.T) {
 			ch.circuitBreaker = true
 			ch.handleCircuitBreak(&FakeHTTP.TestResponseWriter{}, &http.Request{})
 			convey.So(ch.circuitBreaker, convey.ShouldBeTrue)
-		})
-	})
-}
-
-func TestCustomContainerHandler_handleMetricsReport(t *testing.T) {
-	convey.Convey("handle metrics report test", t, func() {
-		client := &fakeSDKClient{}
-		ch := &CustomContainerHandler{
-			basicHandler: &basicHandler{
-				funcSpec:  newFuncSpec(),
-				sdkClient: client,
-			},
-		}
-
-		convey.Convey("gauge set success", func() {
-			w := &FakeHTTP.TestResponseWriter{}
-			body := `{"metricName":"yr_custom_concurrent_num","metricType":"gauge","description":"desc","unit":"count","value":8}`
-			ch.handleMetricsReport(w, &http.Request{Body: io.NopCloser(strings.NewReader(body))})
-			resp := &types.MetricsReportResponse{}
-			_ = json.Unmarshal([]byte(w.Output), resp)
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.NoneError)
-			convey.So(client.lastMetricMethod, convey.ShouldEqual, "set_gauge")
-			convey.So(client.lastGauge, convey.ShouldNotBeNil)
-			convey.So(client.lastGauge.Name, convey.ShouldEqual, "yr_custom_concurrent_num")
-			convey.So(client.lastGauge.Value, convey.ShouldEqual, 8)
-		})
-
-		convey.Convey("counter inc success", func() {
-			w := &FakeHTTP.TestResponseWriter{}
-			body := `{"metricName":"yr_custom_invoke_num","metricType":"counter","description":"desc","unit":"count","value":3}`
-			ch.handleMetricsReport(w, &http.Request{Body: io.NopCloser(strings.NewReader(body))})
-			resp := &types.MetricsReportResponse{}
-			_ = json.Unmarshal([]byte(w.Output), resp)
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.NoneError)
-			convey.So(client.lastMetricMethod, convey.ShouldEqual, "increase_counter")
-			convey.So(client.lastCounter, convey.ShouldNotBeNil)
-			convey.So(client.lastCounter.Name, convey.ShouldEqual, "yr_custom_invoke_num")
-			convey.So(client.lastCounter.Value, convey.ShouldEqual, uint64(3))
-		})
-
-		convey.Convey("invalid metric type", func() {
-			w := &FakeHTTP.TestResponseWriter{}
-			body := `{"metricName":"yr_invalid","metricType":"histogram","value":1}`
-			ch.handleMetricsReport(w, &http.Request{Body: io.NopCloser(strings.NewReader(body))})
-			resp := &types.MetricsReportResponse{}
-			_ = json.Unmarshal([]byte(w.Output), resp)
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
-			convey.So(resp.ErrorMessage, convey.ShouldContainSubstring, "unsupported metric type")
-		})
-
-		convey.Convey("counter requires integer", func() {
-			w := &FakeHTTP.TestResponseWriter{}
-			body := `{"metricName":"yr_custom_invoke_num","metricType":"counter","value":1.5}`
-			ch.handleMetricsReport(w, &http.Request{Body: io.NopCloser(strings.NewReader(body))})
-			resp := &types.MetricsReportResponse{}
-			_ = json.Unmarshal([]byte(w.Output), resp)
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
-			convey.So(resp.ErrorMessage, convey.ShouldContainSubstring, "must be an integer")
-		})
-
-		convey.Convey("sdk error preserves sn code", func() {
-			client.metricErr = &fakeSnError{ErrorCode: 3015, ErrorMessage: "metric failed"}
-			defer func() {
-				client.metricErr = nil
-			}()
-			w := &FakeHTTP.TestResponseWriter{}
-			body := `{"metricName":"yr_custom_concurrent_num","metricType":"gauge","value":2}`
-			ch.handleMetricsReport(w, &http.Request{Body: io.NopCloser(strings.NewReader(body))})
-			resp := &types.MetricsReportResponse{}
-			_ = json.Unmarshal([]byte(w.Output), resp)
-			convey.So(resp.StatusCode, convey.ShouldEqual, 3015)
-			convey.So(resp.ErrorMessage, convey.ShouldContainSubstring, "metric failed")
 		})
 	})
 }

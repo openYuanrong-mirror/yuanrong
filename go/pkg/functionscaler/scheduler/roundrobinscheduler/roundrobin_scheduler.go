@@ -52,6 +52,8 @@ type RoundRobinScheduler struct {
 	instanceScaler       scaler.InstanceScaler
 	instanceQueue        []*types.Instance
 	subHealthInstance    map[string]*types.Instance
+	coldStartTraceMu     sync.Mutex
+	coldStartTraceQueue  []*types.TraceContext
 	observers            map[scheduler.InstanceTopic][]*instanceObserver
 	funcKeyWithRes       string
 	priorityAZ           string
@@ -70,6 +72,7 @@ func NewRoundRobinScheduler(funcKeyWithRes string, isReserve bool,
 		funcKeyWithRes:      funcKeyWithRes,
 		instanceQueue:       make([]*types.Instance, 0, utils.DefaultSliceSize),
 		subHealthInstance:   make(map[string]*types.Instance, utils.DefaultMapSize),
+		coldStartTraceQueue: make([]*types.TraceContext, 0, utils.DefaultSliceSize),
 		observers:           make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
 		curIndex:            0,
 		isReserve:           isReserve,
@@ -120,6 +123,7 @@ func (rs *RoundRobinScheduler) AcquireInstance(insAcqReq *types.InstanceAcquireR
 			return nil, scheduler.ErrNoInsAvailable
 		}
 		// 这里如果是静态函数，则会触发到wisecloudscaler，触发一次nuwa cold start，如果不是静态函数，则会走到replicascaler，没有其他影响
+		rs.recordColdStartTrace(insAcqReq.TraceID, insAcqReq.TraceParent)
 		rs.publishInsThdEvent(scheduler.TriggerScaleTopic, nil)
 	}
 	if config.GlobalConfig.Scenario == types.ScenarioWiseCloud && !rs.isReserve {
@@ -144,6 +148,30 @@ func (rs *RoundRobinScheduler) AcquireInstance(insAcqReq *types.InstanceAcquireR
 		Instance:     instance,
 		AllocationID: fmt.Sprintf("%s-%d-%s", instance.InstanceID, time.Now().UnixMilli(), uuid.New().String()),
 	}, nil
+}
+
+func (rs *RoundRobinScheduler) recordColdStartTrace(traceID, traceParent string) {
+	if traceID == "" && traceParent == "" {
+		return
+	}
+	rs.coldStartTraceMu.Lock()
+	rs.coldStartTraceQueue = append(rs.coldStartTraceQueue, &types.TraceContext{
+		TraceID:     traceID,
+		TraceParent: traceParent,
+	})
+	rs.coldStartTraceMu.Unlock()
+}
+
+// PopColdStartTrace returns the oldest request trace kept for the next cold start.
+func (rs *RoundRobinScheduler) PopColdStartTrace() *types.TraceContext {
+	rs.coldStartTraceMu.Lock()
+	defer rs.coldStartTraceMu.Unlock()
+	if len(rs.coldStartTraceQueue) == 0 {
+		return nil
+	}
+	traceContext := rs.coldStartTraceQueue[0]
+	rs.coldStartTraceQueue = rs.coldStartTraceQueue[1:]
+	return traceContext
 }
 
 func (rs *RoundRobinScheduler) acquireInstanceDesignateInstanceID(insAcqReq *types.InstanceAcquireRequest,

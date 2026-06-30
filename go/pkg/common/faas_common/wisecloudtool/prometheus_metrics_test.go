@@ -2,7 +2,6 @@ package wisecloudtool
 
 import (
 	"fmt"
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smartystreets/goconvey/convey"
 	"testing"
@@ -13,6 +12,15 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/common/faas_common/urnutils"
 )
+
+func resetMetricFuncs() {
+	getConcurrencyMetricWithLabelValues = concurrencyGauge.GetMetricWithLabelValues
+	deleteConcurrencyLabelValues = concurrencyGauge.DeleteLabelValues
+	deleteConcurrencyPartialMatch = concurrencyGauge.DeletePartialMatch
+	getLeaseMetricWithLabelValues = leaseRequestTotal.GetMetricWithLabelValues
+	deleteLeaseLabelValues = leaseRequestTotal.DeleteLabelValues
+	deleteLeasePartialMatch = leaseRequestTotal.DeletePartialMatch
+}
 
 func TestNewMetricProvider(t *testing.T) {
 	provider := NewMetricProvider()
@@ -210,21 +218,21 @@ func TestMetricProvider(t *testing.T) {
 			})
 
 			convey.Convey("should handle GetMetricWithLabelValues error", func() {
-				patches := gomonkey.ApplyMethodFunc(leaseRequestTotal, "GetMetricWithLabelValues", func(...string) (prometheus.Counter, error) {
+				getLeaseMetricWithLabelValues = func(...string) (prometheus.Counter, error) {
 					return nil, fmt.Errorf("mock error")
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.IncLeaseRequestTotalWithLabel(validLabels)
 				convey.So(err, convey.ShouldNotBeNil)
 			})
 
 			convey.Convey("should increment counter successfully", func() {
-				patches := gomonkey.ApplyMethodFunc(leaseRequestTotal, "GetMetricWithLabelValues", func(...string) (prometheus.Counter, error) {
+				getLeaseMetricWithLabelValues = func(...string) (prometheus.Counter, error) {
 					counter := &fakeCounter{}
 					return counter, nil
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.IncLeaseRequestTotalWithLabel(validLabels)
 				convey.So(err, convey.ShouldBeNil)
@@ -239,21 +247,21 @@ func TestMetricProvider(t *testing.T) {
 			})
 
 			convey.Convey("should handle GetMetricWithLabelValues error", func() {
-				patches := gomonkey.ApplyMethodFunc(concurrencyGauge, "GetMetricWithLabelValues", func(...string) (prometheus.Gauge, error) {
+				getConcurrencyMetricWithLabelValues = func(...string) (prometheus.Gauge, error) {
 					return nil, fmt.Errorf("mock error")
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.IncConcurrencyGaugeWithLabel(validLabels)
 				convey.So(err, convey.ShouldNotBeNil)
 			})
 
 			convey.Convey("should increment gauge successfully", func() {
-				patches := gomonkey.ApplyMethodFunc(concurrencyGauge, "GetMetricWithLabelValues", func(...string) (prometheus.Gauge, error) {
+				getConcurrencyMetricWithLabelValues = func(...string) (prometheus.Gauge, error) {
 					gauge := &fakeGauge{}
 					return gauge, nil
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.IncConcurrencyGaugeWithLabel(validLabels)
 				convey.So(err, convey.ShouldBeNil)
@@ -262,11 +270,11 @@ func TestMetricProvider(t *testing.T) {
 
 		convey.Convey("Test DecConcurrencyGaugeWithLabel", func() {
 			convey.Convey("should decrement gauge successfully", func() {
-				patches := gomonkey.ApplyMethodFunc(concurrencyGauge, "GetMetricWithLabelValues", func(...string) (prometheus.Gauge, error) {
+				getConcurrencyMetricWithLabelValues = func(...string) (prometheus.Gauge, error) {
 					gauge := &fakeGauge{}
 					return gauge, nil
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.DecConcurrencyGaugeWithLabel(validLabels)
 				convey.So(err, convey.ShouldBeNil)
@@ -275,10 +283,10 @@ func TestMetricProvider(t *testing.T) {
 
 		convey.Convey("Test ClearConcurrencyGaugeWithLabel", func() {
 			convey.Convey("should clear gauge successfully", func() {
-				patches := gomonkey.ApplyMethodFunc(concurrencyGauge, "DeleteLabelValues", func(...string) bool {
+				deleteConcurrencyLabelValues = func(...string) bool {
 					return true
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.ClearConcurrencyGaugeWithLabel(validLabels)
 				convey.So(err, convey.ShouldBeNil)
@@ -287,10 +295,10 @@ func TestMetricProvider(t *testing.T) {
 
 		convey.Convey("Test ClearLeaseRequestTotalWithLabel", func() {
 			convey.Convey("should clear counter successfully", func() {
-				patches := gomonkey.ApplyMethodFunc(leaseRequestTotal, "DeleteLabelValues", func(...string) bool {
+				deleteLeaseLabelValues = func(...string) bool {
 					return true
-				})
-				defer patches.Reset()
+				}
+				defer resetMetricFuncs()
 
 				err := m.ClearLeaseRequestTotalWithLabel(validLabels)
 				convey.So(err, convey.ShouldBeNil)

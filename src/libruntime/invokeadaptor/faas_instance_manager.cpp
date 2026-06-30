@@ -31,7 +31,7 @@ const std::string POD_NAME_ENV = "POD_NAME";
 const std::string INSTANCE_CALLER_POD_NAME = "instanceCallerPodName";
 const std::string INSTANCE_SESSION_CONFIG = "instanceSessionConfig";
 const std::string SESSION_CTX_ID = "sessionCtxID";
-const int64_t BEFOR_RETAIN_TIME = 30;  // millisecond
+[[maybe_unused]] const int64_t BEFOR_RETAIN_TIME = 30;  // millisecond
 const int64_t RETAIN_TIME_RATE = 2;
 const int RELEASE_DELAYTIME = 100;  // millisecond
 const int FAAS_INS_REQ_SUCCESS_CODE = 6030;
@@ -655,6 +655,7 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
     auto dsObjectId = YR::utility::IDGenerator::GenObjectId(acquireSpec->requestId, 0);
     acquireSpec->returnIds.push_back(DataObject(dsObjectId));
     acquireSpec->traceId = invokeSpec->traceId;
+    acquireSpec->opts.customExtensions = invokeSpec->opts.customExtensions;
 
     acquireSpec->functionMeta.functionId =
         invokeSpec->opts.schedulerFunctionId.empty() ? this->schedulerFuncKey : invokeSpec->opts.schedulerFunctionId;

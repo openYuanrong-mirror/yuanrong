@@ -90,14 +90,6 @@ func TestNewFaaSManager(t *testing.T) {
 	defer gomonkey.ApplyFunc(registry.StartWatchEvent, func(vpcEventCh chan types.VPCEvent, stopCh chan struct{}, informer informers.GenericInformer) {
 		return
 	}).Reset()
-	listKinds := map[schema.GroupVersionResource]string{
-		// Example: MyResource GVK to MyResourceList GVK
-		patGVR: "PatList",
-	}
-	fakeClient := fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
-	defer gomonkey.ApplyFunc(k8sclient.GetDynamicClient, func() dynamic.Interface {
-		return fakeClient
-	}).Reset()
 	type args struct {
 		sdkClient api.LibruntimeAPI
 		stopCh    chan struct{}
@@ -115,6 +107,9 @@ func TestNewFaaSManager(t *testing.T) {
 					return &plugin.Plugin{}, nil
 				}),
 				gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }),
+				gomonkey.ApplyFunc(k8sclient.GetDynamicClient, func() dynamic.Interface {
+					return fake.NewSimpleDynamicClient(runtime.NewScheme())
+				}),
 			})
 			return patches
 		}},
@@ -198,7 +193,7 @@ func TestManager_ProcessSchedulerRequest(t *testing.T) {
 			}},
 			constant.UnsupportedOperationErrorCode, func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
-				patches = append(patches, gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }))
+				patches.Append(mockUtils.PatchSlice{})
 				return patches
 			},
 		},
@@ -216,7 +211,7 @@ func TestManager_ProcessSchedulerRequest(t *testing.T) {
 			}},
 			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
-				patches = append(patches, gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }))
+				patches.Append(mockUtils.PatchSlice{})
 				return patches
 			},
 		},

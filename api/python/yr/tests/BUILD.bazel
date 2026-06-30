@@ -8,14 +8,12 @@ config_setting(
     values = {"define": "sanitize=thread"},
 )
 
+# Simplified SAN_ENV - no nested selects
 SAN_ENV = select({
     ":asan": {
-      "LD_PRELOAD": "/usr/lib64/libasan.so.6",
-      "ASAN_OPTIONS": "detect_leaks=0"
+        "ASAN_OPTIONS": "detect_leaks=0",
     },
-    ":tsan": {
-      "LD_PRELOAD": "/usr/local/gcc-10.3.0/lib64/libtsan.so",
-    },
+    ":tsan": {},
     "//conditions:default": {},
 })
 
@@ -131,6 +129,15 @@ py_test(
   env = SAN_ENV,
 )
 py_test(
+  name = "test_functionsdk",
+  size = "small",
+  srcs = ["test_functionsdk.py"],
+  tags = ["smoke"],
+  imports = ["../../"],
+  deps = ["//api/python:yr_lib"],
+  env = SAN_ENV,
+)
+py_test(
   name = "test_metrics",
   size = "small",
   srcs = ["test_metrics.py"],
@@ -167,18 +174,27 @@ py_test(
     env = SAN_ENV,
 )
 py_test(
-    name="test_sandbox_gateway",
+    name="test_trace_id",
     size="small",
-    srcs=["test_sandbox_gateway.py"],
+    srcs=["test_trace_id.py"],
     tags = ["smoke"],
     imports = ["../../"],
     deps = ["//api/python:yr_lib"],
     env = SAN_ENV,
 )
 py_test(
-    name="test_faas_component",
+    name="test_tunnel_protocol",
     size="small",
-    srcs=["test_faas_component.py"],
+    srcs=["test_tunnel_protocol.py"],
+    tags = ["smoke"],
+    imports = ["../../"],
+    deps = ["//api/python:yr_lib"],
+    env = SAN_ENV,
+)
+py_test(
+    name="test_tunnel_client_shutdown",
+    size="small",
+    srcs=["test_tunnel_client_shutdown.py"],
     tags = ["smoke"],
     imports = ["../../"],
     deps = ["//api/python:yr_lib"],

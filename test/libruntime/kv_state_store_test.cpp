@@ -28,6 +28,13 @@ using namespace YR::utility;
 
 namespace YR {
 namespace test {
+namespace {
+std::string ToString(const datasystem::SensitiveValue &value)
+{
+    return std::string(value.GetData(), value.GetSize());
+}
+}  // namespace
+
 class KVStateStoreTest : public testing::Test {
 public:
     KVStateStoreTest(){};
@@ -84,7 +91,7 @@ TEST_F(KVStateStoreTest, KVWriteReadDelExist)
     // Read
     SingleReadResult readResult = stateStore_->Read(key, -1);
     ASSERT_EQ(readResult.second.Code(), ErrorCode::ERR_OK);
-    MultipleReadResult multiReadResult = stateStore_->Read({key, key}, 100, false);
+    MultipleReadResult multiReadResult = stateStore_->Read({key, key}, 0, false);
     ASSERT_EQ(multiReadResult.second.Code(), ErrorCode::ERR_GET_OPERATION_FAILED);
 
     // Exist
@@ -100,87 +107,49 @@ TEST_F(KVStateStoreTest, KVWriteReadDelExist)
     ASSERT_EQ(mdResult.second.Code(), ErrorCode::ERR_OK);
 }
 
-TEST_F(KVStateStoreTest, MultipleWriteReadTest)
+TEST(KVStateStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
 {
-    std::vector<std::string> keys = {"key1", "key2", "key3"};
-    std::vector<std::string> values = {"value1", "value2", "value3"};
-    
-    for (size_t i = 0; i < keys.size(); i++) {
-        std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(values[i].size());
-        sbuf->MemoryCopy(values[i].data(), values[i].size());
-        YR::Libruntime::SetParam setParam = {
-            .writeMode = WriteMode::NONE_L2_CACHE,
-            .ttlSecond = 10,
-        };
-        ErrorInfo err = stateStore_->Write(keys[i], sbuf, setParam);
-        ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    }
-    
-    MultipleReadResult multiReadResult = stateStore_->Read(keys, 100, false);
-    ASSERT_EQ(multiReadResult.second.Code(), ErrorCode::ERR_OK);
-    ASSERT_EQ(multiReadResult.first.size(), 3);
-}
+    DSCacheStateStore stateStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.8";
+    options.port = 32001;
+    options.connectTimeoutMs = 4321;
+    options.token = "token-value";
+    options.clientPublicKey = "client-public";
+    options.clientPrivateKey = "client-private";
+    options.serverPublicKey = "server-public";
+    options.accessKey = "access-key";
+    options.secretKey = "secret-key";
+    options.tenantId = "tenant-a";
+    options.enableCrossNodeConnection = true;
 
-TEST_F(KVStateStoreTest, TtlExpirationTest)
-{
-    std::string key = "ttl_key";
-    std::string value = "ttl_value";
-    
-    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
-    sbuf->MemoryCopy(value.data(), value.size());
-    YR::Libruntime::SetParam setParam = {
-        .writeMode = WriteMode::NONE_L2_CACHE,
-        .ttlSecond = 1,
-    };
-    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
+    ErrorInfo err = stateStore.Init(options);
+
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    
-    SingleReadResult readResult = stateStore_->Read(key, -1);
-    ASSERT_EQ(readResult.second.Code(), ErrorCode::ERR_OK);
+    EXPECT_EQ(stateStore.connectOpts.host, options.host);
+    EXPECT_EQ(stateStore.connectOpts.port, options.port);
+    EXPECT_EQ(stateStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(stateStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
+    EXPECT_EQ(ToString(stateStore.connectOpts.token), options.token);
+    EXPECT_EQ(stateStore.connectOpts.clientPublicKey, options.clientPublicKey);
+    EXPECT_EQ(stateStore.connectOpts.serverPublicKey, options.serverPublicKey);
+    EXPECT_EQ(stateStore.connectOpts.accessKey, options.accessKey);
+    EXPECT_EQ(stateStore.connectOpts.tenantId, options.tenantId);
+    EXPECT_TRUE(stateStore.connectOpts.enableCrossNodeConnection);
 }
 
-TEST_F(KVStateStoreTest, ErrorHandlingTest)
+TEST(KVStateStoreInitTest, InitFromDsConnectOptionsDoesNotInitializeClientImmediately)
 {
-    std::string emptyKey = "";
-    std::string value = "test";
-    
-    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
-    sbuf->MemoryCopy(value.data(), value.size());
-    YR::Libruntime::SetParam setParam = {};
-    
-    ErrorInfo err = stateStore_->Write(emptyKey, sbuf, setParam);
-}
+    DSCacheStateStore stateStore;
+    DsConnectOptions options;
+    options.host = "10.0.0.8";
+    options.port = 32001;
 
-TEST_F(KVStateStoreTest, ExistTest)
-{
-    std::string key = "exist_key";
-    std::string value = "exist_value";
-    
-    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
-    sbuf->MemoryCopy(value.data(), value.size());
-    YR::Libruntime::SetParam setParam = {};
-    
-    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
+    ErrorInfo err = stateStore.Init(options);
+
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    
-    MultipleExistResult existResult = stateStore_->Exist({key});
-    ASSERT_EQ(existResult.second.Code(), ErrorCode::ERR_OK);
-}
-
-TEST_F(KVStateStoreTest, QuerySizeTest)
-{
-    std::string key = "size_key";
-    std::string value = "size_value";
-    
-    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
-    sbuf->MemoryCopy(value.data(), value.size());
-    YR::Libruntime::SetParam setParam = {};
-    
-    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
-    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    
-    std::vector<uint64_t> sizes;
-    err = stateStore_->QuerySize({key}, sizes);
+    EXPECT_FALSE(stateStore.isInit);
+    EXPECT_EQ(stateStore.dsStateClient, nullptr);
 }
 }  // namespace test
 }  // namespace YR

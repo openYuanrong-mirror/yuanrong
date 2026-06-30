@@ -93,6 +93,12 @@ var (
 
 	// InstanceRequirementPoolLabel - key of poolLabel
 	instanceRequirementPoolLabel = "poolLabel"
+
+	getFuncSpecFunc           = (*registry.Registry).GetFuncSpec
+	acquireInstanceThreadFunc = (*instancepool.PoolManager).AcquireInstanceThread
+	getAndDeleteStateFunc     = (*instancepool.PoolManager).GetAndDeleteState
+	releaseStateThreadFunc    = (*instancepool.PoolManager).ReleaseStateThread
+	retainStateThreadFunc     = (*instancepool.PoolManager).RetainStateThread
 )
 
 // InstanceOperation defines instance operations
@@ -311,10 +317,20 @@ func (fs *FaaSScheduler) processRolloutConfigSubscription() {
 
 // ProcessInstanceRequestLibruntime will handle acquire, release and retain of instance based on multi libruntime
 func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceID string) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, "")
+}
+
+// ProcessInstanceRequestLibruntimeWithTraceParent preserves parent span context for cold-start correlation.
+func (fs *FaaSScheduler) ProcessInstanceRequestLibruntimeWithTraceParent(
+	args []api.Arg, traceID, traceParent string,
+) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, traceParent)
+}
+
+func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceID, traceParent string) ([]byte, error) {
 	logger := log.GetLogger().With(zap.Any("traceID", traceID))
 	insOp, targetName, extraData, eventData := parseInstanceOperation(args, traceID)
 	startTime := time.Now()
-
 	defer func() {
 		logger.Infof("process of instance operation %s target %s cost %dms", insOp, targetName,
 			time.Now().Sub(startTime).Milliseconds())
@@ -326,11 +342,11 @@ func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceI
 	var response interface{}
 	switch insOp {
 	case insOpCreate:
-		response = fs.handleInstanceCreate(targetName, extraData, eventData, traceID)
+		response = fs.handleInstanceCreateWithTraceParent(targetName, extraData, eventData, traceID, traceParent)
 	case insOpDelete:
 		response = fs.handleInstanceDelete(targetName, extraData, traceID)
 	case insOpAcquire:
-		response = fs.handleInstanceAcquire(targetName, extraData, traceID)
+		response = fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, traceParent)
 	case insOpRelease:
 		response = fs.handleInstanceRelease(targetName, extraData, traceID)
 	case insOpRetain:
@@ -400,9 +416,15 @@ func (fs *FaaSScheduler) HandleRequestForward(insOp InstanceOperation, args []ap
 func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventData []byte,
 	traceID string,
 ) *commonTypes.InstanceResponse {
+	return fs.handleInstanceCreateWithTraceParent(funcKey, extraData, eventData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceCreateWithTraceParent(funcKey string, extraData, eventData []byte,
+	traceID, traceParent string,
+) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	logger := log.GetLogger().With(zap.Any("traceID", traceID), zap.Any("funcKey", funcKey))
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, funcKey)
 	if funcSpec == nil {
 		logger.Errorf("failed to create instance, function %s doesn't exist", funcKey)
 		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
@@ -420,6 +442,7 @@ func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventDa
 	}
 	instance, err := fs.PoolManager.CreateInstance(&types.InstanceCreateRequest{
 		TraceID:      traceID,
+		TraceParent:  traceParent,
 		FuncSpec:     funcSpec,
 		ResSpec:      resSpec,
 		InstanceName: dataInfo.designateInstanceName,
@@ -453,6 +476,12 @@ func (fs *FaaSScheduler) handleInstanceDelete(instanceID string, extraData []byt
 func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []byte,
 	traceID string,
 ) *commonTypes.InstanceResponse {
+	return fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceAcquireWithTraceParent(targetName string, extraData []byte,
+	traceID, traceParent string,
+) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	funcKey, stateID := parseStateOperation(targetName)
 	logger := log.GetLogger().With(zap.Any("traceID", traceID), zap.Any("funcKey", funcKey),
@@ -463,7 +492,7 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		return generateInstanceResponse(nil, snerror.New(statuscode.AcquireNonOwnerSchedulerErrorCode,
 			ownerSchedulerInstanceId), startTime)
 	}
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, funcKey)
 	if funcSpec == nil {
 		logger.Errorf("failed to get instance, function %s doesn't exist", funcKey)
 		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
@@ -507,6 +536,7 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		FuncSpec:            funcSpec, // etcd
 		ResSpec:             resSpec,  // args
 		TraceID:             traceID,
+		TraceParent:         traceParent,
 		StateID:             stateID,
 		PoolLabel:           poolLabel,
 		InstanceName:        dataInfo.designateInstanceName,
@@ -547,7 +577,7 @@ func (fs *FaaSScheduler) handleQuerySession(targetName string, extraData []byte,
 	}
 
 	funcKey := targetName
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, funcKey)
 	if funcSpec == nil {
 		logger.Errorf("failed to get instance, function %s doesn't exist", funcKey)
 		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
@@ -633,13 +663,12 @@ func parseExtraData(extraData []byte) (*extraDataInfo, snerror.SNError) {
 		if err != nil {
 			return nil, snerror.NewWithError(statuscode.StatusInternalServerError, err)
 		}
-		if insSessConfig.Concurrency == 0 || insSessConfig.Concurrency < -1 {
-			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode,
-				fmt.Sprintf("invalid session concurrency %d, only -1 or positive integer is allowed",
-					insSessConfig.Concurrency))
-		}
 		if !utils.CheckInstanceSessionValid(insSessConfig) {
 			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode, "session config invalid")
+		}
+		if insSessConfig.Concurrency <= 0 {
+			log.GetLogger().Warnf("user session concurrency is invalid: %d, will set to default 1", insSessConfig.Concurrency)
+			insSessConfig.Concurrency = 1
 		}
 		dataInfo.instanceSession = insSessConfig
 	}
@@ -721,7 +750,7 @@ func (fs *FaaSScheduler) handleInstanceRelease(targetName string, metricsData []
 	logger.Infof("handling instance release %s for function %s", insAlloc.AllocationID, insAlloc.Instance.FuncKey)
 	if strings.Contains(insAlloc.AllocationID, "stateThread") { // %s-stateThread%d
 		fs.allocRecord.Delete(insAlloc.AllocationID)
-		err := fs.PoolManager.ReleaseStateThread(insAlloc)
+		err := releaseStateThreadFunc(fs.PoolManager, insAlloc)
 		if err != nil {
 			logger.Errorf("release thread %s fail, err: %v", targetName, err)
 			return generateInstanceResponse(nil, snerror.New(statuscode.StatusInternalServerError,
@@ -777,13 +806,13 @@ func (fs *FaaSScheduler) deleteState(stateID string, funcKey string,
 	logger api.FormatLogger,
 ) *commonTypes.InstanceResponse {
 	startTime := time.Now()
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, funcKey)
 	if funcSpec == nil {
 		logger.Errorf("failed to get instance, function %s doesn't exist", funcKey)
 		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
 			statuscode.FuncMetaNotFoundErrMsg), startTime)
 	}
-	exist := fs.PoolManager.GetAndDeleteState(stateID, funcKey, funcSpec, logger)
+	exist := getAndDeleteStateFunc(fs.PoolManager, stateID, funcKey, funcSpec, logger)
 	if !exist {
 		return generateInstanceResponse(nil, snerror.New(statuscode.StateNotExistedErrCode,
 			statuscode.StateNotExistedErrMsg), startTime)
@@ -810,6 +839,14 @@ func (fs *FaaSScheduler) handleInstanceBatchRetain(target string, metricsData []
 	}
 	for _, name := range targetNames {
 		if _, ok := insThdMetrics[name]; !ok {
+			continue
+		}
+		if ownerSchedulerInstanceId, ok := selfregister.GlobalSchedulerProxy.CheckFuncOwner(
+			insThdMetrics[name].FunctionKey); !ok {
+			batchInstanceResp.InstanceAllocFailed[name] = commonTypes.InstanceAllocationFailedInfo{
+				ErrorCode:    statuscode.AcquireNonOwnerSchedulerErrorCode,
+				ErrorMessage: ownerSchedulerInstanceId,
+			}
 			continue
 		}
 		insAlloc, err := fs.retainInstance(name, traceID, insThdMetrics[name], logger)
@@ -868,11 +905,6 @@ func (fs *FaaSScheduler) retainInstance(targetName, traceID string, insThdMetric
 		return nil, snerror.New(statuscode.StatusInternalServerError,
 			statuscode.InternalErrorMessage)
 	}
-	if ownerSchedulerInstanceId, ok := selfregister.GlobalSchedulerProxy.CheckFuncOwner(
-		insAlloc.Instance.FuncKey); !ok {
-		logger.Errorf("non-owner faasscheduler, return owner faasscheduelr: %s", ownerSchedulerInstanceId)
-		return nil, snerror.New(statuscode.AcquireNonOwnerSchedulerErrorCode, ownerSchedulerInstanceId)
-	}
 	if strings.Contains(insAlloc.AllocationID, "stateThread") { // %s-stateThread%d
 		return fs.retainStateInstance(targetName, insAlloc, logger)
 	}
@@ -916,7 +948,7 @@ func (fs *FaaSScheduler) reacquireLease(targetName, traceID string, insThdMetric
 	if err != nil {
 		return nil, err
 	}
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(insThdMetrics.FunctionKey)
+	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, insThdMetrics.FunctionKey)
 
 	resSpec, err := getResourceSpecification(dataInfo.resourceData, dataInfo.invokeLabel, funcSpec)
 	if err != nil {
@@ -925,7 +957,7 @@ func (fs *FaaSScheduler) reacquireLease(targetName, traceID string, insThdMetric
 	logger.Infof("handling instance reacquire for resSpec %v instanceID %s instanceSession %v", resSpec,
 		dataInfo.designateInstanceID, dataInfo.instanceSession)
 	poolLabel := getPoolLabel(dataInfo.poolLabel, funcSpec.InstanceMetaData.PoolLabel)
-	insAlloc, err := fs.PoolManager.AcquireInstanceThread(&types.InstanceAcquireRequest{
+	insAlloc, err := acquireInstanceThreadFunc(fs.PoolManager, &types.InstanceAcquireRequest{
 		FuncSpec:            funcSpec, // etcd
 		ResSpec:             resSpec,  // args
 		TraceID:             traceID,
@@ -951,14 +983,14 @@ func (fs *FaaSScheduler) retainStateInstance(targetName string, insAlloc *types.
 	logger api.FormatLogger,
 ) (*types.InstanceAllocation, snerror.SNError) {
 	if insAlloc.Instance.InstanceStatus.Code == int32(constant.KernelInstanceStatusSubHealth) {
-		err := fs.PoolManager.ReleaseStateThread(insAlloc)
+		err := releaseStateThreadFunc(fs.PoolManager, insAlloc)
 		if err != nil {
 			logger.Errorf("release thread %s fail", targetName)
 		}
 		return nil, snerror.New(statuscode.InstanceStatusAbnormalCode,
 			constant.LeaseErrorInstanceIsAbnormalMessage)
 	}
-	err := fs.PoolManager.RetainStateThread(insAlloc)
+	err := retainStateThreadFunc(fs.PoolManager, insAlloc)
 	if err != nil {
 		logger.Errorf("handleInstanceRetain err %v", err)
 		return nil, snerror.New(constant.LeaseExpireOrDeletedErrorCode, constant.LeaseExpireOrDeletedErrorMessage)
@@ -1018,7 +1050,7 @@ func (fs *FaaSScheduler) syncAllocRecordDuringRollout() {
 func (fs *FaaSScheduler) syncAllocRecord(allocRecord map[string][]string) {
 	log.GetLogger().Infof("start ot sync allocRecord")
 	for funcKey, record := range allocRecord {
-		funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+		funcSpec := getFuncSpecFunc(registry.GlobalRegistry, funcKey)
 		if funcSpec == nil {
 			log.GetLogger().Errorf("failed to sync allocRecord for function %s, function doesn't exist", funcKey)
 			continue
@@ -1035,7 +1067,7 @@ func (fs *FaaSScheduler) syncAllocRecord(allocRecord map[string][]string) {
 				ResSpec:      resSpec,
 				InstanceName: items[0],
 			}
-			insAlloc, err := fs.PoolManager.AcquireInstanceThread(insAcqReq)
+			insAlloc, err := acquireInstanceThreadFunc(fs.PoolManager, insAcqReq)
 			if err != nil {
 				log.GetLogger().Errorf("failed to sync allocation %s, acquire instance error %s", allocation,
 					err.Error())
@@ -1215,18 +1247,21 @@ func generateInstanceResponse(insAlloc *types.InstanceAllocation, snErr snerror.
 	}
 	return &commonTypes.InstanceResponse{
 		InstanceAllocationInfo: commonTypes.InstanceAllocationInfo{
-			FuncKey:       insAlloc.Instance.FuncKey,
-			FuncSig:       insAlloc.Instance.FuncSig,
-			InstanceID:    insAlloc.Instance.InstanceID,
-			InstanceIP:    insAlloc.Instance.InstanceIP,
-			InstancePort:  insAlloc.Instance.InstancePort,
-			NodeIP:        insAlloc.Instance.NodeIP,
-			NodePort:      insAlloc.Instance.NodePort,
-			ThreadID:      insAlloc.AllocationID,
-			LeaseInterval: leaseInterval.Milliseconds(),
-			CPU:           insAlloc.Instance.ResKey.CPU,
-			Memory:        insAlloc.Instance.ResKey.Memory,
-			ForceInvoke:   forceInvoke,
+			FuncKey:         insAlloc.Instance.FuncKey,
+			FuncSig:         insAlloc.Instance.FuncSig,
+			InstanceID:      insAlloc.Instance.InstanceID,
+			InstanceIP:      insAlloc.Instance.InstanceIP,
+			InstancePort:    insAlloc.Instance.InstancePort,
+			NodeIP:          insAlloc.Instance.NodeIP,
+			NodePort:        insAlloc.Instance.NodePort,
+			FunctionProxyID: insAlloc.Instance.FunctionProxyID,
+			RouteAddress:    insAlloc.Instance.RouteAddress,
+			ProxyID:         insAlloc.Instance.FunctionProxyID,
+			ThreadID:        insAlloc.AllocationID,
+			LeaseInterval:   leaseInterval.Milliseconds(),
+			CPU:             insAlloc.Instance.ResKey.CPU,
+			Memory:          insAlloc.Instance.ResKey.Memory,
+			ForceInvoke:     forceInvoke,
 		},
 		ErrorCode:     constant.InsReqSuccessCode,
 		ErrorMessage:  constant.InsReqSuccessMessage,

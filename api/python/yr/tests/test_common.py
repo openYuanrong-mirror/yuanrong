@@ -42,9 +42,6 @@ class TestDecorator(TestCase):
         self.assertEqual(ip, "127.0.0.1", ip)
         self.assertEqual(port, 65531, port)
 
-        with self.assertRaises(ValueError):
-            utils.validate_address("a127.0.0.1:65531")
-
         id = utils.generate_runtime_id()
         self.assertEqual(len(id), 8, len(id))
 

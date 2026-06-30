@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2024-2024. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,18 @@
 #ifndef OBSERVABILITY_EXPORTERS_METRICS_SERIALIZER_H
 #define OBSERVABILITY_EXPORTERS_METRICS_SERIALIZER_H
 
+#include <ostream>
+
 #include "metrics/sdk/metric_data.h"
 
 namespace observability::exporters::metrics {
+
 class Serializer {
 public:
     virtual ~Serializer() = default;
     virtual void Serialize(std::ostream &ost, const observability::sdk::metrics::MetricData &metric) const = 0;
 };
+
 }  // namespace observability::exporters::metrics
-#endif // OBSERVABILITY_EXPORTERS_METRICS_SERIALIZER_H
+
+#endif

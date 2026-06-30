@@ -1,0 +1,12 @@
+export YR_JWT_TOKEN=""
+export YR_LOG_LEVEL=DEBUG
+export GLOG_log_dir=$(pwd)/driver
+export YR_SERVER_ADDRESS="172.17.0.2:8888"
+export YR_CLIENT_AUTH_TYPE=""
+export YR_SERVER_NAME="test"
+export YR_ENABLE_TLS="false"
+export YR_ENABLE_MTLS="false"
+export YR_PRIVATE_KEY_FILE=""
+export YR_CERT_FILE=""
+export YR_VERIFY_FILE=""
+export YR_IN_CLUSTER="false"

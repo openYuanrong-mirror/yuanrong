@@ -21,7 +21,7 @@
 
 #include "metrics/api/meter.h"
 #include "metrics/sdk/metric_pusher.h"
-#include "sdk/include/observe_actor.h"
+#include "src/utility/metrics/sdk/include/observe_actor.h"
 
 namespace observability::sdk::metrics {
 
@@ -39,15 +39,11 @@ public:
         observeActor_ = std::make_shared<ObserveActor>();
         observeActor_->RegisterCollectFunc(
             std::bind(&ObservableRegistry::Observe, this, std::placeholders::_1));
-        litebus::Spawn(observeActor_);
     }
 
     ~ObservableRegistry()
     {
-        if (observeActor_ != nullptr) {
-            litebus::Terminate(observeActor_->GetAID());
-            litebus::Await(observeActor_);
-        }
+        // ObserveActor destructor will handle cleanup
     }
 
     void AddObservableInstrument(api::metrics::CallbackPtr callbackPtr, const InstrumentDescriptor &instrument,

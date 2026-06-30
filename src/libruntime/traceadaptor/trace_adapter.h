@@ -18,8 +18,7 @@
 #define COMMON_TRACE_TRACE_ADAPTER_H
 
 #include <iomanip>
-#include <vector>
-#include <opentelemetry/nostd/shared_ptr.h>
+#include <memory>
 #include <opentelemetry/sdk/trace/exporter.h>
 #include <opentelemetry/sdk/resource/semantic_conventions.h>
 #include <opentelemetry/trace/span.h>
@@ -42,8 +41,11 @@ namespace YR {
 namespace Libruntime {
 
 using OtelSpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
-using OtelAttrVector =
-    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>>;
+
+namespace SpanName {
+inline constexpr char kCreate[] = "yr.rt.create";
+inline constexpr char kInvoke[] = "yr.rt.invoke";
+}  // namespace SpanName
 
 class TraceAdapter : public utility::Singleton<TraceAdapter> {
 public:
@@ -60,11 +62,21 @@ public:
 
     OtelSpan StartSpan(const std::string &name, const opentelemetry::trace::StartSpanOptions &startSpanOptions = {});
 
-    OtelSpan StartSpan(const std::string &name, OtelAttrVector attrs,
+    OtelSpan StartSpan(const std::string &name,
+                       std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs,
                        const opentelemetry::trace::StartSpanOptions &startSpanOptions = {});
 
-    OtelSpan StartSpan(const std::string &name, const std::string &traceID, const std::string &spanID,
-                       OtelAttrVector attrs = {});
+    OtelSpan StartSpan(const std::string &name,
+                       const std::string &traceID,
+                       const std::string &spanID,
+                       std::vector<std::pair<const std::string,
+                           const opentelemetry::common::AttributeValue>> attrs = {});
+
+    OtelSpan StartSpan(const std::string &name,
+                       const std::string &traceID,
+                       const std::string &spanID,
+                       const std::string &traceParent,
+                       std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs);
 
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> GetTracer(const std::string &name = "yuanrong",
                                                                              const std::string &version = "");
@@ -78,7 +90,9 @@ private:
 
     std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> InitOtlpGrpcExporter(const OtelGrpcExporterConfig &conf);
     std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> InitLogFileExporter();
-    opentelemetry::trace::StartSpanOptions BuildOptWithParent(const std::string &traceID, const std::string &spanID);
+    opentelemetry::trace::StartSpanOptions BuildOptWithParent(const std::string &traceID,
+                                                              const std::string &spanID,
+                                                              const std::string &traceParent);
 };
 }
 }

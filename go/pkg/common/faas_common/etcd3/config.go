@@ -53,6 +53,8 @@ type pwdAuth struct {
 	password string
 }
 
+var loadStsCerts = cert.LoadCerts
+
 // GetEtcdAuthType etcd authentication type
 func GetEtcdAuthType(etcdConfig EtcdConfig) EtcdAuth {
 	if etcdConfig.SslEnable {
@@ -134,7 +136,7 @@ func (p *pwdAuth) GetEtcdConfig() (*clientv3.Config, error) {
 
 // BuildStsCfg - Construct tlsConfig from sts p12
 func BuildStsCfg() (*clientv3.Config, error) {
-	caCertsPool, tlsCert, err := cert.LoadCerts()
+	caCertsPool, tlsCert, err := loadStsCerts()
 	if err != nil {
 		log.GetLogger().Errorf("failed to get X509CACertPool and TLSCertificate: %s", err.Error())
 		return nil, err

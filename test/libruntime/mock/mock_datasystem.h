@@ -32,11 +32,11 @@ public:
     MOCK_METHOD(ErrorInfo, Init, (const std::string &addr, int port, std::int32_t connectTimeout), (override));
     MOCK_METHOD(ErrorInfo, Init,
                 (const std::string &addr, int port, bool enableDsAuth, bool encryptEnable,
-                 const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                 const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                 const datasystem::SensitiveValue &sk, std::int32_t connectTimeout),
+                 const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                 const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                 const SensitiveValue &sk, std::int32_t connectTimeout),
                 (override));
-    MOCK_METHOD1(Init, ErrorInfo(datasystem::ConnectOptions &options));
+    MOCK_METHOD1(Init, ErrorInfo(DsConnectOptions &options));
     MOCK_METHOD(ErrorInfo, Put,
                 (std::shared_ptr<Buffer> data, const std::string &objID,
                  const std::unordered_set<std::string> &nestedID, const CreateParam &createParam),
@@ -64,8 +64,8 @@ public:
     MOCK_METHOD(void, SetTenantId, (const std::string &tenantId), (override));
     MOCK_METHOD(void, Clear, (), (override));
     MOCK_METHOD(void, Shutdown, (), (override));
-    MOCK_METHOD(ErrorInfo, UpdateToken, (datasystem::SensitiveValue token), (override));
-    MOCK_METHOD(ErrorInfo, UpdateAkSk, (std::string ak, datasystem::SensitiveValue sk), (override));
+    MOCK_METHOD(ErrorInfo, UpdateToken, (SensitiveValue token), (override));
+    MOCK_METHOD(ErrorInfo, UpdateAkSk, (std::string ak, SensitiveValue sk), (override));
 };
 
 class MockStateStore : public StateStore {
@@ -74,12 +74,12 @@ public:
     MOCK_METHOD3(Init, ErrorInfo(const std::string &ip, int port, std::int32_t connectTimeout));
     MOCK_METHOD(ErrorInfo, Init,
                 (const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                 const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                 const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
-                 const datasystem::SensitiveValue &sk, std::int32_t connectTimeout),
+                 const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                 const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                 const SensitiveValue &sk, std::int32_t connectTimeout),
                 (override));
-    MOCK_METHOD1(Init, ErrorInfo(datasystem::ConnectOptions &options));
     MOCK_METHOD1(Init, ErrorInfo(const DsConnectOptions &options));
+    MOCK_METHOD(void, SetTenantId, (const std::string &tenantId), (override));
     MOCK_METHOD3(Write, ErrorInfo(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam));
     MOCK_METHOD3(Write, ErrorInfo(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey));
     MOCK_METHOD3(MSetTx, ErrorInfo(const std::vector<std::string> &keys,
@@ -93,8 +93,8 @@ public:
     MOCK_METHOD1(Del, MultipleDelResult(const std::vector<std::string> &keys));
     MOCK_METHOD1(Exist, MultipleExistResult(const std::vector<std::string> &keys));
     MOCK_METHOD0(Shutdown, void());
-    MOCK_METHOD1(UpdateToken, ErrorInfo(datasystem::SensitiveValue token));
-    MOCK_METHOD2(UpdateAkSk, ErrorInfo(std::string ak, datasystem::SensitiveValue sk));
+    MOCK_METHOD1(UpdateToken, ErrorInfo(SensitiveValue token));
+    MOCK_METHOD2(UpdateAkSk, ErrorInfo(std::string ak, SensitiveValue sk));
     MOCK_METHOD1(GenerateKey, ErrorInfo(std::string &returnKey));
     MOCK_METHOD0(StartHealthCheck, ErrorInfo());
     MOCK_METHOD0(HealthCheck, ErrorInfo());
@@ -105,11 +105,11 @@ public:
     MOCK_METHOD2(Init, ErrorInfo(const std::string &ip, int port));
     MOCK_METHOD10(Init,
                   ErrorInfo(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                            const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                            const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
-                            const std::string &ak, const datasystem::SensitiveValue &sk));
-    MOCK_METHOD1(Init, ErrorInfo(datasystem::ConnectOptions &options));
-    MOCK_METHOD2(Init, ErrorInfo(datasystem::ConnectOptions &options, std::shared_ptr<StateStore> dsStateStore));
+                            const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                            const std::string &dsPublicKey, const SensitiveValue &token,
+                            const std::string &ak, const SensitiveValue &sk));
+    MOCK_METHOD1(Init, ErrorInfo(const DsConnectOptions &options));
+    MOCK_METHOD2(Init, ErrorInfo(const DsConnectOptions &options, std::shared_ptr<StateStore> dsStateStore));
     MOCK_METHOD3(CreateStreamProducer, ErrorInfo(const std::string &streamName,
                                                  std::shared_ptr<StreamProducer> &producer, ProducerConf producerConf));
     MOCK_METHOD4(CreateStreamConsumer, ErrorInfo(const std::string &streamName, const SubscriptionConfig &config,
@@ -118,13 +118,13 @@ public:
     MOCK_METHOD2(QueryGlobalProducersNum, ErrorInfo(const std::string &streamName, uint64_t &gProducerNum));
     MOCK_METHOD2(QueryGlobalConsumersNum, ErrorInfo(const std::string &streamName, uint64_t &gProducerNum));
     MOCK_METHOD0(Shutdown, void());
-    MOCK_METHOD1(UpdateToken, ErrorInfo(datasystem::SensitiveValue token));
-    MOCK_METHOD2(UpdateAkSk, ErrorInfo(std::string ak, datasystem::SensitiveValue sk));
+    MOCK_METHOD1(UpdateToken, ErrorInfo(SensitiveValue token));
+    MOCK_METHOD2(UpdateAkSk, ErrorInfo(std::string ak, SensitiveValue sk));
 };
 
 class MockHeretoStore : public HeteroStore {
 public:
-    MOCK_METHOD1(Init, ErrorInfo(datasystem::ConnectOptions &options));
+    MOCK_METHOD1(Init, ErrorInfo(DsConnectOptions &options));
     MOCK_METHOD0(Shutdown, void());
     MOCK_METHOD2(DevDelete,
                  ErrorInfo(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds));

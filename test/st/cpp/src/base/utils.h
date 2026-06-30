@@ -29,6 +29,28 @@ static void ErrorMsgCheck(std::string error_code, std::string error_msg, std::st
     ASSERT_TRUE(msg_idx != std::string::npos);
 }
 
+static void SignalErrorMsgCheck(const std::string &error_code, const std::string &signal_msg,
+                                const std::string &exit_code_msg, const std::string &excep_msg)
+{
+    std::string::size_type code_idx = excep_msg.find(error_code);
+    std::string::size_type signal_idx = excep_msg.find(signal_msg);
+    std::string::size_type exit_code_idx = excep_msg.find(exit_code_msg);
+    std::string::size_type process_killed_idx = excep_msg.find("process may be killed for some reason");
+    ASSERT_TRUE(code_idx != std::string::npos);
+    ASSERT_TRUE(signal_idx != std::string::npos || exit_code_idx != std::string::npos ||
+                process_killed_idx != std::string::npos);
+}
+
+static void SignalErrorMsgCheck(const std::string &signal_msg, const std::string &exit_code_msg,
+                                const std::string &excep_msg)
+{
+    std::string::size_type signal_idx = excep_msg.find(signal_msg);
+    std::string::size_type exit_code_idx = excep_msg.find(exit_code_msg);
+    std::string::size_type process_killed_idx = excep_msg.find("process may be killed for some reason");
+    ASSERT_TRUE(signal_idx != std::string::npos || exit_code_idx != std::string::npos ||
+                process_killed_idx != std::string::npos);
+}
+
 #define EXPECT_THROW_WITH_CODE_AND_MSG(statement, code, msg) \
     EXPECT_THROW({                                           \
         try {                                                \

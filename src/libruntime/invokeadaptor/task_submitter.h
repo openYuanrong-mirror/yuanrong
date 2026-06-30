@@ -52,8 +52,8 @@ public:
                                    const RequestResource &resource);
     bool NeedRetry(const ErrorInfo &errInfo, const std::shared_ptr<InvokeSpec> spec, bool &isConsumeRetryTime);
     bool NeedRetryCreate(const ErrorInfo &errInfo);
-    virtual ErrorInfo CancelStatelessRequest(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack, bool isForce,
-                                     bool isRecursive, const std::string &objId);
+    virtual ErrorInfo CancelStatelessRequest(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
+                                             bool isForce, bool isRecursive, const std::string &objId);
     void Finalize(void);
     std::vector<std::string> GetInstanceIds();
     std::vector<std::string> GetCreatingInsIds();
@@ -75,7 +75,6 @@ public:
     void UpdateFaasInvokeLog(const std::string &reqId, const ErrorInfo &err);
 
 private:
-    bool MetricsEnabled() const;
     void EraseInsResourceMap();
     std::vector<RequestResource> GetScheduleResources();
     void AddFaasCancelTimer(std::shared_ptr<InvokeSpec> spec);
@@ -89,7 +88,7 @@ private:
     void DeleteInsCallback(const std::string &instanceId);
     bool ScheduleRequest(const RequestResource &resource, std::shared_ptr<BaseQueue> requestQueue);
     void SendInvokeReq(const RequestResource &resource, std::shared_ptr<InvokeSpec> invokeSpec);
-    void DowngradeCallback(const std::string &requestId, ErrorCode code, const std::string &result);
+    void DowngradeCallback(const std::string &requestId, Libruntime::ErrorCode code, const std::string &result);
 
     std::shared_ptr<LibruntimeConfig> libRuntimeConfig;
     std::atomic<bool> runFlag{true};
@@ -100,14 +99,12 @@ private:
     std::shared_ptr<RequestManager> requestManager;
     int recycleTimeMs;
     std::unordered_map<libruntime::ApiType, std::shared_ptr<InsManager>> insManagers;
-    std::unordered_map<std::string, TimeMeasurement> invokeCostMap ABSL_GUARDED_BY(invokeCostMtx_);
+    std::unordered_map<std::string, TimeMeasurement> invokeCostMap;
     mutable absl::Mutex invokeCostMtx_;
-    std::unordered_map<RequestResource, std::shared_ptr<TaskSchedulerWrapper>, HashFn> taskSchedulerMap_
-        ABSL_GUARDED_BY(reqMtx_);
-    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> faasCancelTimerWorkers
-        ABSL_GUARDED_BY(cancelTimerMtx_);
+    std::unordered_map<RequestResource, std::shared_ptr<TaskSchedulerWrapper>, HashFn> taskSchedulerMap_;
+    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> faasCancelTimerWorkers;
     CancelFunc cancelCb;
-    std::unordered_map<std::string, std::shared_ptr<FaasInvokeData>> faasInvokeDataMap_ ABSL_GUARDED_BY(invokeDataMtx_);
+    std::unordered_map<std::string, std::shared_ptr<FaasInvokeData>> faasInvokeDataMap_;
     mutable absl::Mutex invokeDataMtx_;
     std::shared_ptr<AliasRouting> ar_;
     std::shared_ptr<MetricsAdaptor> metricsAdaptor_;

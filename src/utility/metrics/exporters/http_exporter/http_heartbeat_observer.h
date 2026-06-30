@@ -17,36 +17,35 @@
 #ifndef OBSERVABILITY_METRICS_HTTP_HEARTBEAT_OBSERVER_H
 #define OBSERVABILITY_METRICS_HTTP_HEARTBEAT_OBSERVER_H
 
-#include "actor/actor.hpp"
-#include "async/asyncafter.hpp"
-#include "async/defer.hpp"
-
+#include <atomic>
+#include <memory>
+#include <functional>
+#include "src/utility/timer_worker.h"
 #include "metrics/exporters/http_exporter/curl_helper.h"
 #include "metrics/exporters/http_exporter/http_exporter.h"
 
 namespace observability::exporters::metrics {
 
-class HttpHeartbeatObserver : public litebus::ActorBase {
+class HttpHeartbeatObserver {
 public:
     explicit HttpHeartbeatObserver(const HeartbeatParam &heartbeatParam);
-    ~HttpHeartbeatObserver() override = default;
+    ~HttpHeartbeatObserver();
     void Start();
     void Stop();
     void RegisterOnHealthChangeCb(const std::function<void(bool)> &onChange);
 
-protected:
-    void Finalize() override;
-
 private:
-    std::atomic<bool> healthy_ = true;
+    std::atomic<bool> healthy_{true};
+    std::atomic<bool> running_{false};
     uint32_t pingCycleMs_;  // millisecond
     std::string url_;
     HttpRequestMethod method_ = HttpRequestMethod::GET;
     std::shared_ptr<CurlHelper> curlHelper_;
     std::function<void(bool)> onChange_;
-    litebus::Timer timer_;
+    std::shared_ptr<YR::utility::Timer> timer_;
 
     void Ping();
+    void ScheduleNextPing();
 };
 }
 #endif // FUNCTIONSYSTEM_HTTP_HEARTBEAT_OBSERVER_H

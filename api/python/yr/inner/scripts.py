@@ -30,7 +30,7 @@ def set_pdeathsig():
     """
     Send a SIGTERM signal to the child process when its parent process terminates.
     """
-    libc = ctypes.CDLL("libc.so.6")
+    libc = ctypes.CDLL(None)
     result = libc.prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0)
     if result != 0:
         raise OSError(f"prctl failed with error code {result}")

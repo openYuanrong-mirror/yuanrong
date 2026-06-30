@@ -67,7 +67,7 @@ void checkResult(std::shared_ptr<AsyncDecreRef> asyncDecreRef)
 
 TEST_F(AsyncDecreRefTest, PushPopSuccessfullyTest)
 {
-    EXPECT_CALL(*this->wrapper, GDecreaseRef(_, _)).WillRepeatedly(testing::Return(datasystem::Status()));
+    EXPECT_CALL(*this->wrapper, GDecreaseRef(_, _)).WillRepeatedly(testing::Return(ErrorInfo()));
     std::vector<std::string> objs1;
     objs1.push_back("tenantID1-obj1");
     asyncDecreRef->Push(objs1, "tenantID1");
@@ -82,8 +82,8 @@ TEST_F(AsyncDecreRefTest, PushPopSuccessfullyTest)
 TEST_F(AsyncDecreRefTest, PushPopFailedTest)
 {
     EXPECT_CALL(*this->wrapper, GDecreaseRef(_, _))
-        .WillRepeatedly(
-            testing::Return(datasystem::Status(datasystem::StatusCode::K_RUNTIME_ERROR, "failed to decrease ref")));
+        .WillRepeatedly(testing::Return(
+            ErrorInfo(ErrorCode::ERR_DATASYSTEM_FAILED, "failed to decrease ref")));
     std::vector<std::string> objs1;
     objs1.push_back("tenantID1-obj1");
     asyncDecreRef->Push(objs1, "tenantID1");

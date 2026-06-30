@@ -47,7 +47,14 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
 
-var manager *AgentCRsManager
+var (
+	manager                             *AgentCRsManager
+	isFuncOwner                         = selfregister.GlobalSchedulerProxy.IsFuncOwner
+	setNestedFieldFunc                  = unstructured.SetNestedField
+	toUnstructuredFunc                  = runtime.DefaultUnstructuredConverter.ToUnstructured
+	agentCRReconcilerGetCrStatusFunc    = (*AgentCRReconciler).getCrStatus
+	agentCRReconcilerUpdateCRStatusFunc = (*AgentCRReconciler).updateCRStatus
+)
 
 const (
 	minRetryInterval = 100 * time.Millisecond
@@ -226,7 +233,7 @@ func isCrReconcilerOwner(synced bool, funcKey string) bool {
 	if !synced {
 		return false
 	}
-	return selfregister.GlobalSchedulerProxy.IsFuncOwner(funcKey)
+	return isFuncOwner(funcKey)
 }
 
 func (arm *AgentCRsManager) processCRInfoEvent(eventType registry.EventType, info *types.AgentEventInfo) {
@@ -596,7 +603,7 @@ func (ar *AgentCRReconciler) reconcileStatus() error {
 		return fmt.Errorf("failed to get cr, error: %v", err)
 	}
 
-	crStatus, err := ar.getCrStatus(crObj)
+	crStatus, err := agentCRReconcilerGetCrStatusFunc(ar, crObj)
 	if err != nil {
 		return fmt.Errorf("failed to get cr's status, error: %v", err)
 	}
@@ -617,7 +624,7 @@ func (ar *AgentCRReconciler) reconcileStatus() error {
 	}
 	ar.RUnlock()
 	crStatus.ReadyReplicas = len(crStatus.Conditions)
-	err = ar.updateCRStatus(resource, crStatus, crObj, namespace)
+	err = agentCRReconcilerUpdateCRStatusFunc(ar, resource, crStatus, crObj, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to update CR Status, error: %s", err.Error())
 	}
@@ -647,11 +654,11 @@ func (ar *AgentCRReconciler) getCrStatus(crObj *unstructured.Unstructured) (*typ
 
 func (ar *AgentCRReconciler) updateCRStatus(resource dynamic.NamespaceableResourceInterface,
 	crStatus *types.AgentCRStatus, crObj *unstructured.Unstructured, namespace string) error {
-	toUnstructured, err := runtime.DefaultUnstructuredConverter.ToUnstructured(crStatus)
+	toUnstructured, err := toUnstructuredFunc(crStatus)
 	if err != nil {
 		return fmt.Errorf("failed to transfer status to Unstructured, error: %v", err)
 	}
-	err = unstructured.SetNestedField(crObj.Object, toUnstructured, "status")
+	err = setNestedFieldFunc(crObj.Object, toUnstructured, "status")
 	if err != nil {
 		return fmt.Errorf("failed to set status, error: %v", err)
 	}

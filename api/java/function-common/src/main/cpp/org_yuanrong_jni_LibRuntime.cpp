@@ -573,6 +573,28 @@ JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_Finalize(JNIEnv *env, jc
 }
 
 /*
+ * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    needReInit
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_needReInit(JNIEnv *env, jclass c)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    return YR::Libruntime::LibruntimeManager::Instance().NeedReInit(rtCtx) ? JNI_TRUE : JNI_FALSE;
+}
+
+/*
+ * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    reInit
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_reInit(JNIEnv *env, jclass c)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    YR::Libruntime::LibruntimeManager::Instance().ReInit(rtCtx);
+}
+
+/*
  * Class:     org_yuanrong_jni_NativeLibRuntime
  * Method:    Exit
  * Signature: ()V
@@ -1203,10 +1225,8 @@ JNIEXPORT jstring JNICALL Java_org_yuanrong_jni_LibRuntime_loadCurrentSession(JN
     auto rtCtx = get_runtime_context_callback(env, c);
     auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
     CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
-
     auto [sessionJson, err] = libRuntime->LoadCurrentSession(sessionId);
     CHECK_ERROR_AND_THROW(env, err, nullptr, "failed to LoadCurrentSession");
-
     if (sessionJson.empty()) {
         return nullptr;
     }
@@ -1253,38 +1273,29 @@ JNIEXPORT jbyteArray JNICALL Java_org_yuanrong_jni_LibRuntime_sessionWait(JNIEnv
     auto rtCtx = get_runtime_context_callback(env, c);
     auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
     CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
-
     libRuntime->SetTenantIdWithPriority();
-
     auto [err, resultBuffer] = libRuntime->SessionWait(cSessionId, static_cast<int64_t>(timeout));
-
     if (err.Code() == YR::Libruntime::ErrorCode::ERR_SESSION_TIMEOUT) {
         return nullptr;
     }
-
     if (err.Code() == YR::Libruntime::ErrorCode::ERR_SESSION_INTERRUPTED) {
         YR::jni::JNILibruntimeException::Throw(env, err.Code(), err.MCode(), "Session wait interrupted: " + err.Msg());
         return nullptr;
     }
-
     if (!err.OK()) {
         YR::jni::JNILibruntimeException::Throw(env, err.Code(), err.MCode(), "Session wait failed: " + err.Msg());
         return nullptr;
     }
-
     if (resultBuffer == nullptr || resultBuffer->GetSize() == 0) {
         return nullptr;
     }
-
     jbyteArray result = env->NewByteArray(static_cast<jsize>(resultBuffer->GetSize()));
     if (result == nullptr) {
         YR::jni::JNILibruntimeException::ThrowNew(env, "Failed to allocate byte array for wait result");
         return nullptr;
     }
-
     env->SetByteArrayRegion(result, 0, static_cast<jsize>(resultBuffer->GetSize()),
                             static_cast<const jbyte *>(resultBuffer->ImmutableData()));
-
     return result;
 }
 
@@ -1296,11 +1307,8 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_sessionNotify(JNIEnv 
     auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
     CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
     auto dataBuffer = YR::jni::JNIByteBuffer::FromJava(env, data);
-
     libRuntime->SetTenantIdWithPriority();
-
     auto err = libRuntime->SessionNotify(cSessionId, dataBuffer);
-
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     if (jerr == nullptr) {
         YR::jni::JNILibruntimeException::ThrowNew(env, "failed to convert error info from cc to java, get null");

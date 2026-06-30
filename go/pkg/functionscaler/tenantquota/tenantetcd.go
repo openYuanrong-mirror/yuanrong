@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
@@ -33,6 +34,18 @@ import (
 const (
 	defaultTTL                           = 1
 	defaultUnlimitedInstanceNumPerTenant = -1 // define the default unlimited value per tenant
+)
+
+var (
+	getTenantValueFromEtcd = etcd3.GetValueFromEtcdWithRetry
+	getRouterEtcdClient    = etcd3.GetRouterEtcdClient
+	newEtcdSession         = concurrency.NewSession
+	newEtcdLocker          = concurrency.NewLocker
+	closeEtcdSession       = func(session *concurrency.Session) error { return session.Close() }
+	putTenantValue         = func(client *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, key string, value string,
+		opts ...clientv3.OpOption) error {
+		return client.Put(ctxInfo, key, value, opts...)
+	}
 )
 
 func max(a int64, b int64) int64 {
@@ -46,7 +59,7 @@ func getTenantInsInfoFromETCD(tenantID string) types.TenantInsInfo {
 	tenantKey := fmt.Sprintf("/sn/functions/tenantinstancenumlimit/cluster/%s/tenant/%s",
 		os.Getenv("CLUSTER_ID"), tenantID)
 	tenantInsInfo := types.TenantInsInfo{}
-	etcdValue, err := etcd3.GetValueFromEtcdWithRetry(tenantKey, etcd3.GetRouterEtcdClient())
+	etcdValue, err := getTenantValueFromEtcd(tenantKey, getRouterEtcdClient())
 	if err != nil {
 		log.GetLogger().Warnf("failed to get tenant instance info, err: %s", err.Error())
 		return tenantInsInfo
@@ -69,10 +82,10 @@ func IncreaseTenantInstanceNum(tenantID string, isReserved bool) (bool, bool) {
 	}
 
 	lockKey := fmt.Sprintf("/lock/cluster/%s/tenant/%s", os.Getenv("CLUSTER_ID"), tenantID)
-	routerEtcdClient := etcd3.GetRouterEtcdClient()
+	routerEtcdClient := getRouterEtcdClient()
 
 	onDemandInsNum, reversedInsNum := GetTenantCache().getTenantInstanceNum(tenantID)
-	session, err := concurrency.NewSession(routerEtcdClient.Client, concurrency.WithTTL(defaultTTL)) // Generate lease
+	session, err := newEtcdSession(routerEtcdClient.Client, concurrency.WithTTL(defaultTTL)) // Generate lease
 	if err != nil {
 		log.GetLogger().Errorf("failed to new session: %s, determine based on cache", err.Error())
 		if isReserved {
@@ -86,10 +99,10 @@ func IncreaseTenantInstanceNum(tenantID string, isReserved bool) (bool, bool) {
 		GetTenantCache().updateTenantInstance(tenantID, onDemandInsNum, reversedInsNum)
 		return reachMaxOnDemandInsNum, maxReversedInstance < reversedInsNum
 	}
-	defer session.Close()
+	defer closeEtcdSession(session)
 
 	// Blocking, other requests will block waiting for the lock to be released
-	locker := concurrency.NewLocker(session, lockKey)
+	locker := newEtcdLocker(session, lockKey)
 	locker.Lock()
 
 	// 1. 获取tenantID的函数实例数
@@ -124,10 +137,10 @@ func IncreaseTenantInstanceNum(tenantID string, isReserved bool) (bool, bool) {
 // DecreaseTenantInstance Reduce the number of instances
 func DecreaseTenantInstance(tenantID string, isReserved bool) {
 	lockKey := fmt.Sprintf("/lock/cluster/%s/tenant/%s", os.Getenv("CLUSTER_ID"), tenantID)
-	routerEtcdClient := etcd3.GetRouterEtcdClient()
+	routerEtcdClient := getRouterEtcdClient()
 
 	onDemandInsNum, reversedInsNum := GetTenantCache().getTenantInstanceNum(tenantID)
-	session, err := concurrency.NewSession(routerEtcdClient.Client, concurrency.WithTTL(defaultTTL)) // Generate lease
+	session, err := newEtcdSession(routerEtcdClient.Client, concurrency.WithTTL(defaultTTL)) // Generate lease
 	if err != nil {
 		log.GetLogger().Errorf("failed to new session: %s", err.Error())
 		if isReserved {
@@ -138,10 +151,10 @@ func DecreaseTenantInstance(tenantID string, isReserved bool) {
 		GetTenantCache().updateTenantInstance(tenantID, onDemandInsNum, reversedInsNum)
 		return
 	}
-	defer session.Close()
+	defer closeEtcdSession(session)
 
 	// Blocking, other requests will block waiting for the lock to be released
-	locker := concurrency.NewLocker(session, lockKey)
+	locker := newEtcdLocker(session, lockKey)
 	locker.Lock()
 
 	// The number of instances needs to be reduced when creation fails, scales down, functions are deleted, etc.
@@ -170,10 +183,10 @@ func updateTenantInstance(tenantID string, onDemandInsNum int64, reversedInsNum 
 		return
 	}
 	ctx := etcd3.CreateEtcdCtxInfoWithTimeout(context.Background(), etcd3.DurationContextTimeout)
-	routerEtcdClient := etcd3.GetRouterEtcdClient()
+	routerEtcdClient := getRouterEtcdClient()
 	tenantKey := fmt.Sprintf("/sn/functions/tenantinstancenumlimit/cluster/%s/tenant/%s",
 		os.Getenv("CLUSTER_ID"), tenantID)
-	err = routerEtcdClient.Put(ctx, tenantKey, string(bytes))
+	err = putTenantValue(routerEtcdClient, ctx, tenantKey, string(bytes))
 	if err != nil {
 		log.GetLogger().Errorf("unable to put key: %s new value to router etcd, err:%s", tenantKey, err.Error())
 	}

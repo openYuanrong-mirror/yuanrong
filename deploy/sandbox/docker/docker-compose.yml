@@ -1,0 +1,11 @@
+services:
+  aio:
+    image: ${AIO_IMAGE_NAME:-aio-yr:latest}
+    container_name: ${AIO_CONTAINER_NAME:-aio-yr}
+    privileged: true
+    cgroup: host
+    restart: unless-stopped
+    ports:
+      - target: 8888
+        published: "${AIO_PORT:-38888}"
+        protocol: tcp

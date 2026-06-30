@@ -19,16 +19,23 @@ package etcd
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
 	. "github.com/smartystreets/goconvey/convey"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"yuanrong.org/kernel/pkg/common/etcd3"
 )
+
+func patchGetEtcdResponse(fn func(*etcd3.EtcdClient, etcd3.EtcdCtxInfo, string,
+	...clientv3.OpOption) (*clientv3.GetResponse, error)) func() {
+	oldGetEtcdResponse := getEtcdResponse
+	getEtcdResponse = fn
+	return func() {
+		getEtcdResponse = oldGetEtcdResponse
+	}
+}
 
 // 给一个prefix，从rds里找出对应的reads
 func TestPrintCachedPrefixValue(t *testing.T) {
@@ -89,22 +96,22 @@ func TestRereadPrefix(t *testing.T) {
 	}
 	Convey("Test RereadPrefix", t, func() {
 		Convey("with err", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+			reset := patchGetEtcdResponse(
 				func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 					opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 					return nil, errors.New("mock err")
 				})
-			defer patch.Reset()
+			defer reset()
 			err := tr.rereadPrefix("mock-prefix", 0)
 			So(err, ShouldNotBeNil)
 		})
 		Convey("without err", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+			reset := patchGetEtcdResponse(
 				func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 					opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 					return resp, nil
 				})
-			defer patch.Reset()
+			defer reset()
 			err := tr.rereadPrefix("mock-prefix", 0)
 			So(err, ShouldBeNil)
 		})
@@ -131,32 +138,32 @@ func TestRereadKey(t *testing.T) {
 	}
 	Convey("Test rereadKey", t, func() {
 		Convey("with err", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+			reset := patchGetEtcdResponse(
 				func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 					opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 					return nil, errors.New("mock err")
 				})
-			defer patch.Reset()
+			defer reset()
 			err := tr.rereadKey("mock-prefix", 0)
 			So(err, ShouldNotBeNil)
 		})
 		Convey("without err", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+			reset := patchGetEtcdResponse(
 				func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 					opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 					return resp, nil
 				})
-			defer patch.Reset()
+			defer reset()
 			err := tr.rereadKey("mock-prefix", 0)
 			So(err, ShouldBeNil)
 		})
 		Convey("with printCachedKeyValue err", func() {
-			patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+			reset := patchGetEtcdResponse(
 				func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 					opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 					return resp, nil
 				})
-			defer patch.Reset()
+			defer reset()
 			delete(tr.rds, "mock-prefix")
 			err := tr.rereadKey("mock-prefix", 0)
 			So(err, ShouldBeNil)
@@ -180,12 +187,12 @@ func TestPrintError(t *testing.T) {
 		etcdClient: &etcd3.EtcdClient{},
 	}
 	Convey("Test printError", t, func() {
-		patch := gomonkey.ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "GetResponse",
+		reset := patchGetEtcdResponse(
 			func(w *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, etcdKey string,
 				opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
 				return resp, nil
 			})
-		defer patch.Reset()
+		defer reset()
 		tr.printError()
 	})
 }

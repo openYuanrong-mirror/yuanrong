@@ -41,30 +41,33 @@ func TestGetTenantInsInfoFromETCD(t *testing.T) {
 
 	convey.Convey("Test getTenantInsInfoFromETCD", t, func() {
 		convey.Convey("value got from etcd is empty", func() {
-			defer gomonkey.ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-				func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-					return nil, nil
-				}).Reset()
+			rawGetTenantValueFromEtcd := getTenantValueFromEtcd
+			getTenantValueFromEtcd = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+				return nil, nil
+			}
+			defer func() { getTenantValueFromEtcd = rawGetTenantValueFromEtcd }()
 			tenantInsInfo := getTenantInsInfoFromETCD("test")
 			convey.So(tenantInsInfo.ReversedInsNum, convey.ShouldEqual, 0)
 			convey.So(tenantInsInfo.OnDemandInsNum, convey.ShouldEqual, 0)
 		})
 
 		convey.Convey("value got from etcd is valid", func() {
-			defer gomonkey.ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-				func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-					return bytes, nil
-				}).Reset()
+			rawGetTenantValueFromEtcd := getTenantValueFromEtcd
+			getTenantValueFromEtcd = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+				return bytes, nil
+			}
+			defer func() { getTenantValueFromEtcd = rawGetTenantValueFromEtcd }()
 			tenantInsInfo := getTenantInsInfoFromETCD("test")
 			convey.So(tenantInsInfo.ReversedInsNum, convey.ShouldEqual, 2)
 			convey.So(tenantInsInfo.OnDemandInsNum, convey.ShouldEqual, 1)
 		})
 
 		convey.Convey("value got from etcd err", func() {
-			defer gomonkey.ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-				func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-					return nil, errors.New("fail")
-				}).Reset()
+			rawGetTenantValueFromEtcd := getTenantValueFromEtcd
+			getTenantValueFromEtcd = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+				return nil, errors.New("fail")
+			}
+			defer func() { getTenantValueFromEtcd = rawGetTenantValueFromEtcd }()
 			tenantInsInfo := getTenantInsInfoFromETCD("test")
 			convey.So(tenantInsInfo.ReversedInsNum, convey.ShouldEqual, 0)
 			convey.So(tenantInsInfo.OnDemandInsNum, convey.ShouldEqual, 0)
@@ -101,14 +104,26 @@ func TestUpdateTenantInstance(t *testing.T) {
 
 func TestAddOrDelTenantInstanceNum(t *testing.T) {
 	convey.Convey("Test AddOrDelTenantInstanceNum", t, func() {
+		rawGetRouterEtcdClient := getRouterEtcdClient
+		rawNewEtcdSession := newEtcdSession
+		rawNewEtcdLocker := newEtcdLocker
+		rawCloseEtcdSession := closeEtcdSession
+		rawPutTenantValue := putTenantValue
+		defer func() {
+			getRouterEtcdClient = rawGetRouterEtcdClient
+			newEtcdSession = rawNewEtcdSession
+			newEtcdLocker = rawNewEtcdLocker
+			closeEtcdSession = rawCloseEtcdSession
+			putTenantValue = rawPutTenantValue
+		}()
+
 		convey.Convey("new session err", func() {
-			defer gomonkey.ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient {
+			getRouterEtcdClient = func() *etcd3.EtcdClient {
 				return &etcd3.EtcdClient{}
-			}).Reset()
-			defer gomonkey.ApplyFunc(concurrency.NewSession,
-				func(client *clientv3.Client, opts ...concurrency.SessionOption) (*concurrency.Session, error) {
-					return nil, errors.New("fail")
-				}).Reset()
+			}
+			newEtcdSession = func(client *clientv3.Client, opts ...concurrency.SessionOption) (*concurrency.Session, error) {
+				return nil, errors.New("fail")
+			}
 			reachMaxOnDemandInsNum, reachMaxReversedInsNum := IncreaseTenantInstanceNum("test", true)
 			convey.So(reachMaxOnDemandInsNum, convey.ShouldEqual, false)
 			convey.So(reachMaxReversedInsNum, convey.ShouldEqual, false)
@@ -125,28 +140,27 @@ func TestAddOrDelTenantInstanceNum(t *testing.T) {
 				ReversedInsNum: 2,
 			}
 			bytes1, _ := json.Marshal(info1)
-			defer gomonkey.ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient {
+			getRouterEtcdClient = func() *etcd3.EtcdClient {
 				return &etcd3.EtcdClient{}
-			}).Reset()
-			defer gomonkey.ApplyFunc(concurrency.NewSession,
-				func(client *clientv3.Client, opts ...concurrency.SessionOption) (*concurrency.Session, error) {
-					return nil, nil
-				}).Reset()
-			defer gomonkey.ApplyFunc(concurrency.NewLocker, func(s *concurrency.Session, pfx string) sync.Locker {
+			}
+			newEtcdSession = func(client *clientv3.Client, opts ...concurrency.SessionOption) (*concurrency.Session, error) {
+				return &concurrency.Session{}, nil
+			}
+			newEtcdLocker = func(s *concurrency.Session, pfx string) sync.Locker {
 				return &sync.RWMutex{}
-			}).Reset()
-			defer gomonkey.ApplyFunc((*concurrency.Session).Close, func(_ *concurrency.Session) error {
+			}
+			closeEtcdSession = func(_ *concurrency.Session) error {
 				return nil
-			}).Reset()
-			defer gomonkey.ApplyFunc((*etcd3.EtcdClient).Put,
-				func(_ *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, key string, value string,
-					opts ...clientv3.OpOption) error {
-					return nil
-				}).Reset()
-			defer gomonkey.ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-				func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-					return bytes1, nil
-				}).Reset()
+			}
+			putTenantValue = func(_ *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo, key string, value string,
+				opts ...clientv3.OpOption) error {
+				return nil
+			}
+			rawGetTenantValueFromEtcd := getTenantValueFromEtcd
+			getTenantValueFromEtcd = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+				return bytes1, nil
+			}
+			defer func() { getTenantValueFromEtcd = rawGetTenantValueFromEtcd }()
 			reachMaxOnDemandInsNum, reachMaxReversedInsNum := IncreaseTenantInstanceNum("test", true)
 			convey.So(reachMaxOnDemandInsNum, convey.ShouldEqual, false)
 			convey.So(reachMaxReversedInsNum, convey.ShouldEqual, false)
@@ -161,10 +175,9 @@ func TestAddOrDelTenantInstanceNum(t *testing.T) {
 				ReversedInsNum: 1000,
 			}
 			bytes2, _ := json.Marshal(info2)
-			defer gomonkey.ApplyFunc(etcd3.GetValueFromEtcdWithRetry,
-				func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
-					return bytes2, nil
-				}).Reset()
+			getTenantValueFromEtcd = func(key string, etcdClient *etcd3.EtcdClient) ([]byte, error) {
+				return bytes2, nil
+			}
 			reachMaxOnDemandInsNum, reachMaxReversedInsNum = IncreaseTenantInstanceNum("test", false)
 			convey.So(reachMaxOnDemandInsNum, convey.ShouldEqual, true)
 			convey.So(reachMaxReversedInsNum, convey.ShouldEqual, false)

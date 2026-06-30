@@ -78,15 +78,21 @@ func TestInitWatch(t *testing.T) {
 	rr := NewRolloutRegistry(stopCh)
 	listCalled := 0
 	watchCalled := 0
-	defer gomonkey.ApplyFunc((*etcd3.EtcdWatcher).StartList, func(_ *etcd3.EtcdWatcher) {
+	rawRolloutEtcdWatcherStartListFunc := rolloutEtcdWatcherStartListFunc
+	rawRolloutEtcdWatcherStartWatchFunc := rolloutEtcdWatcherStartWatchFunc
+	defer func() {
+		rolloutEtcdWatcherStartListFunc = rawRolloutEtcdWatcherStartListFunc
+		rolloutEtcdWatcherStartWatchFunc = rawRolloutEtcdWatcherStartWatchFunc
+	}()
+	rolloutEtcdWatcherStartListFunc = func(_ etcd3.Watcher) {
 		once.Do(func() {
 			rr.configDone <- struct{}{}
 		})
 		listCalled++
-	}).Reset()
-	defer gomonkey.ApplyFunc((*etcd3.EtcdWatcher).StartWatch, func(_ *etcd3.EtcdWatcher) {
+	}
+	rolloutEtcdWatcherStartWatchFunc = func(_ etcd3.Watcher) {
 		watchCalled++
-	}).Reset()
+	}
 	convey.Convey("test init watch", t, func() {
 		rr.initWatcher(&etcd3.EtcdClient{})
 		convey.So(listCalled, convey.ShouldEqual, 2)

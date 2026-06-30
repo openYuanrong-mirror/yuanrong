@@ -51,6 +51,10 @@ var (
 	dataSystemFeatureUsedStream = "stream"
 )
 
+type coldStartTraceProvider interface {
+	PopColdStartTrace() *types.TraceContext
+}
+
 // ScaledInstanceQueue stores instances and handles scaling automatically
 type ScaledInstanceQueue struct {
 	funcSpec           *types.FunctionSpecification
@@ -335,22 +339,30 @@ func (si *ScaledInstanceQueue) startScaleUpWorker() {
 		}
 		// getForCreate blocks until a createReq is pushed in or insCreateQueue is destroyed
 		if createReq := si.insCreateQueue.getForCreate(); createReq != nil {
-			go si.scaleUpInstanceWithRetry(createReq.callback)
+			go si.scaleUpInstanceWithRetry(createReq)
 		}
 	}
 }
 
 // ScaleUpHandler handles instance scale up planed by instanceScaler
 func (si *ScaledInstanceQueue) ScaleUpHandler(insNum int, callback scaler.ScaleUpCallback) {
+	var traceProvider coldStartTraceProvider
+	if provider, ok := si.instanceScheduler.(coldStartTraceProvider); ok {
+		traceProvider = provider
+	}
 	for i := 0; i < insNum; i++ {
-		si.insCreateQueue.push(&InstanceCreateRequest{callback: callback})
+		request := &InstanceCreateRequest{callback: callback}
+		if traceProvider != nil {
+			request.traceContext = traceProvider.PopColdStartTrace()
+		}
+		si.insCreateQueue.push(request)
 	}
 	if insNum > 0 {
 		log.GetLogger().Debugf("succeed to submit %d instance to scale up for function %s", insNum, si.funcKeyWithRes)
 	}
 }
 
-func (si *ScaledInstanceQueue) scaleUpInstanceWithRetry(callback scaler.ScaleUpCallback) {
+func (si *ScaledInstanceQueue) scaleUpInstanceWithRetry(createReq *InstanceCreateRequest) {
 	var (
 		instance  *types.Instance
 		createErr error
@@ -365,7 +377,7 @@ func (si *ScaledInstanceQueue) scaleUpInstanceWithRetry(callback scaler.ScaleUpC
 			}
 		default:
 		}
-		instance, createErr = si.createInstance()
+		instance, createErr = si.createInstance(createReq)
 		if createErr == nil && instance != nil {
 			break
 		}
@@ -381,7 +393,7 @@ func (si *ScaledInstanceQueue) scaleUpInstanceWithRetry(callback scaler.ScaleUpC
 		time.Sleep(retryDelay)
 	}
 	// offset pendingInsThdNum pre-increased in instanceScaler before add instance into instanceScheduler
-	callback(1)
+	createReq.callback(1)
 	if createErr != nil || instance == nil {
 		// retry may finish after function is updated, handle create error again to trigger scale again
 		si.instanceScaler.HandleCreateError(createErr)
@@ -401,7 +413,9 @@ func (si *ScaledInstanceQueue) scaleUpInstanceWithRetry(callback scaler.ScaleUpC
 	}
 }
 
-func (si *ScaledInstanceQueue) createInstance() (instance *types.Instance, createErr error) {
+func (si *ScaledInstanceQueue) createInstance(createReq *InstanceCreateRequest) (instance *types.Instance,
+	createErr error,
+) {
 	defer func() {
 		// nil should also be handled by instanceScaler and instanceScheduler
 		si.instanceScaler.HandleCreateError(createErr)
@@ -411,7 +425,13 @@ func (si *ScaledInstanceQueue) createInstance() (instance *types.Instance, creat
 	functionSignature := si.funcSig
 	si.Cond.L.Unlock()
 	startTime := time.Now()
-	instance, createErr = si.createInstanceFunc("", "", si.instanceType, si.resKey, nil, nil)
+	traceID := ""
+	traceParent := ""
+	if createReq != nil && createReq.traceContext != nil {
+		traceID = createReq.traceContext.TraceID
+		traceParent = createReq.traceContext.TraceParent
+	}
+	instance, createErr = si.createInstanceFunc(traceID, "", si.instanceType, si.resKey, nil, traceParent, nil)
 	if createErr != nil {
 		log.GetLogger().Errorf("failed to create instance for function %s, error: %s", si.funcKeyWithRes,
 			createErr.Error())
@@ -451,7 +471,7 @@ func (si *ScaledInstanceQueue) CreateSessionCtxInstance(traceID, sessionCtxID st
 	si.Cond.L.Lock()
 	functionSignature := si.funcSig
 	si.Cond.L.Unlock()
-	instance, createErr := si.createInstanceFunc(traceID, "", si.instanceType, si.resKey, nil, &sessionCtxID)
+	instance, createErr := si.createInstanceFunc(traceID, "", si.instanceType, si.resKey, nil, "", &sessionCtxID)
 	if createErr == nil && instance == nil {
 		createErr = fmt.Errorf("created session context instance is nil")
 	}

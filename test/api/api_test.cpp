@@ -17,6 +17,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#define protected public
 #define private public
 #include "api/cpp/src/config_manager.h"
 #include "api/cpp/src/internal.h"
@@ -130,15 +131,23 @@ public:
         YR::internal::RuntimeManager::GetInstance().mode_ = YR::Config::Mode::CLUSTER_MODE;
         YR::internal::RuntimeManager::GetInstance().yrRuntime = runtime;
         YR::SetInitialized(true);
+        YR::ConfigManager::Singleton().isDriver = false;
     }
 
     void TearDown() override
     {
+        // Restore cloud-worker mode so Finalize() throws rather than calling
+        // ClusterModeRuntime::StopRuntime(), which tries to create LibruntimeManager
+        // and crashes in tests that temporarily set isDriver=true.
+        YR::ConfigManager::Singleton().isDriver = false;
+        YR::ConfigManager::Singleton().inCluster = true;
         try {
             YR::Finalize();
         } catch (YR::Exception &e) {
             std::cout << "Exception occurs when Finalize: " << e.what() << std::endl;
+            YR::SetInitialized(false);
         }
+        YR::internal::RuntimeManager::GetInstance().yrRuntime.reset();
     }
 
     std::shared_ptr<MockRuntime> runtime;

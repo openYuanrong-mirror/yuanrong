@@ -62,3 +62,18 @@ func InitRuntime() error {
 func Run() {
 	libruntime.ReceiveRequestLoop()
 }
+
+// RunWithReInit begins loop processing the received request with checkpoint restore re-init support.
+// After checkpoint restore, it will finalize and re-initialize automatically.
+func RunWithReInit(initFunc func() error) {
+	for {
+		libruntime.ReceiveRequestLoop()
+		if !libruntime.NeedReInit() {
+			break
+		}
+		libruntime.ReInit()
+		if err := initFunc(); err != nil {
+			panic("failed to re-initialize after checkpoint restore: " + err.Error())
+		}
+	}
+}

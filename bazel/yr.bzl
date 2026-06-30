@@ -1,5 +1,5 @@
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
-COPTS = ["-DVERSION=1", "-Wno-stringop-overflow", "-Werror", "-fstack-protector-strong", "-Wno-deprecated-declarations", "-fPIC"]
+COPTS = ["-DVERSION=1", "-Werror", "-fstack-protector-strong", "-Wno-deprecated-declarations", "-fPIC"]
 COPTS_WITH_GLOO = COPTS + ["-DENABLE_GLOO"]
 LOPTS = ["-DVERSION=1"]
 
@@ -13,11 +13,16 @@ def copy_file(name, srcs, dstdir = "", pre_cmd = "echo"):
         outs = [name + ".out"],
         cmd = r"""
             mkdir -p -- {dstdir}
-            for f in {locations}; do
-                {pre_cmd} "$$f"
-                rm -f -- {dstdir}$${{f##*/}}
-                cp -af -- "$$f" {dstdir}
-            done
+            locations="{locations}"
+            if [ -n "$$locations" ]; then
+                for f in $$locations; do
+                    if [ -n "$$f" ]; then
+                        {pre_cmd} "$$f"
+                        rm -f -- {dstdir}$${{f##*/}}
+                        cp -Rf "$$f" {dstdir} || true
+                    fi
+                done
+            fi
             date > $@
         """.format(
             locations = src_locations,
@@ -90,6 +95,8 @@ def pyx_library(name, deps = [], cc_kwargs = {}, py_deps = [], srcs = [], **kwar
     shared_objects = []
     for src in pyx_srcs:
         stem = src.split(".")[0]
+        # On macOS, Python extensions use .so but they are actually dylibs
+        # The name remains .so for consistency across platforms
         shared_object_name = stem + ".so"
         native.cc_binary(
             name = cc_kwargs.pop("name", shared_object_name),
@@ -114,6 +121,7 @@ def pyx_library(name, deps = [], cc_kwargs = {}, py_deps = [], srcs = [], **kwar
 
 def _cc_strip_impl(ctx):
     compilation_mode = ctx.var["COMPILATION_MODE"]
+    print("[cc strip]Compilation mode: " + compilation_mode)
     if compilation_mode == "dbg":
         return [
             DefaultInfo(
@@ -128,24 +136,42 @@ def _cc_strip_impl(ctx):
         for f in s.files.to_list():
             in_files_path.append(f.path)
             output_files.append(ctx.actions.declare_file("%s_dir/%s" % (f.basename, f.basename), sibling = f))
-
-    commands = [
-        """chmod +w {obj} &&
-        {obj_cpy} --only-keep-debug {obj} {dest} &&
-        {obj_cpy} --add-gnu-debuglink={dest} {obj} &&
-        {strip} --strip-all {obj} &&
-        mkdir -p build/output/symbols && cp {dest} build/output/symbols
-        mkdir -p {output_dir}
-        cp -fr {obj} {output_dir}
-        """.format(
-            obj_cpy = cc_toolchain.objcopy_executable,
-            strip = cc_toolchain.strip_executable,
-            obj = src,
-            dest = src + ".sym",
-            output_dir = src + "_dir",
-        )
-        for src in in_files_path
-    ]
+    print("[cc strip]Input files: " + ", ".join(in_files_path))
+    print("[cc strip]Output files: " + ", ".join([f.path for f in output_files]))
+    is_macos = "apple" in cc_toolchain.compiler or "darwin" in cc_toolchain.target_gnu_system_name
+    if is_macos:
+        commands = [
+            """chmod +w {obj}
+            {strip} -x {obj} -o {obj}.stripped
+            mv {obj}.stripped {obj}
+            mkdir -p build/output/symbols
+            mkdir -p {output_dir}
+            cp -R {obj} {output_dir}
+            """.format(
+                strip = cc_toolchain.strip_executable,
+                obj = src,
+                output_dir = src + "_dir",
+            )
+            for src in in_files_path
+        ]
+    else:
+        commands = [
+            """chmod +w {obj}
+            {obj_cpy} --only-keep-debug {obj} {dest}
+            {obj_cpy} --add-gnu-debuglink={dest} {obj}
+            {strip} --strip-all {obj}
+            mkdir -p build/output/symbols && cp {dest} build/output/symbols
+            mkdir -p {output_dir}
+            cp -R {obj} {output_dir}
+            """.format(
+                obj_cpy = cc_toolchain.objcopy_executable,
+                strip = cc_toolchain.strip_executable,
+                obj = src,
+                dest = src + ".sym",
+                output_dir = src + "_dir",
+            )
+            for src in in_files_path
+        ]
 
     ctx.actions.run_shell(
         inputs = depset(

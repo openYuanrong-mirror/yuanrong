@@ -1,0 +1,12 @@
+export YR_JWT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIwMTY2MjksInJvbGUiOiJkZXZlbG9wZXIiLCJzdWIiOiJkZWZhdWx0In0.OGYwMTY1MTViYTVjZjkxM2E1ZmIxM2E4M2IxMGRmZDdhOThlYjdmN2MwZDU2MjY5Mjg3NTEwODE0ZTY0MTNjZg
+export YR_LOG_LEVEL=DEBUG
+export GLOG_log_dir=$(pwd)/driver
+export YR_SERVER_ADDRESS="172.17.0.3:8888"
+export YR_METASERVICE_ADDRESS="172.17.0.3:31111"
+export YR_CLIENT_AUTH_TYPE="one-way"
+export YR_SERVER_NAME="test"
+export YR_ENABLE_TLS="true"
+export YR_PRIVATE_KEY_FILE="/ws/code/openyuanrong/cert/yr/module.key"
+export YR_CERT_FILE="/ws/code/openyuanrong/cert/yr/module.crt"
+export YR_VERIFY_FILE="/ws/code/openyuanrong/cert/yr/ca.crt"
+export YR_IN_CLUSTER="false"

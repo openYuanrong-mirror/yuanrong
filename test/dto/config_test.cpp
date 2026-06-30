@@ -67,7 +67,7 @@ TEST_F(DTOConfigTest, TestGetMaxArgsInMsgBytes)
     unsetenv("MAX_ARGS_IN_MSG_BYTES");
     unsetenv("RUNTIME_DIRECT_CONNECTION_ENABLE");
 
-    ASSERT_EQ(Config::Instance().MEM_STORE_SIZE_THRESHOLD(), 100 * 1024);
+    ASSERT_EQ(Config::Instance().MEM_STORE_SIZE_THRESHOLD(), 2 * 1024 * 1024);
     setenv("MEM_STORE_SIZE_THRESHOLD", "100", 1);
     Config::c = Config();
     ASSERT_EQ(Config::Instance().MEM_STORE_SIZE_THRESHOLD(), 100);

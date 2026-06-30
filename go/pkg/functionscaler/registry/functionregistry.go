@@ -29,9 +29,18 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	commonUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
-	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
+)
+
+var (
+	getValueFromEtcdWithRetryFunc = etcd3.GetValueFromEtcdWithRetry
+	buildFuncSpecFunc             = (*FunctionRegistry).buildFuncSpec
+	getMetaEtcdClientFunc         = etcd3.GetMetaEtcdClient
+	etcdClientGetFunc             = func(client *clientv3.Client, ctx context.Context,
+		key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+		return client.Get(ctx, key, opts...)
+	}
 )
 
 // FunctionRegistry watches function event of etcd
@@ -95,7 +104,7 @@ func (fr *FunctionRegistry) getFuncSpec(funcKey string) *types.FunctionSpecifica
 func (fr *FunctionRegistry) fetchSilentFuncSpec(funcKey string) *types.FunctionSpecification {
 	tenantID, funcName, funcVersion := commonUtils.ParseFuncKey(funcKey)
 	silentEtcdKey := fmt.Sprintf(constant.SilentFuncKey, tenantID, funcName, funcVersion)
-	etcdValue, err := etcd3.GetValueFromEtcdWithRetry(silentEtcdKey, etcd3.GetMetaEtcdClient())
+	etcdValue, err := getValueFromEtcdWithRetryFunc(silentEtcdKey, getMetaEtcdClientFunc())
 	if err != nil {
 		log.GetLogger().Errorf("failed to get silent function, error: %s", err.Error())
 		return nil
@@ -103,7 +112,7 @@ func (fr *FunctionRegistry) fetchSilentFuncSpec(funcKey string) *types.FunctionS
 	metaEtcdKey := fmt.Sprintf(constant.MetaFuncKey, tenantID, funcName, funcVersion)
 	fr.Lock()
 	defer fr.Unlock()
-	funcSpec := fr.buildFuncSpec(metaEtcdKey, etcdValue, funcKey)
+	funcSpec := buildFuncSpecFunc(fr, metaEtcdKey, etcdValue, funcKey)
 	if funcSpec == nil {
 		return nil
 	}
@@ -141,7 +150,7 @@ func (fr *FunctionRegistry) watcherHandler(event *etcd3.Event) {
 	}
 	switch event.Type {
 	case etcd3.PUT:
-		funcSpec := fr.buildFuncSpec(event.Key, event.Value, funcKey)
+		funcSpec := buildFuncSpecFunc(fr, event.Key, event.Value, funcKey)
 		if funcSpec == nil {
 			return
 		}
@@ -164,7 +173,8 @@ func (fr *FunctionRegistry) watcherHandler(event *etcd3.Event) {
 
 // buildFuncSpec without lock should lock outside
 func (fr *FunctionRegistry) buildFuncSpec(etcdKey string, etcdValue []byte,
-	funcKey string) *types.FunctionSpecification {
+	funcKey string,
+) *types.FunctionSpecification {
 	funcMetaInfo := GetFuncMetaInfoFromEtcdValue(etcdValue)
 	if funcMetaInfo == nil {
 		log.GetLogger().Errorf("ignoring invalid etcd value of key %s", etcdKey)
@@ -177,7 +187,8 @@ func (fr *FunctionRegistry) buildFuncSpec(etcdKey string, etcdValue []byte,
 }
 
 func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey string,
-	funcMetaInfo *commonTypes.FunctionMetaInfo) *types.FunctionSpecification {
+	funcMetaInfo *commonTypes.FunctionMetaInfo,
+) *types.FunctionSpecification {
 	commonUtils.SetFuncMetaDynamicConfEnable(funcMetaInfo)
 	var funcSpec *types.FunctionSpecification
 	if oldFuncSpec == nil {
@@ -187,7 +198,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 			CancelFunc: cancelFunc,
 			FuncKey:    funcKey,
 			FuncMetaSignature: commonUtils.GetFuncMetaSignature(funcMetaInfo,
-				config.GlobalConfig.RawStsConfig.StsEnable),
+				false),
 			FuncMetaData:     funcMetaInfo.FuncMetaData,
 			S3MetaData:       funcMetaInfo.S3MetaData,
 			CodeMetaData:     funcMetaInfo.CodeMetaData,
@@ -202,7 +213,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 	} else {
 		funcSpec = oldFuncSpec
 		funcSpec.FuncMetaSignature = commonUtils.GetFuncMetaSignature(funcMetaInfo,
-			config.GlobalConfig.RawStsConfig.StsEnable)
+			false)
 		funcSpec.FuncMetaData = funcMetaInfo.FuncMetaData
 		funcSpec.S3MetaData = funcMetaInfo.S3MetaData
 		funcSpec.CodeMetaData = funcMetaInfo.CodeMetaData
@@ -243,7 +254,7 @@ func (fr *FunctionRegistry) FinishEtcdList() {
 
 // EtcdList -
 func (fr *FunctionRegistry) EtcdList() []*types.FunctionSpecification {
-	client := etcd3.GetMetaEtcdClient()
+	client := getMetaEtcdClientFunc()
 	if client == nil {
 		return nil
 	}
@@ -252,7 +263,7 @@ func (fr *FunctionRegistry) EtcdList() []*types.FunctionSpecification {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), etcd3.DurationContextTimeout)
 	defer cancel()
-	res, err := client.Client.Get(ctx, functionEtcdPrefix, clientv3.WithPrefix())
+	res, err := etcdClientGetFunc(client.Client, ctx, functionEtcdPrefix, clientv3.WithPrefix())
 	if err != nil {
 		log.GetLogger().Errorf("get function meta failed, error: %v", err)
 		return nil
@@ -271,7 +282,7 @@ func (fr *FunctionRegistry) EtcdList() []*types.FunctionSpecification {
 			log.GetLogger().Warnf("ignoring invalid etcd key of key %s", e.Key)
 			continue
 		}
-		funcSpec := fr.buildFuncSpec(e.Key, e.Value, funcKey)
+		funcSpec := buildFuncSpecFunc(fr, e.Key, e.Value, funcKey)
 		if funcSpec == nil {
 			continue
 		}

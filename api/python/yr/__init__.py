@@ -17,24 +17,26 @@
 """
 yr api
 """
-import ctypes
-import importlib
+# pylint: disable=huawei-wrong-import-position
 import os
+import ctypes
 from yr.session_service import ManagedSessionObj, SessionService  # noqa: E402
 
 for so_path in [
-    "libcrypto.so.1.1",
-    "libssl.so.1.1",
-    "librpc_option_protos.so",
-    "libprotobuf.so.25.5.0",
-    "libabseil_dll.so.2407.0.0",
     "libsecurec.so",  # securec must before libdatasystem
     "libtbb.so.2",
+    "libcrypto.so.3",
+    "libcrypto.so.1.1",
     "libssl.so.3",
+    "libssl.so.1.1",
     "libds-spdlog.so.1.12.0",
     "libzmq.so.5.2.5",
-    "libcrypto.so.3",
+    "libaddress_sorting.so.42.0.0",
     "libaddress_sorting.so.42",
+    "libabseil_dll.so.2407.0.0",
+    "libprotobuf.so.25.5.0",
+    "librpc_option_protos.so",
+    "libcommon_flags.so",
     "libetcdapi_proto.so",
     "libgrpc++.so.1.65",
     "libgrpc.so.42",
@@ -48,14 +50,12 @@ for so_path in [
     "libgflags.so.2.2",
     "libbrpc.so",
     "libdatasystem.so",
-    "libcommon_flags.so",
     "libspdlog.so.1.12.0",
     "libyrlogs.so",
     "liblitebus.so.0.0.1",
     "libobservability-metrics-exporter-ostream.so",
     "libobservability-metrics-file-exporter.so",
     "libobservability-prometheus-push-exporter.so",
-    "libobservability-prometheus-pull-exporter.so",
     "libobservability-metrics.so",
     "libobservability-metrics-sdk.so",
 ]:
@@ -70,8 +70,6 @@ for so_path in [
 
 # E402: import not at top of file
 # We must load so before import datasystem, so the lint is not really useful
-from yr import sandbox  # noqa: E402
-
 from yr.apis import (  # noqa: E402
     init, finalize,
     put, get,
@@ -82,7 +80,7 @@ from yr.apis import (  # noqa: E402
     query_global_producers_num, query_global_consumers_num, save_state, load_state,
     cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
     go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
-    list_named_instances, kill_instance,
+    list_named_instances, kill_instance, restore_from_checkpoint, delete_checkpoint, list_checkpoints,
     StatelessFunction,
     StatefulInstance,
     StatefulInstanceCreator,
@@ -101,25 +99,23 @@ from yr.config import (  # noqa: E402
     FunctionGroupContext, ServerInfo, DeviceInfo, ResourceGroupOptions, GroupOptions,
     PortForwarding,
 )
+from yr.checkpoint import SnapstartInfo, SnapstartResponse  # noqa: E402
 
 from yr.group import Group
 from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
 from yr.functionsdk.function import Function  # noqa: E402
 from yr.functionsdk.context import Context  # noqa: E402
 from yr.affinity import Affinity, AffinityType, AffinityKind, AffinityScope, LabelOperator, OperatorType  # noqa: E402
-
-_metrics = importlib.import_module("yr.metrics")
-Gauge = _metrics.Gauge
-Alarm = _metrics.Alarm
-UInt64Counter = _metrics.UInt64Counter
-DoubleCounter = _metrics.DoubleCounter
-CustomGauge = _metrics.CustomGauge
-CustomCounter = _metrics.CustomCounter
+from yr.metrics import Gauge, Alarm, UInt64Counter, DoubleCounter, CustomGauge, CustomCounter, Histogram  # noqa: E402
+from yr import trace  # noqa: E402
 
 from yr.decorator.function_proxy import FunctionProxy  # noqa: E402
 from yr.decorator.instance_proxy import (  # noqa: E402
     InstanceCreator, InstanceProxy, MethodProxy, FunctionGroupHandler, FunctionGroupMethodProxy)
-from yr.debug_server.rpdb import set_trace
+from yr.debug_server.debug_server import DebugServer  # noqa: E402
+from yr.debug_server.rpdb import set_trace  # noqa: E402
+
+from yr import sandbox  # noqa: E402
 
 __all__ = [
     "init", "finalize", "Config", "UserTLSConfig",
@@ -134,12 +130,14 @@ __all__ = [
     "save_state", "load_state", "get_instance", "is_initialized",
     "query_global_producers_num", "query_global_consumers_num",
     "Gauge", "Alarm", "java_instance_class", "go_instance_class", "create_function_group",
-    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter", "CustomGauge", "CustomCounter",
+    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter", "CustomGauge", "CustomCounter", "Histogram",
+    "trace",
     "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
     "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
     "StatelessFunction", "StatefulInstance", "StatefulInstanceCreator",
     "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
     "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances", "Group", "GroupOptions",
     "DebugServer", "set_trace", "sandbox", "kill_instance",
-    "ManagedSessionObj", "SessionService",
+    "restore_from_checkpoint", "delete_checkpoint", "list_checkpoints",
+    "SnapstartInfo", "SnapstartResponse", "ManagedSessionObj", "SessionService",
 ]

@@ -49,6 +49,13 @@ var (
 		},
 		[]string{"businessid", "tenantid", "funcname", "version", "label", "namespace", "deployment_name", "pod_name"},
 	)
+
+	getConcurrencyMetricWithLabelValues = concurrencyGauge.GetMetricWithLabelValues
+	deleteConcurrencyLabelValues        = concurrencyGauge.DeleteLabelValues
+	deleteConcurrencyPartialMatch       = concurrencyGauge.DeletePartialMatch
+	getLeaseMetricWithLabelValues       = leaseRequestTotal.GetMetricWithLabelValues
+	deleteLeaseLabelValues              = leaseRequestTotal.DeleteLabelValues
+	deleteLeasePartialMatch             = leaseRequestTotal.DeletePartialMatch
 )
 
 // GetLeaseRequestTotal -
@@ -100,7 +107,7 @@ func (m *MetricProvider) EnsureConcurrencyGaugeWithLabel(labels []string) error 
 
 	m.RLock()
 	defer m.RUnlock()
-	_, err := concurrencyGauge.GetMetricWithLabelValues(labels...)
+	_, err := getConcurrencyMetricWithLabelValues(labels...)
 	return err
 }
 
@@ -112,7 +119,7 @@ func (m *MetricProvider) EnsureLeaseRequestTotalWithLabel(labels []string) error
 
 	m.RLock()
 	defer m.RUnlock()
-	_, err := leaseRequestTotal.GetMetricWithLabelValues(labels...)
+	_, err := getLeaseMetricWithLabelValues(labels...)
 	return err
 }
 
@@ -144,7 +151,7 @@ func (m *MetricProvider) IncLeaseRequestTotalWithLabel(labels []string) error {
 	if len(labels) != labelLen {
 		return fmt.Errorf("labels len must be 8")
 	}
-	counter, err := leaseRequestTotal.GetMetricWithLabelValues(labels...)
+	counter, err := getLeaseMetricWithLabelValues(labels...)
 	if err != nil {
 		return err
 	}
@@ -157,7 +164,7 @@ func (m *MetricProvider) IncConcurrencyGaugeWithLabel(labels []string) error {
 	if len(labels) != labelLen {
 		return fmt.Errorf("labels len must be 8")
 	}
-	gauge, err := concurrencyGauge.GetMetricWithLabelValues(labels...)
+	gauge, err := getConcurrencyMetricWithLabelValues(labels...)
 	if err != nil {
 		return err
 	}
@@ -170,7 +177,7 @@ func (m *MetricProvider) DecConcurrencyGaugeWithLabel(labels []string) error {
 	if len(labels) != labelLen {
 		return fmt.Errorf("labels len must be 8")
 	}
-	gauge, err := concurrencyGauge.GetMetricWithLabelValues(labels...)
+	gauge, err := getConcurrencyMetricWithLabelValues(labels...)
 	if err != nil {
 		return err
 	}
@@ -183,7 +190,7 @@ func (m *MetricProvider) ClearConcurrencyGaugeWithLabel(labels []string) error {
 	if len(labels) != labelLen {
 		return fmt.Errorf("labels len must be 8")
 	}
-	concurrencyGauge.DeleteLabelValues(labels...)
+	deleteConcurrencyLabelValues(labels...)
 	return nil
 }
 
@@ -192,7 +199,7 @@ func (m *MetricProvider) ClearLeaseRequestTotalWithLabel(labels []string) error 
 	if len(labels) != labelLen {
 		return fmt.Errorf("labels len must be 8")
 	}
-	leaseRequestTotal.DeleteLabelValues(labels...)
+	deleteLeaseLabelValues(labels...)
 	return nil
 }
 
@@ -240,8 +247,8 @@ func (m *MetricProvider) clearMetricsForInsConfigWithoutLock(funcMetaData *types
 			"namespace":       deployment.Namespace,
 			"deployment_name": deployment.Name,
 		}
-		concurrencyGauge.DeletePartialMatch(labels)
-		leaseRequestTotal.DeletePartialMatch(labels)
+		deleteConcurrencyPartialMatch(labels)
+		deleteLeasePartialMatch(labels)
 	}
 }
 

@@ -23,7 +23,7 @@ namespace utility {
 
 const std::string IDGenerator::appIdPrefix_ = "job-";
 const std::string IDGenerator::traceIdPrefix_ = "job-";
-const std::string IDGenerator::traceIdSuffix_ = "-trace-X";
+const std::string IDGenerator::traceIdSuffix_ = "-trace-";
 
 std::string IDGenerator::GenApplicationId()
 {
@@ -33,21 +33,23 @@ std::string IDGenerator::GenApplicationId()
 std::string IDGenerator::GenTraceId()
 {
     auto id = GenerateUUID(traceIdLen_ / DOUBLE);
+    auto otelHex = GenerateUUID(OTEL_TRACE_ID_BYTES);
     std::string s;
-    s.reserve(traceIdPrefix_.size() + traceIdLen_ + traceIdPrefix_.size());
     s.append(traceIdPrefix_);
     s.append(id);
     s.append(traceIdSuffix_);
+    s.append(otelHex);
     return s;
 }
 
 std::string IDGenerator::GenTraceId(const std::string &appId)
 {
+    auto otelHex = GenerateUUID(OTEL_TRACE_ID_BYTES);
     std::string s;
-    s.reserve(traceIdPrefix_.size() + traceIdLen_ + traceIdPrefix_.size());
     s.append(traceIdPrefix_);
     s.append(appId.substr(appIdPrefix_.size()));
     s.append(traceIdSuffix_);
+    s.append(otelHex);
     return s;
 }
 

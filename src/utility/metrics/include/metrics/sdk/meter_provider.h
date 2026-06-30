@@ -17,15 +17,16 @@
 #ifndef OBSERVABILITY_SDK_METRICS_METER_PROVIDER_H
 #define OBSERVABILITY_SDK_METRICS_METER_PROVIDER_H
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "metrics/api/meter_provider.h"
 
 namespace observability::sdk::metrics {
 class MeterContext;
 class MetricProcessor;
-class LiteBusManager;
 
 struct LiteBusParams {
     std::string address = "";
@@ -45,7 +46,6 @@ public:
 
 private:
     std::shared_ptr<MeterContext> context_{ nullptr };
-    std::shared_ptr<LiteBusManager> liteBusManager_{ nullptr };
 };
 }  // namespace observability::sdk::metrics
 

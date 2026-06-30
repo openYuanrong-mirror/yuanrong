@@ -36,6 +36,11 @@ const (
 	InstanceScalePolicyStaticFunction = "staticFunction"
 )
 
+var (
+	jsonMarshal   = json.Marshal
+	jsonUnmarshal = json.Unmarshal
+)
+
 // GetFuncMetaSignature will calculate function signature based on essentials
 func GetFuncMetaSignature(metaInfo *types.FunctionMetaInfo, filterFlag bool) string {
 	// static function set revisionID as signature
@@ -71,7 +76,7 @@ func GetFuncMetaSignature(metaInfo *types.FunctionMetaInfo, filterFlag bool) str
 	metaInfoCopy.ExtendedMetaData.NetworkController = types.NetworkController{}
 	metaInfoCopy.ResourceMetaData.CustomResourcesSpec =
 		getCustomResourceSpec(metaInfo.ResourceMetaData.CustomResources, metaInfo.ResourceMetaData.CustomResourcesSpec)
-	data, err := json.Marshal(metaInfoCopy)
+	data, err := jsonMarshal(metaInfoCopy)
 	if err != nil {
 		return "invalid function meta info"
 	}
@@ -84,9 +89,9 @@ func getCustomResourceSpec(customResources string, customResourceSpec string) st
 	}
 	customResourcesJSON := make(map[string]int64)
 	customResourcesSpecJSON := make(map[string]interface{})
-	err1 := json.Unmarshal([]byte(customResources), &customResourcesJSON)
+	err1 := jsonUnmarshal([]byte(customResources), &customResourcesJSON)
 
-	err2 := json.Unmarshal([]byte(customResourceSpec), &customResourcesSpecJSON)
+	err2 := jsonUnmarshal([]byte(customResourceSpec), &customResourcesSpecJSON)
 	if err1 != nil || (err2 != nil && customResourceSpec != "") {
 		return ""
 	}
@@ -99,7 +104,7 @@ func getCustomResourceSpec(customResources string, customResourceSpec string) st
 			break
 		}
 	}
-	v, err3 := json.Marshal(customResourcesSpecJSON)
+	v, err3 := jsonMarshal(customResourcesSpecJSON)
 	if err3 != nil {
 		return ""
 	}
@@ -145,12 +150,12 @@ func DeepCopyObj(src interface{}, dst interface{}) error {
 		return fmt.Errorf("src cannot be nil")
 	}
 
-	bytes, err := json.Marshal(src)
+	bytes, err := jsonMarshal(src)
 	if err != nil {
 		return fmt.Errorf("unable to marshal src: %s", err)
 	}
 
-	err = json.Unmarshal(bytes, dst)
+	err = jsonUnmarshal(bytes, dst)
 	if err != nil {
 		return fmt.Errorf("unable to unmarshal into dst: %s", err)
 	}

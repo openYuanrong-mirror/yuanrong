@@ -1,0 +1,239 @@
+# ─────────────────────────────────────────────
+# Global
+# ─────────────────────────────────────────────
+global:
+  # SWR registry prefix for all images
+  imageRegistry: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev
+  # Optional node to pin bazel-remote cache; leave empty for scheduler default.
+  buildNode: ""
+
+# ─────────────────────────────────────────────
+# Namespaces
+# ─────────────────────────────────────────────
+namespaces:
+  buildTools: build-tools
+
+# ─────────────────────────────────────────────
+# Buildkite agent-stack-k8s
+# (deployed via upstream Helm chart separately;
+#  use agent-stack-k8s-values.yaml for Linux amd64 and
+#  agent-stack-k8s-arm64-values.yaml for Linux arm64)
+# ─────────────────────────────────────────────
+agentStack:
+  # Buildkite cluster token (set via --set or sealed-secret)
+  agentToken: ""
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
+  targetKubeconfig:
+    secretName: sandbox-target-kubeconfig
+    mountPath: /var/run/yr-k8s/target
+    fileName: kubeconfig
+  tags:
+    - queue=default
+    - os=linux
+    - arch=amd64
+  podSpecPatch:
+    containers:
+      - name: container-0
+        env:
+          - name: YR_K8S_KUBECONFIG
+            value: /var/run/yr-k8s/target/kubeconfig
+        volumeMounts:
+          - name: sandbox-target-kubeconfig
+            mountPath: /var/run/yr-k8s/target
+            readOnly: true
+    volumes:
+      - name: sandbox-target-kubeconfig
+        secret:
+          secretName: sandbox-target-kubeconfig
+          items:
+            - key: kubeconfig
+              path: kubeconfig
+    nodeSelector:
+      kubernetes.io/arch: amd64
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  imagePullBackoffGracePeriod: 15m
+  podPendingTimeout: 20m
+
+# ─────────────────────────────────────────────
+# Bazel remote cache
+# ─────────────────────────────────────────────
+bazelRemote:
+  enabled: true
+  # Mirror buchgr/bazel-remote-cache to SWR to avoid Docker Hub rate-limit
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/bazel-remote-cache:latest
+  maxSizeGb: 200
+  # Local cache directory on the build node
+  hostPath: /mnt/paas
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+  service:
+    httpPort: 8080
+    grpcPort: 9092
+
+# ─────────────────────────────────────────────
+# Node-local build cache aging
+# ─────────────────────────────────────────────
+cacheAging:
+  enabled: true
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
+  imagePullPolicy: IfNotPresent
+  hostPath: /mnt/paas
+  # bazel-remote uses its own max_size limit, so this only ages selected
+  # shared build pod cache roots under /mnt/paas/build-cache. Entries are
+  # pruned at one level below these roots to avoid using timestamps from files
+  # extracted out of third-party source archives.
+  paths:
+    - /cache/build-cache/go-cache
+    - /cache/build-cache/opensource
+  intervalHours: 6
+  retentionDays: 7
+  pressureMinAgeHours: 24
+  highWatermarkPercent: 85
+  lowWatermarkPercent: 75
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations:
+    - operator: Exists
+
+# ─────────────────────────────────────────────
+# Secrets (set via --set or external secret manager)
+# ─────────────────────────────────────────────
+secrets:
+  # OBS credentials for artifact upload
+  # kubectl create secret generic obs-credentials \
+  #   --from-literal=access-key-id=AK... --from-literal=secret-access-key=SK...
+  obsCredentials:
+    create: false       # set true to create from values below
+    accessKeyId: ""
+    secretAccessKey: ""
+
+  # SWR credentials for sandbox image packaging/push jobs.
+  # The Buildkite package job can also reuse an existing swr-pull-secret
+  # kubernetes.io/dockerconfigjson secret when it has push permission.
+  # kubectl create secret generic swr-credentials \
+  #   --from-literal=username=<SWR_USERNAME> --from-literal=password=<SWR_PASSWORD>
+  swrCredentials:
+    create: false
+    username: ""
+    password: ""
+
+  # Target cluster kubeconfig for Test K8S.
+  # The agent-stack podSpec patch mounts this secret at
+  # /var/run/yr-k8s/target/kubeconfig for deploy/test jobs.
+  targetKubeconfig:
+    create: false
+    secretName: sandbox-target-kubeconfig
+    kubeconfig: ""
+
+  # TestPyPI token used to publish only openyuanrong_sdk wheels.
+  # kubectl create secret generic test-pypi-credentials \
+  #   --from-literal=api-token=<TEST_PYPI_API_TOKEN>
+  testPypiCredentials:
+    create: false
+    apiToken: ""
+
+  # PyPI token used to publish stable release openyuanrong_sdk wheels.
+  # kubectl create secret generic pypi-credentials \
+  #   --from-literal=api-token=<PYPI_API_TOKEN>
+  pypiCredentials:
+    create: false
+    apiToken: ""
+
+  # Credentials for the GitCode -> Buildkite relay service
+  # Create manually or let Helm create the secret from values below.
+  # Put the GitCode WebHook password in both webhookToken and
+  # webhookSignatureSecret so token and signature deliveries are both accepted.
+  gitcodeWebhookRelayAuth:
+    create: false
+    buildkiteApiToken: ""
+    webhookToken: ""
+    webhookSignatureSecret: ""
+
+# ─────────────────────────────────────────────
+# GitCode -> Buildkite webhook relay
+# ─────────────────────────────────────────────
+gitcodeWebhookRelay:
+  enabled: false
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
+  imagePullPolicy: IfNotPresent
+  secretName: gitcode-webhook-relay-auth
+  replicas: 1
+  port: 8080
+  path: /webhook/gitcode
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "500m"
+      memory: 512Mi
+  buildkite:
+    organization: yuchao-wang
+    pipeline: yuanrong
+    repository: https://gitcode.com/openeuler/yuanrong.git
+    messagePrefix: "Triggered by GitCode"
+    env:
+      BUILD_TARGET: linux
+      BUILDKITE_AGENT_NAME: agent-stack-k8s
+      ENABLE_MACOS_SDK: "true"
+    triggerPush: false
+    triggerTagPush: true
+    triggerMergeRequest: true
+  filters:
+    pushBranches:
+      - feature/sandbox
+      - feature/ci-buildkite-k8s
+    tagPatterns:
+      - "[0-9]*"
+      - "v[0-9]*"
+    mergeRequestTargetBranches:
+      - feature/sandbox
+    mergeRequestActions:
+      - merge
+    skipWorkInProgress: true
+    useVirtualMergeRef: false
+    dedupTtlSeconds: 900
+  masterTag:
+    path: /webhook/gitcode/yuanrong-master-tag
+    repository: https://gitcode.com/openeuler/yuanrong.git
+    branch: master
+    tagPatterns:
+      - "[0-9]*"
+      - "v[0-9]*"
+    gitTimeoutSeconds: 120
+    buildkite:
+      pipeline: yuanrong-master-verify
+      env:
+        BUILD_TARGET: linux
+        ENABLE_LINUX_ARM: "true"
+        ENABLE_RUNTIME_X86: "true"
+        ENABLE_RUNTIME_ARM: "true"
+        ENABLE_SANDBOX_PACKAGE: "true"
+        ENABLE_SANDBOX_MANIFEST: "true"
+        ENABLE_SANDBOX_K8S_TEST: "true"
+        ENABLE_COMPONENT_IMAGE_BUILD: "true"
+        ENABLE_MACOS_SDK: "true"
+        SDK_PYTHON_VERSIONS: "python3.9 python3.10 python3.11 python3.12 python3.13"
+        SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS: "python3.9 python3.10 python3.11 python3.12 python3.13"
+  service:
+    type: ClusterIP
+    annotations: {}
+    nodePort: null
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    host: ""
+    tls: []

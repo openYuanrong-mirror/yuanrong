@@ -1,0 +1,333 @@
+fullnameOverride: yr
+
+global:
+  namespace:
+    create: true
+    name: yr-k8s
+  cluster:
+    id: cluster001
+    name: yr-k8s
+    region: local
+    azId: local-az1
+  imageRegistry: docker.io
+  imagePullSecrets: []
+  commonLabels: {}
+  images:
+    controlplane:
+      repository: yr-controlplane
+      tag: latest
+      pullPolicy: IfNotPresent
+    node:
+      repository: yr-node
+      tag: latest
+      pullPolicy: IfNotPresent
+    runtime:
+      repository: yr-runtime
+      tag: latest
+      pullPolicy: IfNotPresent
+    traefik:
+      registry: docker.io
+      repository: traefik
+      tag: v2.11.14
+      pullPolicy: IfNotPresent
+  runtimeImages:
+    cp39: {}
+    cp310: {}
+    cp311: {}
+    cp312: {}
+    cp313: {}
+  externalEtcd:
+    addrList: ""
+    metaStoreAddress: ""
+  services:
+    servicesYaml: |
+      - service: defaultservice
+        kind: yrlib
+        description: this is the default service
+        functions:
+          default:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.11
+            concurrentNum: 20
+          py39:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.9
+            concurrentNum: 20
+          py311:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.11
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp311") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          py310:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.10
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp310") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          py313:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.13
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp313") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          java:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: java1.8
+            concurrentNum: 20
+          cpp:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: cpp11
+            concurrentNum: 20
+  secrets:
+    s3AccessKey: ""
+    s3SecretKey: ""
+    curveSecret: ""
+
+etcd:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
+    repository: etcd
+    tag: 20260420-183500-reset
+    pullPolicy: IfNotPresent
+  dataDir: /etcd
+  service:
+    type: ClusterIP
+    port: 2379
+  persistence:
+    enabled: false
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  resources: {}
+  probes:
+    readiness:
+      tcpSocket:
+        port: client
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      failureThreshold: 3
+    liveness:
+      tcpSocket:
+        port: client
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+
+master:
+  enabled: true
+  replicaCount: 1
+  serviceAccount:
+    create: true
+    name: ""
+  service:
+    ports:
+      master: 22770
+      metaService: 31111
+      iamServer: 31112
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  probes:
+    readiness:
+      tcpSocket:
+        port: master
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: master
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+frontend:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8888
+    targetPort: 8888
+    annotations: {}
+  iamServerAddress: ""
+  faasFrontend:
+    httpPort: 8888
+  envPorts:
+    functionProxyPort: 22772
+    functionProxyGrpcPort: 22773
+    dsWorkerPort: 31501
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  probes:
+    readiness:
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+node:
+  enabled: true
+  securityContext:
+    privileged: true
+    allowPrivilegeEscalation: true
+  serviceAccount:
+    create: true
+    name: ""
+  ports:
+    functionProxy:
+      containerPort: 22772
+      hostPort: 22772
+    functionProxyGrpc:
+      containerPort: 22773
+      hostPort: 22773
+    dsWorker:
+      containerPort: 31501
+      hostPort: 31501
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+  docker:
+    storageDriver: overlay2
+    rootHostPath: /var/lib/openyuanrong/yr-node-docker
+  probes:
+    readiness:
+      tcpSocket:
+        port: function-proxy
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: function-proxy
+      initialDelaySeconds: 120
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+traefik:
+  enabled: true
+  replicaCount: 1
+  entryPoints:
+    web:
+      address: ":8888"
+    frontendDirect:
+      address: ":18888"
+  etcd:
+    rootKey: traefik
+  service:
+    type: LoadBalancer
+    port: 8888
+    targetPort: 8888
+    frontendDirectPort: 18888
+    annotations: {}
+  tls:
+    entryPoint:
+      enabled: false
+      certResolver: ""
+      domains: []
+    router:
+      enabled: false
+      certResolver: ""
+      optionsName: ""
+      domains: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  probes:
+    readiness:
+      tcpSocket:
+        port: web
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: web
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+debug:
+  sidecar:
+    image:
+      registry: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev
+      repository: busybox
+      tag: "1.36"
+      pullPolicy: IfNotPresent
+    sessionDir: /tmp/yr_sessions
+    command:
+      - sh
+      - -lc
+      - while true; do sleep 3600; done

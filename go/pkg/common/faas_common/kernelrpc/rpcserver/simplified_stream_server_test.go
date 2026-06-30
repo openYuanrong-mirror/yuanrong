@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	gomonkey "github.com/agiledragon/gomonkey/v2"
 	ants "github.com/panjf2000/ants/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"google.golang.org/grpc"
@@ -35,14 +34,14 @@ import (
 
 func TestCreateSimplifiedStreamServer(t *testing.T) {
 	convey.Convey("test CreateSimplifiedStreamServer", t, func() {
-		patch := gomonkey.ApplyFunc(ants.NewPoolWithFunc, func(size int, pf func(interface{}), options ...ants.Option) (
-			*ants.PoolWithFunc, error) {
+		oldNewPoolWithFunc := newPoolWithFunc
+		newPoolWithFunc = func(size int, pf func(interface{}), options ...ants.Option) (*ants.PoolWithFunc, error) {
 			return nil, errors.New("some error")
-		})
+		}
 		server, err := CreateSimplifiedStreamServer("0.0.0.0:0", 100)
 		convey.So(err, convey.ShouldNotBeNil)
 		convey.So(server, convey.ShouldBeNil)
-		patch.Reset()
+		newPoolWithFunc = oldNewPoolWithFunc
 		server, err = CreateSimplifiedStreamServer("0.0.0.0:0", 100)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(server, convey.ShouldNotBeNil)
@@ -51,20 +50,22 @@ func TestCreateSimplifiedStreamServer(t *testing.T) {
 
 func TestSimplifiedStreamServerServeAndClose(t *testing.T) {
 	convey.Convey("test SimplifiedStreamServer serve", t, func() {
-		patch := gomonkey.ApplyFunc(net.Listen, func(network, address string) (net.Listener, error) {
+		oldNetListen := netListen
+		oldServeGRPC := serveGRPC
+		netListen = func(network, address string) (net.Listener, error) {
 			return nil, errors.New("some error")
-		})
+		}
 		server, _ := CreateSimplifiedStreamServer("0.0.0.0:0", 100)
 		err := server.Serve()
 		convey.So(err, convey.ShouldNotBeNil)
-		patch.Reset()
-		patch = gomonkey.ApplyFunc((*grpc.Server).Serve, func(_ *grpc.Server, lis net.Listener) error {
+		netListen = oldNetListen
+		serveGRPC = func(_ *grpc.Server, lis net.Listener) error {
 			return errors.New("some error")
-		})
+		}
 		server, _ = CreateSimplifiedStreamServer("0.0.0.0:0", 100)
 		err = server.Serve()
 		convey.So(err, convey.ShouldNotBeNil)
-		patch.Reset()
+		serveGRPC = oldServeGRPC
 		server, _ = CreateSimplifiedStreamServer("0.0.0.0:0", 100)
 		go func() {
 			time.Sleep(100 * time.Millisecond)
@@ -74,6 +75,8 @@ func TestSimplifiedStreamServerServeAndClose(t *testing.T) {
 		err = server.Serve()
 		convey.So(err, convey.ShouldBeNil)
 		server.Stop()
+		netListen = oldNetListen
+		serveGRPC = oldServeGRPC
 	})
 }
 

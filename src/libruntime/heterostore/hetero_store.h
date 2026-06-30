@@ -17,11 +17,11 @@
 #pragma once
 #include <future>
 #include <memory>
-#include "datasystem/hetero_client.h"
 #include "device_util.h"
 #include "src/dto/buffer.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/heterostore/hetero_future.h"
+#include "src/libruntime/statestore/state_store.h"
 #include "src/libruntime/utils/exception.h"
 
 namespace YR {
@@ -34,7 +34,7 @@ public:
      * @brief Init HeteroStore object.
      * @param[in] options The param of connect datasystem.
      */
-    virtual ErrorInfo Init(datasystem::ConnectOptions &options) = 0;
+    virtual ErrorInfo Init(DsConnectOptions &options) = 0;
 
     /**
      * @brief Shutdown the state client.
@@ -94,7 +94,7 @@ public:
      * @return ERR_OK on when return all futures sucesss; the error code otherwise.
      */
     virtual ErrorInfo DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
-                                   std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec) = 0;
+                                   std::vector<std::shared_ptr<HeteroFuture>> &futureVec) = 0;
 
     /**
      * @brief Publish data to device.
@@ -104,7 +104,7 @@ public:
      * @return ERR_OK on when return all futures sucesss; the error code otherwise.
      */
     virtual ErrorInfo DevPublish(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
-                                 std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec) = 0;
+                                 std::vector<std::shared_ptr<HeteroFuture>> &futureVec) = 0;
 
     /**
      * @brief Store Device cache through the data system, caching corresponding keys-blob2dList metadata to the data

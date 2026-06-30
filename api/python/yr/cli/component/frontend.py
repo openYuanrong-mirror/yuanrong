@@ -50,6 +50,7 @@ class FrontendLauncher(ComponentLauncher):
         frontend_ssl_enable = str(faas_config.get("ssl_enable", "false")).lower()
         client_auth_type = faas_config.get("client_auth_type", "RequireAndVerifyClientCert")
         enable_func_token_auth = str(faas_config.get("enable_function_token_auth", "false")).lower()
+        frontend_lease_bypass = str(values.get("frontend", {}).get("lease_bypass", False)).lower()
         scc_enable = str(faas_config.get("scc_enable", "false")).lower()
         ssl_base_path = values["fs"]["tls"].get("base_path", "")
         scc_base_path = faas_args.get("scc_base_path", "")
@@ -118,6 +119,7 @@ class FrontendLauncher(ComponentLauncher):
             "{sslEnable}": ssl_enable,
             "{frontendSslEnable}": frontend_ssl_enable,
             "{enable_func_token_auth}": enable_func_token_auth,
+            "{frontend_lease_bypass}": frontend_lease_bypass,
             "{iam_server_address}": iam_server_address,
             "{meta_service_address}": meta_service_address,
             "{sccEnable}": scc_enable,

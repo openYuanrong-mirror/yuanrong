@@ -16,7 +16,9 @@
 
 #pragma once
 #include <signal.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -73,7 +75,7 @@ public:
     static std::vector<std::string> masterAddrList;  // for function master cluster
 
     // is in cluster
-    bool inCluster;
+    bool inCluster = true;
     static bool isMasterCluster;
 
 public:

@@ -19,7 +19,7 @@
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Tuple, Union, Any, Callable, Dict
+from typing import TYPE_CHECKING, List, Tuple, Union, Any, Callable, Dict
 
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions, GroupOptions
@@ -27,6 +27,11 @@ from yr.libruntime_pb2 import FunctionMeta
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.common import constants
 from yr.accelerate.shm_broadcast import Handle
+
+if TYPE_CHECKING:
+    from yr.fnruntime import SharedBuffer
+else:
+    SharedBuffer = Any
 
 
 class ExistenceOpt(Enum):
@@ -74,7 +79,7 @@ class ConsistencyType(Enum):
     CAUSAL = 1
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class SetParam:
     """Set parameters."""
     #: Whether duplicate key writing is supported.
@@ -95,7 +100,7 @@ class SetParam:
     cache_type: CacheType = CacheType.MEMORY
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MSetParam:
     """Represents the parameter configuration class for the mset operation."""
     #: Whether duplicate key writing is supported.
@@ -117,7 +122,7 @@ class MSetParam:
     cache_type: CacheType = CacheType.MEMORY
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class CreateParam:
     """Create param."""
 
@@ -153,7 +158,7 @@ class AlarmSeverity(Enum):
     CRITICAL = 4
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GetParam():
     """Get the parameter configuration class."""
     #: Offset, default is ``0``.
@@ -162,14 +167,14 @@ class GetParam():
     size: int = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GetParams():
     """Interface class for obtaining parameters."""
     #: A group of GetParam, the quantity needs to be greater than 0.
     get_params: List[GetParam] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class AlarmInfo:
     """Alarm info."""
     #: The name of the alarm. The default value is an empty string.
@@ -190,7 +195,7 @@ class AlarmInfo:
     custom_options: Dict[str, str] = field(default_factory=dict)
 
 
-class BaseRuntime(metaclass=ABCMeta):
+class Runtime(metaclass=ABCMeta):
     """
     Base runtime
     """
@@ -372,21 +377,40 @@ class BaseRuntime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot with signal 18
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
 
     @abstractmethod
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot with signal 19
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
+        """
+
+    @abstractmethod
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+
+    @abstractmethod
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoint IDs for the given function type, or all for the current tenant if empty.
+        :param function_type: moduleName.className (empty = all tenant checkpoints)
+        :param namespace: namespace filter
+        :return: list of checkpoint ID strings
         """
 
     @abstractmethod
@@ -400,6 +424,20 @@ class BaseRuntime(metaclass=ABCMeta):
     def receive_request_loop(self) -> None:
         """
         main loop
+        :return: None
+        """
+
+    @abstractmethod
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: True if re-init is needed
+        """
+
+    @abstractmethod
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
         :return: None
         """
 
@@ -596,38 +634,6 @@ class BaseRuntime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def set_gauge(self, data: GaugeData) -> None:
-        """
-        set gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-
-    @abstractmethod
-    def increase_gauge(self, data: GaugeData) -> None:
-        """
-        increase gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-
-    @abstractmethod
-    def decrease_gauge(self, data: GaugeData) -> None:
-        """
-        decrease gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-
-    @abstractmethod
-    def get_value_gauge(self, data: GaugeData) -> float:
-        """
-        get value of gauge metrics
-        :param data: GaugeData
-        :return: value
-        """
-
-    @abstractmethod
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metrics
@@ -686,7 +692,7 @@ class BaseRuntime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def create_buffer(self, buffer_size: int):
+    def create_buffer(self, buffer_size: int) -> Tuple[str, SharedBuffer]:
         """
         create buffer
         Returns:
@@ -694,7 +700,7 @@ class BaseRuntime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def get_buffer(self, obj_id: str):
+    def get_buffer(self, obj_id: str) -> SharedBuffer:
         """
         get buffer
         Returns:
@@ -748,3 +754,6 @@ class BaseRuntime(metaclass=ABCMeta):
         Returns:
             None
         """
+
+
+BaseRuntime = Runtime

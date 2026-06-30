@@ -21,8 +21,9 @@
 #include <string>
 #include <vector>
 
+#ifdef ENABLE_DATASYSTEM
 #include "datasystem/utils/connection.h"
-#include "datasystem/utils/sensitive_value.h"
+#endif
 #include "src/dto/config.h"
 #include "src/dto/invoke_options.h"
 #include "src/libruntime/err_type.h"
@@ -30,6 +31,7 @@
 #include "src/libruntime/fsclient/protobuf/runtime_service.grpc.pb.h"
 #include "src/libruntime/stacktrace/stack_trace_info.h"
 #include "src/libruntime/utils/security.h"
+#include "src/libruntime/utils/sensitive_value.h"
 
 namespace YR {
 using CallResult = ::core_service::CallResult;
@@ -37,7 +39,9 @@ using NotifyRequest = ::runtime_service::NotifyRequest;
 using GroupPolicy = ::common::GroupPolicy;
 using BindStrategy = ::common::BindStrategy;
 
+#ifdef ENABLE_DATASYSTEM
 using datasystem::ConnectOptions;
+#endif
 struct IpAddrInfo {
     std::string ip;
     int32_t port;
@@ -58,8 +62,10 @@ bool InstanceRangeEnabled(YR::Libruntime::InstanceRange instanceRange);
 bool ResourceGroupEnabled(YR::Libruntime::ResourceGroupOptions resourceGroupOpts);
 bool FunctionGroupEnabled(YR::Libruntime::FunctionGroupOptions options);
 int unhexlify(std::string input, char *ascii);
-void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const datasystem::SensitiveValue &sk,
-                        const datasystem::SensitiveValue &token);
+#ifdef ENABLE_DATASYSTEM
+void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const Libruntime::SensitiveValue &sk,
+                        const Libruntime::SensitiveValue &token);
+#endif
 std::string GetCurrentUTCTime();
 bool IsLaterThan(const std::string &timestamp1, const std::string &timestamp2, double seconds);
 std::tm ParseTimestamp(const std::string &timestamp);
@@ -67,6 +73,8 @@ std::string GetEnvValue(const std::string &key);
 int32_t ToMs(int32_t timeoutS);
 bool WillSizeOverFlow(size_t a, size_t b);
 GroupPolicy ConvertStrategyToPolicy(const std::string &stategy);
+std::string ConvertBindResource(const std::string &resource);
+BindStrategy ConvertBindStrategy(const std::string &strategy);
 
 // Load environment variables from a .env format file
 // This must be called before any code reads from environment variables
@@ -74,6 +82,4 @@ GroupPolicy ConvertStrategyToPolicy(const std::string &stategy);
 // Lines starting with # are treated as comments and ignored
 // Empty lines are ignored
 void LoadEnvFromFile(const std::string &envFile);
-std::string ConvertBindResource(const std::string &resource);
-BindStrategy ConvertBindStrategy(const std::string &strategy);
 }  // namespace YR

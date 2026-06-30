@@ -73,6 +73,10 @@ private:
     static std::string className;
 };
 
+#ifdef __APPLE__
+const std::string DynamicLibraryEnvKey = "DYLD_LIBRARY_PATH";
+#else
 const std::string DynamicLibraryEnvKey = "LD_LIBRARY_PATH";
+#endif
 }  // namespace internal
 }  // namespace YR

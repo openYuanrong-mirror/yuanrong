@@ -274,6 +274,42 @@ func IncreaseUInt64Counter(data api.UInt64CounterData) error {
 	return nil
 }
 
+func cGaugeData(data api.GaugeData) *C.CGaugeData {
+	return &C.CGaugeData{
+		name:        CSafeString(data.Name),
+		description: CSafeString(data.Description),
+		unit:        CSafeString(data.Unit),
+		value:       C.double(data.Value),
+	}
+}
+
+func freeCGaugeData(data *C.CGaugeData) {
+	if data == nil {
+		return
+	}
+	CSafeFree(data.name)
+	CSafeFree(data.description)
+	CSafeFree(data.unit)
+}
+
+func cUInt64CounterData(data api.UInt64CounterData) *C.CUInt64CounterData {
+	return &C.CUInt64CounterData{
+		name:        CSafeString(data.Name),
+		description: CSafeString(data.Description),
+		unit:        CSafeString(data.Unit),
+		value:       C.uint64_t(data.Value),
+	}
+}
+
+func freeCUInt64CounterData(data *C.CUInt64CounterData) {
+	if data == nil {
+		return
+	}
+	CSafeFree(data.name)
+	CSafeFree(data.description)
+	CSafeFree(data.unit)
+}
+
 // KVGetMulti -
 func (c *KvClientImpl) KVGetMulti(keys []string, timeoutMs ...uint32) ([][]byte, api.ErrorInfo) {
 	status := kvClientCheckNil(c)
@@ -512,42 +548,6 @@ func CSafeGoStringN(message *C.char, length C.int) string {
 	} else {
 		return C.GoStringN(message, length)
 	}
-}
-
-func cGaugeData(data api.GaugeData) *C.CGaugeData {
-	return &C.CGaugeData{
-		name:        CSafeString(data.Name),
-		description: CSafeString(data.Description),
-		unit:        CSafeString(data.Unit),
-		value:       C.double(data.Value),
-	}
-}
-
-func freeCGaugeData(data *C.CGaugeData) {
-	if data == nil {
-		return
-	}
-	CSafeFree(data.name)
-	CSafeFree(data.description)
-	CSafeFree(data.unit)
-}
-
-func cUInt64CounterData(data api.UInt64CounterData) *C.CUInt64CounterData {
-	return &C.CUInt64CounterData{
-		name:        CSafeString(data.Name),
-		description: CSafeString(data.Description),
-		unit:        CSafeString(data.Unit),
-		value:       C.uint64_t(data.Value),
-	}
-}
-
-func freeCUInt64CounterData(data *C.CUInt64CounterData) {
-	if data == nil {
-		return
-	}
-	CSafeFree(data.name)
-	CSafeFree(data.description)
-	CSafeFree(data.unit)
 }
 
 // Send sends an element.
@@ -807,6 +807,16 @@ func ReceiveRequestLoop() {
 	C.CReceiveRequestLoop()
 }
 
+// NeedReInit checks if re-initialization is needed after checkpoint restore.
+func NeedReInit() bool {
+	return C.CNeedReInit() != 0
+}
+
+// ReInit reinitializes runtime after checkpoint restore.
+func ReInit() {
+	C.CReInit()
+}
+
 // ExecShutdownHandler exec shutdown handler.
 func ExecShutdownHandler(signum int) {
 	cSignum := C.int(signum)
@@ -945,6 +955,8 @@ func AcquireInstance(stateID string, funcMeta api.FunctionMeta, acquireOpt api.I
 		InstanceID:    CSafeGoString(instanceAllocation.instanceId),
 		LeaseID:       CSafeGoString(instanceAllocation.leaseId),
 		LeaseInterval: int64(instanceAllocation.tLeaseInterval),
+		RouteAddress:  CSafeGoString(instanceAllocation.routeAddress),
+		ProxyID:       CSafeGoString(instanceAllocation.proxyID),
 	}, nil
 }
 
@@ -963,9 +975,13 @@ func ReleaseInstance(allocation api.InstanceAllocation, stateID string, abnormal
 }
 
 // Kill instances
-func Kill(instanceID string, signo int, data []byte) error {
+func Kill(instanceID string, signo int, data []byte, routeAddress string, proxyID string) error {
 	cInstanceID := C.CString(instanceID)
 	defer C.free(unsafe.Pointer(cInstanceID))
+	cRouteAddress := C.CString(routeAddress)
+	defer C.free(unsafe.Pointer(cRouteAddress))
+	cProxyID := C.CString(proxyID)
+	defer C.free(unsafe.Pointer(cProxyID))
 
 	cSigno := C.int(signo)
 
@@ -978,7 +994,7 @@ func Kill(instanceID string, signo int, data []byte) error {
 		buffer:      cData,
 		size_buffer: C.int64_t(cDataLen),
 	}
-	cErr := C.CKill(cInstanceID, cSigno, cBuf)
+	cErr := C.CKill(cInstanceID, cSigno, cBuf, cRouteAddress, cProxyID)
 	code := int(cErr.code)
 	if code != 0 {
 		return codeNotZeroErr(code, cErr, "kill instance: ")
@@ -1212,7 +1228,7 @@ func getRawCallback(key string) (RawCallback, bool) {
 }
 
 // CreateInstanceRaw Raw interface provided for the frontend.
-func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	createReqRawPtr, createReqRawLen := ByteSliceToCBinaryDataNoCopy(createReqRaw)
 	cCreateReqRaw := C.CBuffer{
 		buffer:              createReqRawPtr,
@@ -1233,7 +1249,9 @@ func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
 
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CCreateInstanceRaw(cCreateReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CCreateInstanceRaw(cCreateReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1247,7 +1265,7 @@ func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
 }
 
 // InvokeByInstanceIdRaw Raw interface provided for the frontend.
-func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	invokeReqRawPtr, invokeReqRawLen := ByteSliceToCBinaryDataNoCopy(invokeReqRaw)
 	cInvokeReqRaw := C.CBuffer{
 		buffer:              invokeReqRawPtr,
@@ -1268,7 +1286,9 @@ func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
 
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CInvokeByInstanceIdRaw(cInvokeReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CInvokeByInstanceIdRaw(cInvokeReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1282,7 +1302,7 @@ func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
 }
 
 // KillRaw Raw interface provided for the frontend.
-func KillRaw(killReqRaw []byte) ([]byte, error) {
+func KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	killReqRawPtr, killReqRawLen := ByteSliceToCBinaryDataNoCopy(killReqRaw)
 	cKillReqRaw := C.CBuffer{
 		buffer:              killReqRawPtr,
@@ -1302,7 +1322,9 @@ func KillRaw(killReqRaw []byte) ([]byte, error) {
 	rawCallbacks.Store(key, rawCallback)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CKillRaw(cKillReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CKillRaw(cKillReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1872,14 +1894,22 @@ func cStringOptional(str *string) (*C.char, C.char) {
 	return C.CString(*str), 1
 }
 
+func cStringOptionalReverse(str *C.char, hasValue C.char) *string {
+	if hasValue == 0 || str == nil {
+		return nil
+	}
+	goStr := CSafeGoString(str)
+	return &goStr
+}
+
 func cFunctionMeta(funcMeta api.FunctionMeta) *C.CFunctionMeta {
 	cName, hasName := cStringOptional(funcMeta.Name)
 	cNamespace, hasNamespace := cStringOptional(funcMeta.Namespace)
 	cFuncMeta := C.CFunctionMeta{
 		appName:      C.CString(funcMeta.AppName),
-		moduleName:   nil,
+		moduleName:   C.CString(funcMeta.ModuleName),
 		funcName:     C.CString(funcMeta.FuncName),
-		className:    nil,
+		className:    C.CString(funcMeta.ClassName),
 		functionId:   C.CString(funcMeta.FuncID),
 		languageType: C.int(funcMeta.Language),
 		signature:    C.CString(funcMeta.Sig),
@@ -1944,18 +1974,30 @@ func freeCArgs(cArgs *C.CInvokeArg, cArgsLen C.int) {
 	C.free(unsafe.Pointer(cArgs))
 }
 
-func cAcquireOptions(acquireOpt api.InvokeOptions) *C.CInvokeOptions {
-	cSchedInstIDs, cSchedInstIDsLen := CStrings(acquireOpt.SchedulerInstanceIDs)
-	cAcquireOpt := C.CInvokeOptions{
-		schedulerFunctionId:       CSafeString(acquireOpt.SchedulerFunctionID),
+func cBaseInvokeOptions(invokeOpt api.InvokeOptions) C.CInvokeOptions {
+	cRes, cResLen := cCustomResources(invokeOpt.CustomResources)
+	cExts, cExtsLen := cCustomExtensions(invokeOpt.CustomExtensions)
+	cSchedInstIDs, cSchedInstIDsLen := CStrings(invokeOpt.SchedulerInstanceIDs)
+	return C.CInvokeOptions{
+		cpu:                       C.int(invokeOpt.Cpu),
+		memory:                    C.int(invokeOpt.Memory),
+		customResources:           cRes,
+		size_customResources:      cResLen,
+		customExtensions:          cExts,
+		size_customExtensions:     cExtsLen,
+		schedulerFunctionId:       CSafeString(invokeOpt.SchedulerFunctionID),
 		schedulerInstanceIds:      cSchedInstIDs,
 		size_schedulerInstanceIds: cSchedInstIDsLen,
-		traceId:                   CSafeString(acquireOpt.TraceID),
-		timeout:                   C.int(acquireOpt.Timeout),
-		acquireTimeout:            C.int(acquireOpt.AcquireTimeout),
-		trafficLimited:            C.char(btoi(acquireOpt.TrafficLimited)),
-		sessionCtxId:              C.CString(acquireOpt.SessionCtxID),
+		traceId:                   CSafeString(invokeOpt.TraceID),
+		timeout:                   C.int(invokeOpt.Timeout),
+		acquireTimeout:            C.int(invokeOpt.AcquireTimeout),
+		trafficLimited:            C.char(btoi(invokeOpt.TrafficLimited)),
+		sessionCtxId:              CSafeString(invokeOpt.SessionCtxID),
 	}
+}
+
+func cAcquireOptions(acquireOpt api.InvokeOptions) *C.CInvokeOptions {
+	cAcquireOpt := cBaseInvokeOptions(acquireOpt)
 	return &cAcquireOpt
 }
 
@@ -1966,6 +2008,8 @@ func cCInstanceAllocation(instanceAllocation api.InstanceAllocation) *C.CInstanc
 		instanceId:     C.CString(instanceAllocation.InstanceID),
 		leaseId:        C.CString(instanceAllocation.LeaseID),
 		tLeaseInterval: C.int(instanceAllocation.LeaseInterval),
+		routeAddress:   C.CString(instanceAllocation.RouteAddress),
+		proxyID:        C.CString(instanceAllocation.ProxyID),
 	}
 	return &cInstanceAlloc
 }
@@ -1975,47 +2019,33 @@ func freeCInstanceAllocation(cInstanceAllocation *C.CInstanceAllocation) {
 	CSafeFree(cInstanceAllocation.functionId)
 	CSafeFree(cInstanceAllocation.instanceId)
 	CSafeFree(cInstanceAllocation.leaseId)
+	CSafeFree(cInstanceAllocation.routeAddress)
+	CSafeFree(cInstanceAllocation.proxyID)
 }
 
 func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {
-	cRes, cResLen := cCustomResources(invokeOpt.CustomResources)
-	cExts, cExtsLen := cCustomExtensions(invokeOpt.CustomExtensions)
 	cCreate, cCreateLen := cCreateOpt(invokeOpt.CreateOpt)
 	cLabels, cLabelsLen := CStrings(invokeOpt.Labels)
 	cSchedAffs, cSchedAffsLen := cScheduleAffinities(invokeOpt.ScheduleAffinities)
 	cCodePaths, cCodePathsLen := CStrings(invokeOpt.CodePaths)
-	cSchedInstIDs, cSchedInstIDsLen := CStrings(invokeOpt.SchedulerInstanceIDs)
 	cIvkLabel, cIvkLabelLen := cInvokeLabels(invokeOpt.InvokeLabels)
-	cInvokeOpt := C.CInvokeOptions{
-		cpu:                       C.int(invokeOpt.Cpu),
-		memory:                    C.int(invokeOpt.Memory),
-		customResources:           cRes,
-		size_customResources:      cResLen,
-		customExtensions:          cExts,
-		size_customExtensions:     cExtsLen,
-		createOpt:                 cCreate,
-		size_createOpt:            cCreateLen,
-		labels:                    cLabels,
-		size_labels:               cLabelsLen,
-		schedAffinities:           cSchedAffs,
-		size_schedAffinities:      cSchedAffsLen,
-		codePaths:                 cCodePaths,
-		size_codePaths:            cCodePathsLen,
-		schedulerFunctionId:       C.CString(invokeOpt.SchedulerFunctionID),
-		schedulerInstanceIds:      cSchedInstIDs,
-		size_schedulerInstanceIds: cSchedInstIDsLen,
-		traceId:                   C.CString(invokeOpt.TraceID),
-		timeout:                   C.int(invokeOpt.Timeout),
-		acquireTimeout:            C.int(invokeOpt.AcquireTimeout),
-		RetryTimes:                C.int(invokeOpt.RetryTimes),
-		RecoverRetryTimes:         C.int(invokeOpt.RecoverRetryTimes),
-		invokeLabels:              cIvkLabel,
-		size_invokeLabels:         cIvkLabelLen,
-		scheduleTimeoutMs:         C.int64_t(invokeOpt.ScheduleTimeoutMs),
-		forceInvoke:               C.char(btoi(invokeOpt.ForceInvoke)),
-		isInterrupted:             C.char(btoi(invokeOpt.IsInterrupted)),
-		sessionCtxId:              C.CString(invokeOpt.SessionCtxID),
-	}
+	cInvokeOpt := cBaseInvokeOptions(invokeOpt)
+	cInvokeOpt.createOpt = cCreate
+	cInvokeOpt.size_createOpt = cCreateLen
+	cInvokeOpt.labels = cLabels
+	cInvokeOpt.size_labels = cLabelsLen
+	cInvokeOpt.schedAffinities = cSchedAffs
+	cInvokeOpt.size_schedAffinities = cSchedAffsLen
+	cInvokeOpt.codePaths = cCodePaths
+	cInvokeOpt.size_codePaths = cCodePathsLen
+	cInvokeOpt.RetryTimes = C.int(invokeOpt.RetryTimes)
+	cInvokeOpt.RecoverRetryTimes = C.int(invokeOpt.RecoverRetryTimes)
+	cInvokeOpt.invokeLabels = cIvkLabel
+	cInvokeOpt.size_invokeLabels = cIvkLabelLen
+	cInvokeOpt.scheduleTimeoutMs = C.int64_t(invokeOpt.ScheduleTimeoutMs)
+	cInvokeOpt.forceInvoke = C.char(btoi(invokeOpt.ForceInvoke))
+	cInvokeOpt.isInterrupted = C.char(btoi(invokeOpt.IsInterrupted))
+	cInvokeOpt.bypassDatasystem = C.char(btoi(invokeOpt.BypassDataSystem))
 	if invokeOpt.InstanceSession != nil {
 		cCInstanceSession := (*C.CInstanceSession)(C.malloc(C.sizeof_CInstanceSession))
 		cCInstanceSession.sessionId = C.CString(invokeOpt.InstanceSession.SessionID)
@@ -2473,9 +2503,17 @@ func GoCredential(cCredential C.CCredential) api.Credential {
 // GoFunctionMeta transform *C.CFunctionMeta to api.FunctionMeta
 func GoFunctionMeta(funcMeta *C.CFunctionMeta) api.FunctionMeta {
 	return api.FunctionMeta{
-		AppName:  CSafeGoString(funcMeta.appName),
-		FuncName: CSafeGoString(funcMeta.funcName),
-		FuncID:   CSafeGoString(funcMeta.functionId),
+		AppName:    CSafeGoString(funcMeta.appName),
+		ModuleName: CSafeGoString(funcMeta.moduleName),
+		FuncName:   CSafeGoString(funcMeta.funcName),
+		ClassName:  CSafeGoString(funcMeta.className),
+		FuncID:     CSafeGoString(funcMeta.functionId),
+		Language:   api.LanguageType(funcMeta.languageType),
+		Sig:        CSafeGoString(funcMeta.signature),
+		PoolLabel:  CSafeGoString(funcMeta.poolLabel),
+		Api:        api.ApiType(funcMeta.apiType),
+		Name:       cStringOptionalReverse(funcMeta.name, funcMeta.hasName),
+		Namespace:  cStringOptionalReverse(funcMeta.ns, funcMeta.hasNs),
 	}
 }
 

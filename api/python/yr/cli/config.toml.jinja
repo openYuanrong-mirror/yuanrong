@@ -7,6 +7,7 @@ etcd = true
 ds_master = true
 ds_worker = true
 function_master = true
+runtime_launcher = false
 function_proxy = true
 function_agent = true
 frontend = false
@@ -17,6 +18,7 @@ function_scheduler = false
 
 [mode.agent]
 ds_worker = true
+runtime_launcher = false
 function_proxy = true
 function_agent = true
 frontend = false
@@ -305,6 +307,22 @@ endpoint = "{{ 'https' if values.fs.tls.enable else 'http' }}://{{ values.functi
 [function_proxy.env]
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.ds_bin }}/lib" # datasystem lib is needed for libds_router_client.so which needs v1.1 libssl and libcrypto
 LD_PRELOAD = "" # for jemalloc use
+{% if values.runtime_launcher.enable %}
+CONTAINER_EP = "unix://{{ values.runtime_launcher.socket }}"
+{% endif %}
+
+[runtime_launcher]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/runtime-launcher"
+
+[runtime_launcher.health_check]
+enable = true
+timeout = 60
+endpoint = "{{ values.runtime_launcher.socket }}"
+
+[runtime_launcher.args]
+socket = "{{ values.runtime_launcher.socket }}"
+backend = "{{ values.runtime_launcher.backend }}"
+docker-host = "{{ values.runtime_launcher.docker_host }}"
 
 [function_proxy.args]
 ip = "{{ values.function_proxy.ip }}"
@@ -378,12 +396,65 @@ enable_print_perf = false
 is_partial_watch_instances = false
 runtime_instance_debug_enable = false
 function_meta_path = "{{ values.faas_root }}/executor-meta" # require openyuanrong-faas installed
+enable_merge_process = false
+agent_listen_port = {{ values.function_proxy.port }}
+local_scheduler_address = "{{ values.function_proxy.ip }}:{{ values.function_proxy.port }}"
+runtime_dir = "{{ values.yr_package_path }}/runtime/service"
+runtime_home_dir = ""
+runtime_logs_dir = "{{ values.deploy_path }}/logs"
+runtime_std_log_dir = ""
+runtime_ld_library_path = "{{ values.ld_library_path }}"
+runtime_log_level = "{{ values.log_level }}"
+runtime_max_log_size = 40
+runtime_max_log_file_num = 20
+runtime_config_dir = "{{ values.yr_package_path }}/runtime/service/cpp/config"
+enable_separated_redirect_runtime_std = true
+user_log_export_mode = "file"
+npu_collection_mode = "all"
+gpu_collection_enable = false
+proxy_ip = "{{ values.function_proxy.ip }}"
+proxy_grpc_server_port = "{{ values.function_proxy.grpc_listen_port }}"
+setCmdCred = false
+python_dependency_path = "{{ values.python_path }}:{{ values.yr_package_path }}/runtime/service/python"
+python_log_config_path = "{{ values.yr_package_path }}/runtime/service/python/config/python-runtime-log.json"
+java_system_property = "{{ values.yr_package_path }}/runtime/service/java/log4j2.xml"
+java_system_library_path = "{{ values.yr_package_path }}/runtime/service/java/lib"
+host_ip = "{{ values.function_proxy.ip }}"
+port = {{ values.function_proxy.port }}
+data_system_port = "{{ values.ds_worker.port }}"
+agent_address = "{{ values.function_proxy.ip }}:{{ values.function_proxy.port }}"
+runtime_initial_port = 21006
+port_num = 65535
+metrics_collector_type = "proc"
+proc_metrics_cpu = {{ values.cpu_num }}
+custom_resources = ""
+is_protomsg_to_runtime = true
+massif_enable = false
+enable_inherit_env = true
+memory_detection_interval = 1000
+oom_kill_enable = false
+oom_kill_control_limit = 0
+oom_consecutive_detection_count = 3
+kill_process_timeout_seconds = 0
+runtime_ds_connect_timeout = 1800
+runtime_direct_connection_enable = false
+runtime_default_config = ""
+proc_metrics_memory = {{ values.memory_num }}
+data_system_enable = true
+data_system_host = "{{ values.ds_worker.ip }}"
+agent_uid = "{{ values.node_id }}"
+alias = ""
+log_expiration_enable = false
+log_expiration_time_threshold = 0
+log_expiration_cleanup_interval = 0
+log_expiration_max_file_count = 0
+force_low_reliability_instance = false
 
 [function_agent]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 
 [function_agent.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib"
+LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.ds_bin }}/lib"
 RUNTIME_METRICS_CONFIG = "{{ values.fs.metrics.metrics_config }}"
 RUNTIME_METRICS_CONFIG_FILE = "{{ values.fs.metrics.metrics_config_file }}"
 INIT_LABELS = ""
@@ -480,6 +551,7 @@ CHECKPOINT_HANDLER="faasscheduler.CheckpointHandler"
 RECOVER_HANDLER="faasscheduler.RecoverHandler"
 SHUTDOWN_HANDLER="faasscheduler.ShutdownHandler"
 SIGNAL_HANDLER="faasscheduler.SignalHandler"
+HEALTH_CHECK_HANDLER="faasscheduler.HealthCheckHandler"
 YR_FUNCTION_LIB_PATH="{{ values.faas_root }}/faasscheduler/"
 GLOG_log_dir="{{ values.fs.log.path }}"
 YR_LOG_LEVEL="{{ values.fs.log.level }}"
@@ -533,6 +605,7 @@ CHECKPOINT_HANDLER="faasfrontend.CheckpointHandler"
 RECOVER_HANDLER="faasfrontend.RecoverHandler"
 SHUTDOWN_HANDLER="faasfrontend.ShutdownHandler"
 SIGNAL_HANDLER="faasfrontend.SignalHandler"
+HEALTH_CHECK_HANDLER="faasfrontend.HealthCheckHandler"
 YR_FUNCTION_LIB_PATH="{{ values.faas_root }}/faasfrontend/"
 GLOG_log_dir="{{ values.fs.log.path }}"
 YR_LOG_LEVEL="{{ values.fs.log.level }}"
@@ -541,6 +614,7 @@ NODE_IP="{{ values.host_ip }}"
 DATASYSTEM_ADDR="{{ values.ds_worker.ip }}:{{ values.ds_worker.port }}"
 INSTANCE_ID="driver-frontend-{{ values.node_id }}"
 FAAS_LOG_PATH="{{ values.fs.log.path }}"
+LOG_CONFIG = '''{{ fs_log_config | tojson }}'''
 
 [frontend.health_check]
 enable = true

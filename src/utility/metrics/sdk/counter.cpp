@@ -16,7 +16,7 @@
 
 #include "metrics/sdk/counter.h"
 
-#include "common/include/atomic_calc.h"
+#include "src/utility/metrics/common/include/atomic_calc.h"
 #include "metrics/sdk/instruments.h"
 #include "metrics/sdk/metric_recorder.h"
 

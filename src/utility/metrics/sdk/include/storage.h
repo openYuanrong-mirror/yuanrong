@@ -22,8 +22,8 @@
 #include <mutex>
 #include <vector>
 
-#include "api/include/basic_metric.h"
-#include "sdk/include/observer_result_t.h"
+#include "src/utility/metrics/api/include/basic_metric.h"
+#include "src/utility/metrics/sdk/include/observer_result_t.h"
 
 namespace observability {
 namespace metrics {

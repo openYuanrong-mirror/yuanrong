@@ -1,0 +1,65 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traefik
+spec:
+  replicas: {{ default 1 .Values.traefik.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: traefik
+  template:
+    metadata:
+      annotations:
+        checksum/traefik-config: {{ include (print $.Template.BasePath "/traefik-configmap.yaml") . | sha256sum }}
+        checksum/traefik-dynamic: {{ include (print $.Template.BasePath "/traefik-dynamic-configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "yr-k8s.labels" . | nindent 8 }}
+        app.kubernetes.io/component: traefik
+    spec:
+{{- include "yr-k8s.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: traefik
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.traefik) }}
+          imagePullPolicy: {{ .Values.global.images.traefik.pullPolicy }}
+          args:
+            - --configFile=/etc/traefik/traefik.yaml
+          ports:
+            - name: web
+              containerPort: {{ .Values.traefik.service.targetPort }}
+              protocol: TCP
+            - name: frontend-direct
+              containerPort: {{ .Values.traefik.service.frontendDirectPort }}
+              protocol: TCP
+{{- with .Values.traefik.probes.readiness }}
+          readinessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.traefik.probes.liveness }}
+          livenessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.traefik.resources }}
+          resources:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: traefik-configmap
+              mountPath: /etc/traefik/traefik.yaml
+              subPath: traefik.yaml
+            - name: traefik-dynamic
+              mountPath: /etc/traefik/dynamic/config.yml
+              subPath: config.yml
+      volumes:
+        - name: traefik-configmap
+          configMap:
+            name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik-configmap") }}
+        - name: traefik-dynamic
+          configMap:
+            name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik-dynamic") }}
+{{- end }}

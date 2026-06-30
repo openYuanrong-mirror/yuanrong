@@ -18,17 +18,16 @@
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
-#include <utils/string_utils.hpp>
-#include <utils/os_utils.hpp>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
-#include "common/include/constant.h"
-#include "common/logs/log.h"
-#include "common/file/file_sink.h"
-#include "sdk/include/processor_actor.h"
+#include "src/utility/metrics/common/include/constant.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
+#include "src/utility/metrics/common/file/file_sink.h"
+#include "src/utility/metrics/sdk/include/processor_actor.h"
 
 namespace observability::sdk::metrics {
 using namespace std;
+constexpr int MILLISECONDS_PER_SECOND = 1000;
 
 static std::string ToString(const PointData &pointData)
 {
@@ -147,14 +146,26 @@ static std::string GetFailureFileName()
 
 ProcessorActor::ProcessorActor(std::shared_ptr<MetricsExporter::Exporter> &&exporter,
                                const ExportConfigs &exportConfigs)
-    : litebus::ActorBase(exportConfigs.exporterName  + litebus::uuid_generator::UUID::GetRandomUUID().ToString()),
-    exporter_(std::move(exporter)), exportConfigs_(exportConfigs)
+    : exporter_(std::move(exporter)), exportConfigs_(exportConfigs)
 {
+}
+
+ProcessorActor::~ProcessorActor()
+{
+    Finalize();
 }
 
 void ProcessorActor::Finalize()
 {
     METRICS_LOG_INFO("{} processor begins to destruct", exportConfigs_.exporterName);
+    running_.store(false);
+
+    // Cancel timer
+    if (batchExportTimer_) {
+        YR::utility::CancelGlobalTimer(batchExportTimer_);
+        batchExportTimer_ = nullptr;
+    }
+
     ExportFailureQueueData();
     ExportMetricDataFromFile(exportConfigs_.failureDataDir);
 }
@@ -167,9 +178,14 @@ void ProcessorActor::Start()
         METRICS_LOG_ERROR("Exporter {} is nullptr", exportConfigs_.exporterName);
         return;
     }
-    exporter_->RegisterOnHealthChangeCb([aid(GetAID())](bool newStatus) {
-        litebus::Async(aid, &ProcessorActor::OnBackendHealthChangeHandler, newStatus);
+
+    running_.store(true);
+
+    // Register health change callback (now synchronous instead of async)
+    exporter_->RegisterOnHealthChangeCb([this](bool newStatus) {
+        OnBackendHealthChangeHandler(newStatus);
     });
+
     InitMetricLogger();
     ExportMetricDataFromFile(exportConfigs_.failureDataDir);
     if (exportConfigs_.exportMode == ExportMode::BATCH) {
@@ -179,6 +195,10 @@ void ProcessorActor::Start()
 
 void ProcessorActor::Export(const MetricData &data)
 {
+    if (!running_.load()) {
+        return;
+    }
+
     if (!exportConfigs_.enabledInstruments.empty()) {
         if (exportConfigs_.enabledInstruments.count(data.instrumentDescriptor.name) <= 0) {
             METRICS_LOG_DEBUG("metric {} is not enabled in {}", data.instrumentDescriptor.name,
@@ -186,18 +206,26 @@ void ProcessorActor::Export(const MetricData &data)
             return;
         }
     }
-    metricDataQueue_.push_back(data);
-    METRICS_LOG_DEBUG("{} metric queue push {}, count {}", exportConfigs_.exporterName, data.instrumentDescriptor.name,
-                      metricDataQueue_.size());
-    // if number of stored metric data exceeds batchSize_, export them
-    if (metricDataQueue_.size() >= exportConfigs_.batchSize) {
-        METRICS_LOG_DEBUG("{} metric queue {} exceeds exportConfigs batchSize {}", exportConfigs_.exporterName,
-                          metricDataQueue_.size(), exportConfigs_.batchSize);
+
+    bool shouldExport = false;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        metricDataQueue_.push_back(data);
+        METRICS_LOG_DEBUG("{} metric queue push {}, count {}", exportConfigs_.exporterName,
+                          data.instrumentDescriptor.name, metricDataQueue_.size());
+        // if number of stored metric data exceeds batchSize_, export them
+        if (metricDataQueue_.size() >= exportConfigs_.batchSize) {
+            METRICS_LOG_DEBUG("{} metric queue {} exceeds exportConfigs batchSize {}", exportConfigs_.exporterName,
+                              metricDataQueue_.size(), exportConfigs_.batchSize);
+            shouldExport = true;
+        }
+    }
+    if (shouldExport) {
         ExportMetricQueueData();
     }
 }
 
-litebus::Future<AggregationTemporality> ProcessorActor::GetAggregationTemporality(
+AggregationTemporality ProcessorActor::GetAggregationTemporality(
     MetricsSdk::InstrumentType instrumentType) noexcept
 {
     return exporter_->GetAggregationTemporality(instrumentType);
@@ -228,9 +256,12 @@ MetricsExporter::ExportResult ProcessorActor::SendData(const std::vector<MetricD
 
 void ProcessorActor::ExportMetricQueueData()
 {
+    std::lock_guard<std::mutex> lock(queueMutex_);
+
     METRICS_LOG_DEBUG("{} begins to export metric queue, queue size: {}, exporter health is {}",
                       exportConfigs_.exporterName, metricDataQueue_.size(), healthyExporter_.load());
     auto vec = std::move(metricDataQueue_);
+    metricDataQueue_.clear();
     MetricsExporter::ExportResult res = SendData(vec);
     // no data send, dont update health status
     if (res == MetricsExporter::ExportResult::EMPTY_DATA) {
@@ -306,10 +337,11 @@ void ProcessorActor::ExportMetricDataFromFile(const std::string &path)
         fileName += '/';
     }
     fileName += exportConfigs_.exporterName + GetFailureFileName();
-    if (!litebus::os::ExistPath(fileName)) {
+    if (access(fileName.c_str(), F_OK) != 0) {
         METRICS_LOG_INFO("No failure metric file");
         return;
     }
+
     auto content = ReadFailureDataFromFile(fileName);
     if (content.empty()) {
         METRICS_LOG_INFO("No content in failure metric file");
@@ -317,12 +349,16 @@ void ProcessorActor::ExportMetricDataFromFile(const std::string &path)
     }
 
     std::vector<MetricData> vec;
-    for (auto &it : litebus::strings::Split(content, "\n")) {
-        if (it.empty()) {
+    // Simple string split by newline
+    std::istringstream stream(content);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.empty()) {
             continue;
         }
-        vec.push_back(std::move(Deserialize(it)));
+        vec.push_back(Deserialize(line));
     }
+
     METRICS_LOG_DEBUG("{} reads {} metrics", exportConfigs_.exporterName, vec.size());
     auto res = SendData(std::move(vec));
     if (res == MetricsExporter::ExportResult::SUCCESS) {
@@ -350,10 +386,25 @@ std::string ProcessorActor::ReadFailureDataFromFile(const std::string &path) con
 
 void ProcessorActor::StartBatchExportTimer(const int interval)
 {
+    if (!running_.load()) {
+        return;
+    }
+
     METRICS_LOG_DEBUG("Start batch export timer, interval is {}", interval);
-    (void)litebus::Async(GetAID(), &ProcessorActor::ExportMetricQueueData);
-    batchExportTimer_ = litebus::AsyncAfter(interval * ::observability::metrics::SEC2MS, GetAID(),
-                                            &ProcessorActor::StartBatchExportTimer, interval);
+
+    // Immediately export once
+    ExportMetricQueueData();
+
+    // Schedule periodic timer using TimerWorker
+    batchExportTimer_ = YR::utility::ExecuteByGlobalTimer(
+        [this, interval]() {
+            if (running_.load()) {
+                StartBatchExportTimer(interval);  // Reschedule
+            }
+        },
+        interval * MILLISECONDS_PER_SECOND,
+        -1  // Execute indefinitely until cancelled
+    );
 }
 
 void ProcessorActor::InitMetricLogger()

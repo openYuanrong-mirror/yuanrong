@@ -58,18 +58,21 @@ type InstanceAllocationFailedInfo struct {
 
 // InstanceAllocationInfo contains instance router info and lease returned to function accessor
 type InstanceAllocationInfo struct {
-	FuncKey       string `json:"funcKey"`
-	FuncSig       string `json:"funcSig"`
-	InstanceID    string `json:"instanceID"`
-	ThreadID      string `json:"threadID"`
-	InstanceIP    string `json:"instanceIP"`
-	InstancePort  string `json:"instancePort"`
-	NodeIP        string `json:"nodeIP"`
-	NodePort      string `json:"nodePort"`
-	LeaseInterval int64  `json:"leaseInterval"`
-	CPU           int64  `json:"cpu"`
-	Memory        int64  `json:"memory"`
-	ForceInvoke   bool   `json:"forceInvoke"`
+	FuncKey         string `json:"funcKey"`
+	FuncSig         string `json:"funcSig"`
+	InstanceID      string `json:"instanceID"`
+	ThreadID        string `json:"threadID"`
+	InstanceIP      string `json:"instanceIP"`
+	InstancePort    string `json:"instancePort"`
+	NodeIP          string `json:"nodeIP"`
+	NodePort        string `json:"nodePort"`
+	FunctionProxyID string `json:"functionProxyID"`
+	RouteAddress    string `json:"routeAddress"`
+	ProxyID         string `json:"proxyID"`
+	LeaseInterval   int64  `json:"leaseInterval"`
+	CPU             int64  `json:"cpu"`
+	Memory          int64  `json:"memory"`
+	ForceInvoke     bool   `json:"forceInvoke"`
 }
 
 // ExtraParams for interface CreateInstance
@@ -107,11 +110,7 @@ type LeaseEvent struct {
 	TraceID        string `json:"traceId"`
 }
 
-// InstanceSessionConfig defines the session configuration for an instance.
-// Concurrency semantics:
-//   - > 0: binds the specified number of threads
-//   - = -1: binds all available threads of the instance
-//   - = 0 or other negative values: invalid value
+// InstanceSessionConfig -
 type InstanceSessionConfig struct {
 	SessionID   string `json:"sessionID"`
 	SessionTTL  int    `json:"sessionTTL"`

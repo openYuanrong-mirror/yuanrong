@@ -795,6 +795,18 @@ WaitResult<T> Wait(const std::vector<ObjectRef<T>> &objs, std::size_t waitNum, i
 
 void ReceiveRequestLoop(void);
 
+/**
+ * @brief Check if re-initialization is needed after checkpoint restore.
+ * @return true if re-init is needed, false otherwise.
+ */
+bool NeedReInit(void);
+
+/**
+ * @brief Reinitialize runtime after checkpoint restore.
+ * This reinitializes gRPC connections, dsClients, generatorNotifier/Receiver, etc.
+ */
+void ReInit(void);
+
 template <typename T>
 void Cancel(const ObjectRef<T> &obj, bool isForce, bool isRecursive)
 {

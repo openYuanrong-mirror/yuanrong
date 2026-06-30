@@ -14,40 +14,31 @@
  * limitations under the License.
  */
 
-#include "sdk/include/meter_provider.h"
+#include "src/utility/metrics/sdk/include/meter_provider.h"
 
 #include <memory>
 
-#include "common/include/exporter_loader.h"
+#include "src/utility/metrics/common/include/exporter_loader.h"
 #include "metrics/api/meter_provider.h"
 #include "metrics/sdk/meter_context.h"
 #include "metrics/sdk/meter_provider.h"
-#include "sdk/include/litebus_manager.h"
 
 namespace MetricsApi = observability::api::metrics;
 
 namespace observability {
 namespace metrics {
 
-const int32_t LITEBUS_THREAD_NUM = 3;
-
 MeterProvider::MeterProvider()
 {
-    auto res = litebus::Initialize("", "", "", "", LITEBUS_THREAD_NUM);
-    if (res != BUS_OK) {
-        std::cerr << "<MeterProvider> Failed to initialize the Litebus!" << std::endl;
-    }
 }
 
 MeterProvider::~MeterProvider() noexcept
 {
-    TerminateLitebus();
 }
 
 void MeterProvider::TerminateLitebus() const noexcept
 {
-    litebus::TerminateAll();
-    litebus::Finalize();
+    // Deprecated - no op
 }
 
 bool MeterProvider::Init(const MeterParam &param)
@@ -79,8 +70,7 @@ void MeterProvider::Finalize()
     }
 
     if (processorActor_ != nullptr) {
-        litebus::Terminate(processorActor_->GetAID());
-        litebus::Await(processorActor_->GetAID());
+        // ProcessorActor destructor will handle cleanup
         processorActor_ = nullptr;
     }
     if (exporter_ != nullptr) {
@@ -120,7 +110,6 @@ void MeterProvider::StartProcessorActor()
     processorActor_->RegisterCollectFunc(
         std::bind(&Storage::Collect, storage_.get(), std::placeholders::_1, std::placeholders::_2));
     processorActor_->SetExportMode(exporter_->GetExporterOptions());
-    (void)litebus::Spawn(processorActor_);
 }
 
 std::shared_ptr<Meter> MeterProvider::GetMeter()
@@ -137,17 +126,13 @@ MeterProvider::MeterProvider() noexcept : context_(std::make_shared<MeterContext
 {
 }
 
-MeterProvider::MeterProvider(const LiteBusParams &liteBusParams) noexcept : context_(std::make_shared<MeterContext>()),
-    liteBusManager_(std::make_shared<LiteBusManager>())
+MeterProvider::MeterProvider(const LiteBusParams &liteBusParams) noexcept : MeterProvider()
 {
-    liteBusManager_->InitLiteBus(liteBusParams.address, liteBusParams.threadNum, liteBusParams.enableUDP);
+    (void)liteBusParams;
 }
 
 MeterProvider::~MeterProvider()
 {
-    if (liteBusManager_ != nullptr) {
-        liteBusManager_->FinalizeLiteBus();
-    }
 }
 
 std::shared_ptr<MetricsApi::Meter> MeterProvider::GetMeter(const std::string &meterName) noexcept

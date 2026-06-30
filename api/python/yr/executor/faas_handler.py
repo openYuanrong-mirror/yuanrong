@@ -47,9 +47,9 @@ class FaasHandler(HandlerIntf):
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
 
     def before_snapshot(self) -> ErrorInfo:
-        """FaaS path has no user instance hooks; snapshot is handled outside user code."""
+        """faas has no snapshot hook by default"""
         return ErrorInfo()
 
     def after_snapstart(self) -> ErrorInfo:
-        """FaaS path has no user instance hooks after snapstart."""
+        """faas has no snapstart hook by default"""
         return ErrorInfo()

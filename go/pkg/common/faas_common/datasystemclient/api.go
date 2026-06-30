@@ -33,7 +33,7 @@ import (
 	"unsafe"
 
 	"go.uber.org/zap"
-	
+
 	"yuanrong.org/kernel/runtime/libruntime/api"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
@@ -108,6 +108,7 @@ var (
 
 	clientMap             = concurrentMap{mp: make(map[string]*nodeIP2ClientMap)}
 	localClientLibruntime api.LibruntimeAPI
+	getClient             = getClientImpl
 )
 
 // SubscribeParam -
@@ -148,7 +149,7 @@ func InitDataSystemLibruntime(cfg *types.DataSystemConfig, rt api.LibruntimeAPI,
 	initDataSystemCommon(cfg, stopCh)
 }
 
-func getClient(cfg *Config, traceId string) (DsClientImpl, bool, error) {
+func getClientImpl(cfg *Config, traceId string) (DsClientImpl, bool, error) {
 	logger := log.GetLogger().With(zap.Any("traceId", traceId))
 	cache, err := getDataSystemCacheByCluster(cfg.Cluster)
 	if err != nil {

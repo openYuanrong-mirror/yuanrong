@@ -14,11 +14,16 @@
  * limitations under the License.
  */
 
-#include "api/include/processor_actor.h"
-#include "common/include/transfer.h"
+#include "src/utility/metrics/api/include/processor_actor.h"
+#include "src/utility/metrics/common/include/transfer.h"
 
 namespace observability {
 namespace metrics {
+
+ProcessorActor::~ProcessorActor()
+{
+    Finalize();
+}
 
 void ProcessorActor::SetExportMode(const ExporterOptions &options)
 {
@@ -35,10 +40,15 @@ void ProcessorActor::Finalize()
 {
     for (const auto &timerInfo : collectTimerInfos_) {
         auto timer = timerInfo.second;
-        (void)litebus::TimerTools::Cancel(timer);
+        if (timer) {
+            YR::utility::CancelGlobalTimer(timer);
+        }
     }
 
-    (void)litebus::TimerTools::Cancel(batchExportTimer_);
+    if (batchExportTimer_) {
+        YR::utility::CancelGlobalTimer(batchExportTimer_);
+        batchExportTimer_ = nullptr;
+    }
     collectTimerInfos_.clear();
     collectTimers_.clear();
 }
@@ -64,64 +74,80 @@ void ProcessorActor::RegisterExportFunc(const std::function<ExportFunc> &exportF
 
 void ProcessorActor::CollectOnceThenExport(const int interval)
 {
-    litebus::Async(GetAID(), &ProcessorActor::GetData, interval)
-        .Then([exportFunc(exportFunc_)](const std::vector<MetricsData> &data) {
-            return exportFunc(data);
-        });
+    if (collectFunc_ == nullptr || exportFunc_ == nullptr) {
+        return;
+    }
+
+    (void)exportFunc_(GetData(interval));
     if (interval > 0) {
-        collectTimerInfos_[interval] =
-            litebus::AsyncAfter(interval * SEC2MS, GetAID(), &ProcessorActor::CollectOnceThenExport, interval);
+        collectTimerInfos_[interval] = YR::utility::ExecuteByGlobalTimer(
+            [this, interval]() {
+                if (collectTimers_.count(interval) > 0) {
+                    CollectOnceThenExport(interval);
+                }
+            },
+            interval * SEC2MS,
+            1);
     }
 }
 
 void ProcessorActor::ReportData(const int interval)
 {
-    litebus::Async(GetAID(), processMethod_, interval);
+    if (processMethod_ != nullptr) {
+        (this->*processMethod_)(interval);
+    }
 }
 
 void ProcessorActor::StartBatchExportTimer(const int interval)
 {
-    (void)litebus::Async(GetAID(), &ProcessorActor::ExportAllData);
-    batchExportTimer_ =
-        litebus::AsyncAfter(interval * SEC2MS, GetAID(), &ProcessorActor::StartBatchExportTimer, interval);
+    (void)ExportAllData();
+    batchExportTimer_ = YR::utility::ExecuteByGlobalTimer(
+        [this, interval]() {
+            StartBatchExportTimer(interval);
+        },
+        interval * SEC2MS,
+        1);
 }
 
 void ProcessorActor::CollectAndStore(const int interval)
 {
-    litebus::Async(GetAID(), &ProcessorActor::GetData, interval)
-        .Then(litebus::Defer(GetAID(), &ProcessorActor::PutData, std::placeholders::_1))
-        .Then(litebus::Defer(GetAID(), &ProcessorActor::ExportAllData));
+    if (collectFunc_ == nullptr) {
+        return;
+    }
+
+    if (PutData(GetData(interval))) {
+        (void)ExportAllData();
+    }
 
     if (interval > 0) {
-        collectTimerInfos_[interval] =
-            litebus::AsyncAfter(interval * SEC2MS, GetAID(), &ProcessorActor::CollectAndStore, interval);
+        collectTimerInfos_[interval] = YR::utility::ExecuteByGlobalTimer(
+            [this, interval]() {
+                if (collectTimers_.count(interval) > 0) {
+                    CollectAndStore(interval);
+                }
+            },
+            interval * SEC2MS,
+            1);
     }
 }
 
-litebus::Future<bool> ProcessorActor::PutData(const std::vector<MetricsData> &data)
+bool ProcessorActor::PutData(const std::vector<MetricsData> &data)
 {
-    litebus::Promise<bool> promise;
     (void)buffer_.insert(buffer_.end(), data.begin(), data.end());
-    if (buffer_.size() < exportBatchSize_) {
-        promise.SetFailed(-1);
-    } else {
-        promise.SetValue(true);
-    }
-    return promise.GetFuture();
+    return buffer_.size() >= exportBatchSize_;
 }
 
 void ProcessorActor::ExportTemporarilyData(const std::shared_ptr<BasicMetric> &instrument)
 {
     if (exportBatchSize_ == 0) {
-        litebus::Async(GetAID(), &ProcessorActor::GetTemporarilyData, instrument)
-            .Then([exportFunc(exportFunc_)](const std::vector<MetricsData> &data) {
-                return exportFunc(data);
-            });
+        if (exportFunc_ != nullptr) {
+            (void)exportFunc_(GetTemporarilyData(instrument));
+        }
         return;
     }
-    litebus::Async(GetAID(), &ProcessorActor::GetTemporarilyData, instrument)
-        .Then(litebus::Defer(GetAID(), &ProcessorActor::PutData, std::placeholders::_1))
-        .Then(litebus::Defer(GetAID(), &ProcessorActor::ExportAllData));
+    if (PutData(GetTemporarilyData(instrument))) {
+        (void)ExportAllData();
+    }
 }
 
 std::vector<MetricsData> ProcessorActor::GetTemporarilyData(const std::shared_ptr<BasicMetric> &instrument)
@@ -144,12 +170,15 @@ std::vector<MetricsData> ProcessorActor::GetTemporarilyData(const std::shared_pt
 
 std::vector<MetricsData> ProcessorActor::GetData(const int interval)
 {
+    if (collectFunc_ == nullptr) {
+        return {};
+    }
     return collectFunc_(std::chrono::system_clock::now(), interval);
 }
 
 bool ProcessorActor::ExportAllData()
 {
-    if (!buffer_.empty()) {
+    if (exportFunc_ != nullptr && !buffer_.empty()) {
         auto isOk = exportFunc_(buffer_);
         buffer_.clear();
         return isOk;

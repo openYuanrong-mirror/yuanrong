@@ -28,10 +28,10 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
-	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
-	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"github.com/stretchr/testify/assert"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
+	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 )
 
 func Test_processDataSystemEvent(t *testing.T) {
@@ -161,6 +161,14 @@ func Test_StartWatch(t *testing.T) {
 		Client: &clientv3.Client{},
 	}
 	watchFlag := false
+	oldNewEtcdWatcher := newEtcdWatcher
+	newEtcdWatcher = func(prefix string, filter etcd3.EtcdWatcherFilter, handler etcd3.EtcdWatcherHandler,
+		stopCh <-chan struct{}, etcdClient *etcd3.EtcdClient) *etcd3.EtcdWatcher {
+		return &etcd3.EtcdWatcher{}
+	}
+	defer func() {
+		newEtcdWatcher = oldNewEtcdWatcher
+	}()
 	defer gomonkey.ApplyFunc(etcd3.GetMetaEtcdClient, func() *etcd3.EtcdClient {
 		return etcdClient
 	}).Reset()

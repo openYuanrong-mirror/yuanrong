@@ -1,0 +1,74 @@
+services:
+  dev:
+    image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
+    container_name: compile
+    privileged: true
+    restart: unless-stopped
+    mem_limit: ${COMPILE_MEMORY_LIMIT:-32g}
+    working_dir: "/root"
+    environment:
+      JAVA_HOME: /opt/buildtools/jdk8
+      MAVEN_HOME: /opt/buildtools/apache-maven-3.9.11
+      GOROOT: /opt/buildtools/golang_go-1.24.1
+      GOPATH: /opt/buildtools/go_workspace
+      CMAKE_HOME: /opt/buildtools/cmake
+      CGO_ENABLED: "1"
+      GO111MODULE: "on"
+      GOPROXY: https://goproxy.cn,direct
+      PYTHON_PATH_3911: /opt/buildtools/python3.9
+      PYTHON_PATH_3102: /opt/buildtools/python3.10
+      PYTHON_PATH_3114: /opt/buildtools/python3.11
+      PYTHON_PATH_3120: /opt/buildtools/python3.12
+      PYTHON_PATH_3130: /opt/buildtools/python3.13
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
+      COMPILE_HOME: ${COMPILE_HOME:-${HOME}}
+      COMPILE_USER: ${COMPILE_USER:-${USER}}
+      PATH: "/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      LD_LIBRARY_PATH: "/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64"
+    ports:
+      - "${COMPILE_PORT:-8888}:8888"
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${COMPILE_HOME:-${HOME}}:${COMPILE_HOME:-${HOME}}
+    command: >
+      bash -c "if getent passwd '${COMPILE_USER:-${USER}}' >/dev/null && ! grep -q '^${COMPILE_USER:-${USER}}:' /etc/shadow; then
+      echo '${COMPILE_USER:-${USER}}:*:20182:0:99999:7:::' >> /etc/shadow;
+      fi;
+      if getent group '${COMPILE_USER:-${USER}}' >/dev/null && ! grep -q '^${COMPILE_USER:-${USER}}:' /etc/gshadow; then
+      echo '${COMPILE_USER:-${USER}}:!::' >> /etc/gshadow;
+      fi;
+      echo '${COMPILE_USER:-${USER}} ALL=(ALL:ALL) NOPASSWD:ALL' > /etc/sudoers.d/compile-user-nopasswd;
+      chmod 440 /etc/sudoers.d/compile-user-nopasswd;
+      { echo '#!/bin/bash';
+      echo 'export JAVA_HOME=/opt/buildtools/jdk8';
+      echo 'export MAVEN_HOME=/opt/buildtools/apache-maven-3.9.11';
+      echo 'export GOROOT=/opt/buildtools/golang_go-1.24.1';
+      echo 'export GOPATH=/opt/buildtools/go_workspace';
+      echo 'export CMAKE_HOME=/opt/buildtools/cmake';
+      echo 'export NODE_HOME=/opt/buildtools/nodejs';
+      echo 'export PYTHON_PATH_3911=/opt/buildtools/python3.9';
+      echo 'export PYTHON_PATH_3102=/opt/buildtools/python3.10';
+      echo 'export PYTHON_PATH_3114=/opt/buildtools/python3.11';
+      echo 'export PYTHON_PATH_3120=/opt/buildtools/python3.12';
+      echo 'export PYTHON_PATH_3130=/opt/buildtools/python3.13';
+      echo 'export COMPILE_HOME=${COMPILE_HOME:-${HOME}}';
+      echo 'export COMPILE_USER=${COMPILE_USER:-${USER}}';
+      echo 'export PATH=/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:${COMPILE_HOME:-${HOME}}/.local/bin:/usr/lib/ccache:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+      echo 'export LD_LIBRARY_PATH=/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64';
+      echo 'export PIP_BREAK_SYSTEM_PACKAGES=1';
+      echo 'export CGO_ENABLED=1';
+      echo 'export GO111MODULE=on';
+      echo 'export GOPROXY=https://goproxy.cn,direct'; } > /etc/profile.d/buildtools.sh;
+      chmod 644 /etc/profile.d/buildtools.sh;
+      mkdir -p /opt/buildtools/go_workspace;
+      chmod 777 /opt/buildtools/go_workspace;
+      while true; do sleep 300; done"
+    networks:
+      - yr-net
+
+networks:
+  yr-net:
+    name: ${COMPILE_NETWORK:-yr-net}
+    external: true

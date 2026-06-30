@@ -429,13 +429,26 @@ ErrorInfo MemoryStore::ReleaseGRefs(const std::string &remoteId)
 
 void MemoryStore::Clear()
 {
+    auto objectStore = dsObjectStore;
+    if (objectStore == nullptr) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(mu);
+    std::vector<std::string> objectIds;
     for (auto &it : storeMap) {
-        if (it.second->increInDataSystemEnum == IncreInDataSystemEnum::INCREASE_IN_DS) {
-            dsObjectStore->DecreGlobalReference({it.first});
+        if (it.second != nullptr && it.second->increInDataSystemEnum == IncreInDataSystemEnum::INCREASE_IN_DS) {
+            objectIds.emplace_back(it.first);
         }
     }
-    dsObjectStore->Clear();
+    if (!objectIds.empty()) {
+        auto [err, failedObjectIds] = objectStore->DecreGlobalReference(objectIds, "");
+        if (!err.OK() || !failedObjectIds.empty()) {
+            YRLOG_WARN("Failed to decrease global reference for {} objects during clear, failed object count {}, "
+                       "err: {}", objectIds.size(), failedObjectIds.size(), err.Msg());
+        }
+    }
+    objectStore->Clear();
     storeMap.clear();
 }
 
@@ -523,6 +536,30 @@ ErrorInfo MemoryStore::AlsoPutToDS(const std::vector<std::string> &ids, const Cr
 ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
 {
     std::unique_lock<std::mutex> lock(mu);
+    ErrorInfo err = CheckObjectsExist(objectIds);
+    if (err.Code() != ErrorCode::ERR_OK) {
+        return err;
+    }
+
+    std::vector<std::string> objectIdsNeedIncre;
+    std::vector<std::shared_ptr<ObjectDetail>> increaseObjectDetails;
+    std::vector<std::shared_ptr<ObjectDetail>> waitObjectDetails;
+    MarkObjectsForIncrease(objectIds, objectIdsNeedIncre, increaseObjectDetails, waitObjectDetails);
+    lock.unlock();
+
+    err = IncreaseObjectsInDs(objectIdsNeedIncre, increaseObjectDetails);
+    if (err.Code() != ErrorCode::ERR_OK) {
+        return err;
+    }
+    for (auto objectDetail : waitObjectDetails) {
+        objectDetail->notification.WaitForNotificationWithTimeout(
+            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
+    }
+    return ErrorInfo();
+}
+
+ErrorInfo MemoryStore::CheckObjectsExist(const std::vector<std::string> &objectIds)
+{
     for (auto &objectId : objectIds) {
         if (storeMap.find(objectId) == storeMap.end()) {
             YRLOG_DEBUG("id {} not exist in storeMap.", objectId);
@@ -530,9 +567,14 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
                              "id " + objectId + " not exist in storeMap");
         }
     }
-    std::vector<std::string> objectIdsNeedIncre;
-    std::vector<std::shared_ptr<ObjectDetail>> increseObjectDetails;
-    std::vector<std::shared_ptr<ObjectDetail>> waitObjectDetails;
+    return ErrorInfo();
+}
+
+void MemoryStore::MarkObjectsForIncrease(const std::vector<std::string> &objectIds,
+                                         std::vector<std::string> &objectIdsNeedIncre,
+                                         std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails,
+                                         std::vector<std::shared_ptr<ObjectDetail>> &waitObjectDetails)
+{
     for (auto &objectId : objectIds) {
         auto it = storeMap.find(objectId);
         std::shared_ptr<ObjectDetail> objDetail = it->second;
@@ -542,35 +584,44 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
         }
         if (objDetail->increInDataSystemEnum == IncreInDataSystemEnum::NOT_INCREASE_IN_DS) {
             objectIdsNeedIncre.push_back(objectId);
-            increseObjectDetails.push_back(objDetail);
+            increaseObjectDetails.push_back(objDetail);
             objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASING_IN_DS;
         }
         it->second->localRefCount++;
         objectDetailLock.unlock();
     }
-    lock.unlock();
-    if (!objectIdsNeedIncre.empty()) {
-        ErrorInfo dsErr = dsObjectStore->IncreGlobalReference(objectIdsNeedIncre);
-        for (auto objectDetail : increseObjectDetails) {
-            std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
-            if (dsErr.Code() != ErrorCode::ERR_OK) {
-                objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-            }
-            objectDetail->notification.Notify();
-            objectDetailLock.unlock();
-        }
+}
+
+ErrorInfo MemoryStore::IncreaseObjectsInDs(const std::vector<std::string> &objectIdsNeedIncre,
+                                           const std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails)
+{
+    if (objectIdsNeedIncre.empty()) {
+        return ErrorInfo();
+    }
+
+    auto objectStore = dsObjectStore;
+    ErrorInfo dsErr;
+    if (!objectStore) {
+        dsErr = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "IncreaseObjRef dsObjectStore is nullptr!");
+    } else {
+        dsErr = objectStore->IncreGlobalReference(objectIdsNeedIncre);
+    }
+    for (auto objectDetail : increaseObjectDetails) {
+        std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
         if (dsErr.Code() != ErrorCode::ERR_OK) {
-            YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
-                        objectIdsNeedIncre[0], fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()),
-                        dsErr.Msg());
-            return dsErr;
+            objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
         }
+        objectDetail->notification.Notify();
+        objectDetailLock.unlock();
     }
-    for (auto objectDetail : waitObjectDetails) {
-        objectDetail->notification.WaitForNotificationWithTimeout(
-            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
+    if (dsErr.Code() == ErrorCode::ERR_OK) {
+        return ErrorInfo();
     }
-    return ErrorInfo();
+
+    YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
+                objectIdsNeedIncre[0], fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()), dsErr.Msg());
+    return dsErr;
 }
 
 void MemoryStore::BindObjRefInReq(const std::string &requestId, const std::vector<std::string> &objectIds)
@@ -902,7 +953,6 @@ bool MemoryStore::AddReadyCallback(const std::string &id, ObjectReadyCallback ca
     if (it == storeMap.end()) {
         lock.unlock();
         callback(ErrorInfo());
-        YRLOG_WARN("id {} does not exist in storeMap, exec callback directly.", id);
         return false;
     }
     std::shared_ptr<ObjectDetail> objDetail = it->second;
@@ -1156,7 +1206,7 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
         auto it = storeMap.find(objId);
         if (it == storeMap.end()) {
             std::string msg = "objId " + objId + " does not exist in storeMap.";
-            YRLOG_INFO("{} Return empty string as instanceRoute.", msg);
+            YRLOG_DEBUG("{} Return empty string as instanceRoute.", msg);
             return retInstanceRoute;
         }
         objDetail = it->second;
@@ -1169,6 +1219,66 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
         }
         return retInstanceRoute;
     }
+    return f.get();
+}
+
+bool MemoryStore::SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID)
+{
+    std::shared_ptr<ObjectDetail> objDetail;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        auto it = storeMap.find(id);
+        if (it == storeMap.end()) {
+            return false;
+        }
+        objDetail = it->second;
+    }
+
+    // Lock objectDetail outside of mu to avoid nested lock
+    std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+    try {
+        objDetail->instanceProxyID.set_value(instanceProxyID);
+        return true;
+    } catch (const std::future_error &e) {
+        YRLOG_WARN("Failed to set instanceProxyID for objid {}: {}", id, e.what());
+        return false;
+    }
+}
+
+std::string MemoryStore::GetInstanceProxyID(const std::string &objId, int timeoutSec)
+{
+    std::shared_future<std::string> f;
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        auto it = storeMap.find(objId);
+        if (it == storeMap.end()) {
+            std::string msg = "objId " + objId + " does not exist in storeMap.";
+            YRLOG_DEBUG("{} Return empty string as instanceProxyID.", msg);
+            return "";
+        }
+        std::shared_ptr<ObjectDetail> objDetail = it->second;
+        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+        f = objDetail->instanceProxyIDFuture;
+    }
+
+    // Handle NO_TIMEOUT case - wait indefinitely
+    if (timeoutSec == NO_TIMEOUT) {
+        try {
+            return f.get();
+        } catch (const std::future_error &e) {
+            YRLOG_WARN("Failed to get instanceProxyID for objId {}: {}", objId, e.what());
+            return "";
+        }
+    }
+
+    // Handle timeout case
+    if (f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
+        if (timeoutSec != ZERO_TIMEOUT) {
+            YRLOG_WARN("get instance proxyID timeout, return empty string as instanceProxyID. objectID is: {}.", objId);
+        }
+        return "";
+    }
+
     return f.get();
 }
 

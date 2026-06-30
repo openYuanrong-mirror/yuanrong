@@ -1,0 +1,38 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik-configmap") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traefik
+data:
+  traefik.yaml: |-
+    entryPoints:
+      web:
+        address: {{ .Values.traefik.entryPoints.web.address | quote }}
+      frontendDirect:
+        address: {{ .Values.traefik.entryPoints.frontendDirect.address | quote }}
+{{- with .Values.traefik.tls.entryPoint }}
+{{- if .enabled }}
+        http:
+          tls:
+{{- if .certResolver }}
+            certResolver: {{ .certResolver }}
+{{- end }}
+{{- with .domains }}
+            domains:
+{{ toYaml . | nindent 14 }}
+{{- end }}
+{{- end }}
+{{- end }}
+    providers:
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+      etcd:
+        endpoints:
+          - {{ include "yr-k8s.etcdAddrList" . | quote }}
+        rootKey: {{ .Values.traefik.etcd.rootKey }}
+{{- end }}

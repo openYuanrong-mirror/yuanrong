@@ -33,8 +33,8 @@ public:
         {
         }
 
-        virtual std::unique_ptr<ExporterHandle> MakeExpoterHandle(std::string expoterConfig,
-                                                                  std::unique_ptr<char[]> &error) const noexcept = 0;
+        virtual std::unique_ptr<ExporterHandle> MakeExporterHandle(std::string exporterConfig,
+                                                                   std::unique_ptr<char[]> &error) const noexcept = 0;
     };
 
     Factory(std::shared_ptr<DynamicLibraryHandle> libraryHandle, std::unique_ptr<FactoryImpl> &&factoryImpl) noexcept
@@ -42,18 +42,18 @@ public:
     {
     }
 
-    std::shared_ptr<observability::exporters::metrics::Exporter> MakeExpoter(std::string expoterConfig,
-                                                                             std::string &error) const noexcept
+    std::shared_ptr<observability::exporters::metrics::Exporter> MakeExporter(std::string exporterConfig,
+                                                                              std::string &error) const noexcept
     {
         (void)error;
         std::unique_ptr<char[]> pluginError;
-        auto expoterHandle = factoryImpl_->MakeExpoterHandle(expoterConfig, pluginError);
-        if (expoterHandle == nullptr) {
+        auto exporterHandle = factoryImpl_->MakeExporterHandle(exporterConfig, pluginError);
+        if (exporterHandle == nullptr) {
             CopyErrorMessage(pluginError.get(), error);
             return nullptr;
         }
 
-        return std::make_shared<Exporter>(libraryHandle_, std::move(expoterHandle));
+        return std::make_shared<Exporter>(libraryHandle_, std::move(exporterHandle));
     }
 
 private:

@@ -23,9 +23,13 @@ from yr.exception import YRInvokeError
 from yr.local_mode.local_mode_runtime import LocalModeRuntime
 from yr.local_mode import local_client, instance_manager
 from yr.local_mode.instance import Resource, Instance
+from yr.local_mode.scheduler import ConcurrencyScorer
 from yr.local_mode.task_spec import TaskSpec
+from yr.local_mode.worker import _load_function_code
 from yr.local_mode.local_object_store import LocalObjectStore
 from yr.base_runtime import SetParam
+from yr.libruntime_pb2 import FunctionMeta
+from yr.serialization import Serialization
 
 
 class Mock(object):
@@ -83,6 +87,22 @@ class TestApi(TestCase):
             return
         obj.on_complete(cb)
         self.assertEqual(yr.get(obj), 1)
+
+    def test_load_inline_function_code(self):
+        def func(x):
+            return x
+
+        serialized_object = Serialization().serialize(func)
+        task = TaskSpec(
+            task_id="task",
+            invoke_type=0,
+            future=None,
+            function_meta=FunctionMeta(code=serialized_object.to_bytes()),
+        )
+
+        loaded_func = _load_function_code(task)
+
+        self.assertEqual(loaded_func(1), 1)
 
     def test_local_mode_runtime(self):
         lr = LocalModeRuntime()
@@ -288,6 +308,15 @@ class TestApi(TestCase):
         ins_mgr.kill_instance(instance_id)
         get_ins = ins_mgr.get_instances(res)
         self.assertEqual(len(get_ins), 0, len(get_ins))
+
+    def test_resource_defaults_none_concurrency(self):
+        res = Resource(concurrency=None)
+        self.assertEqual(res.concurrency, 1)
+
+        future = concurrent.futures.Future()
+        future.set_result(None)
+        ins = Instance("instance1234", res, future)
+        self.assertEqual(ConcurrencyScorer.score(None, ins), 1)
 
 
 if __name__ == "__main__":

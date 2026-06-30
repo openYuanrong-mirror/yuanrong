@@ -16,22 +16,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import pickle
 import asyncio
 import concurrent
 import inspect
 import logging
 import json
 import os
+import pickle
 import traceback
 import threading
 import traceback
 import uuid
 from pathlib import Path
 from dataclasses import asdict
-from typing import List, Tuple, Union, Callable, Optional
+from typing import List, Optional, Tuple, Union, Callable
 from cython.operator import dereference, postincrement
-from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
 from cpython.exc cimport PyErr_CheckSignals
 
 import yr
@@ -49,15 +48,16 @@ from yr import log
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.device import DataType, DeviceBufferParam, DataInfo
 from yr.base_runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, SetParam, MSetParam, CreateParam,
-                        GetParam, GetParams, AlarmInfo, AlarmSeverity)
+                             GetParam, GetParams, AlarmInfo, AlarmSeverity)
 from yr import runtime_env
 from yr import port_forwarding
+from yr.checkpoint import SnapstartInfo, SnapstartResponse
 from yr.exception import YRInvokeError, _cause_to_str
 from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
                        SubscriptionType)
 from yr.accelerate.shm_broadcast import Handle, MessageQueue, decode, ResponseStatus
 from yr.accelerate.executor import ACCELERATE_WORKER, Worker
-from cpython cimport PyBytes_FromStringAndSize
+from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_FromStringAndSize
 from libc.stdint cimport int64_t, uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport make_shared, nullptr, shared_ptr, dynamic_pointer_cast
@@ -78,7 +78,7 @@ CStreamProducer, CSubscriptionConfig,
 CSubscriptionType,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
-CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
+CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, SharedBuffer as CSharedBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapstartInfo, CSnapstartResponse, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
 CClusterAccessInfo, AutoGetClusterAccessInfo, CResourceGroupSpec, CResourceGroupOptions, CAccelerateMsgQueueHandle, QueryNamedInsResponse, CResourceGroupUnit, CRgInfo, CBundleInfo, CResources, CResource, CType, CScalar)
 
 include "includes/affinity.pxi"
@@ -420,8 +420,6 @@ cdef function_meta_from_py(CFunctionMeta & functionMeta, func_meta: FunctionMeta
     functionMeta.tensorTransportTarget = func_meta.tensorTransportTarget
     functionMeta.enableTensorTransport = func_meta.enableTensorTransport
     functionMeta.code = bytes_to_vector(func_meta.code)
-    if func_meta.payload:
-        functionMeta.recoveredData = func_meta.payload
 
 cdef function_meta_from_cpp(const CFunctionMeta & function):
     cdef:
@@ -443,9 +441,6 @@ cdef function_meta_from_cpp(const CFunctionMeta & function):
                              code=vector_to_bytes(function.code),
                              tensorTransportTarget=function.tensorTransportTarget,
                              enableTensorTransport=function.enableTensorTransport)
-    if function.recoveredData.size() > 0:
-        func_meta.payload = PyBytes_FromStringAndSize(
-            function.recoveredData.data(), <Py_ssize_t>function.recoveredData.size())
     return func_meta
 
 cdef function_group_running_info_from_cpp(const CFunctionGroupRunningInfo & info):
@@ -589,35 +584,11 @@ def load_code_from_datasystem(code_id: str):
     it = ret.second.begin()
     return yr.serialization.Serialization().deserialize(Buffer.make(dereference(it)))
 
-def buffer_from_bytes(data: bytes):
-    """Wrap Python bytes as a native Buffer for Serialization.deserialize etc."""
-    cdef:
-        Py_ssize_t n = len(data)
-        shared_ptr[CBuffer] c_buffer
-        CErrorInfo ret
-        Buffer buf
-    if n == 0:
-        c_buffer = dynamic_pointer_cast[CBuffer, NativeBuffer](make_shared[NativeBuffer](0))
-        return Buffer.make(c_buffer)
-    c_buffer = dynamic_pointer_cast[CBuffer, NativeBuffer](make_shared[NativeBuffer](<uint64_t>n))
-    buf = Buffer.make(c_buffer)
-    ret = memory_copy(c_buffer, PyBytes_AS_STRING(data), <uint64_t>n)
-    if not ret.OK():
-        raise RuntimeError(
-            f"buffer_from_bytes failed: code {ret.Code()}, msg {ret.Msg().decode()}")
-    return buf
-
 def load_code_from_bytes(code: bytes):
     """get code from bytes"""
     cdef const char* c_data = code
     cdef shared_ptr[CBuffer] data_buf
-    cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
-    if c_libruntime == nullptr:
-        raise RuntimeError("already finalized")
-    data_buf = dynamic_pointer_cast[CBuffer, StringNativeBuffer](make_shared[StringNativeBuffer](len(code)))
-    c_error_info = memory_copy(data_buf, code, len(code))
-    if not c_error_info.OK():
-        return None
+    data_buf = dynamic_pointer_cast[CBuffer, CSharedBuffer](make_shared[CSharedBuffer](<void *>c_data, len(code)))
     return yr.serialization.Serialization().deserialize(Buffer.make(data_buf))
 
 def write_to_cbuffer(serialized_object: SerializedObject):
@@ -1033,6 +1004,8 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
         opts.createOptions.insert(pair[string, string](key, value))
     opts.cpu = opt.cpu
     opts.memory = opt.memory
+    opts.cpuLimit = opt.cpu_limit
+    opts.memoryLimit = opt.mem_limit
     # Only set concurrency if explicitly provided (not None)
     if opt.concurrency is not None:
         opts.customExtensions.insert(pair[string, string](concurrency_key, str(opt.concurrency)))
@@ -1067,13 +1040,17 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
             raise ValueError("Failed to convert affinity to cpp affinity.")
         opts.scheduleAffinities.push_back(c_affinity)
     opts.recoverRetryTimes = opt.recover_retry_times
-    opts.needOrder = opt.need_order
+    if opt.need_order:
+        opts.needOrder = True
+    else:
+        opts.needOrder = False
     opts.traceId = opt.trace_id
     opts.preemptedAllowed = opt.preempted_allowed
     opts.instancePriority = opt.instance_priority
     opts.scheduleTimeoutMs = opt.schedule_timeout_ms
     opts.isDeleteRemoteTensor = opt.is_delete_remote_tensor
     opts.debug.enable = opt.debug.enable
+    opts.bypassDatasystem = opt.bypass_datasystem
 
 cdef class Producer:
     """
@@ -1410,7 +1387,6 @@ cdef void session_notify_bridge(str session_id, bytes data) except *:
             f"failed to session_notify, "
             f"code: {ret.Code()}, module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
 
-
 cdef class Fnruntime:
     def __cinit__(self, functionSystemIpAddr, functionSystemPort, functionSystemRtServerIpAddr,
                   functionSystemRtServerPort):
@@ -1436,6 +1412,8 @@ cdef class Fnruntime:
         config.isDriver = ConfigManager().is_driver
         config.jobId = ConfigManager().job_id
         config.runtimeId = ConfigManager().runtime_id
+        if ConfigManager().is_driver:
+            config.instanceId = f"driver-{ConfigManager().job_id}".encode()
         config.functionIds.insert(pair[CLanguageType, string](CLanguageType.LANGUAGE_PYTHON,
                                                               ConfigManager().meta_config.functionID.python))
         config.functionIds.insert(pair[CLanguageType, string](CLanguageType.LANGUAGE_CPP,
@@ -1496,6 +1474,16 @@ cdef class Fnruntime:
     def receive_request_loop(self):
         with nogil:
             CLibruntimeManager.Instance().ReceiveRequestLoop()
+
+    def need_reinit(self):
+        cdef bool result
+        with nogil:
+            result = CLibruntimeManager.Instance().NeedReInit()
+        return result
+
+    def reinit(self):
+        with nogil:
+            CLibruntimeManager.Instance().ReInit()
 
     def finalize(self):
         with nogil:
@@ -2025,12 +2013,14 @@ cdef class Fnruntime:
                 f"failed to kill instance sync, "
                 f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
         cdef:
@@ -2041,6 +2031,8 @@ cdef class Fnruntime:
         snap_opts.type = CSnapType.SNAPSHOT
         snap_opts.ttl = ttl
         snap_opts.leaveRunning = leave_running
+        if function_type:
+            snap_opts.functionType = function_type.encode()
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
@@ -2056,14 +2048,14 @@ cdef class Fnruntime:
 
         return ret.second.decode()
 
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
         """
         cdef:
-            pair[CErrorInfo, string] ret
+            pair[CErrorInfo, CSnapstartResponse] ret
             string c_checkpoint_id = checkpoint_id
             CSnapStartOptions snap_start_opts
 
@@ -2081,7 +2073,62 @@ cdef class Fnruntime:
                 f"failed to snapstart instance, "
                 f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
 
-        return ret.second.decode()
+        return SnapstartResponse(
+            instance_id=ret.second.instanceID.decode(),
+            snapstart_info=SnapstartInfo(
+                route_address=ret.second.snapstartInfo.routeAddress.decode(),
+                port_mappings=ret.second.snapstartInfo.portMappings.decode(),
+                function_proxy_id=ret.second.snapstartInfo.functionProxyID.decode(),
+                node_id=ret.second.snapstartInfo.nodeID.decode(),
+                namespace=ret.second.snapstartInfo.namespace_.decode(),
+            ))
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+        cdef:
+            pair[CErrorInfo, string] ret
+            string c_checkpoint_id = checkpoint_id
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().DeleteCheckpoint(c_checkpoint_id)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to delete checkpoint, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoint IDs for the given function type, or all for the current tenant if empty.
+        :param function_type: moduleName.className (e.g. "mymodule.Counter"). Empty = all tenant checkpoints.
+        :param namespace: namespace filter (empty = default namespace)
+        :return: list of checkpoint ID strings
+        """
+        cdef:
+            pair[CErrorInfo, vector[string]] ret
+            string c_function_type = function_type.encode()
+            string c_ns = namespace.encode()
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().ListCheckpoints(c_function_type, c_ns)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to list checkpoints, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+        return [cp.decode() for cp in ret.second]
 
     def terminate_group(self, group_name: str) -> None:
         """
@@ -2505,63 +2552,6 @@ cdef class Fnruntime:
         check_error_info(ret.first, "Failed to set double counter")
         return ret.second
 
-    def set_gauge(self, data: GaugeData) -> None:
-        """
-        set gauge metric
-        :param data: GaugeData
-        :return: None
-        """
-        cdef:
-            CErrorInfo error_info
-            CGaugeData gauge_data
-        gauge_data = gauge_data_from_py(data)
-        with nogil:
-            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().SetGauge(gauge_data)
-        check_error_info(error_info, "Failed to set gauge")
-
-    def increase_gauge(self, data: GaugeData) -> None:
-        """
-        increase gauge metric
-        :param data: GaugeData
-        :return: None
-        """
-        cdef:
-            CErrorInfo error_info
-            CGaugeData gauge_data
-        gauge_data = gauge_data_from_py(data)
-        with nogil:
-            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().IncreaseGauge(gauge_data)
-        check_error_info(error_info, "Failed to increase gauge")
-
-    def decrease_gauge(self, data: GaugeData) -> None:
-        """
-        decrease gauge metric
-        :param data: GaugeData
-        :return: None
-        """
-        cdef:
-            CErrorInfo error_info
-            CGaugeData gauge_data
-        gauge_data = gauge_data_from_py(data)
-        with nogil:
-            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().DecreaseGauge(gauge_data)
-        check_error_info(error_info, "Failed to decrease gauge")
-
-    def get_value_gauge(self, data: GaugeData) -> float:
-        """
-        get value of gauge
-        :param data: GaugeData
-        :return: value
-        """
-        cdef:
-            pair[CErrorInfo, float] ret
-            CGaugeData gauge_data
-        gauge_data = gauge_data_from_py(data)
-        with nogil:
-            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GetValueGauge(gauge_data)
-        check_error_info(ret.first, "Failed to get gauge")
-        return ret.second
-
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metric
@@ -2826,7 +2816,7 @@ cdef class Fnruntime:
             if ret.second.IsTimeout():
                 raise TimeoutError(ret.second.Msg().decode())
             raise ValueError(
-                f"failed to get instance by name: {cinstanceID}, "
+                f"failed to invoke instance, "
                 f"code: {ret.second.Code()}, module code {ret.second.MCode()}, msg: {ret.second.Msg().decode()}")
         return function_meta_from_cpp(ret.first)
 
@@ -3074,20 +3064,7 @@ def stream_write(stream_message: str, request_id: str, instance_id: str) -> None
 
 def load_current_session(session_id: str) -> Optional[str]:
     """
-    从 libruntime 的内存 activeSessionMap 中加载当前调用对应的 Session JSON 字符串。
-
-    对应 C++: CLibruntime::LoadCurrentSession(sessionId)
-
-    语义:
-    - 使用 Context.sessionId 作为 sessionId
-    - libruntime 从 activeSessionMap[sessionId] 读取当前活跃 AgentSessionContext
-    - 返回 session JSON 字符串，如 {"sessionID":"s-123","histories":["..."]}
-    - 若 sessionId 不存在或尚未创建，返回 None
-
-    :param session_id: 当前调用的 session ID
-    :return: Session JSON 字符串，或 sessionId 不存在时返回 None
-    :raises RuntimeError: libruntime 内部错误时抛出
-    :raises ValueError: session_id 为 None 或空字符串时抛出
+    Load current invocation session JSON from libruntime's active session cache.
     """
     if session_id is None or session_id == "":
         raise ValueError("session_id cannot be None or empty")
@@ -3110,20 +3087,7 @@ def load_current_session(session_id: str) -> Optional[str]:
 
 def update_current_session(session_id: str, session_json: str) -> None:
     """
-    将修改后的 Session JSON 同步写入 libruntime 的内存 activeSessionMap。
-
-    对应 C++: CLibruntime::UpdateCurrentSession(sessionId, sessionJson)
-
-    语义:
-    - 只更新 libruntime 内存中的 AgentSessionContext，不直接写 DataSystem
-    - 请求结束时 runtime 会自动执行 PersistAndReleaseInvokeSession(sessionId)
-      将内存中的 session 持久化到 DataSystem（ttl=0）
-    - set_histories() 会立即调用本函数把最新值同步给 libruntime
-
-    :param session_id: 当前调用的 session ID
-    :param session_json: 修改后的 Session JSON 字符串
-    :raises RuntimeError: libruntime 内部错误时抛出
-    :raises ValueError: session_id 或 session_json 为 None 或空字符串时抛出
+    Update current invocation session JSON in libruntime's active session cache.
     """
     if session_id is None or session_id == "":
         raise ValueError("session_id cannot be None or empty")
@@ -3147,7 +3111,7 @@ def update_current_session(session_id: str, session_json: str) -> None:
 
 def session_wait(session_id: str, timeout_ms: int):
     """
-    API-level session wait (same semantics as Fnruntime.session_wait).
+    API-level session wait.
     """
     if timeout_ms < -1:
         raise ValueError(
@@ -3157,16 +3121,14 @@ def session_wait(session_id: str, timeout_ms: int):
 
 def session_notify(session_id: str, data: bytes) -> None:
     """
-    API-level session notify (same semantics as Fnruntime.session_notify).
+    API-level session notify.
     """
     session_notify_bridge(session_id, data)
 
 
 def is_session_interrupted(session_id: str) -> bool:
     """
-    Whether the session wait/notify context was interrupted (e.g. cancellation).
-
-    Mirrors C++ CLibruntime::IsSessionInterrupted / JNI isSessionInterrupted.
+    Whether the session wait/notify context was interrupted.
     """
     if session_id is None or session_id == "":
         raise ValueError("session_id cannot be None or empty")

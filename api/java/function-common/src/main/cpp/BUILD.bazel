@@ -7,7 +7,10 @@ cc_binary(
         "//:runtime_lib",
         "@bazel_tools//tools/jdk:jni",
     ],
-    copts = COPTS,
+    copts = COPTS + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+    }),
     linkstatic = True,
     linkshared = True,
     visibility = ["//visibility:public"]

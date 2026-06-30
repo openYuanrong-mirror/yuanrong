@@ -25,7 +25,7 @@
 namespace YR {
 namespace Libruntime {
 const double TIMESTAMP_EXPIRE_DURATION_SECONDS = 60;
-using SensitiveValue = datasystem::SensitiveValue;
+using SensitiveValue = YR::Libruntime::SensitiveValue;
 const std::string FUNCTION_PROXY = "function-proxy";
 
 struct PosixMetaData {

@@ -23,11 +23,13 @@ from yr.functionsdk import function
 from yr.functionsdk import utils
 from yr.functionsdk import logger as sdklogger
 from yr.functionsdk import logger_manager
+from yr.config_manager import ConfigManager
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 import os
 import logging
 import queue
+from types import SimpleNamespace
 
 
 
@@ -35,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 class TestFunctionSdk(TestCase):
+
+    def setUp(self):
+        ConfigManager().bypass_datasystem = None
+
+    def tearDown(self):
+        ConfigManager().bypass_datasystem = None
 
     @patch("yr.log.get_logger")
     def test_context(self, mock_logger):
@@ -52,10 +60,43 @@ class TestFunctionSdk(TestCase):
         self.assertTrue("test_env_value" in user_data.get("TEST_ENV_KEY", ""), user_data)
         self.assertTrue("test_user_value" in user_data.get("TEST_USER_KEY", ""), user_data)
 
-        header = {"X-Request-Id": "12345"}
+        header = {
+            "X-Request-Id": "12345",
+            "X-Trace-Id": "trace-12345",
+            "X-Instance-Session": json.dumps({"sessionID": "session-1"}),
+        }
         invoke_context = context.init_context_invoke("invoke", header)
-        self.assertEqual(invoke_context.get_trace_id(), "12345")
+        self.assertEqual(invoke_context.get_trace_id(), "trace-12345")
         self.assertEqual(invoke_context.getUserData("TEST_ENV_KEY"), "test_env_value")
+        self.assertEqual(invoke_context.get_session_id(), "session-1")
+        self.assertIsNotNone(invoke_context.get_session_service())
+
+        invoke_context.invoke_id = "request-1"
+        invoke_context.set_instance_id("instance-1")
+        stream = invoke_context.get_stream()
+        self.assertEqual(stream._request_id, "request-1")
+        self.assertEqual(stream._instance_id, "instance-1")
+
+    @patch("yr.log.get_logger")
+    def test_context_headers_ignore_case_for_sse(self, mock_logger):
+        mock_logger.return_value = logger
+        context_meta = {"funcMetaData": {"timeout": "3"}}
+        context.load_context_meta(context_meta)
+
+        header = {
+            "x-trace-id": "trace-lower",
+            "accept": "text/event-stream",
+            "x-instance-session": json.dumps({"sessionID": "session-lower"}),
+        }
+        fake_fnruntime = SimpleNamespace(get_request_and_instance_id=lambda: ("request-lower", "instance-lower"))
+        with patch.dict("sys.modules", {"yr.fnruntime": fake_fnruntime}):
+            invoke_context = context.init_context_invoke("invoke", header)
+
+        self.assertEqual(invoke_context.get_trace_id(), "trace-lower")
+        self.assertEqual(invoke_context.get_session_id(), "session-lower")
+        stream = invoke_context.get_stream()
+        self.assertEqual(stream._request_id, "request-lower")
+        self.assertEqual(stream._instance_id, "instance-lower")
 
     @patch("yr.log.get_logger")
     @patch("yr.runtime_holder.global_runtime.get_runtime")
@@ -73,6 +114,10 @@ class TestFunctionSdk(TestCase):
         args = {"body": "test"}
         obj = f.options(opt).invoke(args)
         self.assertEqual(obj.id, "obj_abcd", obj.id)
+
+        ConfigManager().bypass_datasystem = True
+        f.options(opt).invoke(args)
+        self.assertTrue(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
 
         args = [1, 2, 3]
         with self.assertRaises(TypeError):

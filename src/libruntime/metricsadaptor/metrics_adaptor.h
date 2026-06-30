@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <json.hpp>
 #include <map>
 #include <memory>
@@ -28,6 +29,7 @@
 
 #include "metrics_context.h"
 
+#ifdef ENABLE_OBSERVABILITY
 #include "metrics/api/alarm.h"
 #include "metrics/api/counter.h"
 #include "metrics/api/gauge.h"
@@ -35,17 +37,22 @@
 #include "metrics/plugin/dynamic_library_handle_unix.h"
 #include "metrics/sdk/meter_provider.h"
 #include "metrics/sdk/metric_processor.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/dto/invoke_options.h"
 #include "src/libruntime/err_type.h"
+#ifdef ENABLE_OBSERVABILITY
 #include "src/libruntime/utils/sensitive_data.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/utility/singleton.h"
 
 namespace YR {
 namespace Libruntime {
+#ifdef ENABLE_OBSERVABILITY
 namespace MetricsSdk = observability::sdk::metrics;
 namespace MetricsApi = observability::api::metrics;
 namespace MetricsExporters = observability::exporters::metrics;
 namespace MetricsPlugin = observability::plugin::metrics;
+#endif  // ENABLE_OBSERVABILITY
 
 class MetricsAdaptor {
 public:
@@ -83,18 +90,19 @@ public:
                        const YR::Libruntime::AlarmInfo &alarmInfo);
 
 private:
-    enum class MetricOperation {
-        RECORD,
-        STATEFUL,
-        READ,
-    };
-
     struct DoubleGaugeSample {
         std::string name;
         std::string description;
         std::string unit;
         std::map<std::string, std::string> labels;
         double value = 0;
+    };
+
+#ifdef ENABLE_OBSERVABILITY
+    enum class MetricOperation {
+        RECORD,
+        STATEFUL,
+        READ,
     };
 
     struct UInt64CounterSample {
@@ -178,7 +186,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Counter<uint64_t>>> uInt64CounterMap_{};
     std::map<std::string, std::unique_ptr<MetricsApi::Gauge<double>>> doubleGaugeMap_{};
     std::unordered_map<std::string, std::unique_ptr<MetricsApi::Alarm>> alarmMap_{};
-    std::unordered_map<std::string, DoubleGaugeSample> doubleGaugeSamples_{};
     std::unordered_map<std::string, UInt64CounterSample> uint64CounterSamples_{};
     std::unordered_map<std::string, DoubleCounterSample> doubleCounterSamples_{};
     std::string metricsRootCertData_;
@@ -187,18 +194,20 @@ private:
     std::unordered_set<std::string> enabledBackends_;
     std::unordered_set<std::string> metricSampleEnabledInstruments_;
     std::unordered_map<std::string, YR::Libruntime::InstrumentKind> instrumentKinds_;
-    MetricsContext metricsContext_;
     std::shared_ptr<MetricsExporters::Exporter> prometheusPullExporter_{};
     bool Initialized_ = false;
     bool userEnable_ = false;
     // Empty enabledInstruments on any exporter means metric samples are cached for every instrument.
     std::atomic<bool> metricSampleAllowAll_{false};
-    std::mutex gauge_mutex_{};
     std::mutex alarm_mutex_{};
     std::mutex uint64_counter_mutex_{};
     std::mutex double_counter_mutex_{};
     std::mutex prometheus_pull_exporter_mutex_{};
     std::mutex instrument_kind_mutex_{};
+#endif  // ENABLE_OBSERVABILITY
+    std::unordered_map<std::string, DoubleGaugeSample> doubleGaugeSamples_{};
+    std::mutex gauge_mutex_{};
+    MetricsContext metricsContext_;
     static std::shared_ptr<MetricsAdaptor> instance;
     static std::once_flag initFlag;
 };

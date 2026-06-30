@@ -1,0 +1,132 @@
+# GitHub Actions Workflow for YuanRong ARM64 构建
+# 使用自托管 runner 在 macOS 上构建
+
+name: YuanRong ARM64 Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - 'src/**'
+      - 'api/**'
+      - 'functionsystem/**'
+      - 'datasystem/**'
+      - 'frontend/**'
+      - 'go/**'
+      - '.github/workflows/build-arm64.yml'
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: '构建目标'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - frontend
+          - datasystem
+          - functionsystem
+          - runtime_launcher
+          - dashboard
+          - yuanrong
+
+env:
+  BUILDER_IMAGE: yuanrong/builder:arm64
+  BUILD_VERSION: v0.0.1
+
+jobs:
+  build-arm64:
+    name: Build on macOS ARM64
+    # 只在自托管 macOS runner 上运行
+    runs-on: [self-hosted, macos, arm64]
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 构建信息
+        run: |
+          echo "=========================================="
+          echo "  YuanRong ARM64 构建"
+          echo "=========================================="
+          echo "Runner: ${RUNNER_NAME}"
+          echo "Runner OS: ${RUNNER_OS}"
+          echo "Runner Arch: $(uname -m)"
+          echo "构建目标: ${{ inputs.build_target || 'all' }}"
+          echo "Git Branch: ${GITHUB_REF_NAME}"
+          echo "Git SHA: ${GITHUB_SHA}"
+          echo "=========================================="
+
+      - name: 启动 Docker
+        run: |
+          # 确保 Docker 运行中
+          if ! docker info &> /dev/null; then
+            echo "启动 Docker..."
+            open -a Docker
+            # 等待 Docker 启动
+            echo "等待 Docker 准备就绪..."
+            timeout 120 bash -c 'until docker info &> /dev/null; do sleep 2; done'
+          fi
+          docker version
+
+      - name: 拉取构建镜像
+        run: |
+          docker pull ${BUILDER_IMAGE} || echo "镜像不存在，将使用本地镜像"
+
+      - name: 执行构建
+        run: |
+          docker run --rm \
+            --platform linux/arm64 \
+            -v ${GITHUB_WORKSPACE}:/workspace \
+            -w /workspace \
+            -e BUILD_VERSION=${BUILD_VERSION} \
+            -e JOBS=4 \
+            -e GOPROXY=https://goproxy.cn,direct \
+            ${BUILDER_IMAGE} \
+            make ${{ inputs.build_target || 'all' }} -j4
+
+      - name: 构建产物
+        run: |
+          echo "=========================================="
+          echo "  构建产物"
+          echo "=========================================="
+          if [ -d "output" ]; then
+            ls -lah output/
+            echo ""
+            du -sh output/* 2>/dev/null || true
+          else
+            echo "警告: output 目录不存在"
+          fi
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: yuanrong-arm64-${{ github.run_number }}
+          path: output/
+          retention-days: 30
+
+      - name: 构建摘要
+        if: always()
+        run: |
+          echo "### 构建结果 :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 状态 | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 目标 | ${{ inputs.build_target || 'all' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 版本 | ${BUILD_VERSION} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runner | ${RUNNER_NAME} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "output" ]; then
+            echo "### 产物列表 :package:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -lh output/ >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi

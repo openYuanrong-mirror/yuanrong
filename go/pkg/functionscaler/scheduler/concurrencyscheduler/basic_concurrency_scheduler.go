@@ -55,7 +55,8 @@ const (
 
 	randomThreadIDLength = 8
 
-	recordTriggerChanLen = 10
+	recordTriggerChanLen   = 10
+	maxColdStartTraceQueue = 1024
 )
 
 var (
@@ -516,7 +517,14 @@ type basicConcurrencyScheduler struct {
 	sessionCtxIdleHandler func(*types.Instance)
 	*sync.RWMutex
 	*sync.Cond
-	grayAllocator GrayInstanceAllocator
+	grayAllocator       GrayInstanceAllocator
+	coldStartTraceMu    sync.Mutex
+	coldStartTraceQueue []*coldStartTraceContext
+}
+
+type coldStartTraceContext struct {
+	traceContext *types.TraceContext
+	createdAt    time.Time
 }
 
 func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey resspeckey.ResSpecKey,
@@ -541,8 +549,9 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		leaseInterval: leaseInterval,
 		RWMutex:       mutex,
 		Cond:          sync.NewCond(mutex),
-		grayAllocator: NewHashBasedInstanceAllocator(0),
-		isFuncOwner:   selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		grayAllocator:       NewHashBasedInstanceAllocator(0),
+		isFuncOwner:         selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		coldStartTraceQueue: make([]*coldStartTraceContext, 0, utils.DefaultSliceSize),
 	}
 	bcs.sessionManager.setFuncOwner(bcs.isFuncOwner)
 	bcs.grayAllocator.UpdateRolloutRatio(rollout.GetGlobalRolloutHandler().GetCurrentRatio())
@@ -553,6 +562,55 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 	}
 	return bcs
 }
+
+func (bcs *basicConcurrencyScheduler) recordColdStartTrace(traceID, traceParent string) {
+	if traceID == "" && traceParent == "" {
+		return
+	}
+	bcs.coldStartTraceMu.Lock()
+	if len(bcs.coldStartTraceQueue) >= maxColdStartTraceQueue {
+		bcs.popColdStartTraceLocked()
+	}
+	bcs.coldStartTraceQueue = append(bcs.coldStartTraceQueue, &coldStartTraceContext{
+		traceContext: &types.TraceContext{
+			TraceID:     traceID,
+			TraceParent: traceParent,
+		},
+		createdAt: time.Now(),
+	})
+	bcs.coldStartTraceMu.Unlock()
+}
+
+func (bcs *basicConcurrencyScheduler) popColdStartTraceLocked() *coldStartTraceContext {
+	if len(bcs.coldStartTraceQueue) == 0 {
+		return nil
+	}
+	traceCtx := bcs.coldStartTraceQueue[0]
+	last := len(bcs.coldStartTraceQueue) - 1
+	copy(bcs.coldStartTraceQueue, bcs.coldStartTraceQueue[1:])
+	bcs.coldStartTraceQueue[last] = nil
+	bcs.coldStartTraceQueue = bcs.coldStartTraceQueue[:last]
+	return traceCtx
+}
+
+// PopColdStartTrace returns the oldest non-expired request trace for the next cold start.
+func (bcs *basicConcurrencyScheduler) PopColdStartTrace() *types.TraceContext {
+	bcs.coldStartTraceMu.Lock()
+	defer bcs.coldStartTraceMu.Unlock()
+	expireBefore := time.Now().Add(-bcs.leaseInterval)
+	for len(bcs.coldStartTraceQueue) > 0 {
+		traceCtx := bcs.popColdStartTraceLocked()
+		if traceCtx == nil || traceCtx.traceContext == nil {
+			continue
+		}
+		if traceCtx.createdAt.Before(expireBefore) {
+			continue
+		}
+		return traceCtx.traceContext
+	}
+	return nil
+}
+
 func (bcs *basicConcurrencyScheduler) RecoverSessionRecordFromDataSystem(fn utils.RecoverSessionCallback) {
 	if !config.GlobalConfig.EnableSessionRecover {
 		return
@@ -1375,6 +1433,9 @@ func (bcs *basicConcurrencyScheduler) AddInstance(instance *types.Instance) erro
 	if err != nil {
 		return err
 	}
+	// Wake popInstanceElement waiters: they block on bcs.Wait() until a creating instance is enqueued,
+	// and nothing else in the scheduler signals this Cond.
+	bcs.Broadcast()
 	if bcs.grayAllocator.ShouldReassign(Add, insElem.instance.InstanceID) {
 		log.GetLogger().Infof("add instance gray invoke reassign. instance: %s, funcKey: %s",
 			instance.InstanceID, bcs.funcKeyWithRes)

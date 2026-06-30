@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# coding=UTF-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,8 +19,12 @@ Creates a function with idle_timeout=5s, invokes it once to warm up an instance,
 then waits for the instance to be evicted by the idle timer.
 """
 
+import logging
 import time
+
 import yr
+
+LOGGER = logging.getLogger(__name__)
 
 yr.init()
 
@@ -31,23 +33,23 @@ yr.init()
 def idle_test_func(x):
     return x * 2
 
-print("[1] Invoking idle_test_func to create an instance...")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+
+LOGGER.info("[1] Invoking idle_test_func to create an instance...")
 ref = idle_test_func.invoke(10)
 result = yr.get(ref)
-print(f"[1] Result: {result}")
-if result != 20:
-    raise RuntimeError(f"Expected 20, got {result}")
+LOGGER.info("[1] Result: %s", result)
+assert result == 20, f"Expected 20, got {result}"
 
-print("[2] Waiting 12s for idle timeout eviction (timeout=5s)...")
+LOGGER.info("[2] Waiting 12s for idle timeout eviction (timeout=5s)...")
 time.sleep(12)
 
-print("[3] Invoking again — should create a NEW instance after eviction...")
+LOGGER.info("[3] Invoking again - should create a NEW instance after eviction...")
 ref2 = idle_test_func.invoke(21)
 result2 = yr.get(ref2)
-print(f"[3] Result: {result2}")
-if result2 != 42:
-    raise RuntimeError(f"Expected 42, got {result2}")
+LOGGER.info("[3] Result: %s", result2)
+assert result2 == 42, f"Expected 42, got {result2}"
 
-print("\n[OK] idle timeout e2e test passed!")
+LOGGER.info("\n[OK] idle timeout e2e test passed!")
 
 yr.finalize()

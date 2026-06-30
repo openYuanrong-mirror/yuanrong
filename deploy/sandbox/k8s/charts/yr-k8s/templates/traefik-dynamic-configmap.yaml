@@ -1,0 +1,64 @@
+{{- if .Values.traefik.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "traefik-dynamic") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traefik
+data:
+  config.yml: |-
+    http:
+      routers:
+        frontend-root:
+          entryPoints:
+            - web
+          rule: "Path(`/`)"
+          service: frontend
+{{- with .Values.traefik.tls.router }}
+{{- if .enabled }}
+          tls:
+{{- if .certResolver }}
+            certResolver: {{ .certResolver }}
+{{- end }}
+{{- if .optionsName }}
+            options: {{ .optionsName }}
+{{- end }}
+{{- with .domains }}
+            domains:
+{{ toYaml . | nindent 14 }}
+{{- end }}
+{{- end }}
+{{- end }}
+        frontend-terminal:
+          entryPoints:
+            - web
+          rule: "PathPrefix(`/terminal`) || PathPrefix(`/api/instances`) || PathPrefix(`/api/jobs`) || PathPrefix(`/api/sandbox`) || PathPrefix(`/functions`) || PathPrefix(`/api-docs`) || PathPrefix(`/admin/v1/functions`) || PathPrefix(`/serverless/v1/functions`) || PathPrefix(`/serverless/v1/stream`) || PathPrefix(`/serverless/v1/componentshealth`) || PathPrefix(`/serverless/v1/posix`) || PathPrefix(`/frontend/v1/instance`) || PathPrefix(`/datasystem/v1`) || PathPrefix(`/serverless/v2`) || PathPrefix(`/app/v1`) || PathPrefix(`/client/v1/lease`) || PathPrefix(`/invocations`) || Path(`/healthz`)"
+          service: frontend
+{{- with .Values.traefik.tls.router }}
+{{- if .enabled }}
+          tls:
+{{- if .certResolver }}
+            certResolver: {{ .certResolver }}
+{{- end }}
+{{- if .optionsName }}
+            options: {{ .optionsName }}
+{{- end }}
+{{- with .domains }}
+            domains:
+{{ toYaml . | nindent 14 }}
+{{- end }}
+{{- end }}
+{{- end }}
+        frontend-direct:
+          entryPoints:
+            - frontendDirect
+          rule: "PathPrefix(`/`)"
+          service: frontend
+      services:
+        frontend:
+          loadBalancer:
+            servers:
+              - url: http://{{ include "yr-k8s.componentName" (dict "root" . "component" "frontend") }}:{{ .Values.frontend.service.port }}
+{{- end }}

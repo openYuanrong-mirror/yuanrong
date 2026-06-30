@@ -17,18 +17,13 @@
 #include "fs_intf.h"
 
 #include <algorithm>
-#include <chrono>
 #include <fstream>
-#include <thread>
 
 #include "src/dto/config.h"
-#include "src/utility/logger/logger.h"
+#include "src/dto/data_object.h"
+#include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/utils.h"
-
-namespace {
-constexpr int kCheckpointRestoreDelayMs = 10000;
-}  // namespace
-
+#include "src/utility/logger/logger.h"
 namespace YR {
 namespace Libruntime {
 std::string GetReturnObjectId(const CallRequest &req)
@@ -175,8 +170,8 @@ void FSIntf::ProcessCallRequest(const std::shared_ptr<CallMessageSpec> &req, Cal
                         fmt::underlying(resp.code()), resp.message());
         }
     } else {
-        if (auto createOptions = req->Immutable().createoptions();
-            !status.WaitInitialized() && createOptions.find("ENABLE_FORCE_INVOKE") == createOptions.end()) {
+        const auto &createOptions = req->Immutable().createoptions();
+        if (!status.WaitInitialized() && createOptions.find("ENABLE_FORCE_INVOKE") == createOptions.end()) {
             auto [code, msg] = status.GetErrorInfo();
             resp.set_code(code);
             resp.set_message(msg);
@@ -206,17 +201,14 @@ void FSIntf::HandleInterruptRequest(const google::protobuf::Map<std::string, std
                                     const std::shared_ptr<CallMessageSpec> &req, CallResponse &resp)
 {
     auto requestId = req->Immutable().requestid();
-
     std::string interruptResponse = GetInterruptResponse(createOptions, requestId, resp);
     auto result = BuildInterruptedCallResult(req, interruptResponse);
-
     this->ReturnCallResult(result, false, [](const CallResultAck &ack) {
         if (ack.code() != common::ERR_NONE) {
             YRLOG_WARN("failed to send interrupted CallResult, code: {}, message: {}", fmt::underlying(ack.code()),
                        ack.message());
         }
     });
-
     YRLOG_INFO("send interrupted call response, request ID: {}, code {}, message {}", requestId,
                fmt::underlying(resp.code()), resp.message());
 }
@@ -246,11 +238,9 @@ std::string FSIntf::GetInterruptResponse(const google::protobuf::Map<std::string
 std::shared_ptr<CallResultMessageSpec> FSIntf::BuildInterruptedCallResult(const std::shared_ptr<CallMessageSpec> &req,
                                                                           std::string interruptResponse)
 {
-    auto requestId = req->Immutable().requestid();
-
     auto result = std::make_shared<CallResultMessageSpec>();
     auto &callResult = result->Mutable();
-    callResult.set_requestid(requestId);
+    callResult.set_requestid(req->Immutable().requestid());
     callResult.set_instanceid(req->Immutable().senderid());
     callResult.set_code(common::ERR_NONE);
 
@@ -259,7 +249,6 @@ std::shared_ptr<CallResultMessageSpec> FSIntf::BuildInterruptedCallResult(const 
     std::string payload(MetaDataLen, '\0');
     payload.append(interruptResponse);
     smallObj->set_value(payload.data(), payload.size());
-
     return result;
 }
 
@@ -278,7 +267,8 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
 {
     this->checkpointRecoverExecutor.Handle(
         [this, req, callback]() {
-            // 拦截 initcall 之外的其他请求
+            // Only block checkpoint after initialization. During initcall, the instance state is already valid for
+            // checkpointing even though the initcall ack may not have been processed yet.
             if (status.IsInitialized() && ExistProcessingRequestId()) {
                 CheckpointResponse resp;
                 resp.set_code(common::ERR_INSTANCE_BUSY);
@@ -358,28 +348,39 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 resp.set_message("PrepareSnap handler not registered");
                 callback(resp);
             }
-            // Read checkpoint file to verify snapshot readiness
-            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_ENV_FILE();
+            // Read seed file to verify snapshot restore barrier readiness.
+            // YR_SEED_FILE is the synchronization seed file used by runtimes to block until restore is ready.
+            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_SEED_FILE();
             if (!checkpointFile.empty()) {
                 YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
                 std::ifstream file(checkpointFile);
+                if (!file.is_open()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to open checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 file.peek();  // Trigger actual read() syscall
+                if (file.fail() && !file.eof()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to read checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(kCheckpointRestoreDelayMs));
-            // Refresh environment after snapshot restore
+
+            // After restore: do minimal operations only
+            // 1. Refresh environment variables (file IO, no network dependency)
+            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
             if (this->handlers.refreshEnv) {
                 YRLOG_INFO("calling refreshEnv callback");
                 this->handlers.refreshEnv();
             }
-            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
-            // Rebuild proxy connection with updated fsIp and fsPort from environment
-            auto info = ParseIpAddr(Config::Instance().YR_SERVER_ADDRESS());
-            YRLOG_INFO("Rebuilding proxy connection with fsIp: {}, fsPort: {}", info.ip, info.port);
-            auto reconnErr = this->ReconnectProxyClient(info.ip, info.port);
-            if (!reconnErr.OK()) {
-                YRLOG_ERROR("Failed to rebuild proxy connection: {}", reconnErr.CodeAndMsg());
-            }
+
+            // 2. Set re-init flag and stop callReceiver to exit ReceiveRequestLoop
+            needReInit_.store(true);
+            YRLOG_INFO("Set needReInit=true, shutting down callReceiver to trigger re-initialization loop");
+            // Stop callReceiver so that ReceiveRequestLoop() returns and main loop can check needReInit
+            callReceiver.Shutdown();
         },
         "");
 }

@@ -188,6 +188,61 @@ func TestPopInstanceReserved(t *testing.T) {
 	assert.Equal(t, "instance2", popIns2.InstanceID)
 }
 
+// TestPopInstanceWakesAfterAddInstance is a regression test for the bcs.Cond.Wait() hang:
+// popInstanceElement parks on bcs.Wait() when a reserved PopInstance(false) hits an empty self
+// queue while still scaling. Before the fix nothing ever signalled this Cond, so the caller (the
+// single funcSpecCh goroutine in production) froze forever and surfaced as "pool not exist"/150424.
+// AddInstance must now Broadcast so the awaited instance wakes the waiter and is returned.
+func TestPopInstanceWakesAfterAddInstance(t *testing.T) {
+	defer gomonkey.ApplyFunc((*selfregister.SchedulerProxy).IsFuncOwner, func(_ *selfregister.SchedulerProxy,
+		funcKey string) bool {
+		return true
+	}).Reset()
+	InsThdReqQueue := requestqueue.NewInsAcqReqQueue("", 100*time.Millisecond)
+	rcs := NewReservedConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 1},
+	}, resspeckey.ResSpecKey{}, 50*time.Millisecond, InsThdReqQueue)
+	// Owner instances land in selfInstanceQueue, which is exactly the queue popInstanceElement waits on.
+	rcs.(*ReservedConcurrencyScheduler).isFuncOwner = true
+	// CheckScaling()==true (scaling, timer far in the future) makes PopInstance(false) set wait=true.
+	rcs.ConnectWithInstanceScaler(&fakeInstanceScaler{
+		scaling: true,
+		timer:   time.NewTimer(time.Hour),
+	})
+
+	// Control: force=true => wait=false => returns immediately on an empty queue.
+	assert.Nil(t, rcs.PopInstance(true))
+
+	done := make(chan *types.Instance, 1)
+	go func() {
+		// empty self queue + scaling => popInstanceElement parks on bcs.Wait()
+		done <- rcs.PopInstance(false)
+	}()
+
+	// Must be parked on Wait(): it cannot return before an instance is enqueued.
+	select {
+	case <-done:
+		t.Fatal("PopInstance(false) returned before AddInstance; expected it to park on bcs.Wait()")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// Enqueue the awaited instance. The fix's Broadcast in AddInstance must wake the waiter.
+	assert.Nil(t, rcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	select {
+	case ins := <-done:
+		assert.NotNil(t, ins)
+		assert.Equal(t, "instance1", ins.InstanceID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("PopInstance(false) still blocked after AddInstance; bcs.Cond.Wait() never woken")
+	}
+}
+
 func TestHandleFuncSpecUpdateReserved(t *testing.T) {
 	InsThdReqQueue := requestqueue.NewInsAcqReqQueue("", 10)
 	rcs := NewReservedConcurrencyScheduler(&types.FunctionSpecification{

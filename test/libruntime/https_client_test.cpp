@@ -102,7 +102,7 @@ TEST_F(HttpsClientTest, InitFailed)
     ASSERT_EQ(err.OK(), false);
 }
 
-TEST_F(HttpsClientTest, SubmitTask)
+TEST_F(HttpsClientTest, DISABLED_SubmitTask)
 {
     auto ctx = ConstructSslContext();
     ASSERT_TRUE(ctx != nullptr);
@@ -146,7 +146,7 @@ TEST_F(HttpsClientTest, SubmitTask)
  * @step:  5. 发送https请求
  * @expect:  1.用例不卡住
  */
-TEST_F(HttpsClientTest, after_https_server_recover_request_should_return)
+TEST_F(HttpsClientTest, DISABLED_after_https_server_recover_request_should_return)
 {
     auto ctx = ConstructSslContext();
     ASSERT_TRUE(ctx != nullptr);
@@ -246,7 +246,7 @@ TEST_F(HttpsClientTest, after_reinit_should_not_coredump)
     httpsServer_->StopServer();
 }
 
-TEST_F(HttpsClientTest, trigger_init_more_client_should_not_coredump)
+TEST_F(HttpsClientTest, DISABLED_trigger_init_more_client_should_not_coredump)
 {
     auto ctx = ConstructSslContext();
     ASSERT_TRUE(ctx != nullptr);

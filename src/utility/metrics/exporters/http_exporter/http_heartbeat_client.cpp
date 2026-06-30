@@ -14,31 +14,33 @@
  * limitations under the License.
  */
 
-#include "http_heartbeat_client.h"
+#include "src/utility/metrics/exporters/http_exporter/http_heartbeat_client.h"
 
 namespace observability::exporters::metrics {
 
 HttpHeartBeatClient::HttpHeartBeatClient(const HeartbeatParam &heartbeatParam)
 {
     observer_ = std::make_shared<HttpHeartbeatObserver>(heartbeatParam);
-    litebus::Spawn(observer_);
 }
 
 HttpHeartBeatClient::~HttpHeartBeatClient()
 {
     if (observer_ != nullptr) {
-        litebus::Terminate(observer_->GetAID());
-        litebus::Await(observer_->GetAID());
+        observer_->Stop();
     }
 }
 
 void HttpHeartBeatClient::RegisterOnHealthChangeCb(const std::function<void(bool)> &onChange)
 {
-    litebus::Async(observer_->GetAID(), &HttpHeartbeatObserver::RegisterOnHealthChangeCb, onChange);
+    if (observer_) {
+        observer_->RegisterOnHealthChangeCb(onChange);
+    }
 }
 
 void HttpHeartBeatClient::Start()
 {
-    litebus::Async(observer_->GetAID(), &HttpHeartbeatObserver::Start);
+    if (observer_) {
+        observer_->Start();
+    }
 }
 }

@@ -231,7 +231,7 @@ public:
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         lc->tenantId = "tenantId";
         auto clientsMgr = std::make_shared<ClientsManager>();
-        auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+        auto metricsAdaptor = MetricsAdaptor::GetInstance();
         auto sec = std::make_shared<Security>();
         auto socketClient = std::make_shared<DomainSocketClient>(SOCK_PATH);
         lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);

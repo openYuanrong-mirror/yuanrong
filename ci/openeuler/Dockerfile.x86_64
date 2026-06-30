@@ -1,0 +1,221 @@
+
+# Dockerfile-mini-compile.x86_64 - 编译环境最小化镜像（x86_64）
+# 基于 Dockerfile-mini 精简版：openeuler 基础、root 用户、无 sudo
+# 构建: CI_TYPE=compile 时由 build_image.sh 使用
+
+# =============================================================================
+# 一阶段：从官网下载安装包/源码，编译安装（root 用户，无需 sudo）
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/openyuanrong/openeuler-22.03-lts-sp4:latest AS builder
+
+ARG GO_DL_ARCH=amd64
+ARG NODE_DL_ARCH=x64
+ARG JDK_DL_ARCH=x64
+ARG BAZEL_DL_ARCH=x86_64
+
+# 安装构建依赖
+RUN yum install -y \
+    gcc gcc-c++ git make libstdc++-devel curl libtool \
+    binutils binutils-devel libcurl-devel zlib zlib-devel automake expat-devel \
+    python3-pip python3-mock patch openssl openssl-devel libssh-devel libffi-devel \
+    sqlite-devel bison gawk texinfo glibc glibc-devel wget bzip2-devel sudo \
+    rsync nfs-utils xz libuuid unzip util-linux-devel cpio libcap-devel libatomic \
+    chrpath numactl-devel openeuler-lsb libasan dos2unix net-tools pigz cmake \
+    protobuf protobuf-devel patchelf rdma-core-devel doxygen
+
+RUN mkdir -p /opt/buildtools /opt/buildtools/go_workspace /tmp/build
+
+# ---------------------------------------------------------------------------
+# 1. JDK 8 - 官网发行版（Eclipse Temurin）
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/eclipse/temurin-compliance/temurin/8/jdk8u382-b05/OpenJDK8U-jdk_${JDK_DL_ARCH}_linux_hotspot_8u382b05.tar.gz" -O jdk8.tar.gz && \
+    tar -xf jdk8.tar.gz -C /opt/buildtools && \
+    mv /opt/buildtools/jdk8u382-b05 /opt/buildtools/jdk8 && \
+    rm -f jdk8.tar.gz
+
+# ---------------------------------------------------------------------------
+# 2. Maven - 官网发行版（Apache）
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/apache/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz" -O maven.tar.gz && \
+    tar -xf maven.tar.gz -C /opt/buildtools && \
+    rm -f maven.tar.gz
+
+RUN printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+    '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">' \
+    '  <mirrors>' \
+    '    <mirror><id>huaweicloud</id><mirrorOf>central</mirrorOf>' \
+    '      <url>https://repo.huaweicloud.com/repository/maven/</url></mirror>' \
+    '  </mirrors></settings>' \
+    > /opt/buildtools/apache-maven-3.9.11/conf/settings.xml
+
+# ---------------------------------------------------------------------------
+# 3. Go - 官网发行版（golang.org）
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://dl.google.com/go/go1.24.1.linux-${GO_DL_ARCH}.tar.gz" -O go.tar.gz && \
+    tar -xzf go.tar.gz -C /opt/buildtools && \
+    mv /opt/buildtools/go /opt/buildtools/golang_go-1.24.1 && \
+    rm -f go.tar.gz
+
+# ---------------------------------------------------------------------------
+# 4. Python 3.9 / 3.10 / 3.11 - 从源码构建
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.9.11/Python-3.9.11.tgz" -O py39.tar.gz && \
+    tar -xzf py39.tar.gz && cd Python-3.9.11 && \
+    ./configure --prefix=/opt/buildtools/python3.9 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.9.11 py39.tar.gz
+
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.10.2/Python-3.10.2.tgz" -O py310.tar.gz && \
+    tar -xzf py310.tar.gz && cd Python-3.10.2 && \
+    ./configure --prefix=/opt/buildtools/python3.10 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.10.2 py310.tar.gz
+
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.11.4/Python-3.11.4.tgz" -O py311.tar.gz && \
+    tar -xzf py311.tar.gz && cd Python-3.11.4 && \
+    ./configure --prefix=/opt/buildtools/python3.11 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.11.4 py311.tar.gz
+
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.12.9/Python-3.12.9.tgz" -O py312.tar.gz && \
+    tar -xzf py312.tar.gz && cd Python-3.12.9 && \
+    ./configure --prefix=/opt/buildtools/python3.12 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.12.9 py312.tar.gz
+
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.13.2/Python-3.13.2.tgz" -O py313.tar.gz && \
+    tar -xzf py313.tar.gz && cd Python-3.13.2 && \
+    ./configure --prefix=/opt/buildtools/python3.13 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.13.2 py313.tar.gz
+
+# ---------------------------------------------------------------------------
+# 5. Bazel - 官网二进制（bazelbuild）
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/bazel/6.5.0/bazel-6.5.0-linux-${BAZEL_DL_ARCH}" -O bazel && \
+    chmod +x bazel && mv bazel /usr/local/bin/
+
+# ---------------------------------------------------------------------------
+# 6. Ninja - 从源码构建
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://codeload.github.com/ninja-build/ninja/tar.gz/refs/tags/v1.12.0" -O ninja.tar.gz && \
+    tar -xzf ninja.tar.gz && cd ninja-1.12.0 && \
+    ./configure.py --bootstrap && \
+    cp ninja /usr/local/bin/ && chmod +x /usr/local/bin/ninja && \
+    cd /tmp/build && rm -rf ninja-1.12.0 ninja.tar.gz
+
+# ---------------------------------------------------------------------------
+# 7. Node.js - 官网发行版（nodejs.org）
+# ---------------------------------------------------------------------------
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/nodejs/v20.19.0/node-v20.19.0-linux-${NODE_DL_ARCH}.tar.gz" -O node.tar.gz && \
+    tar -xzf node.tar.gz -C /opt/buildtools && \
+    mv /opt/buildtools/node-v20.19.0-linux-${NODE_DL_ARCH} /opt/buildtools/nodejs && \
+    rm -f node.tar.gz
+
+RUN rm -rf /tmp/build
+
+# =============================================================================
+# 二阶段：拷贝产物并配置，仅保留运行时依赖
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/openyuanrong/openeuler-22.03-lts-sp4:latest
+
+# 安装编译工具链（gcc/cmake/protoc 等，compile 镜像需完整构建环境）
+RUN yum install -y \
+    gcc gcc-c++ git make libstdc++-devel curl libtool \
+    binutils binutils-devel libcurl-devel zlib zlib-devel automake expat-devel \
+    python3-pip python3-mock patch openssl openssl-devel libssh-devel libffi-devel \
+    sqlite-devel bison gawk texinfo glibc glibc-devel wget bzip2-devel sudo \
+    rsync nfs-utils xz libuuid unzip util-linux-devel cpio libcap-devel libatomic \
+    chrpath numactl-devel openeuler-lsb libasan dos2unix net-tools pigz cmake \
+    protobuf protobuf-devel patchelf rdma-core-devel doxygen
+
+
+# 从一阶段拷贝已安装的工具
+COPY --from=builder /opt/buildtools /opt/buildtools
+COPY --from=builder /usr/local/bin/bazel /usr/local/bin/
+COPY --from=builder /usr/local/bin/ninja /usr/local/bin/
+
+# Python 软链接
+RUN ln -sf /opt/buildtools/python3.9/bin/python3.9 /usr/local/bin/python3.9 && \
+    ln -sf /opt/buildtools/python3.9/bin/python3.9 /opt/buildtools/python3.9/bin/python && \
+    ln -sf /opt/buildtools/python3.9/bin/pip3.9 /opt/buildtools/python3.9/bin/pip && \
+    ln -sf /opt/buildtools/python3.10/bin/python3.10 /usr/local/bin/python3.10 && \
+    ln -sf /opt/buildtools/python3.10/bin/python3.10 /opt/buildtools/python3.10/bin/python && \
+    ln -sf /opt/buildtools/python3.10/bin/pip3.10 /opt/buildtools/python3.10/bin/pip && \
+    ln -sf /opt/buildtools/python3.11/bin/python3.11 /usr/local/bin/python3.11 && \
+    ln -sf /opt/buildtools/python3.11/bin/python3.11 /opt/buildtools/python3.11/bin/python && \
+    ln -sf /opt/buildtools/python3.11/bin/pip3.11 /opt/buildtools/python3.11/bin/pip && \
+    ln -sf /opt/buildtools/python3.12/bin/python3.12 /usr/local/bin/python3.12 && \
+    ln -sf /opt/buildtools/python3.12/bin/python3.12 /opt/buildtools/python3.12/bin/python && \
+    ln -sf /opt/buildtools/python3.12/bin/pip3.12 /opt/buildtools/python3.12/bin/pip && \
+    ln -sf /opt/buildtools/python3.13/bin/python3.13 /usr/local/bin/python3.13 && \
+    ln -sf /opt/buildtools/python3.13/bin/python3.13 /opt/buildtools/python3.13/bin/python && \
+    ln -sf /opt/buildtools/python3.13/bin/pip3.13 /opt/buildtools/python3.13/bin/pip
+
+# 动态库配置
+RUN echo "/opt/buildtools/python3.9/lib" > /etc/ld.so.conf.d/python3.9.conf && \
+    echo "/opt/buildtools/python3.10/lib" > /etc/ld.so.conf.d/python3.10.conf && \
+    echo "/opt/buildtools/python3.11/lib" > /etc/ld.so.conf.d/python3.11.conf && \
+    echo "/opt/buildtools/python3.12/lib" > /etc/ld.so.conf.d/python3.12.conf && \
+    echo "/opt/buildtools/python3.13/lib" > /etc/ld.so.conf.d/python3.13.conf && \
+    ldconfig
+
+ENV JAVA_HOME=/opt/buildtools/jdk8 \
+    MAVEN_HOME=/opt/buildtools/apache-maven-3.9.11 \
+    GOROOT=/opt/buildtools/golang_go-1.24.1 \
+    GOPATH=/opt/buildtools/go_workspace \
+    GO111MODULE=on \
+    GOPROXY=https://goproxy.cn,direct \
+    GONOSUMDB=* \
+    PYTHON_PATH_3911=/opt/buildtools/python3.9 \
+    PYTHON_PATH_3102=/opt/buildtools/python3.10 \
+    PYTHON_PATH_3114=/opt/buildtools/python3.11 \
+    PYTHON_PATH_3129=/opt/buildtools/python3.12 \
+    PYTHON_PATH_3132=/opt/buildtools/python3.13 \
+    LANG=C.UTF-8 \
+    TMOUT=0
+
+ENV PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$GOROOT/bin:$GOPATH/bin:/opt/buildtools/nodejs/bin:$PYTHON_PATH_3911/bin:$PYTHON_PATH_3102/bin:$PYTHON_PATH_3114/bin:$PYTHON_PATH_3129/bin:$PYTHON_PATH_3132/bin:$HOME/.local/bin:$PATH \
+    LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib:$PYTHON_PATH_3102/lib:$PYTHON_PATH_3114/lib:$PYTHON_PATH_3129/lib:$PYTHON_PATH_3132/lib:/usr/lib:/usr/lib64:$LD_LIBRARY_PATH
+
+# pip / npm 镜像配置
+RUN /opt/buildtools/python3.9/bin/pip3.9 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    /opt/buildtools/python3.9/bin/pip3.9 config --user set global.trusted-host mirrors.huaweicloud.com && \
+    /opt/buildtools/python3.10/bin/pip3.10 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    /opt/buildtools/python3.10/bin/pip3.10 config --user set global.trusted-host mirrors.huaweicloud.com && \
+    /opt/buildtools/python3.11/bin/pip3.11 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    /opt/buildtools/python3.11/bin/pip3.11 config --user set global.trusted-host mirrors.huaweicloud.com && \
+    /opt/buildtools/python3.12/bin/pip3.12 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    /opt/buildtools/python3.12/bin/pip3.12 config --user set global.trusted-host mirrors.huaweicloud.com && \
+    /opt/buildtools/python3.13/bin/pip3.13 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    /opt/buildtools/python3.13/bin/pip3.13 config --user set global.trusted-host mirrors.huaweicloud.com
+
+# pip 安装 wheel / six
+RUN /opt/buildtools/python3.9/bin/pip3.9 install setuptools wheel==0.36.2 six==1.10.0 && \
+    /opt/buildtools/python3.10/bin/pip3.10 install setuptools wheel==0.36.2 && \
+    /opt/buildtools/python3.11/bin/pip3.11 install setuptools wheel==0.36.2 && \
+    /opt/buildtools/python3.12/bin/pip3.12 install setuptools wheel==0.36.2 && \
+    /opt/buildtools/python3.13/bin/pip3.13 install setuptools wheel==0.36.2
+
+RUN /opt/buildtools/nodejs/bin/npm config set registry https://mirrors.huaweicloud.com/repository/npm/ && \
+    /opt/buildtools/nodejs/bin/npm config set strict-ssl false
+
+# CANN Toolkit - 华为昇腾
+#RUN wget -q "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/cann/Ascend-cann-toolkit_8.2.RC1_linux-x86_64.run" -O /tmp/cann_toolkit.run && \
+#    chmod +x /tmp/cann_toolkit.run && \
+#    cd /tmp && ./cann_toolkit.run --install -q && \
+#    rm -f /tmp/cann_toolkit.run
+
+CMD ["/bin/bash"]
+

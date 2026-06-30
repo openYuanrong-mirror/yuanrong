@@ -14,23 +14,27 @@
  * limitations under the License.
  */
 
-#include "http_heartbeat_observer.h"
+#include "src/utility/metrics/exporters/http_exporter/http_heartbeat_observer.h"
 
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 
 namespace observability::exporters::metrics {
 
 const int32_t CODE_OK = 200;
 
 HttpHeartbeatObserver::HttpHeartbeatObserver(const HeartbeatParam &heartbeatParam)
-    : litebus::ActorBase("HttpHeartbeatActor"  + litebus::uuid_generator::UUID::GetRandomUUID().ToString()),
-    pingCycleMs_(heartbeatParam.heartbeatInterval), url_(heartbeatParam.heartbeatUrl), method_(heartbeatParam.method)
+    : pingCycleMs_(heartbeatParam.heartbeatInterval), url_(heartbeatParam.heartbeatUrl), method_(heartbeatParam.method)
 {
     curlHelper_ = std::make_shared<CurlHelper>();
     if (curlHelper_) {
         curlHelper_->SetHttpHeader(heartbeatParam.httpHeader.c_str());
         curlHelper_->SetSSLConfig(heartbeatParam.sslConfig);
     }
+}
+
+HttpHeartbeatObserver::~HttpHeartbeatObserver()
+{
+    Stop();
 }
 
 void HttpHeartbeatObserver::RegisterOnHealthChangeCb(const std::function<void(bool)> &onChange)
@@ -44,30 +48,37 @@ void HttpHeartbeatObserver::Start()
         METRICS_LOG_INFO("Can not start http heartbeat, health status is {}, url is {}", healthy_.load(), url_);
         return;
     }
+    running_.store(true);
     Ping();
 }
 
 void HttpHeartbeatObserver::Stop()
 {
-    if (!timer_.GetTimeWatch().Expired()) {
-        METRICS_LOG_INFO("heartbeat({}) cancel send ping", std::string(GetAID()));
-        (void)litebus::TimerTools::Cancel(timer_);
+    running_.store(false);
+    if (timer_) {
+        METRICS_LOG_INFO("heartbeat cancel send ping");
+        YR::utility::CancelGlobalTimer(timer_);
+        timer_ = nullptr;
     }
 }
 
 void HttpHeartbeatObserver::Ping()
 {
+    if (!running_.load()) {
+        return;
+    }
+
     std::ostringstream oss;
     auto responseCode = curlHelper_->SendRequest(method_, url_, oss);
     if (responseCode != CODE_OK) {
-        METRICS_LOG_WARN("{} metrics export backend health check res is {}", GetAID().Name(), responseCode);
+        METRICS_LOG_WARN("metrics export backend health check res is {}", responseCode);
         healthy_.store(false);
         if (onChange_ != nullptr) {
             onChange_(false);
         }
-        timer_ = litebus::AsyncAfter(pingCycleMs_, GetAID(), &HttpHeartbeatObserver::Ping);
+        ScheduleNextPing();
     } else {
-        METRICS_LOG_INFO("{} metrics export backend health check finishes, exporter is healthy", GetAID().Name());
+        METRICS_LOG_INFO("metrics export backend health check finishes, exporter is healthy");
         healthy_.store(true);
         if (onChange_ != nullptr) {
             onChange_(true);
@@ -76,8 +87,18 @@ void HttpHeartbeatObserver::Ping()
     }
 }
 
-void HttpHeartbeatObserver::Finalize()
+void HttpHeartbeatObserver::ScheduleNextPing()
 {
-    (void)Stop();
+    if (!running_.load()) {
+        return;
+    }
+
+    timer_ = YR::utility::ExecuteByGlobalTimer(
+        [this]() {
+            Ping();
+        },
+        pingCycleMs_,
+        -1
+    );
 }
 }

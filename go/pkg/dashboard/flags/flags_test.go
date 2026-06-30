@@ -21,11 +21,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/agiledragon/gomonkey"
 	"github.com/smartystreets/goconvey/convey"
-
-	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
-	"yuanrong.org/kernel/pkg/common/reader"
 )
 
 func TestInitConfigNoFile(t *testing.T) {
@@ -36,27 +32,33 @@ func TestInitConfigNoFile(t *testing.T) {
 			convey.So(os.IsNotExist(err), convey.ShouldBeTrue)
 		})
 		convey.Convey("init config when format error", func() {
-			cofPatches := gomonkey.ApplyFunc(reader.ReadFileWithTimeout, func(configFile string) ([]byte, error) {
+			rawReadFileWithTimeout := readFileWithTimeout
+			defer func() {
+				readFileWithTimeout = rawReadFileWithTimeout
+			}()
+			readFileWithTimeout = func(configFile string) ([]byte, error) {
 				configStr := `{
-		"ip": "0.0.0.0",
-		"port": "9080"
-		}`
+			"ip": "0.0.0.0",
+			"port": "9080"
+			}`
 				return []byte(configStr), nil
-			})
-			defer cofPatches.Reset()
+			}
 			err := initConfig(dashboardConfigPath)
 			convey.So(err.Error(), convey.ShouldContainSubstring, "cannot unmarshal")
 		})
 		convey.Convey("init config when validate error", func() {
-			cofPatches := gomonkey.ApplyFunc(reader.ReadFileWithTimeout, func(configFile string) ([]byte, error) {
+			rawReadFileWithTimeout := readFileWithTimeout
+			defer func() {
+				readFileWithTimeout = rawReadFileWithTimeout
+			}()
+			readFileWithTimeout = func(configFile string) ([]byte, error) {
 				configStr := `{
-		"ip": "0.0.0.0",
-		"port": 9080,
-		"functionMasterAddr": "0.0.0.0:1234"
-		}`
+			"ip": "0.0.0.0",
+			"port": 9080,
+			"functionMasterAddr": "0.0.0.0:1234"
+			}`
 				return []byte(configStr), nil
-			})
-			defer cofPatches.Reset()
+			}
 			err := initConfig(dashboardConfigPath)
 			convey.So(err.Error(), convey.ShouldContainSubstring, "0.0.0.0:1234 does not validate as url")
 		})
@@ -66,10 +68,14 @@ func TestInitConfigNoFile(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	convey.Convey("Test loadConfig:", t, func() {
 		convey.Convey("load config success", func() {
-			cofPatches := gomonkey.ApplyFunc(reader.ReadFileWithTimeout, func(configFile string) ([]byte, error) {
+			rawReadFileWithTimeout := readFileWithTimeout
+			defer func() {
+				readFileWithTimeout = rawReadFileWithTimeout
+			}()
+			readFileWithTimeout = func(configFile string) ([]byte, error) {
 				configStr := `{
-		"ip": "0.0.0.0",
-		"port": 9080,
+			"ip": "0.0.0.0",
+			"port": 9080,
 		"functionMasterAddr": "127.0.0.1:1234",
 		"frontendAddr": "127.0.0.1:8888",
 		"prometheusAddr": "127.0.0.1:9090",
@@ -82,11 +88,10 @@ func TestLoadConfig(t *testing.T) {
 		  "servers": ["127.0.0.1:5678"],
 		  "sslEnable": false,
 		  "authType": "NOAUTH"
-		}
-		}`
+			}
+			}`
 				return []byte(configStr), nil
-			})
-			defer cofPatches.Reset()
+			}
 			convey.So(func() {
 				loadConfig(dashboardConfigPath, initConfig)
 			}, convey.ShouldNotPanic)
@@ -102,10 +107,13 @@ func TestLoadConfig(t *testing.T) {
 func TestLoadLogConfig(t *testing.T) {
 	convey.Convey("Test loadLogConfig:", t, func() {
 		dashboardLogConfigPath = "log.json"
-		logPatches := gomonkey.ApplyFunc(log.InitRunLog, func(fileName string, async bool) error {
+		rawInitRunLogFunc := initRunLogFunc
+		defer func() {
+			initRunLogFunc = rawInitRunLogFunc
+		}()
+		initRunLogFunc = func(fileName string, async bool) error {
 			return nil
-		})
-		defer logPatches.Reset()
+		}
 
 		convey.Convey("load log config success", func() {
 			convey.So(initLog(), convey.ShouldBeNil)

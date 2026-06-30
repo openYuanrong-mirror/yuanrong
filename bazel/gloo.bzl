@@ -76,10 +76,10 @@ cc_library(
         "-std=c++17",
         "-fPIC",
     ],
-    linkopts = [
-        "-lpthread",
-        "-libverbs",
-    ],
+    linkopts = ["-lpthread"] + select({
+        "@platforms//os:macos": [],
+        "//conditions:default": ["-libverbs"],
+    }),
     linkstatic = True,
     visibility = ["//visibility:public"],
 )

@@ -18,6 +18,7 @@
 
 import logging
 import os
+from dataclasses import replace
 from yr.common import utils
 from yr.common.singleton import Singleton
 from yr.config import Config, DeploymentConfig, MetaConfig, MetaFunctionID
@@ -99,6 +100,7 @@ class ConfigManager:
         self.dedup_logs = False
         self.env_file = ""
         self.auth_token = ""
+        self.bypass_datasystem = None
 
     @property
     def deployment_config(self) -> DeploymentConfig:
@@ -307,6 +309,13 @@ class ConfigManager:
         self.dedup_logs = conf.dedup_logs
         self.env_file = conf.env_file
         self.auth_token = conf.auth_token
+        self.bypass_datasystem = conf.bypass_datasystem
+
+    def override_bypass_datasystem(self, invoke_options):
+        """Apply the process-wide bypass override without mutating caller options."""
+        if self.bypass_datasystem is None:
+            return invoke_options
+        return replace(invoke_options, bypass_datasystem=self.bypass_datasystem)
 
     def get_function_id_by_language(self, language):
         """

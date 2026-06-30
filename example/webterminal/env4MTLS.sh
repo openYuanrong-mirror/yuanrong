@@ -1,0 +1,13 @@
+export YR_JWT_TOKEN=""
+export YR_LOG_LEVEL=DEBUG
+export GLOG_log_dir=$(pwd)/driver
+export YR_SERVER_ADDRESS="172.17.0.3:8888"
+export YR_METASERVICE_ADDRESS="172.17.0.3:31111"
+export YR_CLIENT_AUTH_TYPE="mutual"
+export YR_SERVER_NAME="test"
+export YR_ENABLE_TLS="false"
+export YR_ENABLE_MTLS="true"
+export YR_PRIVATE_KEY_FILE="/ws/code/openyuanrong/cert/yr/module.key"
+export YR_CERT_FILE="/ws/code/openyuanrong/cert/yr/module.crt"
+export YR_VERIFY_FILE="/ws/code/openyuanrong/cert/yr/ca.crt"
+export YR_IN_CLUSTER="false"

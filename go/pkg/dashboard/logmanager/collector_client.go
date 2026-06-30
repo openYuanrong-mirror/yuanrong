@@ -43,6 +43,8 @@ type collectorClient struct {
 	logClient logservice.LogCollectorServiceClient
 }
 
+var newCollectorGrpcClient = grpc.NewClient
+
 // Connect will connect the collector and store the connection
 func (c *collectorClient) Connect() error {
 	creds := insecure.NewCredentials()
@@ -51,7 +53,7 @@ func (c *collectorClient) Connect() error {
 		creds = credentials.NewTLS(tlsConf)
 	}
 	// connect it
-	conn, err := grpc.NewClient(c.Address, grpc.WithTransportCredentials(creds))
+	conn, err := newCollectorGrpcClient(c.Address, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return err
 	}

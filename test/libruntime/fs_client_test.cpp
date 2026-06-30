@@ -71,7 +71,9 @@ public:
 
     void TearDown() override
     {
-        fsClient_->Stop();
+        if (fsClient_) {
+            fsClient_->Stop();
+        }
         grpcServer->Stop();
         security_.reset();
         if (t.joinable()) {
@@ -750,8 +752,22 @@ TEST_F(FSClientGrpcTest, GrpcClientTest_EventAsync)
 {
     DoStartGrpcClient();
     fsClient_->UpdateEventServerInfo(Config::Instance().HOST_IP(), grpcServer->GetPort(), "test_instace_id");
-    EXPECT_EQ(fsClient_->GetEventServerIP(), Config::Instance().HOST_IP());
+    EXPECT_EQ(fsClient_->GetEventServerIP(), "");
     EXPECT_NE(fsClient_->GetEventServerPort(), grpcServer->GetPort());
+}
+
+TEST_F(FSClientGrpcTest, DriverEventServerUsesPodIpForLocalListenAddress)
+{
+    const std::string functionProxyIp = "7.189.20.41";
+    const std::string podIp = "10.42.17.121";
+    Config::Instance().POD_IP() = podIp;
+
+    auto fsIntf =
+        std::make_shared<FSIntfImpl>(functionProxyIp, 32568, handlers_, true, security_, clientsMgr, false, true);
+
+    EXPECT_EQ(fsIntf->fsIp, functionProxyIp);
+    EXPECT_EQ(fsIntf->GetSelfIP(), podIp);
+    Config::Instance().POD_IP() = "";
 }
 }  // namespace test
 }  // namespace YR

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#ifdef ENABLE_DATASYSTEM
+
 #include "datasystem_stream_store.h"
 
 #include <utility>
@@ -54,24 +56,23 @@ ErrorInfo DatasystemStreamStore::Init(const std::string &ip, int port, bool enab
     return ErrorInfo();
 }
 
-ErrorInfo DatasystemStreamStore::Init(datasystem::ConnectOptions &inputConnOpt, std::shared_ptr<StateStore> stateStore)
+ErrorInfo DatasystemStreamStore::Init(const DsConnectOptions &options, std::shared_ptr<StateStore> stateStore)
 {
     this->dsStateStore = stateStore;
-    return Init(inputConnOpt);
+    return Init(options);
 }
 
-ErrorInfo DatasystemStreamStore::Init(datasystem::ConnectOptions &inputConnOpt)
+ErrorInfo DatasystemStreamStore::Init(const DsConnectOptions &options)
 {
-    this->connectOpts.host = inputConnOpt.host;
-    this->connectOpts.port = inputConnOpt.port;
-    this->connectOpts.clientPublicKey = inputConnOpt.clientPublicKey;
-    this->connectOpts.clientPrivateKey = inputConnOpt.clientPrivateKey;
-    this->connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
-    this->connectOpts.accessKey = inputConnOpt.accessKey;
-    this->connectOpts.secretKey = inputConnOpt.secretKey;
-    this->connectOpts.token = inputConnOpt.token;
-    this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
-    this->connectOpts.tenantId = inputConnOpt.tenantId;
+    this->connectOpts.host = options.host;
+    this->connectOpts.port = options.port;
+    this->connectOpts.clientPublicKey = options.clientPublicKey;
+    this->connectOpts.clientPrivateKey = options.clientPrivateKey;
+    this->connectOpts.serverPublicKey = options.serverPublicKey;
+    this->connectOpts.accessKey = options.accessKey;
+    this->connectOpts.secretKey = options.secretKey;
+    this->connectOpts.connectTimeoutMs = options.connectTimeoutMs;
+    this->connectOpts.tenantId = options.tenantId;
     return ErrorInfo();
 }
 
@@ -240,3 +241,5 @@ ErrorInfo DatasystemStreamStore::EnsureInit()
 }
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // ENABLE_DATASYSTEM

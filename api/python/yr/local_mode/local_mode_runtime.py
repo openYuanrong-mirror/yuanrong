@@ -27,32 +27,23 @@ from yr.config import InvokeOptions, GroupOptions
 from yr.exception import YRInvokeError
 from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.common.utils import (
-    generate_random_id,
-    generate_task_id,
-    GaugeData,
-    UInt64CounterData,
-    DoubleCounterData,
+    generate_random_id, generate_task_id, GaugeData, UInt64CounterData, DoubleCounterData
 )
-from yr.fnruntime import Producer, Consumer
+from yr.fnruntime import Producer, Consumer, write_to_cbuffer
+from yr.serialization import Serialization
 from yr.local_mode.local_client import LocalClient
 from yr.local_mode.local_object_store import LocalObjectStore
 from yr.local_mode.task_manager import TaskManager
 from yr.libruntime_pb2 import FunctionMeta, InvokeType
 from yr.local_mode.task_spec import TaskSpec
-from yr.base_runtime import (
-    BaseRuntime,
-    AlarmInfo,
-    SetParam,
-    MSetParam,
-    CreateParam,
-    GetParams,
-)
+
+from yr.base_runtime import Runtime, AlarmInfo, SetParam, MSetParam, CreateParam, GetParams
 from yr.fnruntime import SharedBuffer
 
 _logger = logging.getLogger(__name__)
 
 
-class LocalModeRuntime(BaseRuntime, ABC):
+class LocalModeRuntime(Runtime, ABC):
     """local mode runtime"""
 
     def __init__(self):
@@ -67,6 +58,19 @@ class LocalModeRuntime(BaseRuntime, ABC):
         """
         self.__enable_flag = True
 
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
+        raise RuntimeError("not support in local mode")
+
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        raise RuntimeError("not support in local mode")
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        raise RuntimeError("not support in local mode")
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        raise RuntimeError("not support in local mode")
+
     def put(self, obj, create_param: CreateParam) -> str:
         """
         Put data to ds
@@ -79,10 +83,8 @@ class LocalModeRuntime(BaseRuntime, ABC):
         return key
 
     def put_serialized(self, serialized_object) -> str:
-        """Deserialize and store a SerializedObject so worker.py can retrieve it as a callable."""
         key = generate_random_id()
-        obj = self._deserialize_code_bytes(serialized_object.to_bytes())
-        self.__local_store.put(key, obj)
+        self.__local_store.put(key, Serialization().deserialize(write_to_cbuffer(serialized_object)))
         return key
 
     def get(self, ids: List[str], timeout: int, allow_partial: bool) -> List[Any]:
@@ -226,7 +228,6 @@ class LocalModeRuntime(BaseRuntime, ABC):
         :param group_info: group info
         :return: None
         """
-        func_meta = self._ensure_code_in_store(func_meta)
         task_id = generate_task_id()
         f = Future()
 
@@ -256,7 +257,6 @@ class LocalModeRuntime(BaseRuntime, ABC):
         :param group_info: group info
         :return: instance id
         """
-        func_meta = self._ensure_code_in_store(func_meta)
         task_id = generate_task_id()
         f = Future()
         task_spec = TaskSpec(
@@ -272,7 +272,9 @@ class LocalModeRuntime(BaseRuntime, ABC):
         for i in task_spec.object_ids:
             self.__local_store.set_return_obj(i, f)
             self.__object_ids[i] = task_id
-        return self.__invoke_client.create(task_spec)
+        instance_id = self.__invoke_client.create(task_spec)
+        f.result()
+        return instance_id
 
     def invoke_instance(self, func_meta: FunctionMeta, instance_id: str, args: List[Any],
                         opt: InvokeOptions, return_nums: int) -> List[str]:
@@ -332,12 +334,6 @@ class LocalModeRuntime(BaseRuntime, ABC):
         """
         self.__invoke_client.kill(instance_id)
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
-        raise RuntimeError("not support in local mode")
-
-    def snapstart_instance(self, checkpoint_id: str) -> str:
-        raise RuntimeError("not support in local mode")
-
     def terminate_group(self, group_name: str) -> None:
         """
         terminate group
@@ -356,6 +352,20 @@ class LocalModeRuntime(BaseRuntime, ABC):
     def receive_request_loop(self) -> None:
         """
         main loop
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: always False in local mode
+        """
+        return False
+
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
         :return: None
         """
         raise RuntimeError("not support in local mode")
@@ -563,38 +573,6 @@ class LocalModeRuntime(BaseRuntime, ABC):
         """
         raise RuntimeError("not support in local mode")
 
-    def set_gauge(self, data: GaugeData) -> None:
-        """
-        set gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-        raise RuntimeError("not support in local mode")
-
-    def increase_gauge(self, data: GaugeData) -> None:
-        """
-        increase gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-        raise RuntimeError("not support in local mode")
-
-    def decrease_gauge(self, data: GaugeData) -> None:
-        """
-        decrease gauge metrics
-        :param data: GaugeData
-        :return: None
-        """
-        raise RuntimeError("not support in local mode")
-
-    def get_value_gauge(self, data: GaugeData) -> float:
-        """
-        get value of gauge metrics
-        :param data: GaugeData
-        :return: value
-        """
-        raise RuntimeError("not support in local mode")
-
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metrics
@@ -737,39 +715,3 @@ class LocalModeRuntime(BaseRuntime, ABC):
             else:
                 unready_map[future] = [object_id]
         return ready_objs, unready_map, exist_exception
-
-    def _deserialize_code_bytes(self, raw: bytes) -> object:
-        """Deserialize code bytes (SerializedObject binary format) into a callable."""
-        import msgpack as _msgpack
-        from yr.common import constants
-        from yr.serialization.serializers import PySerializer, MessagePackSerializer
-
-        # Buffer format: |metadata(8 bytes)|msgpack_size(8 bytes)|msgpack_data(N bytes)|py_data|
-        meta_unpacker = _msgpack.Unpacker()
-        meta_unpacker.feed(raw[:8])
-        metadata = meta_unpacker.unpack()
-
-        size_unpacker = _msgpack.Unpacker()
-        size_unpacker.feed(raw[8:16])
-        msgpack_data_size = size_unpacker.unpack()
-
-        msgpack_data = raw[16:16 + msgpack_data_size]
-        py_data = raw[16 + msgpack_data_size:]
-
-        python_objects = []
-        if py_data and constants.Metadata(metadata) == constants.Metadata.PYTHON:
-            python_objects = PySerializer.deserialize(py_data)
-
-        return MessagePackSerializer.deserialize(msgpack_data, python_objects)
-
-    def _ensure_code_in_store(self, func_meta: FunctionMeta) -> FunctionMeta:
-        """If code is passed inline (codeID empty, code bytes present), store it and return updated meta."""
-        if func_meta.codeID or not func_meta.code:
-            return func_meta
-        obj = self._deserialize_code_bytes(bytes(func_meta.code))
-        key = generate_random_id()
-        self.__local_store.put(key, obj)
-        new_meta = FunctionMeta()
-        new_meta.CopyFrom(func_meta)
-        new_meta.codeID = key
-        return new_meta

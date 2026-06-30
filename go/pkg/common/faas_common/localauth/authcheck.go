@@ -60,7 +60,10 @@ const (
 	signFieldSize        = 2
 )
 
-var timestampDiffLimit = getTimestampDiffLimit()
+var (
+	timestampDiffLimit = getTimestampDiffLimit()
+	decryptKeys        = DecryptKeys
+)
 
 type modeOptions struct {
 	authHeaderPrefix string
@@ -361,7 +364,7 @@ func AuthCheckLocally(ak string, sk string, requestSign string, timestamp string
 	if exist {
 		return nil
 	}
-	aKey, sKey, err := DecryptKeys(ak, sk)
+	aKey, sKey, err := decryptKeys(ak, sk)
 	if err != nil {
 		utils.ClearByteMemory(aKey)
 		utils.ClearByteMemory(sKey)
@@ -413,7 +416,7 @@ func SignOMSVC(ak, sk, url string, data []byte) (string, string) {
 // CreateAuthorization create Authentication Information
 func CreateAuthorization(ak, sk, url, appID string, data []byte) (string, string) {
 	timestamp := strconv.FormatInt(time.Now().Unix(), base)
-	aKey, sKey, err := DecryptKeys(ak, sk)
+	aKey, sKey, err := decryptKeys(ak, sk)
 	if err != nil {
 		utils.ClearByteMemory(aKey)
 		utils.ClearByteMemory(sKey)

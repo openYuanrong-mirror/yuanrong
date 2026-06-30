@@ -100,6 +100,16 @@ void CReceiveRequestLoop(void)
     return;
 }
 
+char CNeedReInit(void)
+{
+    return 0;
+}
+
+void CReInit(void)
+{
+    return;
+}
+
 void CExecShutdownHandler(int sigNum)
 {
     return;
@@ -119,6 +129,8 @@ CErrorInfo CInvokeByInstanceId(CFunctionMeta *cFuncMeta, char *cInstanceId, CInv
 CErrorInfo CAcquireInstance(char *stateId, CFunctionMeta *cFuncMeta, CInvokeOptions *cInvokeOpts,
                             CInstanceAllocation *cInsAlloc)
 {
+    cInsAlloc->routeAddress = CString("10.0.0.1:7788");
+    cInsAlloc->proxyID = CString("proxy-abc");
     return ErrorInfoToCError(ErrorInfo());
 }
 
@@ -133,17 +145,17 @@ CErrorInfo CInvokeByFunctionName(CFunctionMeta *cFuncMeta, CInvokeArg *cInvokeAr
     return ErrorInfoToCError(ErrorInfo());
 }
 
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext)
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }
 
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext)
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }
 
-void CKillRaw(CBuffer cReqRaw, char *cContext)
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }
@@ -173,12 +185,40 @@ void CGetEvent(char *objectId, void *userData)
     return;
 }
 
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID)
 {
+    (void)instanceId;
+    (void)cData;
+    (void)routeAddress;
+    (void)proxyID;
     if (sigNo == 128) {
         return ErrorInfoToCError(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
                                            YR::Libruntime::ModuleCode::RUNTIME, "failed to kill"));
     }
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CSetGauge(CGaugeData *data)
+{
+    (void)data;
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CIncreaseGauge(CGaugeData *data)
+{
+    (void)data;
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CDecreaseGauge(CGaugeData *data)
+{
+    (void)data;
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data)
+{
+    (void)data;
     return ErrorInfoToCError(ErrorInfo());
 }
 
@@ -230,7 +270,7 @@ CErrorInfo CDecreaseReferenceCommon(char **cObjIds, int size_cObjIds, char *cRem
     return ErrorInfoToCError(ErrorInfo());
 }
 
-CErrorInfo CReleaseGRefs(char *cRemoreId)
+CErrorInfo CReleaseGRefs(char *cRemoteId)
 {
     return ErrorInfoToCError(ErrorInfo());
 }
@@ -377,26 +417,6 @@ CErrorInfo CSetTraceId(const char *cTraceId, int cTraceIdLen)
 }
 
 CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen)
-{
-    return ErrorInfoToCError(ErrorInfo());
-}
-
-CErrorInfo CSetGauge(CGaugeData *data)
-{
-    return ErrorInfoToCError(ErrorInfo());
-}
-
-CErrorInfo CIncreaseGauge(CGaugeData *data)
-{
-    return ErrorInfoToCError(ErrorInfo());
-}
-
-CErrorInfo CDecreaseGauge(CGaugeData *data)
-{
-    return ErrorInfoToCError(ErrorInfo());
-}
-
-CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data)
 {
     return ErrorInfoToCError(ErrorInfo());
 }

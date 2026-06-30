@@ -32,8 +32,8 @@
 #include "src/libruntime/dependency_resolver.h"
 #include "src/libruntime/driverlog/driverlog_receiver.h"
 #include "src/libruntime/err_type.h"
-#include "src/libruntime/event_notify.h"
 #include "src/libruntime/fiber.h"
+#include "src/libruntime/event_notify.h"
 #include "src/libruntime/fmclient/fm_client.h"
 #include "src/libruntime/fsclient/fs_client.h"
 #include "src/libruntime/generator/generator_notifier.h"
@@ -64,6 +64,8 @@ const char *const RGROUP_BUNDLE_SUFFIX = "_bundle";
 typedef void *StateStorePtr;
 class Libruntime {
 public:
+    virtual ~Libruntime() = default;
+
     /*!
         @brief Libruntime 构造函数
         @param config Libruntime的参数配置，详细参考：@ref LibruntimeConfig
@@ -130,22 +132,28 @@ public:
     /*!
       @brief Create an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Invoke a function by instance ID using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Kill an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
@@ -286,7 +294,7 @@ public:
       @brief Releases global references associated with a remote ID
       @param remoteId The ID of the remote context
       @return An `ErrorInfo` object indicating the success or failure of the operation
-    */
+     */
     virtual ErrorInfo ReleaseGRefs(const std::string &remoteId);
 
     /*!
@@ -415,6 +423,8 @@ public:
       @return error information if the operation fails
      */
     virtual ErrorInfo Kill(const std::string &instanceId, int sigNo = libruntime::Signal::KillInstance);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, int sigNo, const std::string &routeAddress,
+                                      const std::string &proxyID);
 
     /*!
       @brief 向一个函数实例或一组任务发送一个指定的信号并携带特定的数据，当前不支持向一组任务发送特定数据
@@ -424,6 +434,8 @@ public:
       @return error information if the operation fails
      */
     virtual ErrorInfo Kill(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data,
+                                      const std::string &routeAddress, const std::string &proxyID);
 
     /*!
     @brief 向一个函数实例或一组任务发送一个指定的信号并携带特定的数据，并通过callback返回执行结果
@@ -445,10 +457,26 @@ public:
       @brief 从快照恢复函数实例
       @param checkpointId 快照 ID
       @param snapStartOpts 快照启动选项（预留用于未来扩展调度选项等）
-      @return pair<ErrorInfo, string> 错误信息和新的实例 ID
+      @return pair<ErrorInfo, SnapstartResponse> 错误信息和恢复结果
      */
-    virtual std::pair<ErrorInfo, std::string> Snapstart(const std::string &checkpointId,
-                                                         const SnapStartOptions &snapStartOpts);
+    virtual std::pair<ErrorInfo, SnapstartResponse> Snapstart(const std::string &checkpointId,
+                                                              const SnapStartOptions &snapStartOpts);
+
+    /*!
+      @brief 删除指定快照
+      @param checkpointId 要删除的快照 ID
+      @return pair<ErrorInfo, string> 错误信息（成功时 string 为空）
+     */
+    virtual std::pair<ErrorInfo, std::string> DeleteCheckpoint(const std::string &checkpointId);
+
+    /*!
+      @brief List checkpoint IDs for the given function type, or all for the current tenant if empty.
+      @param functionType moduleName.className (empty = list all for current tenant)
+      @param ns namespace filter
+      @return pair<ErrorInfo, vector<string>> error info and list of checkpoint IDs
+     */
+    virtual std::pair<ErrorInfo, std::vector<std::string>> ListCheckpoints(
+        const std::string &functionType, const std::string &ns);
 
     /*!
       @brief 结束当前上下文
@@ -456,6 +484,12 @@ public:
       @throw Exception if the finalize operation fails
      */
     virtual void Finalize(bool isDriver = true);
+
+    /*!
+      @brief 重新初始化运行时状态（用于 checkpoint 恢复后）
+      重新初始化 gRPC 连接、dsClients、generatorNotifier/Receiver 等组件
+     */
+    virtual void ReInit();
 
     /*!
       @brief Asynchronously wait for an object to be ready
@@ -486,6 +520,12 @@ public:
       @throw Exception if the loop fails to start or run
      */
     virtual void ReceiveRequestLoop(void);
+
+    /*!
+      @brief Check if re-initialization is needed after checkpoint restore
+      @return true if re-init is needed
+     */
+    bool NeedReInit() const;
 
     /*!
       @brief Get the real instance ID of an object
@@ -829,32 +869,12 @@ public:
     */
     virtual std::pair<ErrorInfo, double> GetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data);
 
-    /*!
-      @brief Set the value of a gauge
-      @param gauge the data containing the gauge information
-      @return ErrorInfo indicating the success or failure of the operation
-    */
     virtual ErrorInfo SetGauge(const YR::Libruntime::GaugeData &gauge);
 
-    /*!
-      @brief Increase the value of a gauge
-      @param gauge the data containing the gauge information
-      @return ErrorInfo indicating the success or failure of the operation
-    */
     virtual ErrorInfo IncreaseGauge(const YR::Libruntime::GaugeData &gauge);
 
-    /*!
-      @brief Decrease the value of a gauge
-      @param gauge the data containing the gauge information
-      @return ErrorInfo indicating the success or failure of the operation
-    */
     virtual ErrorInfo DecreaseGauge(const YR::Libruntime::GaugeData &gauge);
 
-    /*!
-      @brief Get the value of a gauge
-      @param gauge the data containing the gauge information
-      @return a pair containing ErrorInfo and the current value of the gauge
-    */
     virtual std::pair<ErrorInfo, double> GetValueGauge(const YR::Libruntime::GaugeData &gauge);
 
     /*!
@@ -1169,6 +1189,9 @@ private:
     void FinalizeHandler();
     std::string ConstructTraceId(const YR::Libruntime::InvokeOptions &opts);
     void SetResourceGroupAffinity(std::shared_ptr<InvokeSpec> spec, const std::string &key, const std::string &value);
+    void UpdateDsAddressFromEnv();
+    void ReInitDsClients(const std::string &oldDsIpAddr, int oldDsPort);
+    void ReInitStreamComponents();
 
     std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> MakeGetResult(MultipleResult &res,
                                                                              const std::vector<std::string> &ids,

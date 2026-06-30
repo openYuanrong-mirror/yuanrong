@@ -54,24 +54,24 @@ type HTTPSConfig struct {
 
 // InternalHTTPSConfig is for input config
 type InternalHTTPSConfig struct {
-	HTTPSEnable             bool     `json:"httpsEnable" yaml:"httpsEnable" valid:"optional"`
-	TLSProtocol             string   `json:"tlsProtocol" yaml:"tlsProtocol" valid:"optional"`
-	TLSCiphers              string   `json:"tlsCiphers" yaml:"tlsCiphers" valid:"optional"`
-	TLSCipherSlices         []string `json:"TLSCipherSlices" valid:"optional"`
-	SSLBasePath             string   `json:"sslBasePath" yaml:"sslBasePath" valid:"optional"`
-	RootCAFile              string   `json:"rootCAFile" yaml:"rootCAFile" valid:"optional"`
-	ModuleCertFile          string   `json:"moduleCertFile" yaml:"moduleCertFile" valid:"optional"`
-	ModuleKeyFile           string   `json:"moduleKeyFile" yaml:"moduleKeyFile" valid:"optional"`
-	PwdFile                 string   `json:"pwdFile" yaml:"pwdFile" valid:"optional"`
-	SecretName              string   `json:"secretName" yaml:"secretName" valid:"optional"`
-	SSLDecryptTool          string   `json:"sslDecryptTool" yaml:"sslDecryptTool" valid:"optional"`
+	HTTPSEnable     bool     `json:"httpsEnable" yaml:"httpsEnable" valid:"optional"`
+	TLSProtocol     string   `json:"tlsProtocol" yaml:"tlsProtocol" valid:"optional"`
+	TLSCiphers      string   `json:"tlsCiphers" yaml:"tlsCiphers" valid:"optional"`
+	TLSCipherSlices []string `json:"TLSCipherSlices" valid:"optional"`
+	SSLBasePath     string   `json:"sslBasePath" yaml:"sslBasePath" valid:"optional"`
+	RootCAFile      string   `json:"rootCAFile" yaml:"rootCAFile" valid:"optional"`
+	ModuleCertFile  string   `json:"moduleCertFile" yaml:"moduleCertFile" valid:"optional"`
+	ModuleKeyFile   string   `json:"moduleKeyFile" yaml:"moduleKeyFile" valid:"optional"`
+	PwdFile         string   `json:"pwdFile" yaml:"pwdFile" valid:"optional"`
+	SecretName      string   `json:"secretName" yaml:"secretName" valid:"optional"`
+	SSLDecryptTool  string   `json:"sslDecryptTool" yaml:"sslDecryptTool" valid:"optional"`
 	// ClientAuthType specifies the TLS client authentication mode:
 	//   - NoClientCert: One-way TLS, client cert not required (most common HTTPS scenario)
 	//   - RequestClientCert: Request but don't require client cert
 	//   - RequireAnyClientCert: Require client cert but don't verify it
 	//   - VerifyClientCertIfGiven: Verify client cert only if provided
 	//   - RequireAndVerifyClientCert: Mutual TLS (mTLS), require and verify client cert
-	ClientAuthType string     `json:"clientAuthType" yaml:"clientAuthType" valid:"optional"`
+	ClientAuthType string `json:"clientAuthType" yaml:"clientAuthType" valid:"optional"`
 }
 
 var (
@@ -84,6 +84,13 @@ var (
 	// tlsConfig is a global variable of TLS config
 	tlsConfig *tls.Config
 	once      sync.Once
+
+	readTLSFile       = ioutil.ReadFile
+	tlsX509KeyPair    = tls.X509KeyPair
+	pemDecode         = pem.Decode
+	pemEncodeToMemory = pem.EncodeToMemory
+	isEncryptedPEM    = commonCrypto.IsEncryptedPEMBlock
+	decryptPEMBlock   = commonCrypto.DecryptPEMBlock
 )
 
 // GetURLScheme returns "http" or "https"
@@ -257,7 +264,7 @@ func LoadServerTLSCertificate(certFile, keyFile, passPhase, decryptTool string,
 		return nil, err
 	}
 
-	cert, err := tls.X509KeyPair(certContent, keyContent)
+	cert, err := tlsX509KeyPair(certContent, keyContent)
 	utils.ClearByteMemory(certContent)
 	utils.ClearByteMemory(keyContent)
 	if err != nil {
@@ -281,13 +288,13 @@ func containPassPhase(keyContent []byte, passPhase string, decryptTool string,
 		return plainkeyContent, nil
 	}
 
-	keyBlock, _ := pem.Decode(keyContent)
+	keyBlock, _ := pemDecode(keyContent)
 	if keyBlock == nil {
 		log.GetLogger().Errorf("failed to decode key file ")
 		return nil, errors.New("failed to decode key file")
 	}
 
-	if commonCrypto.IsEncryptedPEMBlock(keyBlock) {
+	if isEncryptedPEM(keyBlock) {
 		var plainPassPhase []byte
 		var err error
 		var decrypted string
@@ -305,7 +312,7 @@ func containPassPhase(keyContent []byte, passPhase string, decryptTool string,
 			}
 		}
 
-		keyData, err := commonCrypto.DecryptPEMBlock(keyBlock, plainPassPhase)
+		keyData, err := decryptPEMBlock(keyBlock, plainPassPhase)
 		clearByteMemory(plainPassPhase)
 		utils.ClearStringMemory(decrypted)
 
@@ -320,7 +327,7 @@ func containPassPhase(keyContent []byte, passPhase string, decryptTool string,
 			Bytes: keyData,
 		}
 
-		keyContent = pem.EncodeToMemory(plainKeyBlock)
+		keyContent = pemEncodeToMemory(plainKeyBlock)
 	}
 	return keyContent, nil
 
@@ -328,13 +335,13 @@ func containPassPhase(keyContent []byte, passPhase string, decryptTool string,
 
 func loadCertAndKeyBytes(certFilePath, keyFilePath, passPhase string, decryptTool string, isHTTPS bool) (
 	certPEMBlock, keyPEMBlock []byte, err error) {
-	certContent, err := ioutil.ReadFile(certFilePath)
+	certContent, err := readTLSFile(certFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read cert file %s: %s", certFilePath, err.Error())
 		return nil, nil, err
 	}
 
-	keyContent, err := ioutil.ReadFile(keyFilePath)
+	keyContent, err := readTLSFile(keyFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read key file %s: %s", keyFilePath, err.Error())
 		return nil, nil, err
@@ -350,7 +357,7 @@ func clearByteMemory(src []byte) {
 }
 
 func loadCACertBytes(caCertFilePath string) ([]byte, error) {
-	caCertContent, err := ioutil.ReadFile(caCertFilePath)
+	caCertContent, err := readTLSFile(caCertFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read ca cert file %s, err: %s", caCertFilePath, err.Error())
 		return nil, err

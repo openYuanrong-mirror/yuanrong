@@ -47,6 +47,7 @@ class FaaSFrontendLauncher(ComponentLauncher):
         etcd_table_prefix = values["etcd"].get("table_prefix", "")
 
         ssl_enable = str(values["fs"]["tls"].get("enable", "false")).lower()
+        frontend_lease_bypass = str(faas_values.get("lease_bypass", False)).lower()
         scc_enable = str(faas_values.get("scc_enable", "false")).lower()
         ssl_base_path = values["fs"]["tls"].get("base_path", "")
         scc_base_path = faas_args.get("scc_base_path", "")
@@ -90,6 +91,7 @@ class FaaSFrontendLauncher(ComponentLauncher):
             "{faas_frontend_http_ip}": ip_address,
             "{faas_frontend_http_port}": str(port),
             "{sslEnable}": ssl_enable,
+            "{frontend_lease_bypass}": frontend_lease_bypass,
             "{sccEnable}": scc_enable,
             "{etcdAuthType}": etcd_auth_type,
             "{azPrefix}": etcd_table_prefix,

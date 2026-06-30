@@ -36,10 +36,10 @@ using PBAffinityScope = ::common::AffinityScope;
 
 class LabelOperator {
 public:
+    virtual ~LabelOperator() = default;
     LabelOperator(const std::string &type) : operatorType(type) {}
 
     LabelOperator() = default;
-    ~LabelOperator() = default;
 
     std::string GetOperatorType() const
     {
@@ -160,10 +160,10 @@ public:
 
 class Affinity {
 public:
+    virtual ~Affinity() = default;
     Affinity(const std::string &kind, const std::string &type) : affinityKind(kind), affinityType(type) {}
 
     Affinity() = default;
-    ~Affinity() = default;
 
     std::string GetAffinityKind() const
     {

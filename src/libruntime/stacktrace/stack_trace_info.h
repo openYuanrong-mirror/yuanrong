@@ -50,7 +50,7 @@ public:
     {
         type_ = info.Type();
         message_ = info.Message();
-        stackTraceElements_ = std::move(info.StackTraceElements());
+        stackTraceElements_ = info.StackTraceElements();
         return *this;
     }
 
@@ -58,7 +58,7 @@ public:
     {
         type_ = info.Type();
         message_ = info.Message();
-        stackTraceElements_ = std::move(info.StackTraceElements());
+        stackTraceElements_ = info.StackTraceElements();
         language_ = info.Language();
     }
 

@@ -42,6 +42,7 @@ describe('InstanceDetailsLayout', () => {
 
 describe('InstanceDetailsLayout.ListLogsAPI', () => {
     vi.mock('@/api/api', () => ({
+        GetInstInstIDAPI: vi.fn().mockResolvedValue({}),
         ListLogsAPI: vi.fn().mockResolvedValue({
             'message': '',
             'data': {
@@ -60,4 +61,3 @@ describe('InstanceDetailsLayout.ListLogsAPI', () => {
             'via the Job Submission API, SDK.');
     });
 })
-

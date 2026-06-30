@@ -90,7 +90,6 @@ TEST_F(AutoInitTest, AutoCreateYuanRongClusterFailed)
 
     ASSERT_EQ(info2.serverAddr, "");
     ASSERT_EQ(info2.dsAddr, "");
-    ASSERT_EQ(info2.inCluster, false);
 }
 
 TEST_F(AutoInitTest, AutoInitWithClusterAccessInfo)

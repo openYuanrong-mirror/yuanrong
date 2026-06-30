@@ -158,10 +158,17 @@ public:
         return cStr;
     }
 
+    CStateStorePtr CreateStateStorePtr()
+    {
+        auto stateStore = std::make_shared<YR::Libruntime::DSCacheStateStore>();
+        return reinterpret_cast<CStateStorePtr>(new std::shared_ptr<YR::Libruntime::StateStore>(stateStore));
+    }
+
     void TearDown() override
     {
         lr.reset();
         YR::Libruntime::LibruntimeManager::Instance().Finalize();
+        YR::Libruntime::LibruntimeManager::Cleanup();
         for (auto ptr : tmpStrs) {
             if (ptr != nullptr) {
                 free(ptr);
@@ -210,8 +217,7 @@ TEST_F(CLibruntimeTest, CGenerateKeyTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), GenerateKeyByStateStore(_, _))
         .WillOnce(DoAll(SetArgReferee<1>("genKey"), Return(YR::Libruntime::ErrorInfo())));
     cErr = CGenerateKey(stateStorePtr, &key, &cKeyLen);
@@ -225,6 +231,7 @@ TEST_F(CLibruntimeTest, CGenerateKeyTest)
     cErr = CGenerateKey(stateStorePtr, &key, &cKeyLen);
     ASSERT_TRUE(cErr.code == 9000);
     ASSERT_TRUE(std::string(cErr.message) == "libRuntime empty");
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, CSetByStateStoreTest)
@@ -240,8 +247,7 @@ TEST_F(CLibruntimeTest, CSetByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), SetByStateStore(_, _, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
     cErr = CSetByStateStore(stateStorePtr, const_cast<char *>(rightKey.c_str()), buffer, param);
     ASSERT_TRUE(cErr.code == 0);
@@ -256,6 +262,7 @@ TEST_F(CLibruntimeTest, CSetByStateStoreTest)
     ASSERT_TRUE(cErr.code != 0);
     ASSERT_TRUE(cErr.dsStatusCode == datasystem::StatusCode::K_RUNTIME_ERROR);
     SafeFreeCErr(cErr);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, CSetValueByStateStoreTest)
@@ -272,8 +279,7 @@ TEST_F(CLibruntimeTest, CSetValueByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), SetValueByStateStore(_, _, _, _))
         .WillOnce(DoAll(SetArgReferee<3>("returnKey"), Return(YR::Libruntime::ErrorInfo())));
     cErr = CSetValueByStateStore(stateStorePtr, buffer, param, &key, &keyLen);
@@ -282,6 +288,7 @@ TEST_F(CLibruntimeTest, CSetValueByStateStoreTest)
     ASSERT_TRUE(keyLen == strlen("returnKey"));
     free(key);
     SafeFreeCErr(cErr);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, GetByStateStoreTest)
@@ -295,8 +302,7 @@ TEST_F(CLibruntimeTest, GetByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), GetByStateStore(_, _, _))
         .WillOnce(Return(std::make_pair<std::shared_ptr<YR::Libruntime::Buffer>, YR::Libruntime::ErrorInfo>(
             std::make_shared<YR::Libruntime::NativeBuffer>(1), YR::Libruntime::ErrorInfo())));
@@ -318,6 +324,7 @@ TEST_F(CLibruntimeTest, GetByStateStoreTest)
     ASSERT_TRUE(cErr.dsStatusCode == datasystem::StatusCode::K_OUT_OF_MEMORY);
     SafeFreeCErr(cErr);
     free(bufferTwo.buffer);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, GetArrayByStateStoreTest)
@@ -337,8 +344,7 @@ TEST_F(CLibruntimeTest, GetArrayByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     auto err = YR::Libruntime::ErrorInfo();
     err.SetErrorCode(YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED);
     err.SetDsStatusCode(datasystem::StatusCode::K_OUT_OF_MEMORY);
@@ -353,6 +359,7 @@ TEST_F(CLibruntimeTest, GetArrayByStateStoreTest)
     for (size_t i = 0; i < 2; i++) {
         free(buffer[i].buffer);
     }
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, QuerySizeByStateStoreTest)
@@ -367,8 +374,7 @@ TEST_F(CLibruntimeTest, QuerySizeByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), QuerySizeByStateStore(_, _, _))
         .WillOnce([=](std::shared_ptr<YR::Libruntime::StateStore>, const std::vector<std::string> &,
                       std::vector<uint64_t> &param) {
@@ -378,13 +384,13 @@ TEST_F(CLibruntimeTest, QuerySizeByStateStoreTest)
     cErr = CQuerySizeByStateStore(stateStorePtr, fake, 1, fakeSizes);
     ASSERT_EQ(0, cErr.code);
     ASSERT_EQ(fakeSizes[0], 10);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, DelByStateStoreTest)
 {
     CStateStorePtr nullStateStorePtr = nullptr;
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     EXPECT_CALL(*lr.get(), DelByStateStore(_, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
     std::string rightKey = "rightKey";
 
@@ -406,6 +412,7 @@ TEST_F(CLibruntimeTest, DelByStateStoreTest)
     ASSERT_TRUE(cErr.code != 0);
     ASSERT_EQ(cErr.dsStatusCode, datasystem::StatusCode::K_RUNTIME_ERROR);
     SafeFreeCErr(cErr);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, DelArrayByStateStoreTest)
@@ -422,8 +429,7 @@ TEST_F(CLibruntimeTest, DelArrayByStateStoreTest)
     ASSERT_TRUE(std::string(cErr.message) == "the state store is empty");
     SafeFreeCErr(cErr);
 
-    auto stateStore = YR::Libruntime::DSCacheStateStore();
-    auto stateStorePtr = reinterpret_cast<CStateStorePtr>(&stateStore);
+    auto stateStorePtr = CreateStateStorePtr();
     auto err = YR::Libruntime::ErrorInfo();
     err.SetErrorCode(YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED);
     err.SetDsStatusCode(datasystem::StatusCode::K_RUNTIME_ERROR);
@@ -437,6 +443,7 @@ TEST_F(CLibruntimeTest, DelArrayByStateStoreTest)
     ASSERT_TRUE(strcmp(failedKeys[0], "wrongKey") == 0);
     SafeFreeCErr(cErr);
     freeCStrings(failedKeys, failedKeysLen);
+    CDestroyStateStore(stateStorePtr);
 }
 
 TEST_F(CLibruntimeTest, CGetCredentialTest)
@@ -454,40 +461,39 @@ TEST_F(CLibruntimeTest, CGetCredentialTest)
 
 TEST_F(CLibruntimeTest, CInitTest)
 {
-    CLibruntimeConfig config{
-        "127.0.0.1:11111",
-        "127.0.0.1:11112",
-        "127.0.0.1:11113",
-        "127.0.0.1:11114",
-        "jobId",
-        "runtimeId",
-        "instanceId",
-        "functionName",
-        "DEBUG",
-        "./",
-        CApiType::ACTOR,
-        1,
-        0,
-        0,
-        "test",
-        "privateKeyPath",
-        "certificateFilePath",
-        "verifyFilePath",
-        "privateKeyPaaswd",
-        GetStr("functionId"),
-        "systemAuthAccessKey",
-        "systemAuthSecretKey",
-        2,
-        "systemAuthDataKey",
-        2,
-        "EncryptPrivateKeyPasswd",
-        "PrimaryKeyStoreFile",
-        "StandbyKeyStoreFile",
-        0,
-        "RuntimePublicKeyContext",
-        "RuntimePrivateKeyContext",
-        "DsPublicKeyContext",
-    };
+    CLibruntimeConfig config{};
+    config.functionSystemAddress = GetStr("127.0.0.1:11111");
+    config.dataSystemAddress = GetStr("127.0.0.1:11112");
+    config.grpcAddress = GetStr("127.0.0.1:11113");
+    config.iamAddress = GetStr("127.0.0.1:11114");
+    config.jobId = GetStr("jobId");
+    config.runtimeId = GetStr("runtimeId");
+    config.instanceId = GetStr("instanceId");
+    config.functionName = GetStr("functionName");
+    config.logLevel = GetStr("DEBUG");
+    config.logDir = GetStr("./");
+    config.apiType = CApiType::ACTOR;
+    config.inCluster = 1;
+    config.isDriver = 0;
+    config.enableMTLS = 0;
+    config.serverName = GetStr("test");
+    config.privateKeyPath = GetStr("privateKeyPath");
+    config.certificateFilePath = GetStr("certificateFilePath");
+    config.verifyFilePath = GetStr("verifyFilePath");
+    config.privateKeyPaaswd = GetStr("privateKeyPaaswd");
+    config.functionId = GetStr("functionId");
+    config.systemAuthAccessKey = GetStr("systemAuthAccessKey");
+    config.systemAuthSecretKey = GetStr("systemAuthSecretKey");
+    config.systemAuthSecretKeySize = 2;
+    config.systemAuthDataKey = GetStr("systemAuthDataKey");
+    config.systemAuthDataKeySize = 2;
+    config.encryptPrivateKeyPasswd = GetStr("EncryptPrivateKeyPasswd");
+    config.primaryKeyStoreFile = GetStr("PrimaryKeyStoreFile");
+    config.standbyKeyStoreFile = GetStr("StandbyKeyStoreFile");
+    config.enableDsEncrypt = 0;
+    config.runtimePublicKeyContextPath = GetStr("RuntimePublicKeyContext");
+    config.runtimePrivateKeyContextPath = GetStr("RuntimePrivateKeyContext");
+    config.dsPublicKeyContextPath = GetStr("DsPublicKeyContext");
     auto cErr = CInit(&config);
     ASSERT_TRUE(cErr.code == 0);
     SafeFreeCErr(cErr);
@@ -791,9 +797,9 @@ TEST_F(CLibruntimeTest, CGetTest)
 
 TEST_F(CLibruntimeTest, CKillTest)
 {
-    EXPECT_CALL(*lr.get(), Kill(_, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_CALL(*lr.get(), KillWithRouting(_, _, _, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
     CBuffer data;
-    auto cErr = CKill(GetStr("instance_id"), 1, data);
+    auto cErr = CKill(GetStr("instance_id"), 1, data, nullptr, nullptr);
     ASSERT_EQ(0, cErr.code);
 }
 

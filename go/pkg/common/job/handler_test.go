@@ -332,70 +332,62 @@ func TestStopJobHandleRes(t *testing.T) {
 
 func TestSubmitRequest_CheckField(t *testing.T) {
 	convey.Convey("test (req *SubmitRequest) CheckField", t, func() {
-		req := &SubmitRequest{
-			Entrypoint:   "python script.py",
-			SubmissionId: "",
-			RuntimeEnv: &RuntimeEnv{
-				WorkingDir: "file:///home/disk/tk/file.zip",
-				Pip:        []string{"numpy==1.24", "scipy==1.11.0"},
-				EnvVars: map[string]string{
-					"SOURCE_REGION": "suzhou_std",
+		newReq := func() *SubmitRequest {
+			return &SubmitRequest{
+				Entrypoint:   "python script.py",
+				SubmissionId: "",
+				RuntimeEnv: &RuntimeEnv{
+					WorkingDir: "file:///home/disk/tk/file.zip",
+					Pip:        []string{"numpy==1.24", "scipy==1.11.0"},
+					EnvVars: map[string]string{
+						"SOURCE_REGION": "suzhou_std",
+					},
 				},
-			},
-			Metadata: map[string]string{
-				"autoscenes_ids": "auto_1-test",
-				"task_type":      "task_1",
-				"ttl":            "1250",
-			},
-			EntrypointResources: map[string]float64{
-				"NPU": 0,
-			},
-			EntrypointNumCpus: 0,
-			EntrypointNumGpus: 0,
-			EntrypointMemory:  0,
+				Metadata: map[string]string{
+					"autoscenes_ids": "auto_1-test",
+					"task_type":      "task_1",
+					"ttl":            "1250",
+				},
+				EntrypointResources: map[string]float64{
+					"NPU": 0,
+				},
+				EntrypointNumCpus: 0,
+				EntrypointNumGpus: 0,
+				EntrypointMemory:  0,
+			}
 		}
 		convey.Convey("when req.Entrypoint is empty", func() {
+			req := newReq()
 			req.Entrypoint = ""
 			err := req.CheckField()
 			convey.So(err, convey.ShouldBeError, errors.New("entrypoint should not be empty"))
 		})
 		convey.Convey("when req.RuntimeEnv is empty", func() {
+			req := newReq()
 			req.RuntimeEnv = nil
 			err := req.CheckField()
 			convey.So(err, convey.ShouldBeError, errors.New("runtime_env.working_dir should not be empty"))
 		})
 		convey.Convey("when req.RuntimeEnv.WorkingDir is empty", func() {
+			req := newReq()
 			req.RuntimeEnv.WorkingDir = ""
 			err := req.CheckField()
 			convey.So(err, convey.ShouldBeError, errors.New("runtime_env.working_dir should not be empty"))
 		})
 		convey.Convey("when ValidateResources failed", func() {
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "ValidateResources", func() error {
-				return errors.New("failed ValidateResources")
-			}).Reset()
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "CheckSubmissionId", func() error {
-				return nil
-			}).Reset()
+			req := newReq()
+			req.EntrypointNumCpus = -1
 			err := req.CheckField()
-			convey.So(err, convey.ShouldBeError, errors.New("failed ValidateResources"))
+			convey.So(err, convey.ShouldBeError, errors.New("entrypoint_num_cpus should not be less than 0"))
 		})
 		convey.Convey("when CheckSubmissionId failed", func() {
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "ValidateResources", func() error {
-				return nil
-			}).Reset()
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "CheckSubmissionId", func() error {
-				return errors.New("failed CheckSubmissionId")
-			}).Reset()
+			req := newReq()
+			req.SubmissionId = "driver"
 			err := req.CheckField()
-			convey.So(err, convey.ShouldBeError, errors.New("failed CheckSubmissionId"))
+			convey.So(err, convey.ShouldBeError, errors.New("submission_id should not contain 'driver'"))
 		})
 		convey.Convey("when process success", func() {
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "ValidateResources", func() error {
-				return nil
-			}).Reset()
-			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "CheckSubmissionId", func() error {
-				return nil
-			}).Reset()
+			req := newReq()
 			err := req.CheckField()
 			convey.So(err, convey.ShouldBeNil)
 		})

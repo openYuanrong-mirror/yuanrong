@@ -70,6 +70,9 @@ enum Signal {
     ErasePendingThread = 73;
     GetInstance = 74;
     UpdateEventInfo = 75;
+    ListCheckpointsByFunctionKey = 20;
+    ListCheckpointsByTenant = 21;
+    DeleteCheckpoint = 22;
 }
 
 enum SubscriptionType {
@@ -98,7 +101,6 @@ message FunctionMeta {
     string tensorTransportTarget = 16;
     bool enableTensorTransport = 17;
     bytes code = 18;
-    bytes payload = 19; // Recovered instance buffer data
 }
 
 message FunctionID {

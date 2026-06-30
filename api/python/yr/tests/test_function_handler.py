@@ -181,5 +181,17 @@ class TestFunctionExecutor(TestCase):
         self.assertTrue(err.error_code == ErrorCode.ERR_OK, err.error_code)
         self.assertTrue(inspect.iscoroutine(res[0]), type(res[0]))
 
+    def test_snapshot_hooks_are_skipped_when_not_defined(self):
+        class Counter:
+            pass
+
+        InstanceManager().init(Counter())
+
+        err = self.handler.before_snapshot()
+        self.assertTrue(err.error_code == ErrorCode.ERR_OK, err.error_code)
+
+        err = self.handler.after_snapstart()
+        self.assertTrue(err.error_code == ErrorCode.ERR_OK, err.error_code)
+
 if __name__ == "__main__":
     main()

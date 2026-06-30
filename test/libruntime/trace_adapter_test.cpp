@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/http.hpp>
+#include <iomanip>
 #include <string>
 #include "src/utility/logger/fileutils.h"
 #include "src/utility/logger/logger.h"
@@ -52,6 +53,15 @@ protected:
 
 };
 
+static std::string TraceIdToStr(const trace_api::TraceId &traceID)
+{
+    std::ostringstream ss;
+    for (auto value : traceID.Id()) {
+        ss << std::setfill('0') << std::setw(2) << std::hex << static_cast<int>(value);
+    }
+    return ss.str();
+}
+
 TEST_F(TraceAdapterTest, InitTrace)
 {
     const std::string configStr = "{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"127.0.0.1:4317\"},\"logFileExporter\":{\"enable\":true}}";
@@ -82,7 +92,7 @@ TEST_F(TraceAdapterTest, InitTrace)
 
 TEST_F(TraceAdapterTest, StartSpan)
 {
-    const std::string configStr = "{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"127.0.0.1:4317\"}}";
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
     const std::string traceServiceName = "testService";
     TraceAdapter::GetInstance().InitTrace(traceServiceName, false, configStr);
     EXPECT_FALSE(TraceAdapter::GetInstance().enableTrace_);
@@ -100,12 +110,35 @@ TEST_F(TraceAdapterTest, StartSpan)
 
 }
 
+TEST_F(TraceAdapterTest, StartSpanWithTraceParent)
+{
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
+    TraceAdapter::GetInstance().InitTrace("testService", true, configStr);
+    auto span = TraceAdapter::GetInstance().StartSpan(
+        "span-with-parent",
+        "job-ignored-trace-11111111111111111111111111111111",
+        "",
+        "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01",
+        {{"attr1", "value1"}});
+    EXPECT_EQ(TraceIdToStr(span->GetContext().trace_id()), "123e4567e89b12d3a456426614174000");
+}
+
+TEST_F(TraceAdapterTest, StartSpanWithoutParentSpanKeepsGeneratedTrace)
+{
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
+    TraceAdapter::GetInstance().InitTrace("testService", true, configStr);
+    const std::string expectedTraceID = "94d281f56ed2735fb45a9e2542578837";
+    auto span = TraceAdapter::GetInstance().StartSpan(
+        "span-without-parent", expectedTraceID, "", {{"attr1", "value1"}});
+    EXPECT_NE(TraceIdToStr(span->GetContext().trace_id()), expectedTraceID);
+}
+
 TEST_F(TraceAdapterTest, TestLogFileExporter)
 {
     auto logFileExporter = std::move(LogFileExporterFactory::Create());
     auto record = logFileExporter->MakeRecordable();
     static_cast<trace_sdk::SpanData *>(record.get())->SetAttribute("requestID", "abc");
-    static_cast<trace_sdk::SpanData *>(record.get())->SetName("Create");
+    static_cast<trace_sdk::SpanData *>(record.get())->SetName(SpanName::kCreate);
     ASSERT_EQ(logFileExporter->Export(nostd::span<std::unique_ptr<trace_sdk::Recordable>>(&record, 1)), common_sdk::ExportResult::kSuccess);
 
     EXPECT_TRUE(logFileExporter->Shutdown());

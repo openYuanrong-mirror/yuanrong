@@ -6,6 +6,7 @@ bazel-*
 .clwb
 .ijwb
 .claude
+.ccb
 .specify
 specs/
 external
@@ -36,7 +37,6 @@ test/st/python/pkg
 # test
 test/st/cpp/gtest
 test/st/yuanrong/
-test/st/cpp/build/
 test/st/**/output.txt
 test/st/functions/pkg
 test/st/functions/**/*.so
@@ -53,11 +53,14 @@ go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
 example/custom_runtime/openyuanrong
 example/custom_runtime/worker/yuanrong
+example/casdoor/.casdoor.env
+example/casdoor/.mailpit/
+example/casdoor/data/
+example/casdoor/token_jwt_key.pem
+example/keycloak/data/
 outputapi/python/build/
 api/python/dist/
-api/python/*.egg-info/
 go/output/
-go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
 /metrics/
 output/
@@ -65,8 +68,12 @@ scripts/package/.build/
 thirdparty/runtime_deps/
 api/python/yr/inner//
 scripts/package/.build/
-metrics
 
 # thirdparty
 thirdparty/
 go/pkg/mod/
+
+# AI assistant configs (local only)
+.specify/
+.agent-memory/
+.omx/

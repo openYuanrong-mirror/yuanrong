@@ -15,12 +15,11 @@
  */
 
 #pragma once
-#include "datasystem/utils/sensitive_value.h"
+#include "sensitive_value.h"
 #include "src/libruntime/fsclient/protobuf/runtime_rpc.grpc.pb.h"
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 std::pair<std::string, bool> SerializeBodyToString(const ::runtime_rpc::StreamingMessage &message);
 
 bool SignStreamingMessage(const std::string &accessKey, const SensitiveValue &secretKey,

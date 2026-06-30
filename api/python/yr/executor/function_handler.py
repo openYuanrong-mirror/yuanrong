@@ -207,27 +207,15 @@ class FunctionHandler(HandlerIntf):
         return self.__after_snapstarted(instance)
 
     def __before_snapshot(self, instance) -> ErrorInfo:
-        """
-        Call user-defined __yr_before_snapshot__ hook before taking snapshot.
-
-        Args:
-            instance: The user instance object.
-
-        Returns:
-            ErrorInfo: Error information if hook execution failed.
-        """
+        """Call user-defined __yr_before_snapshot__ hook before taking snapshot."""
         if instance is None:
-            msg = (
-                f"Failed to invoke instance function [{USER_BEFORE_SNAPSHOT_FUNC_NAME}], "
-                "instance has not been initialized"
-            )
             return ErrorInfo(
                 ErrorCode.ERR_INNER_SYSTEM_ERROR,
                 ModuleCode.RUNTIME,
-                msg,
+                f"Failed to invoke instance function [{USER_BEFORE_SNAPSHOT_FUNC_NAME}], "
+                "instance has not been initialized",
             )
 
-        # Check if user defined the hook method
         if not hasattr(instance, USER_BEFORE_SNAPSHOT_FUNC_NAME):
             _logger.debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} not defined, skipping")
             return ErrorInfo()
@@ -240,36 +228,22 @@ class FunctionHandler(HandlerIntf):
         _logger.debug(f"Start to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
         try:
             snapshot_hook()
-            _logger.info(
-                f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}"
-            )
+            _logger.info(f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
         except Exception as e:
             _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
 
     def __after_snapstarted(self, instance) -> ErrorInfo:
-        """
-        Call user-defined __yr_after_snapstart__ hook after restoring from snapshot.
-
-        Args:
-            instance: The user instance object.
-
-        Returns:
-            ErrorInfo: Error information if hook execution failed.
-        """
+        """Call user-defined __yr_after_snapstart__ hook after restoring from snapshot."""
         if instance is None:
-            msg = (
-                f"Failed to invoke instance function [{USER_AFTER_SNAPSTART_FUNC_NAME}], "
-                "instance has not been initialized"
-            )
             return ErrorInfo(
                 ErrorCode.ERR_INNER_SYSTEM_ERROR,
                 ModuleCode.RUNTIME,
-                msg,
+                f"Failed to invoke instance function [{USER_AFTER_SNAPSTART_FUNC_NAME}], "
+                "instance has not been initialized",
             )
 
-        # Check if user defined the hook method
         if not hasattr(instance, USER_AFTER_SNAPSTART_FUNC_NAME):
             _logger.debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} not defined, skipping")
             return ErrorInfo()

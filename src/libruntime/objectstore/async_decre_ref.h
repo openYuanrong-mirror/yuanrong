@@ -17,13 +17,18 @@
 #pragma once
 
 #include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <unordered_map>
 #include "datasystem_client_wrapper.h"
-#include "object_store_impl.h"
 
 namespace YR {
 namespace Libruntime {
 constexpr unsigned int DECRE_RETRY_INTERVAL = 1;
 constexpr unsigned int DECRE_REF_BATCH_SIZE = 1000;
+constexpr unsigned int DECRE_REF_MAX_RETRY = 2;
 
 class AsyncDecreRef {
 public:

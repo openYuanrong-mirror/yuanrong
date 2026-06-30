@@ -18,13 +18,11 @@ package monitor
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 )
 
@@ -41,9 +39,13 @@ func buildTestFile() string {
 
 func TestCreateFileWatcher(t *testing.T) {
 	convey.Convey("TestCreateFileWatcher error", t, func() {
-		defer gomonkey.ApplyFunc(createDefaultFileWatcher, func(stopCh <-chan struct{}) (FileWatcher, error) {
-			return nil, fmt.Errorf("fsnotify.NewWatcher error")
-		}).Reset()
+		rawCreator := creator
+		defer func() {
+			creator = rawCreator
+		}()
+		SetCreator(func(stopCh <-chan struct{}) (FileWatcher, error) {
+			return nil, errors.New("fsnotify.NewWatcher error")
+		})
 		stopCh := make(chan struct{}, 1)
 		_, err := CreateFileWatcher(stopCh)
 		convey.So(err, convey.ShouldNotBeNil)

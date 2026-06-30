@@ -29,6 +29,7 @@ public:
     virtual void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr,
                         std::string reqId = "") = 0;
     virtual ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) = 0;
+    virtual void Clear() {}
     void ErasePendingThread(const std::string &reqId);
     bool isMultipleConcurrency();
     ErrorInfo DoInit(size_t concurrency);

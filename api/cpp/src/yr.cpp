@@ -153,6 +153,16 @@ void ReceiveRequestLoop(void)
     YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->ReceiveRequestLoop();
 }
 
+bool NeedReInit(void)
+{
+    return YR::Libruntime::LibruntimeManager::Instance().NeedReInit();
+}
+
+void ReInit(void)
+{
+    YR::Libruntime::LibruntimeManager::Instance().ReInit();
+}
+
 bool IsOnCloud()
 {
     return !ConfigManager::Singleton().isDriver;

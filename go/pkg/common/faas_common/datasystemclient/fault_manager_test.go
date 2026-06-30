@@ -109,29 +109,28 @@ func TestSetStreamEnable(t *testing.T) {
 func TestIsShutdownFronted(t *testing.T) {
 	convey.Convey("test is shout down frontend", t, func() {
 		originalStreamEnable := streamEnable.Load()
+		originalStatus := localDataSystemStatusCache.status
 		defer func() {
 			streamEnable.Store(originalStreamEnable)
+			localDataSystemStatusCache.status = originalStatus
 		}()
 		streamEnable.Store(true)
 
 		convey.Convey("when streamEnable is false, skip shutdown", func() {
 			streamEnable.Store(false)
+			defer streamEnable.Store(true)
 			result := isShutdownFronted()
 			convey.So(result, convey.ShouldBeFalse)
 		})
 
 		convey.Convey("when dataSystem status is ready, skip shutdown", func() {
-			defer gomonkey.ApplyMethodFunc(&LocalDataSystemStatusCache{}, "GetLocalDataSystemStatus", func() string {
-				return dataSystemStatusReady
-			}).Reset()
+			localDataSystemStatusCache.status = dataSystemStatusReady
 			result := isShutdownFronted()
 			convey.So(result, convey.ShouldBeFalse)
 		})
 
 		convey.Convey("when dataSystem status is exiting, skip shutdown", func() {
-			defer gomonkey.ApplyMethodFunc(&LocalDataSystemStatusCache{}, "GetLocalDataSystemStatus", func() string {
-				return dataSystemStatusExiting
-			}).Reset()
+			localDataSystemStatusCache.status = dataSystemStatusExiting
 			result := isShutdownFronted()
 			convey.So(result, convey.ShouldBeTrue)
 		})

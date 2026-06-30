@@ -139,6 +139,10 @@ public class YR extends YRCall {
             isGlobalInit.set(false);
             runtimeCache.remove(RuntimeContext.RUNTIME_CONTEXT.get());
             throw e;
+        } catch (RuntimeException | Error e) {
+            isGlobalInit.set(false);
+            runtimeCache.remove(RuntimeContext.RUNTIME_CONTEXT.get());
+            throw e;
         }
     }
 

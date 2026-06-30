@@ -28,8 +28,8 @@ class MockDatasystemClientWrapper : public DatasystemClientWrapper {
 public:
     MockDatasystemClientWrapper() {}
 
-    MOCK_METHOD2(GDecreaseRef, datasystem::Status(const std::vector<std::string> &objectIds,
-                                                  std::vector<std::string> &failedObjectIds));
+    MOCK_METHOD2(GDecreaseRef, ErrorInfo(const std::vector<std::string> &objectIds,
+                                         std::vector<std::string> &failedObjectIds));
 
     MOCK_METHOD1(SetTenantId, void(const std::string &tenantId));
 };

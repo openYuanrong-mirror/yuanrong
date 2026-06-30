@@ -23,7 +23,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,8 +35,6 @@ import (
 	k8testing "k8s.io/client-go/testing"
 )
 
-var inClusterConfigFunc = rest.InClusterConfig
-
 type mockK8sClient struct {
 	createConfigError    error
 	createClientError    error
@@ -45,30 +42,41 @@ type mockK8sClient struct {
 }
 
 func TestGetkubeClient(t *testing.T) {
-	defer gomonkey.ApplyFunc(rest.InClusterConfig, func() (*rest.Config, error) {
+	oldInClusterConfig := inClusterConfigFunc
+	oldNewKubeClient := newKubeClientFunc
+	defer func() {
+		inClusterConfigFunc = oldInClusterConfig
+		newKubeClientFunc = oldNewKubeClient
+		KubeClientSet = nil
+		kubeClientOnce = sync.Once{}
+	}()
+	inClusterConfigFunc = func() (*rest.Config, error) {
 		return &rest.Config{}, nil
-	}).Reset()
+	}
 	convey.Convey("get client success", t, func() {
-		defer gomonkey.ApplyFunc(kubernetes.NewForConfig, func(c *rest.Config) (*kubernetes.Clientset, error) {
+		KubeClientSet = nil
+		kubeClientOnce = sync.Once{}
+		newKubeClientFunc = func(c *rest.Config) (*kubernetes.Clientset, error) {
 			return &kubernetes.Clientset{}, nil
-		}).Reset()
+		}
 		client := GetkubeClient()
 		convey.So(client, convey.ShouldNotBeNil)
 	})
-	KubeClientSet = nil
-	kubeClientOnce = sync.Once{}
 	convey.Convey("get client error", t, func() {
-		defer gomonkey.ApplyFunc(kubernetes.NewForConfig, func(c *rest.Config) (*kubernetes.Clientset, error) {
+		KubeClientSet = nil
+		kubeClientOnce = sync.Once{}
+		newKubeClientFunc = func(c *rest.Config) (*kubernetes.Clientset, error) {
 			return nil, fmt.Errorf("get client error")
-		}).Reset()
+		}
 		client := GetkubeClient()
 		convey.So(client, convey.ShouldBeNil)
 	})
-	kubeClientOnce = sync.Once{}
 	convey.Convey("get cfg error", t, func() {
-		defer gomonkey.ApplyFunc(rest.InClusterConfig, func() (*rest.Config, error) {
+		KubeClientSet = nil
+		kubeClientOnce = sync.Once{}
+		inClusterConfigFunc = func() (*rest.Config, error) {
 			return nil, fmt.Errorf("get cfg error")
-		}).Reset()
+		}
 		client := GetkubeClient()
 		convey.So(client, convey.ShouldBeNil)
 	})
@@ -501,8 +509,13 @@ func TestNewDynamicClient_Singleton(t *testing.T) {
 	dynamicClientOnce = sync.Once{}
 	mock := &mockK8sClient{}
 	oldInClusterConfig := inClusterConfigFunc
+	oldNewDynamicFunc := newDynamicFunc
 	inClusterConfigFunc = mock.InClusterConfig
-	defer func() { inClusterConfigFunc = oldInClusterConfig }()
+	newDynamicFunc = mock.NewForConfig
+	defer func() {
+		inClusterConfigFunc = oldInClusterConfig
+		newDynamicFunc = oldNewDynamicFunc
+	}()
 	client1 := GetDynamicClient()
 	client2 := GetDynamicClient()
 	if client1 != client2 {

@@ -80,6 +80,7 @@ private:
     static uint8_t HexCharToUint8(char c);
     static constexpr size_t appIdLen_ = 8;
     static constexpr size_t traceIdLen_ = 8;
+    static constexpr size_t OTEL_TRACE_ID_BYTES = 16;  // 16 bytes = 32 hex chars for OTel trace ID
     static constexpr size_t requestIdLen_ = 18;
     static constexpr size_t packIdLen_ = 36;
     static constexpr size_t objIdLen_ = requestIdLen_ + 2;

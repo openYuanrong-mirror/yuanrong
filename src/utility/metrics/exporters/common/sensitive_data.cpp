@@ -73,7 +73,7 @@ SensitiveData &SensitiveData::operator=(SensitiveData &&other) noexcept
 SensitiveData &SensitiveData::operator=(const char *str)
 {
     Clear();
-    SetData(str, std::strlen(str));
+    SetData(str, str == nullptr ? 0 : std::strlen(str));
     return *this;
 }
 

@@ -24,6 +24,7 @@ import org.yuanrong.jni.LibRuntime;
 import org.yuanrong.jni.LibRuntimeConfig;
 import org.yuanrong.runtime.config.RuntimeContext;
 import org.yuanrong.runtime.util.Utils;
+import org.yuanrong.utils.RuntimeUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,6 +101,25 @@ public class Entrypoint {
         }
         CodeExecutor.loadHandler();
         LibRuntime.ReceiveRequestLoop();
+
+        // Checkpoint restore re-init loop
+        while (LibRuntime.needReInit()) {
+            LOG.info("Checkpoint restore detected, performing re-initialization...");
+            LibRuntime.reInit();
+
+            // Reload environment variables from file after checkpoint restore
+            RuntimeUtils.loadEnvFromFile(System.getenv("YR_ENV_FILE"));
+
+            errorInfo = LibRuntime.Init(makeLibRuntimeConfig(addr, runtimeId));
+            if (!ErrorCode.ERR_OK.equals(errorInfo.getErrorCode())) {
+                LOG.error("Failed to re-init LibRuntime after checkpoint restore, Code:{}, MCode:{}, Msg:{}",
+                        errorInfo.getErrorCode(), errorInfo.getModuleCode(), errorInfo.getErrorMessage());
+                return;
+            }
+            CodeExecutor.loadHandler();
+            LibRuntime.ReceiveRequestLoop();
+        }
+
         LibRuntime.Finalize();
     }
 

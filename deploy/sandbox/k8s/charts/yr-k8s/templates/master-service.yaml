@@ -1,0 +1,55 @@
+{{- if .Values.master.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "master-headless") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: master
+      port: {{ .Values.master.service.ports.master }}
+      targetPort: master
+      protocol: TCP
+    - name: meta-service
+      port: {{ .Values.master.service.ports.metaService }}
+      targetPort: meta-service
+      protocol: TCP
+    - name: iam-server
+      port: {{ .Values.master.service.ports.iamServer }}
+      targetPort: iam-server
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "master-access") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  ports:
+    - name: master
+      port: {{ .Values.master.service.ports.master }}
+      targetPort: master
+      protocol: TCP
+    - name: meta-service
+      port: {{ .Values.master.service.ports.metaService }}
+      targetPort: meta-service
+      protocol: TCP
+    - name: iam-server
+      port: {{ .Values.master.service.ports.iamServer }}
+      targetPort: iam-server
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: master
+{{- end }}

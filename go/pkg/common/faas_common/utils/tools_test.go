@@ -257,32 +257,33 @@ func TestDefaultString(t *testing.T) {
 
 func Test_replaceByDNS(t *testing.T) {
 	convey.Convey("Test_replaceByDNSError", t, func() {
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyFunc(ReadLines, func(path string) ([]string, error) {
-				return nil, errors.New("mock error")
-			}),
+		oldReadHostLines := readHostLines
+		readHostLines = func(path string) ([]string, error) {
+			return nil, errors.New("mock error")
 		}
 		defer func() {
-			for idx := range patches {
-				patches[idx].Reset()
-			}
+			readHostLines = oldReadHostLines
 		}()
 		err := ReplaceByDNS("", nil)
 		convey.So(err, convey.ShouldNotBeNil)
 	})
 	convey.Convey("Test_replaceByDNS", t, func() {
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyFunc(ReadLines, func(path string) ([]string, error) {
-				return []string{"192.168.1.1 www.example.com"}, nil
-			}),
-			gomonkey.ApplyFunc(WriteLines, func(path string, lines []string) error {
-				return nil
-			}),
+		oldReadHostLines := readHostLines
+		oldWriteHostLines := writeHostLines
+		readHostLines = func(path string) ([]string, error) {
+			return []string{"192.168.1.1 www.example.com"}, nil
+		}
+		writeHostLines = func(path string, lines []string) error {
+			return nil
+		}
+		oldSaveHostFileInfo := saveHostFileInfo
+		saveHostFileInfo = func(hostFileInfo) error {
+			return nil
 		}
 		defer func() {
-			for idx := range patches {
-				patches[idx].Reset()
-			}
+			readHostLines = oldReadHostLines
+			writeHostLines = oldWriteHostLines
+			saveHostFileInfo = oldSaveHostFileInfo
 		}()
 		err := ReplaceByDNS("", map[string]string{"www.example.com": "192.168.1.2"})
 		convey.So(err, convey.ShouldBeNil)

@@ -42,6 +42,9 @@ describe('JobDetailsLayout', () => {
 
 describe('JobDetailsLayout.initScrollerItem', () => {
     vi.mock('@/api/api', () => ({
+        GetJobInfoAPI: vi.fn().mockResolvedValue({}),
+        GetInstAPI: vi.fn().mockResolvedValue({ data: [] }),
+        GetInstParentIDAPI: vi.fn().mockResolvedValue([]),
         ListLogsAPI: vi.fn().mockResolvedValue({
             'message': '',
             'data': {

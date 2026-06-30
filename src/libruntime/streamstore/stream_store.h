@@ -16,10 +16,9 @@
 
 #pragma once
 
-#include "datasystem/utils/connection.h"
-#include "datasystem/utils/sensitive_value.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/statestore/state_store.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "stream_producer_consumer.h"
 
 namespace YR {
@@ -29,11 +28,11 @@ public:
     virtual ~StreamStore() = default;
     virtual ErrorInfo Init(const std::string &ip, int port) = 0;
     virtual ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
-                           const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                           const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
-                           const std::string &ak, const datasystem::SensitiveValue &sk) = 0;
-    virtual ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) = 0;
-    virtual ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt, std::shared_ptr<StateStore> dsStateStore) = 0;
+                           const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
+                           const std::string &dsPublicKey, const SensitiveValue &token,
+                           const std::string &ak, const SensitiveValue &sk) = 0;
+    virtual ErrorInfo Init(const DsConnectOptions &options) = 0;
+    virtual ErrorInfo Init(const DsConnectOptions &options, std::shared_ptr<StateStore> dsStateStore) = 0;
     virtual ErrorInfo CreateStreamProducer(const std::string &streamName, std::shared_ptr<StreamProducer> &producer,
                                            ProducerConf producerConf = {}) = 0;
     virtual ErrorInfo CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
@@ -42,8 +41,8 @@ public:
     virtual ErrorInfo QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum) = 0;
     virtual ErrorInfo QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum) = 0;
     virtual void Shutdown() = 0;
-    virtual ErrorInfo UpdateToken(datasystem::SensitiveValue token) = 0;
-    virtual ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) = 0;
+    virtual ErrorInfo UpdateToken(SensitiveValue token) = 0;
+    virtual ErrorInfo UpdateAkSk(std::string ak, SensitiveValue sk) = 0;
 };
 }  // namespace Libruntime
 }  // namespace YR

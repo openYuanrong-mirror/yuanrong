@@ -186,6 +186,7 @@ struct SubscriptionConfig {
 
 class Producer {
 public:
+    virtual ~Producer() = default;
     virtual void Send(const Element &element) = 0;
 
     virtual void Send(const Element &element, int64_t timeoutMs) = 0;
@@ -195,6 +196,7 @@ public:
 
 class Consumer {
 public:
+    virtual ~Consumer() = default;
     virtual void Receive(uint32_t expectNum, uint32_t timeoutMs, std::vector<Element> &outElements) = 0;
 
     virtual void Receive(uint32_t timeoutMs, std::vector<Element> &outElements) = 0;

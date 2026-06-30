@@ -86,16 +86,12 @@ func Test_GetTimestampDiffLimit(t *testing.T) {
 }
 
 func TestCreateAuthorization(t *testing.T) {
-	patches := [...]*gomonkey.Patches{
-		gomonkey.ApplyFunc(DecryptKeys,
-			func(_ string, _ string) ([]byte, []byte, error) {
-				return []byte{}, []byte{}, errors.New("aaa")
-			}),
+	oldDecryptKeys := decryptKeys
+	decryptKeys = func(_ string, _ string) ([]byte, []byte, error) {
+		return []byte{}, []byte{}, errors.New("aaa")
 	}
 	defer func() {
-		for idx := range patches {
-			patches[idx].Reset()
-		}
+		decryptKeys = oldDecryptKeys
 	}()
 	type args struct {
 		ak    string
@@ -127,16 +123,12 @@ func TestCreateAuthorization(t *testing.T) {
 }
 
 func TestSignOMSVC(t *testing.T) {
-	patches := [...]*gomonkey.Patches{
-		gomonkey.ApplyFunc(DecryptKeys,
-			func(_ string, _ string) ([]byte, []byte, error) {
-				return []byte{}, []byte{}, errors.New("aaa")
-			}),
+	oldDecryptKeys := decryptKeys
+	decryptKeys = func(_ string, _ string) ([]byte, []byte, error) {
+		return []byte{}, []byte{}, errors.New("aaa")
 	}
 	defer func() {
-		for idx := range patches {
-			patches[idx].Reset()
-		}
+		decryptKeys = oldDecryptKeys
 	}()
 	type args struct {
 		ak   string

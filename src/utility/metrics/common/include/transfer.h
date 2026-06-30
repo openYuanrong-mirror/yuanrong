@@ -18,8 +18,8 @@
 #define METRICS_TRANSFER_H
 #include <memory>
 
-#include "api/include/gauge.h"
-#include "sdk/include/metrics_data.h"
+#include "src/utility/metrics/api/include/gauge.h"
+#include "src/utility/metrics/sdk/include/metrics_data.h"
 
 namespace observability {
 namespace metrics {

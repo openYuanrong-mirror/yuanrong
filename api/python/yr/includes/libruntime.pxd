@@ -103,6 +103,9 @@ cdef extern from "src/libruntime/err_type.h" nogil:
         ERR_INCORRECT_CREATE_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_CREATE_USAGE"
         ERR_INCORRECT_INVOKE_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_INVOKE_USAGE"
         ERR_INCORRECT_KILL_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_KILL_USAGE"
+        ERR_SESSION_TIMEOUT "YR::Libruntime::ErrorCode::ERR_SESSION_TIMEOUT"
+        ERR_SESSION_INTERRUPTED "YR::Libruntime::ErrorCode::ERR_SESSION_INTERRUPTED"
+        ERR_SESSION_NOT_WAITING "YR::Libruntime::ErrorCode::ERR_SESSION_NOT_WAITING"
 
         ERR_ROCKSDB_FAILED "YR::Libruntime::ErrorCode::ERR_ROCKSDB_FAILED"
         ERR_SHARED_MEMORY_LIMITED "YR::Libruntime::ErrorCode::ERR_SHARED_MEMORY_LIMITED"
@@ -114,9 +117,6 @@ cdef extern from "src/libruntime/err_type.h" nogil:
         ERR_DATASYSTEM_FAILED "YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED"
         ERR_GENERATOR_FINISHED "YR::Libruntime::ErrorCode::ERR_GENERATOR_FINISHED"
         ERR_CLIENT_TERMINAL_KILLED "YR::Libruntime::ErrorCode::ERR_CLIENT_TERMINAL_KILLED"
-        ERR_SESSION_TIMEOUT "YR::Libruntime::ErrorCode::ERR_SESSION_TIMEOUT"
-        ERR_SESSION_INTERRUPTED "YR::Libruntime::ErrorCode::ERR_SESSION_INTERRUPTED"
-        ERR_SESSION_NOT_WAITING "YR::Libruntime::ErrorCode::ERR_SESSION_NOT_WAITING"
 
     cdef cppclass CErrorInfo "YR::Libruntime::ErrorInfo":
         CErrorInfo()
@@ -235,6 +235,7 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         bool isDriver
         string jobId
         string runtimeId
+        string instanceId
         unordered_map[CLanguageType, string] functionIds
         string logLevel
         string logDir
@@ -366,7 +367,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string tensorTransportTarget
         bool enableTensorTransport
         vector[char] code
-        string recoveredData
+        string functionType
 
     cdef cppclass CGroupOptions "YR::Libruntime::GroupOpts":
         string groupName
@@ -389,13 +390,16 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string resourceGroupName
         int bundleIndex
 
-    cdef cppclass CDebugConfig "YR:Libruntime::DebugConfig":
+    cdef cppclass CDebugConfig "YR::Libruntime::DebugConfig":
         bool enable
 
     cdef cppclass CInvokeOptions "YR::Libruntime::InvokeOptions":
         int cpu
         int memory
+        int cpuLimit
+        int memoryLimit
         unordered_map[string, float] customResources
+        bool bypassDatasystem
         unordered_map[string, string] customExtensions
         unordered_map[string, string] createOptions
         unordered_map[string, string] podLabels
@@ -422,6 +426,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         int timeout
         bool isGetInstance
         bool isDeleteRemoteTensor
+        bool bypassDatasystem
         string traceId
         string workingDir
         bool preemptedAllowed
@@ -447,9 +452,21 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         CSnapType type
         int32_t ttl
         bool leaveRunning
+        string functionType
 
     cdef cppclass CSnapStartOptions "YR::Libruntime::SnapStartOptions":
         CSnapType type
+
+    cdef cppclass CSnapstartInfo "YR::Libruntime::SnapstartInfo":
+        string routeAddress
+        string portMappings
+        string functionProxyID
+        string nodeID
+        string namespace_
+
+    cdef cppclass CSnapstartResponse "YR::Libruntime::SnapstartResponse":
+        string instanceID
+        CSnapstartInfo snapstartInfo
 
     cdef cppclass CUInt64CounterData "YR::Libruntime::UInt64CounterData":
         string name
@@ -695,7 +712,9 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo Kill(const string & instanceId, int sigNo)
         void GroupTerminate(const string & groupName)
         pair[CErrorInfo, string] Snapshot(const string & instanceId, const CSnapOptions & snapOpts)
-        pair[CErrorInfo, string] Snapstart(const string & checkpointId, const CSnapStartOptions & snapStartOpts)
+        pair[CErrorInfo, CSnapstartResponse] Snapstart(const string & checkpointId, const CSnapStartOptions & snapStartOpts)
+        pair[CErrorInfo, string] DeleteCheckpoint(const string & checkpointId)
+        pair[CErrorInfo, vector[string]] ListCheckpoints(const string & functionType, const string & ns)
         string GetRealInstanceId(const string & objectId)
         void SaveRealInstanceId(const string & objectId, const string & instanceId, const CInstanceOptions & opts)
         void Finalize()
@@ -745,10 +764,6 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo ResetDoubleCounter(const CDoubleCounterData & data);
         CErrorInfo IncreaseDoubleCounter(const CDoubleCounterData & data);
         pair[CErrorInfo, float] GetValueDoubleCounter(const CDoubleCounterData & data);
-        CErrorInfo SetGauge(const CGaugeData & gauge);
-        CErrorInfo IncreaseGauge(const CGaugeData & gauge);
-        CErrorInfo DecreaseGauge(const CGaugeData & gauge);
-        pair[CErrorInfo, float] GetValueGauge(const CGaugeData & gauge);
         CErrorInfo ReportGauge(const CGaugeData & gauge);
         CErrorInfo SetAlarm(const string & name, const string & description, const CAlarmInfo & alarmInfo);
 
@@ -802,14 +817,15 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo GroupSuspend(const string & groupName);
 
         CErrorInfo GroupResume(const string & groupName);
+
         pair[CErrorInfo, shared_ptr[CBuffer]] SessionWait(const string &sessionId, int64_t timeout);
+
         CErrorInfo SessionNotify(const string &sessionId, shared_ptr[CBuffer] data);
 
-        # Session management: read/update session from libruntime's in-memory activeSessionMap
-        # LoadCurrentSession: returns (sessionJson, errorInfo) — string first, then ErrorInfo
-        # UpdateCurrentSession: writes sessionJson to libruntime's in-memory cache (not persisted yet)
         pair[string, CErrorInfo] LoadCurrentSession(const string & sessionId);
+
         CErrorInfo UpdateCurrentSession(const string & sessionId, const string & sessionJson);
+
         bool IsSessionInterrupted(const string & sessionId);
 
 
@@ -825,6 +841,8 @@ cdef extern from "src/libruntime/libruntime_manager.h" nogil:
         @ staticmethod
         bool IsInitialized()
         void ReceiveRequestLoop()
+        bool NeedReInit()
+        void ReInit()
 
 cdef extern from "src/libruntime/auto_init.h" namespace "YR::Libruntime" nogil:
     cdef cppclass CClusterAccessInfo "YR::Libruntime::ClusterAccessInfo":
@@ -848,5 +866,3 @@ cdef extern from "src/libruntime/fmclient/fm_client.h" namespace "YR::Libruntime
         QueryNamedInsResponse() except +
         int names_size() const
         string names(int idx) const
-
-

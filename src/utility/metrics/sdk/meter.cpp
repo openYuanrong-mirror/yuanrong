@@ -21,7 +21,7 @@
 #include "metrics/sdk/meter_context.h"
 #include "metrics/sdk/metric_storage.h"
 #include "metrics/sdk/alarm.h"
-#include "sdk/include/observable_registry.h"
+#include "src/utility/metrics/sdk/include/observable_registry.h"
 
 namespace MetricsApi = observability::api::metrics;
 

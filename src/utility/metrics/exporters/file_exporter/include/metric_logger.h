@@ -20,7 +20,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "common/include/singleton.h"
+#include "src/utility/metrics/common/include/singleton.h"
 
 namespace observability {
 namespace metrics {

@@ -20,9 +20,9 @@
 #include <future>
 #include <iostream>
 
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 #include "metrics/exporters/http_exporter/curl_helper.h"
-#include "http_heartbeat_client.h"
+#include "src/utility/metrics/exporters/http_exporter/http_heartbeat_client.h"
 
 namespace observability::exporters::metrics {
 namespace MetricsSdk = observability::sdk::metrics;

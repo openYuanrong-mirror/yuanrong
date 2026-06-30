@@ -15,10 +15,3 @@
 # limitations under the License.
 
 """cli"""
-
-__all__ = ["yuanrong_installation_dir"]
-
-import os
-
-self_dir = os.path.realpath(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-yuanrong_installation_dir = os.path.realpath(self_dir)

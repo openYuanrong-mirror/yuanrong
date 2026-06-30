@@ -280,7 +280,7 @@ func TestHandlePatCREvent(t *testing.T) {
 		defer gomonkey.ApplyFunc(utils.UnstructuredToPat, func(unstruct *unstructured.Unstructured) (*types.Pat, error) {
 			convertCnt++
 			return nil, nil
-		})
+		}).Reset()
 		fakeClient.Invokes(testing2.NewDeleteAction(patGVR, "default", "pat-simple"), emptyResult)
 		vpcManager.EventCh <- vpcEvent
 		time.Sleep(5 * time.Millisecond)

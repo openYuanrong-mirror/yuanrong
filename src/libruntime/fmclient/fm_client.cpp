@@ -37,11 +37,41 @@ QueryResourcesInfoRequest BuildGetResourcesReq(const std::string &reqId)
     return req;
 }
 
-std::unordered_map<std::string, std::string> BuildGetResourcesHeaders()
+std::unordered_map<std::string, std::string> BuildGetResourcesHeaders(const std::string &authToken = "")
 {
     std::unordered_map<std::string, std::string> headers;
     headers[std::string("Type")] = std::string("protobuf");
+    if (!authToken.empty()) {
+        headers[std::string("X-Auth")] = authToken;
+    }
     return headers;
+}
+
+void ConfigureVerifyMode(const std::shared_ptr<LibruntimeConfig> &config, ssl::context *ctx)
+{
+    if (config != nullptr && config->skipServerVerify) {
+        ctx->set_verify_mode(ssl::verify_none);
+        return;
+    }
+
+    ctx->set_verify_mode(ssl::verify_peer);
+    if (config == nullptr || config->verifyFilePath.empty()) {
+        ctx->set_default_verify_paths();
+        return;
+    }
+    ctx->load_verify_file(config->verifyFilePath);
+}
+
+bool LoadClientCertificate(const std::shared_ptr<LibruntimeConfig> &config, ssl::context *ctx)
+{
+    if (config == nullptr || config->certificateFilePath.empty() || config->privateKeyPath.empty()) {
+        YRLOG_ERROR("enableMTLS is true, but certificateFilePath or privateKeyPath is empty");
+        return false;
+    }
+
+    ctx->use_certificate_chain_file(config->certificateFilePath);
+    ctx->use_private_key_file(config->privateKeyPath, ssl::context::pem);
+    return true;
 }
 
 ErrorInfo CheckResponseCode(const boost::beast::error_code &errorCode, const uint statusCode, const std::string &result,
@@ -264,11 +294,12 @@ std::pair<ErrorInfo, QueryNamedInsResponse> GetNamedInstancesByHttpClient(std::s
     return {notifyErr, *resp};
 }
 
-std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::shared_ptr<HttpClient> c)
+std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::shared_ptr<HttpClient> c,
+    const std::string &authToken = "")
 {
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
     auto req = BuildGetResourcesReq(*requestId);
-    auto headers = BuildGetResourcesHeaders();
+    auto headers = BuildGetResourcesHeaders(authToken);
     auto isExit = std::make_shared<bool>(false);
     std::string body;
     req.SerializeToString(&body);
@@ -408,6 +439,9 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResourcesWithRetry(
 std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResources()
 {
     YRLOG_DEBUG("start to get resources.");
+    if (ShouldQueryResourcesFromFrontend()) {
+        return GetResourcesFromFrontend();
+    }
     auto startTime = std::chrono::steady_clock::now();
     for (int i = 0;
          std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - startTime).count() <
@@ -431,16 +465,17 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResources()
 std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)
 {
     ErrorInfo err;
-    if (enableMTLS_) {
+    if (enableMTLS_ || enableTLS_) {
         try {
             auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-            ctx->set_verify_mode(ssl::verify_peer);
-            ctx->load_verify_file(libConfig_->verifyFilePath);
-            ctx->use_certificate_chain_file(libConfig_->certificateFilePath);
-            ctx->use_private_key_file(libConfig_->privateKeyPath, ssl::context::pem);
-            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx);
+            ConfigureVerifyMode(libConfig_, ctx.get());
+            if (enableMTLS_ && !LoadClientCertificate(libConfig_, ctx.get())) {
+                return {};
+            }
+            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx,
+                libConfig_ == nullptr ? "" : libConfig_->serverName);
         } catch (const std::exception &e) {
             YRLOG_ERROR("caught exception when init ssl context : {}", e.what());
             return {};
@@ -450,6 +485,53 @@ std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)
         }
     }
     return std::make_shared<AsyncHttpClient>(this->ioc_);
+}
+
+bool FMClient::ShouldQueryResourcesFromFrontend() const
+{
+    return libConfig_ != nullptr && !libConfig_->inCluster && !libConfig_->functionSystemIpAddr.empty() &&
+           libConfig_->functionSystemPort > 0;
+}
+
+ErrorInfo FMClient::ActivateFrontendClientIfNeed()
+{
+    if (!iocThread_) {
+        iocThread_ = std::make_unique<std::thread>([&] { ioc_->run(); });
+    }
+    if (frontendHttpClient_ != nullptr && frontendHttpClient_->Available() && frontendHttpClient_->IsConnActive()) {
+        return ErrorInfo();
+    }
+    frontendHttpClient_ = InitCtxAndHttpClient();
+    if (frontendHttpClient_ == nullptr) {
+        return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, "failed to init frontend http client");
+    }
+    ConnectionParam param;
+    param.ip = libConfig_->functionSystemIpAddr;
+    param.port = std::to_string(libConfig_->functionSystemPort);
+    param.idleTime = libConfig_->httpIdleTime;
+    auto initErr = frontendHttpClient_->Init(param);
+    if (!initErr.OK()) {
+        frontendHttpClient_.reset();
+        return initErr;
+    }
+    frontendHttpClient_->SetAvailable();
+    return ErrorInfo();
+}
+
+std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResourcesFromFrontend()
+{
+    if (auto err = ActivateFrontendClientIfNeed(); !err.OK()) {
+        return std::make_pair(err, std::vector<ResourceUnit>());
+    }
+    auto [err, res] = GetResourcesByHttpClient(frontendHttpClient_, libConfig_->authToken);
+    if (!err.OK()) {
+        if (frontendHttpClient_ != nullptr) {
+            frontendHttpClient_->GracefulExit();
+        }
+        frontendHttpClient_.reset();
+        return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), std::vector<ResourceUnit>());
+    }
+    return std::make_pair(err, res);
 }
 
 std::pair<ErrorInfo, QueryNamedInsResponse> FMClient::QueryNamedInstances()
@@ -473,6 +555,163 @@ std::pair<ErrorInfo, QueryNamedInsResponse> FMClient::QueryNamedInstances()
     return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION,
                                     "failed to query named instance, err: connect to function master timeout"),
                           QueryNamedInsResponse{});
+}
+
+static std::pair<ErrorInfo, std::string> DeleteSnapshotByHttpClient(std::shared_ptr<HttpClient> c,
+    const std::string &checkpointId)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/octet-stream"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto err = std::make_shared<ErrorInfo>();
+
+    c->SubmitInvokeRequest(
+        DELETE, SNAP_MANAGER_DELETE_SNAPSHOT, headers, checkpointId, reqId,
+        [err, asyncNotify, reqId, isExit](const std::string &result, const boost::beast::error_code &errorCode,
+                                          const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            *err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            asyncNotify->Notify(*err);
+        });
+
+    std::stringstream ss;
+    ss << "delete snapshot request timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    return {notifyErr, ""};
+}
+
+std::pair<ErrorInfo, std::string> FMClient::DeleteSnapshot(const std::string &checkpointId)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK())
+        return std::make_pair(errInfo, "");
+    auto [err, res] = DeleteSnapshotByHttpClient(activeMasterHttpClient_, checkpointId);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), "");
+    }
+    return std::make_pair(err, res);
+}
+
+static std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByFunctionKeyByHttpClient(
+    std::shared_ptr<HttpClient> c,
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    ListSnapshotsByFunctionKeyRequest req;
+    req.set_requestid(*reqId);
+    auto *fk = req.mutable_functionkey();
+    fk->set_tenantid(tenantID);
+    fk->set_functiontype(functionType);
+    fk->set_namespace_(ns);
+    std::string body;
+    req.SerializeToString(&body);
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/protobuf"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto resp = std::make_shared<ListSnapshotsByFunctionKeyResponse>();
+
+    c->SubmitInvokeRequest(
+        POST, SNAP_MANAGER_LIST_BY_FUNCTION_KEY, headers, body, reqId,
+        [resp, asyncNotify, reqId, isExit](const std::string &result,
+                                           const boost::beast::error_code &errorCode,
+                                           const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            if (err.OK() && !resp->ParseFromString(result)) {
+                asyncNotify->Notify(
+                    ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to parse ListSnapshotsByFunctionKey response"));
+                return;
+            }
+            asyncNotify->Notify(err);
+        });
+
+    std::stringstream ss;
+    ss << "list snapshots by function key timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    if (!notifyErr.OK()) {
+        return {notifyErr, {}};
+    }
+    std::vector<std::string> ids(resp->checkpointids().begin(), resp->checkpointids().end());
+    return {notifyErr, ids};
+}
+
+static std::pair<ErrorInfo, std::vector<std::string>> ListSnapshotsByTenantByHttpClient(
+    std::shared_ptr<HttpClient> c, const std::string &tenantID)
+{
+    auto reqId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
+    ListSnapshotsByTenantRequest req;
+    req.set_requestid(*reqId);
+    req.set_tenantid(tenantID);
+    std::string body;
+    req.SerializeToString(&body);
+    std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/protobuf"}};
+    auto isExit = std::make_shared<bool>(false);
+    auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
+    auto resp = std::make_shared<ListSnapshotsByTenantResponse>();
+
+    c->SubmitInvokeRequest(
+        POST, SNAP_MANAGER_LIST_BY_TENANT, headers, body, reqId,
+        [resp, asyncNotify, reqId, isExit](const std::string &result,
+                                           const boost::beast::error_code &errorCode,
+                                           const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
+            auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
+            if (err.OK() && !resp->ParseFromString(result)) {
+                asyncNotify->Notify(
+                    ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to parse ListSnapshotsByTenant response"));
+                return;
+            }
+            asyncNotify->Notify(err);
+        });
+
+    std::stringstream ss;
+    ss << "list snapshots by tenant timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
+    auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
+        absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
+    *isExit = true;
+    if (!notifyErr.OK()) {
+        return {notifyErr, {}};
+    }
+    std::vector<std::string> ids(resp->checkpointids().begin(), resp->checkpointids().end());
+    return {notifyErr, ids};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> FMClient::ListSnapshotsByFunctionKey(
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK()) {
+        return {errInfo, {}};
+    }
+    auto [err, res] = ListSnapshotsByFunctionKeyByHttpClient(activeMasterHttpClient_, tenantID, functionType, ns);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return {ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), {}};
+    }
+    return {err, res};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> FMClient::ListSnapshotsByTenant(const std::string &tenantID)
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK()) {
+        return {errInfo, {}};
+    }
+    auto [err, res] = ListSnapshotsByTenantByHttpClient(activeMasterHttpClient_, tenantID);
+    if (!err.OK()) {
+        CleanActiveMaster();
+        return {ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, err.Msg()), {}};
+    }
+    return {err, res};
 }
 
 void FMClient::SetSubscribeActiveMasterCb(SubscribeActiveMasterCb cb)

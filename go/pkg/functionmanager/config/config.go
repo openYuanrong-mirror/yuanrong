@@ -30,6 +30,10 @@ import (
 
 var cfg types.ManagerConfig
 
+var initEtcdClient = func(param *etcd3.EtcdInitParam) error {
+	return param.InitClient()
+}
+
 // GetConfig return the current config
 func GetConfig() types.ManagerConfig {
 	return cfg
@@ -62,18 +66,16 @@ func InitEtcd(stopCh <-chan struct{}) error {
 	if &cfg == nil {
 		return fmt.Errorf("config is not initialized")
 	}
-	if err := etcd3.InitParam().
+	if err := initEtcdClient(etcd3.InitParam().
 		WithRouteEtcdConfig(cfg.RouterEtcd).
 		WithStopCh(stopCh).
-		WithAlarmSwitch(cfg.AlarmConfig.EnableAlarm).
-		InitClient(); err != nil {
+		WithAlarmSwitch(cfg.AlarmConfig.EnableAlarm)); err != nil {
 		return fmt.Errorf("faaSManager failed to init route etcd: %s", err.Error())
 	}
-	if err := etcd3.InitParam().
+	if err := initEtcdClient(etcd3.InitParam().
 		WithMetaEtcdConfig(cfg.MetaEtcd).
 		WithStopCh(stopCh).
-		WithAlarmSwitch(cfg.AlarmConfig.EnableAlarm).
-		InitClient(); err != nil {
+		WithAlarmSwitch(cfg.AlarmConfig.EnableAlarm)); err != nil {
 		return fmt.Errorf("faaSManager failed to init metadata etcd: %s", err.Error())
 	}
 	return nil

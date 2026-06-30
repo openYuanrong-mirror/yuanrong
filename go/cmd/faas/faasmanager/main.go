@@ -137,6 +137,11 @@ func SignalHandlerLibruntime(signal int, payload []byte) error {
 	return nil
 }
 
+// HealthCheckHandlerLibruntime reports the manager control-plane function health to libruntime.
+func HealthCheckHandlerLibruntime() (api.HealthType, error) {
+	return api.Healthy, nil
+}
+
 func setupFaaSManagerLibruntime(libruntimeAPI api.LibruntimeAPI) (interface{}, error) {
 	var err error
 	faasManager, err = functionmanager.NewFaaSManagerLibruntime(libruntimeAPI, stopCh)

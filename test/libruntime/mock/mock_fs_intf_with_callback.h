@@ -22,6 +22,7 @@
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/utility/logger/logger.h"
 #include "gmock/gmock.h"
+#include <google/protobuf/util/json_util.h>
 
 using namespace YR::Libruntime;
 namespace YR {
@@ -161,8 +162,11 @@ public:
             resp.set_code(::common::ErrorCode::ERR_SCHEDULE_PLUGIN_CONFIG);
         }
         if (isGetInstance) {
-            // Must match libruntime.FunctionMeta JSON (field className); JsonStringToMessage in GetInstance rejects binary.
-            resp.set_message(R"({"className":"classname"})");
+            std::string serializedMeta;
+            libruntime::FunctionMeta meta;
+            meta.set_classname("classname");
+            google::protobuf::util::MessageToJsonString(meta, &serializedMeta);
+            resp.set_message(serializedMeta);
         } else {
             AccelerateMsgQueueHandle handler{.name = "name"};
             resp.set_message(handler.ToJson());
@@ -179,6 +183,13 @@ public:
     void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback) override{};
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
                              int timeout) override{};
+    void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instanceId) override
+    {
+        eventServerIp = ip;
+        eventServerPort = port;
+        eventServerInstanceId = instanceId;
+        eventServerInfoUpdated = true;
+    }
     
     MOCK_METHOD(void, ReturnCallResult,
                 (const std::shared_ptr<CallResultMessageSpec> result, bool isCreate, CallResultCallBack callback),
@@ -189,6 +200,10 @@ public:
     bool isAcquireResponse = false;
     bool isBatchRenew = false;
     bool needCheckArgs = false;
+    bool eventServerInfoUpdated = false;
+    std::string eventServerIp;
+    int eventServerPort = 0;
+    std::string eventServerInstanceId;
     std::string lastInstanceRequirement;
     std::promise<int> callbackPromise = std::promise<int>();
     std::promise<int> killCallbackPromise = std::promise<int>();

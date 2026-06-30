@@ -279,9 +279,9 @@ ErrorInfo FSIntfGrpcClientReaderWriter::BuildStreamWithRetry(std::shared_ptr<grp
     }
     if (!ak.empty() && !sk.Empty()) {
         context->AddMetadata(TENANT_ACCESS_KEY, ak);
-        auto signature = SignStreamingMessage(ak, sk);
-        context->AddMetadata(SIGNATURE, signature);
         auto timestamp = GetCurrentUTCTime();
+        auto signature = SignTimestamp(ak, sk, timestamp);
+        context->AddMetadata(SIGNATURE, signature);
         context->AddMetadata(TIMESTAMP, timestamp);
         // If it is the runtime direct connection mode, set the tenant ID.
         if (dstInstance != FUNCTION_PROXY) {

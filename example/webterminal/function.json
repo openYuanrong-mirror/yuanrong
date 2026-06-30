@@ -1,0 +1,26 @@
+{
+    "name": "0@faaspy@hello",
+    "runtime": "python3.9",
+    "description": "this is a function",
+    "handler": "handler.my_handler",
+    "kind": "faas",
+    "cpu": 600,
+    "memory": 512,
+    "timeout": -1,
+    "customResources": {},
+    "environment": {},
+    "extendedHandler": {
+        "initializer": "handler.init"
+    },
+    "extendedTimeout": {
+        "initializer": 600,
+        "pre_stop": 10
+    },
+    "minInstance": "0",
+    "maxInstance": "10",
+    "concurrentNum": "2",
+    "storageType": "local",
+    "codePath": "/home/sn/function-packages",
+    "s3CodePath": {
+    }
+}

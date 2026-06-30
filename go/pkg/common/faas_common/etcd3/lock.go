@@ -45,6 +45,11 @@ var (
 	// ErrNoKeyCanBeLocked -
 	ErrNoKeyCanBeLocked = errors.New("no etcd key can be locked")
 	lockFailCountLimit  = 10
+	newLockKeeperTicker = time.NewTicker
+	deleteEtcdKey       = func(client *EtcdClient, ctxInfo EtcdCtxInfo, etcdKey string,
+		opts ...clientv3.OpOption) error {
+		return client.Delete(ctxInfo, etcdKey, opts...)
+	}
 )
 
 // EtcdLocker -
@@ -204,7 +209,7 @@ func (l *EtcdLocker) tryLock(key string) error {
 // Unlock -
 func (l *EtcdLocker) Unlock() error {
 	delCtx := CreateEtcdCtxInfoWithTimeout(context.Background(), DurationContextTimeout)
-	err := l.EtcdClient.Delete(delCtx, l.holderKey)
+	err := deleteEtcdKey(l.EtcdClient, delCtx, l.holderKey)
 	if err != nil {
 		log.GetLogger().Errorf("failed to unlock key %s , delete holder %s error %s", l.LockedKey, l.holderKey,
 			err.Error())
@@ -222,7 +227,7 @@ func (l *EtcdLocker) Unlock() error {
 }
 
 func (l *EtcdLocker) lockKeeperLoop() {
-	leaseTicker := time.NewTicker(time.Duration(l.LeaseTTL)*time.Second - refreshAheadTime)
+	leaseTicker := newLockKeeperTicker(time.Duration(l.LeaseTTL)*time.Second - refreshAheadTime)
 	defer leaseTicker.Stop()
 	failCount := 0
 	for {

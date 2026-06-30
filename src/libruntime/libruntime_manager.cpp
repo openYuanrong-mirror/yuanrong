@@ -21,6 +21,7 @@
 #include "src/libruntime/utils/constants.h"
 #include "src/utility/logger/log_handler.h"
 #include "src/utility/timer_worker.h"
+#include "src/libruntime/gwclient/transport/ws_transport.h"
 #include "src/libruntime/traceadaptor/trace_adapter.h"
 namespace YR {
 namespace Libruntime {
@@ -33,6 +34,25 @@ using YR::utility::LOGGER_NAME;
 using YR::utility::LogParam;
 using YR::utility::LogRollingCompress;
 using YR::utility::SetGetLoggerNameFunc;
+
+// Static member definitions for pointer-based singleton
+std::unique_ptr<LibruntimeManager> LibruntimeManager::instance_ = nullptr;
+std::mutex LibruntimeManager::instanceMutex_;
+
+LibruntimeManager& LibruntimeManager::Instance()
+{
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    if (!instance_) {
+        instance_ = std::unique_ptr<LibruntimeManager>(new LibruntimeManager());
+    }
+    return *instance_;
+}
+
+void LibruntimeManager::Cleanup()
+{
+    std::lock_guard<std::mutex> lock(instanceMutex_);
+    instance_.reset();
+}
 std::pair<uint32_t, ErrorInfo> GetValidMaxLogFileNum(uint32_t maxLogFileNum)
 {
     ErrorInfo err;
@@ -270,18 +290,34 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
     librtConfig->encryptEnable = encryptEnable;
     security->GetToken(librtConfig->token);
     std::string ak = "";
-    SensitiveValue sk = "";
+    SensitiveValue sk("");
     security->GetAKSK(ak, sk);
     auto finalizeHandler = [this, rtCtx(librtConfig->rtCtx)]() { this->Finalize(rtCtx); };
     librt = std::make_shared<Libruntime>(librtConfig, clientsMgr, metricsAdaptor, security, socketClient_);
     if (librtConfig->inCluster) {
+#ifdef ENABLE_DATASYSTEM
         auto [datasystemClients, err] =
             clientsMgr->GetOrNewDsClient(librtConfig, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
         if (!err.OK()) {
             YRLOG_ERROR("get or new ds client failed, code is {}, msg is {}", fmt::underlying(err.Code()), err.Msg());
             return err;
         }
-        security->WhenTokenUpdated([datasystemClients](const datasystem::SensitiveValue &token) -> void {
+        if (datasystemClients.dsObjectStore == nullptr || datasystemClients.dsStateStore == nullptr ||
+            datasystemClients.dsStreamStore == nullptr || datasystemClients.dsHeteroStore == nullptr) {
+            YRLOG_ERROR("datasystem client init succeeded but some clients are nullptr, object {}, state {}, "
+                        "stream {}, hetero {}, ip {}, port {}", datasystemClients.dsObjectStore != nullptr,
+                        datasystemClients.dsStateStore != nullptr, datasystemClients.dsStreamStore != nullptr,
+                        datasystemClients.dsHeteroStore != nullptr, librtConfig->dataSystemIpAddr,
+                        librtConfig->dataSystemPort);
+            auto releaseErr = clientsMgr->ReleaseDsClient(librtConfig->dataSystemIpAddr, librtConfig->dataSystemPort);
+            if (!releaseErr.OK()) {
+                YRLOG_WARN("release ds client failed after invalid init result, code {}, msg {}",
+                           fmt::underlying(releaseErr.Code()), releaseErr.Msg());
+            }
+            return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                             "GetOrNewDsClient returned nullptr datasystem client");
+        }
+        security->WhenTokenUpdated([datasystemClients](const SensitiveValue &token) -> void {
             auto errInfo = datasystemClients.dsObjectStore->UpdateToken(token);
             if (!errInfo.OK()) {
                 YRLOG_ERROR("update token failed, code is {}", fmt::underlying(errInfo.Code()));
@@ -296,7 +332,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             }
         });
         security->WhenAkSkUpdated(
-            [datasystemClients](const std::string &ak, const datasystem::SensitiveValue &sk) -> void {
+            [datasystemClients](const std::string &ak, const SensitiveValue &sk) -> void {
                 auto errInfo = datasystemClients.dsObjectStore->UpdateAkSk(ak, sk);
                 if (!errInfo.OK()) {
                     YRLOG_ERROR("update aksk failed, code is {}", fmt::underlying(errInfo.Code()));
@@ -312,7 +348,12 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             });
         auto fsClient = std::make_shared<FSClient>();
         return librt->Init(fsClient, datasystemClients, finalizeHandler);
+#else
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "inCluster runtime requires ENABLE_DATASYSTEM to be enabled");
+#endif
     } else {
+        librtConfig->httpIdleTime = YR::Libruntime::Config::Instance().YR_HTTP_IDLE_TIME();
         FSIntfHandlers handlers;
         auto [httpClient, err] = clientsMgr->GetOrNewHttpClient(librtConfig->functionSystemIpAddr,
                                                                 librtConfig->functionSystemPort, librtConfig);
@@ -322,6 +363,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
         }
         auto gwClient = std::make_shared<GwClient>(librtConfig->functionIds[librtConfig->selfLanguage], handlers);
         gwClient->Init(httpClient, Config::Instance().DS_CONNECT_TIMEOUT_SEC(), librtConfig->authToken);
+        gwClient->SetWsTransport(CreateWsTransportFromConfig(librtConfig));
         auto fsClient = std::make_shared<FSClient>(gwClient);
         DatasystemClients dsClients{gwClient, gwClient, gwClient, gwClient};
         return librt->Init(fsClient, dsClients);
@@ -373,6 +415,20 @@ void LibruntimeManager::Finalize(const std::string &rtCtx)
     YR::utility::SpdLogger::GetInstance().Flush();
 }
 
+void LibruntimeManager::ReInit(const std::string &rtCtx)
+{
+    // Reset Config singleton to reload environment variables
+    // This must be done before ReInit so that the new environment variables are available
+    Config::Reset();
+
+    std::shared_ptr<Libruntime> librt = GetLibRuntime(rtCtx);
+    if (librt == nullptr) {
+        YRLOG_ERROR("LibruntimeManager::ReInit - Libruntime not initialized, cannot ReInit. rtCtx: {}", rtCtx);
+        return;
+    }
+    librt->ReInit();
+}
+
 std::shared_ptr<Libruntime> LibruntimeManager::GetLibRuntime(const std::string &rtCtx)
 {
     std::lock_guard<std::mutex> rtLk(rtMtx);
@@ -407,6 +463,12 @@ bool LibruntimeManager::IsInitialized(const std::string &rtCtx)
 void LibruntimeManager::ReceiveRequestLoop(const std::string &rtCtx)
 {
     return GetLibRuntime(rtCtx)->ReceiveRequestLoop();
+}
+
+bool LibruntimeManager::NeedReInit(const std::string &rtCtx)
+{
+    auto librt = GetLibRuntime(rtCtx);
+    return librt ? librt->NeedReInit() : false;
 }
 
 void LibruntimeManager::InstallSigtermHandler()

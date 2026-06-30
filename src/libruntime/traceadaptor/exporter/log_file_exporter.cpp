@@ -39,7 +39,7 @@ std::string SpanIdToString(const opentelemetry::trace::SpanId& spanId)
 }
 
 common_sdk::ExportResult LogFileExporter::Export(
-    const nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept
+    const opentelemetry::nostd::span<std::unique_ptr<trace_sdk::Recordable>> &spans) noexcept
 {
     if (isShutDown) {
         YRLOG_ERROR("[YRLOG File Exporter] Exporting {} log(s) failed, exporter is shutdown", spans.size());
@@ -54,10 +54,10 @@ common_sdk::ExportResult LogFileExporter::Export(
         oss << "span_name: " << span->GetName() << ", "
             << "trace_id: " << TraceIdToString(span->GetTraceId()) << ", "
             << "span_id: " << SpanIdToString(span->GetSpanId()) << ", "
-            << "start_time: " << span->GetStartTime().time_since_epoch().count() << " ns" << ", ";
-        oss << "duration: "
-            << std::chrono::duration_cast<std::chrono::milliseconds>(span->GetDuration()).count()
+            << "start_time: " << span->GetStartTime().time_since_epoch().count() << " ns" << ", "
+            << "duration: " << std::chrono::duration_cast<std::chrono::milliseconds>(span->GetDuration()).count()
             << " ms" << ", ";
+
         auto attributes = span->GetAttributes();
         oss << "attributes: {";
         for (const auto& [key, value] : attributes) {
@@ -88,4 +88,3 @@ bool LogFileExporter::ForceFlush(std::chrono::microseconds timeout) noexcept
 
 }
 }
-

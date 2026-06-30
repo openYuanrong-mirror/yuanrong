@@ -64,6 +64,13 @@ func TestContendRolloutInEtcd(t *testing.T) {
 		invokeErr   error
 		lockErr     error
 	)
+	oldTryLockWithPrefix := tryLockWithPrefix
+	tryLockWithPrefix = func(_ *etcd3.EtcdLocker, prefix string, filter func(k, v []byte) bool) error {
+		return lockErr
+	}
+	defer func() {
+		tryLockWithPrefix = oldTryLockWithPrefix
+	}()
 	patches := []*gomonkey.Patches{
 		gomonkey.ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient {
 			return &etcd3.EtcdClient{}
@@ -79,9 +86,6 @@ func TestContendRolloutInEtcd(t *testing.T) {
 		gomonkey.ApplyFunc((*etcd3.EtcdClient).Delete, func(_ *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo,
 			etcdKey string, opts ...clientv3.OpOption) error {
 			return nil
-		}),
-		gomonkey.ApplyFunc((*etcd3.EtcdLocker).TryLock, func(_ *etcd3.EtcdLocker, key string) error {
-			return lockErr
 		}),
 		gomonkey.ApplyFunc(rollout.InvokeByInstanceId, func(args []api.Arg, instanceID string, traceID string) ([]byte,
 			error) {
@@ -140,10 +144,14 @@ func TestReplaceRolloutSubject(t *testing.T) {
 		unlockErr error
 		regErr    error
 	)
+	oldTryLockFunc := tryLockFunc
+	tryLockFunc = func(_ *etcd3.EtcdLocker, key string) error {
+		return lockErr
+	}
+	defer func() {
+		tryLockFunc = oldTryLockFunc
+	}()
 	patches := []*gomonkey.Patches{
-		gomonkey.ApplyFunc((*etcd3.EtcdLocker).TryLock, func(_ *etcd3.EtcdLocker, key string) error {
-			return lockErr
-		}),
 		gomonkey.ApplyFunc((*etcd3.EtcdLocker).Unlock, func(_ *etcd3.EtcdLocker) error {
 			return unlockErr
 		}),
@@ -204,13 +212,17 @@ func TestPutInsSpecForRolloutKey(t *testing.T) {
 		rolloutErr error
 	)
 	rolloutRes = &types.RolloutResponse{}
+	oldGetLockedKeyFunc := getLockedKeyFunc
+	getLockedKeyFunc = func(_ *etcd3.EtcdLocker) string {
+		return lockedKey
+	}
+	defer func() {
+		getLockedKeyFunc = oldGetLockedKeyFunc
+	}()
 	patches := []*gomonkey.Patches{
 		gomonkey.ApplyFunc((*etcd3.EtcdClient).Put, func(_ *etcd3.EtcdClient, ctxInfo etcd3.EtcdCtxInfo,
 			etcdKey string, value string, opts ...clientv3.OpOption) error {
 			return putErr
-		}),
-		gomonkey.ApplyFunc((*etcd3.EtcdLocker).GetLockedKey, func(_ *etcd3.EtcdLocker) string {
-			return lockedKey
 		}),
 		gomonkey.ApplyFunc((*rollout.RFHandler).SendRolloutRequest, func(_ *rollout.RFHandler, selfInsID,
 			targetInsID string) (*types.RolloutResponse, error) {
@@ -256,13 +268,15 @@ func TestPutInsSpecForRolloutKey(t *testing.T) {
 
 func Test_delInsSpecForRolloutKey(t *testing.T) {
 	convey.Convey("Given delInsSpecForRolloutKey function", t, func() {
-		patches := gomonkey.NewPatches()
-		defer patches.Reset()
+		oldIsKeyExistFunc := isKeyExistFunc
+		oldProcessEtcdPutFunc := processEtcdPutFunc
+		defer func() {
+			isKeyExistFunc = oldIsKeyExistFunc
+			processEtcdPutFunc = oldProcessEtcdPutFunc
+		}()
 
-		isKeyExistFunc := func(client interface{}, key string) (bool, error) { return true, nil }
-		processEtcdPutFunc := func(client interface{}, key, val string) error { return nil }
-		patches.ApplyFunc(isKeyExist, isKeyExistFunc)
-		patches.ApplyFunc(processEtcdPut, processEtcdPutFunc)
+		isKeyExistFunc = func(client *etcd3.EtcdClient, key string) (bool, error) { return true, nil }
+		processEtcdPutFunc = func(client *etcd3.EtcdClient, key, val string) error { return nil }
 
 		convey.Convey("When lockedKey is empty", func() {
 			locker := &etcd3.EtcdLocker{LockedKey: ""}
@@ -272,8 +286,7 @@ func Test_delInsSpecForRolloutKey(t *testing.T) {
 		})
 
 		convey.Convey("When key does not exist in etcd", func() {
-			isKeyExistFunc = func(client interface{}, key string) (bool, error) { return false, nil }
-			patches.ApplyFunc(isKeyExist, isKeyExistFunc)
+			isKeyExistFunc = func(client *etcd3.EtcdClient, key string) (bool, error) { return false, nil }
 
 			locker := &etcd3.EtcdLocker{LockedKey: "test-key"}
 			err := delInsSpecForRolloutKey(locker)
@@ -282,8 +295,7 @@ func Test_delInsSpecForRolloutKey(t *testing.T) {
 		})
 
 		convey.Convey("When isKeyExist returns an error", func() {
-			isKeyExistFunc = func(client interface{}, key string) (bool, error) { return false, errors.New("etcd error") }
-			patches.ApplyFunc(isKeyExist, isKeyExistFunc)
+			isKeyExistFunc = func(client *etcd3.EtcdClient, key string) (bool, error) { return false, errors.New("etcd error") }
 
 			locker := &etcd3.EtcdLocker{LockedKey: "test-key"}
 			err := delInsSpecForRolloutKey(locker)
@@ -292,8 +304,8 @@ func Test_delInsSpecForRolloutKey(t *testing.T) {
 		})
 
 		convey.Convey("When processEtcdPut fails", func() {
-			processEtcdPutFunc = func(client interface{}, key, val string) error { return errors.New("put error") }
-			patches.ApplyFunc(processEtcdPut, processEtcdPutFunc)
+			isKeyExistFunc = func(client *etcd3.EtcdClient, key string) (bool, error) { return true, nil }
+			processEtcdPutFunc = func(client *etcd3.EtcdClient, key, val string) error { return errors.New("put error") }
 
 			locker := &etcd3.EtcdLocker{LockedKey: "test-key"}
 			err := delInsSpecForRolloutKey(locker)

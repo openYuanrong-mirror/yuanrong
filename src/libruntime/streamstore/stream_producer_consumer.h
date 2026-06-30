@@ -16,8 +16,10 @@
 
 #pragma once
 
+#ifdef ENABLE_DATASYSTEM
 #include "datasystem/stream/consumer.h"
 #include "datasystem/stream/producer.h"
+#endif
 #include "src/dto/stream_conf.h"
 #include "src/libruntime/err_type.h"
 
@@ -26,20 +28,26 @@ namespace Libruntime {
 
 class StreamProducer {
 public:
+    virtual ~StreamProducer() = default;
+
     virtual ErrorInfo Send(const Element &element);
 
     virtual ErrorInfo Send(const Element &element, int64_t timeoutMs);
 
     virtual ErrorInfo Close();
 
+#ifdef ENABLE_DATASYSTEM
     std::shared_ptr<datasystem::Producer> &GetProducer();
 
 private:
     std::shared_ptr<datasystem::Producer> dsProducer;
+#endif
 };
 
 class StreamConsumer {
 public:
+    virtual ~StreamConsumer() = default;
+
     virtual ErrorInfo Receive(uint32_t expectNum, uint32_t timeoutMs, std::vector<Element> &outElements);
 
     virtual ErrorInfo Receive(uint32_t timeoutMs, std::vector<Element> &outElements);
@@ -48,10 +56,12 @@ public:
 
     virtual ErrorInfo Close();
 
+#ifdef ENABLE_DATASYSTEM
     std::shared_ptr<datasystem::Consumer> &GetConsumer();
 
 private:
     std::shared_ptr<datasystem::Consumer> dsConsumer;
+#endif
 };
 }  // namespace Libruntime
 }  // namespace YR

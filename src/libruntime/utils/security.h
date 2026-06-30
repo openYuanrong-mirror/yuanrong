@@ -22,8 +22,8 @@
 #include "boost/iostreams/stream.hpp"
 
 #include "certs_utils.h"
-#include "datasystem/utils/sensitive_value.h"
 #include "sensitive_data.h"
+#include "sensitive_value.h"
 #include "src/libruntime/fsclient/protobuf/common.grpc.pb.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_config.h"
@@ -31,7 +31,6 @@
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 using SensitiveData = YR::Libruntime::SensitiveData;
 const size_t DEFAULT_STDIN_PIPE_TIMEOUT_MS = 30000;
 class Security {
@@ -167,7 +166,7 @@ private:
         bool authEnable = false;
         bool encryptEnable = false;
         std::string clientPublicKey = "";
-        SensitiveValue clientPrivateKey = "";
+        SensitiveValue clientPrivateKey = SensitiveValue("");
         std::string serverPublicKey = "";
     };
     DataSystemSecurityConfig dsConf_;
@@ -185,10 +184,10 @@ private:
         SensitiveData privateKeyData;
     };
     MetricsSecurityConfig metricsConf_;
-    SensitiveValue token_ = "";
+    SensitiveValue token_ = SensitiveValue("");
     std::string ak_ = "";
-    SensitiveValue sk_ = "";
-    SensitiveValue dk_ = "";
+    SensitiveValue sk_ = SensitiveValue("");
+    SensitiveValue dk_ = SensitiveValue("");
     bool isCredential_ = false;  // true means runtime auth with ds and fs use ak、sk
     bool fsConnMode_ = false;    // false means runtime is server, function system is client
     std::string serverNameoverride_ = "";

@@ -37,7 +37,8 @@ yr_spdlog::level::level_enum GetLogLevel(const std::string &level)
 {
     static std::map<std::string, yr_spdlog::level::level_enum> logLevelMap = {
         {"TRACE", yr_spdlog::level::trace}, {"DEBUG", yr_spdlog::level::debug}, {"INFO", yr_spdlog::level::info},
-        {"WARN", yr_spdlog::level::warn},   {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical}};
+        {"WARN", yr_spdlog::level::warn},   {"WARNING", yr_spdlog::level::warn}, {"ERROR", yr_spdlog::level::err},
+        {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical}};
     auto iter = logLevelMap.find(level);
     return iter == logLevelMap.end() ? yr_spdlog::level::info : iter->second;
 }
@@ -55,7 +56,7 @@ std::string FormatTimePoint()
     return ss.str();
 }
 
-SpdLogger::~SpdLogger() {}
+SpdLogger::~SpdLogger() = default;
 
 std::string SpdLogger::GetLogDir(void) const
 {
@@ -70,6 +71,11 @@ std::string SpdLogger::GetNodeName(void) const
 std::string SpdLogger::GetModelName(void) const
 {
     return this->modelName;
+}
+
+bool SpdLogger::IsOnlyStdout(void) const
+{
+    return this->onlyStdout_;
 }
 
 std::pair<std::shared_ptr<yr_spdlog::logger>, std::string> SpdLogger::GetLogger()
@@ -93,6 +99,7 @@ void SpdLogger::ConstructLoggerInfo(const LogParam &logParam)
     this->logDir = logParam.logDir;
     this->nodeName = logParam.nodeName;
     this->modelName = logParam.modelName;
+    this->onlyStdout_ = logParam.onlyStdout;
 }
 
 std::string SpdLogger::GetLogFile(const LogParam &logParam)
@@ -120,6 +127,11 @@ std::string SpdLogger::GetLogFile(const LogParam &logParam)
 
 void SpdLogger::CreateLogger(const LogParam &logParam, const std::string &nodeName, const std::string &modelName)
 {
+    auto logger = yr_spdlog::get(LOGGER_NAME);
+    if (!logParam.isLogMerge && logger && this->logDir == logParam.logDir && this->nodeName == nodeName &&
+        this->modelName == modelName && this->logLevel == GetLogLevel(logParam.logLevel)) {
+        return;
+    }
     ConstructLoggerInfo(logParam);
     try {
         std::string logFile = GetLogFile(logParam);
@@ -169,10 +181,13 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
             auto consoleSink = std::make_shared<yr_spdlog::sinks::stdout_color_sink_mt>();
             sinks = {consoleSink};
         } else {
-            auto rotatingSink = std::make_shared<yr_spdlog::sinks::rotating_file_sink_mt>(logFile,
-                logParam.maxSize * SIZE_MEGA_BYTES, logParam.maxFiles);
+            const auto maxSize = logParam.maxSize > 0 ? logParam.maxSize : DEFAULT_MAX_SIZE;
+            const auto maxFiles = logParam.maxFiles > 0 ? logParam.maxFiles : DEFAULT_MAX_FILES;
+            auto rotatingSink = std::make_shared<yr_spdlog::sinks::rotating_file_sink_mt>(
+                logFile, maxSize * SIZE_MEGA_BYTES, maxFiles);
             auto dupFilter = std::make_shared<yr_spdlog::sinks::dup_filter_sink_mt>(
                 std::chrono::seconds(DUP_FILTER_TIME));
+
             sinks = {rotatingSink, dupFilter};
             if (logParam.alsoLog2Stderr) {
                 auto consoleSink = std::make_shared<yr_spdlog::sinks::stdout_color_sink_mt>();

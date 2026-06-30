@@ -19,6 +19,8 @@ namespace YR {
 namespace scene {
 using namespace YR::utility;
 using namespace YR::Libruntime;
+constexpr int DEFAULT_HTTP_MAX_CONN_SIZE = 10;
+
 DowngradeController::DowngradeController(const std::string &functionId, std::shared_ptr<ClientsManager> clientsMgr,
                                          std::shared_ptr<Security> security)
     : functionId_(functionId), clientsMgr_(clientsMgr), security_(security)
@@ -170,9 +172,8 @@ YR::Libruntime::ErrorInfo ApiClient::Init()
         return Libruntime::ErrorInfo(Libruntime::ErrorCode::ERR_PARAM_INVALID, "YR_INVOCATION_URL_PREFIX env unset");
     }
     auto config = std::make_shared<LibruntimeConfig>();
-    const uint32_t threadNum = 10;
-    config->httpIocThreadsNum = threadNum;
-    config->maxConnSize = config->httpIocThreadsNum;
+    config->httpIocThreadsNum = std::max(1u, std::thread::hardware_concurrency());
+    config->maxConnSize = DEFAULT_HTTP_MAX_CONN_SIZE;
     config->enableTLS = enableTLS_;
     config->verifyFilePath = YR::GetEnvValue(CERTIFICATE_FILE_ENV);
     config->serverName = host;

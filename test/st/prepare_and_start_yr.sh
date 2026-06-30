@@ -102,12 +102,73 @@ function prepend_python_runtime_ld_path() {
     esac
 }
 
+function stage_functionsystem_runtime_libs() {
+    local fs_lib_dir="${YUANRONG_DIR}/functionsystem/lib"
+    if [ ! -d "${fs_lib_dir}" ]; then
+        return 0
+    fi
+    if compgen -G "${fs_lib_dir}/libprotoc.so*" >/dev/null; then
+        return 0
+    fi
+
+    local lib_src_dir
+    for lib_src_dir in \
+        "${YUANRONG_DIR}/datasystem/sdk/cpp/lib" \
+        "${YUANRONG_DIR}/datasystem/service/lib" \
+        "${YUANRONG_DIR}/runtime/service/python/yr" \
+        "${YUANRONG_DIR}/runtime/sdk/cpp/lib"; do
+        if compgen -G "${lib_src_dir}/libprotoc.so*" >/dev/null; then
+            echo "[gate-st] stage libprotoc from ${lib_src_dir} to ${fs_lib_dir}"
+            cp -P "${lib_src_dir}"/libprotoc.so* "${fs_lib_dir}/"
+            return 0
+        fi
+    done
+    echo "[gate-st] warning: libprotoc.so* not found for functionsystem runtime"
+}
+
+function resolve_metrics_config_file() {
+    local candidate
+    for candidate in \
+        "${YUANRONG_DIR}/functionsystem/config/metrics/metrics_config.json" \
+        "${YUANRONG_DIR}/functionsystem/scripts/config/metrics/metrics_config.json"; do
+        if [ -f "${candidate}" ]; then
+            readlink -f "${candidate}"
+            return
+        fi
+    done
+}
+
+function dump_process_deploy_diagnostics() {
+    echo "[st-diagnose] YUANRONG_DIR=${YUANRONG_DIR}"
+    echo "[st-diagnose] DEPLOY_PATH=${DEPLOY_PATH}"
+    echo "[st-diagnose] list deploy path"
+    find "${DEPLOY_PATH}" -maxdepth 3 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort | tail -80 || true
+    echo "[st-diagnose] tail key logs"
+    find "${DEPLOY_PATH}" -maxdepth 4 -type f \
+        \( -name '*std.log' -o -name '*.log' -o -name 'master.info' -o -name 'master_pid_port.txt' \) \
+        -print 2>/dev/null | sort | while read -r log_file; do
+            echo "[st-diagnose] ===== ${log_file} ====="
+            tail -80 "${log_file}" || true
+        done
+    echo "[st-diagnose] related process snapshot"
+    ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|ds_worker|ds_master|etcd' | grep -v grep || true
+}
+
 function start_yr() {
     cd "${YUANRONG_DIR}/"
     local services_file="${BASE_DIR}/services.yaml"
     local absolute_cpp_code_path=$(readlink -f "${DEPLOY_PATH}/pkg")
     local absolute_python_code_path=$(readlink -f "${BASE_DIR}/python")
     local absolute_java_code_path=$(readlink -f "${DEPLOY_PATH}/pkg")
+    local metrics_config_file
+    metrics_config_file=$(resolve_metrics_config_file)
+    local metrics_config_args=()
+    if [ -n "${metrics_config_file}" ]; then
+        metrics_config_args=(
+            --metrics_config_file "${metrics_config_file}"
+            --runtime_metrics_config_file "${metrics_config_file}"
+        )
+    fi
     cp -f "$services_file" ${DEPLOY_PATH}
     sed -i "s#codePath: /cpp#codePath: ${absolute_cpp_code_path}/#g" "${DEPLOY_PATH}/services.yaml"
     sed -i "s#codePath: /python#codePath: ${absolute_python_code_path}/#g" "${DEPLOY_PATH}/services.yaml"
@@ -120,8 +181,9 @@ function start_yr() {
     if [ "X${RUNTIME_DIRECT_CONNECTION_ENABLE}" == "Xtrue" ]; then
         direct_call="true"
     fi
+    stage_functionsystem_runtime_libs
     prepend_python_runtime_ld_path
-    bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
+    if ! bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
         -a ${LOCAL_IP} -l DEBUG -s 2048 -c 10000 -m 22048 \
         -o ${DEPLOY_PATH}/yr_master/master.info \
         --services_path "${DEPLOY_PATH}/services.yaml" \
@@ -135,7 +197,11 @@ function start_yr() {
         --disable_nc_check \
         --npu_collection_mode off \
         --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
-        --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]"
+        --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+        "${metrics_config_args[@]}"; then
+        dump_process_deploy_diagnostics
+        return 1
+    fi
     for((k=0;k<"${AGENT_NUM}";k++))
     do
         nohup bash deploy/process/yr_agent.sh --master_info "$(cat ${DEPLOY_PATH}/yr_master/master.info)" \
@@ -151,7 +217,8 @@ function start_yr() {
             -c 10000 -m 20000 -s 2048 \
             --npu_collection_mode off \
             --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
-            --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
+            --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+            "${metrics_config_args[@]}" > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
     done
     wait_cluster_readiness
     echo "Succeed to start yuanrong"

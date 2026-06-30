@@ -227,6 +227,7 @@ data:
     temporary_accessKey_expiration_seconds=""
     redis_conf_path="/home/sn/conf/conf.json"
     forward_compatibility=""
+    force_low_reliability_instance={{ quote (.Values.global.runtime.forceLowReliabilityInstance | default false) }}
     etcd_ssl_base_path="/home/sn/resource/etcd"
     function_meta_path="/home/sn/function-metas"
     curve_key_path="/home/sn/curve"

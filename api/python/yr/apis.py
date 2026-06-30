@@ -17,40 +17,49 @@
 """api"""
 
 import atexit
+from collections import defaultdict
 import functools
 import logging
 import os
-from typing import List, Dict, Optional, Tuple, Union
-from collections import defaultdict
+from typing import Dict, List, Optional, Tuple, Union
 
 from yr.libruntime_pb2 import LanguageType
 
 from yr import log, runtime_holder
+from yr.base_runtime import (
+    CacheType,
+    ConsistencyType,
+    CreateParam,
+    ExistenceOpt,
+    GetParams,
+    MSetParam,
+    SetParam,
+    WriteMode,
+)
 from yr.code_manager import CodeManager
 from yr.common import constants, utils
+from yr.common.utils import CrossLanguageInfo
 from yr.config import ClientInfo, Config, InvokeOptions
 from yr.config_manager import ConfigManager
 from yr.decorator import function_proxy, instance_proxy
+from yr.decorator.function_proxy import FunctionProxy
+from yr.decorator.instance_proxy import InstanceCreator, InstanceProxy
+from yr.ds_tensor_client_manager import get_tensor_client
 from yr.executor.executor import Executor
 from yr.fnruntime import Consumer, Producer, auto_get_cluster_access_info
 from yr.npu_object import NpuObject
 from yr.object_ref import ObjectRef
-from yr.resource_group_ref import RgObjectRef
-from yr.base_runtime import ExistenceOpt, WriteMode, CacheType, SetParam, MSetParam, CreateParam, GetParams
-from yr.stream import ProducerConfig, SubscriptionConfig
-from yr.decorator.function_proxy import FunctionProxy
-from yr.decorator.instance_proxy import InstanceCreator, InstanceProxy
-from yr.common.utils import CrossLanguageInfo
 from yr.resource_group import ResourceGroup
+from yr.resource_group_ref import RgObjectRef
 from yr.serialization import Serialization
-from yr.ds_tensor_client_manager import get_tensor_client
+from yr.stream import ProducerConfig, SubscriptionConfig
 
 # Gradual migration: StatelessFunction is the new preferred name
 # FunctionProxy is kept for backward compatibility
 StatelessFunction = FunctionProxy
 
 # Gradual migration: StatefulInstance and StatefulInstanceCreator are the new preferred names
-# InstanceProxy and InstanceCreator are kept for backward compatibility  
+# InstanceProxy and InstanceCreator are kept for backward compatibility
 StatefulInstance = InstanceProxy
 StatefulInstanceCreator = InstanceCreator
 
@@ -103,6 +112,28 @@ def set_initialized():
     __g_is_init = True
 
 
+def _parse_tenant_from_jwt(token):
+    """Parse tenant ID (sub) from JWT token payload without signature verification."""
+    import base64
+    import binascii
+    import json
+
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return ""
+        payload_b64 = parts[1]
+        # Add padding if needed for base64url decoding
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        payload = json.loads(payload_bytes)
+        return payload.get("sub", "")
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+
+
 def _get_from_env(conf):
     if conf.function_id == "":
         conf.function_id = os.environ.get("YRFUNCID", _DEFAULT_FUNC_ID)
@@ -115,8 +146,13 @@ def _get_from_env(conf):
     if conf.working_dir == "":
         conf.working_dir = os.environ.get("YR_WORKING_DIR", "")
     if conf.in_cluster is None:
-        in_cluster_env = os.environ.get("YR_IN_CLUSTER", "true").lower()
-        conf.in_cluster = True if in_cluster_env == "true" else False
+        in_cluster_env = os.environ.get("YR_IN_CLUSTER", "").lower()
+        if in_cluster_env:
+            conf.in_cluster = in_cluster_env == "true"
+        elif conf.server_address and not conf.ds_address:
+            conf.in_cluster = False
+        else:
+            conf.in_cluster = True
     app_mode_env_var = os.environ.get("YR_APP_MODE", "false").lower()
     if app_mode_env_var == "true":
         conf.is_driver = False
@@ -125,9 +161,6 @@ def _get_from_env(conf):
     if conf.enable_mtls is None:
         enable_mtls_env = os.environ.get("YR_ENABLE_MTLS", "false").lower()
         conf.enable_mtls = True if enable_mtls_env == "true" else False
-    if conf.enable_tls is None:
-        enable_tls_env = os.environ.get("YR_ENABLE_TLS", "false").lower()
-        conf.enable_tls = True if enable_tls_env == "true" else False
     if conf.private_key_path == "":
         conf.private_key_path = os.environ.get("YR_PRIVATE_KEY_FILE", "")
     if conf.certificate_file_path == "":
@@ -136,6 +169,21 @@ def _get_from_env(conf):
         conf.verify_file_path = os.environ.get("YR_VERIFY_FILE", "")
     if conf.server_name == "":
         conf.server_name = os.environ.get("YR_SERVER_NAME", "")
+    if conf.auth_token == "":
+        conf.auth_token = os.environ.get("YR_JWT_TOKEN", "")
+    if conf.tenant_id == "":
+        conf.tenant_id = os.environ.get("YR_TENANT_ID", "")
+    if conf.tenant_id == "" and conf.auth_token != "":
+        conf.tenant_id = _parse_tenant_from_jwt(conf.auth_token)
+    if conf.enable_tls is None:
+        enable_tls_env = os.environ.get("YR_ENABLE_TLS", "").lower()
+        if enable_tls_env:
+            conf.enable_tls = enable_tls_env == "true"
+        elif not conf.in_cluster and conf.auth_token:
+            conf.enable_tls = True
+    if conf.server_name == "" and conf.server_address and conf.enable_tls:
+        host = conf.server_address.split(":")[0]
+        conf.server_name = host
     conf.log_dir = os.environ.get("YR_LOG_PATH", "./")
     return conf
 
@@ -238,7 +286,6 @@ def finalize() -> None:
     if not __g_is_init:
         return
     runtime_holder.global_runtime.get_runtime().finalize()
-    runtime_holder.global_runtime.yr_runtime = None
     CodeManager().clear()
     __g_is_init = False
     _logger.info("Succeeded to finalize, jobID is %s", ConfigManager().job_id)
@@ -250,6 +297,26 @@ def receive_request_loop() -> None:
     :return: None
     """
     runtime_holder.global_runtime.get_runtime().receive_request_loop()
+
+
+def need_reinit() -> bool:
+    """
+    Check if re-initialization is needed after checkpoint restore.
+    :return: True if re-init is needed
+    """
+    return runtime_holder.global_runtime.get_runtime().need_reinit()
+
+
+def reinit() -> None:
+    """
+    Perform re-initialization after checkpoint restore.
+    :return: None
+    """
+    global __g_is_init
+    runtime_holder.global_runtime.get_runtime().reinit()
+    CodeManager().clear()
+    __g_is_init = False
+    _logger.info("ReInit completed, jobID is %s", ConfigManager().job_id)
 
 
 @check_initialized
@@ -326,10 +393,8 @@ def _recurse(obj, ref_obj):
     if isinstance(obj, list):
         return [_recurse(item, ref_obj) for item in obj]
     if isinstance(obj, defaultdict):
-        # 保留 default_factory
         return type(obj)(obj.default_factory, [(k, _recurse(v, ref_obj)) for k, v in obj.items()])
     if isinstance(obj, dict):
-        # 保持原始字典类型（如 OrderedDict）
         return type(obj)([(k, _recurse(v, ref_obj)) for k, v in obj.items()])
     if isinstance(obj, set):
         new_set = set()
@@ -1409,7 +1474,7 @@ def resources() -> List[dict]:
         >>>
         >>> res = yr.resources()
         >>> print(res)
-        [{'id': 'function-agent-172.17.0.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},
+        [{'id': 'function-agent-192.0.2.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},
         'allocatable': {'CPU': 500.0, 'Memory': 4096.0}}]
         >>>
         >>> yr.finalize()
@@ -1468,7 +1533,8 @@ def create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] =
         name (Optional[str], optional): The name of the ResourceGroup to be created, which must be unique and
             cannot be 'primary' or an empty string. This parameter is optional, with a default value of ``None``,
             meaning a rgroup-{uuid} type string will be randomly generated as the `resource group name`.
-        strategy (Optional[str], optional): The strategy to create the resource group, default strategy is ``PACK``
+        strategy (Optional[str], optional): The strategy to create the resource group, default strategy is
+            ``PACK``
 
             - ``'None'``: No strategy.
 
@@ -1854,3 +1920,75 @@ def kill_instance(instance_id):
     """
 
     runtime_holder.global_runtime.get_runtime().terminate_instance_sync(instance_id)
+
+
+@check_initialized
+def restore_from_checkpoint(checkpoint_id: str, instance_class) -> "InstanceProxy":
+    """Restore an instance from a checkpoint.
+
+    Args:
+        checkpoint_id (str): The checkpoint ID returned by snapshot().
+        instance_class: The @yr.instance decorated class.
+
+    Returns:
+        InstanceProxy: A new instance proxy for the restored instance.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> restored = yr.restore_from_checkpoint(ckpt_id, MyClass)
+        >>> yr.finalize()
+    """
+    return instance_class.snapstart(checkpoint_id)
+
+
+@check_initialized
+def delete_checkpoint(checkpoint_id: str) -> None:
+    """Delete a checkpoint by checkpoint_id.
+
+    Args:
+        checkpoint_id (str): The checkpoint ID to delete.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> yr.delete_checkpoint(ckpt_id)
+        >>> yr.finalize()
+    """
+    runtime_holder.global_runtime.get_runtime().delete_checkpoint(checkpoint_id)
+
+
+def _resolve_checkpoint_function_type(function_type_or_class) -> str:
+    if function_type_or_class in ("", None):
+        return ""
+    if isinstance(function_type_or_class, str):
+        return function_type_or_class
+    user_class = getattr(function_type_or_class, "__user_class__", None)
+    if user_class is not None:
+        return f"{utils.get_module_name(user_class)}.{user_class.__qualname__}"
+    raise TypeError("function_type must be a string, an @yr.instance class, or empty")
+
+
+@check_initialized
+def list_checkpoints(function_type: Union[str, object] = "", namespace: str = "") -> list:
+    """List checkpoint IDs by function type, class, or all for the current tenant.
+
+    Args:
+        function_type: Either the function type string in 'moduleName.className'
+            format, an ``@yr.instance`` class, or empty. If empty, returns all
+            checkpoints for the current tenant.
+        namespace (str): Namespace filter. Empty means no namespace filter.
+
+    Returns:
+        list: List of checkpoint ID strings.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> checkpoints = yr.list_checkpoints(Counter)
+        >>> checkpoints = yr.list_checkpoints("mymodule.Counter")
+        >>> all_checkpoints = yr.list_checkpoints()
+        >>> yr.finalize()
+    """
+    resolved_function_type = _resolve_checkpoint_function_type(function_type)
+    return runtime_holder.global_runtime.get_runtime().list_checkpoints(resolved_function_type, namespace)

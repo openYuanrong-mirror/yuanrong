@@ -98,6 +98,10 @@ struct InvokeOptions {
 
     int memory = 500;
 
+    int cpuLimit = 0;
+
+    int memoryLimit = 0;
+
     std::unordered_map<std::string, float> customResources;
 
     std::unordered_map<std::string, std::string> customExtensions;
@@ -172,6 +176,10 @@ struct InvokeOptions {
 
     bool isDeleteRemoteTensor = false;
 
+    bool bypassDatasystem = false;
+
+    bool isInterrupted = false;
+
     std::unordered_map<std::string, std::string> invokeLabels;
 
     std::unordered_map<std::string, std::string> aliasParams;
@@ -182,8 +190,6 @@ struct InvokeOptions {
 
     std::string workingDir;
 
-    bool isInterrupted = false;
-
     std::string sessionCtxId;
 };
 
@@ -192,11 +198,11 @@ struct FunctionMeta {
     std::string moduleName;
     std::string funcName;
     std::string className;
-    libruntime::LanguageType languageType;
+    libruntime::LanguageType languageType = libruntime::LanguageType::Python;
     std::string codeId;     // transferring python code with data object, use codeId as key to it
     std::string signature;  // java function signature
     std::string poolLabel;
-    libruntime::ApiType apiType;
+    libruntime::ApiType apiType = libruntime::ApiType::Function;
     std::string functionId;
     std::string name;
     std::string ns;
@@ -207,18 +213,30 @@ struct FunctionMeta {
     std::string tensorTransportTarget = "";
     bool enableTensorTransport = false;
     std::vector<char> code;
+    std::string functionType;
 
-    /// Serialized instance state from recover (e.g. for GetInstance on caller).
-    std::string recoveredData;
     bool IsServiceApiType()
     {
         return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);
     }
 };
 
+struct SnapstartInfo {
+    std::string routeAddress;
+    std::string portMappings;
+    std::string functionProxyID;
+    std::string nodeID;
+    std::string namespace_;
+};
+
+struct SnapstartResponse {
+    std::string instanceID;
+    SnapstartInfo snapstartInfo;
+};
+
 struct BindOpts {
-    std::string resource = "NONE";
-    std::string strategy = "NONE";
+    std::string resource;
+    std::string strategy;
 };
 
 struct GroupOpts {
@@ -283,6 +301,7 @@ struct SnapOptions {
     common::SnapType type = common::SnapType::SNAPSHOT;
     int32_t ttl = -1;  // seconds
     bool leaveRunning = false;
+    std::string functionType;
 };
 
 struct SnapStartOptions {
@@ -299,9 +318,9 @@ struct Credential {
 struct OwnerSchedulerInfo {
     std::string schedulerInstanceID;
     int retryTimes = 0;
-    int maxRetryTimes = 3;  // 单个scheduler实例重试3次
+    int maxRetryTimes = 3; // 单个scheduler实例重试3次
     int currentRetryTimeSpent = 0;
-    int maxRetryTimeSpent = 5000;  // Owner节点总重试时间最大5s
+    int maxRetryTimeSpent = 5000; // Owner节点总重试时间最大5s
 };
 }  // namespace Libruntime
 }  // namespace YR

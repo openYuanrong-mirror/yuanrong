@@ -125,7 +125,7 @@ private:
     std::shared_ptr<FSIntfManager> fsIntfMgr;
     std::unique_ptr<grpc::Server> server;
     mutable absl::Mutex disconnectedMu;
-    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> disconnectCallbackTimers ABSL_GUARDED_BY(mu);
+    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> disconnectCallbackTimers;
     std::unordered_map<BodyCase, MsgHdlr> fsMsgHdlrs;
     std::unordered_map<BodyCase, MsgHdlr> rtMsgHdlrs;
     std::unordered_map<BodyCase, MsgHdlr> eventMsgHdlrs;

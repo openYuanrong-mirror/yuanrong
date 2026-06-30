@@ -21,7 +21,6 @@ import (
 	"flag"
 	"os"
 	"sync"
-
 	"yuanrong.org/kernel/runtime/libruntime/common/logger/config"
 )
 

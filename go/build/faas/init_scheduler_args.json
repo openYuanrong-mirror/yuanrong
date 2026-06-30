@@ -90,5 +90,6 @@
       "path": "123456/abcdegf"
     }
   },
-  "deployMode": "Processes"
+  "deployMode": "Processes",
+  "httpServerPort": "{functionSchedulerLeasePort}"
 }

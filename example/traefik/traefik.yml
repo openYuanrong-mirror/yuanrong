@@ -1,0 +1,23 @@
+entryPoints:
+  web:
+    address: ":8080"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+# 日志配置
+log:
+  level: INFO
+  format: common
+  filePath: "/var/log/traefik/traefik.log"
+
+accessLog:
+  format: common
+  filePath: "/var/log/traefik/access.log"
+  bufferingSize: 100
+
+# 开启 API 与 Dashboard
+api:
+  dashboard: true

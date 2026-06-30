@@ -30,9 +30,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
-	"yuanrong.org/kernel/pkg/common/faas_common/sts/cert"
 	commontls "yuanrong.org/kernel/pkg/common/faas_common/tls"
-	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 )
 
 func TestGetEtcdAuthType(t *testing.T) {
@@ -134,38 +132,29 @@ func TestGetEtcdConfig(t *testing.T) {
 
 func TestBuildStsCfg(t *testing.T) {
 	tests := []struct {
-		name        string
-		wantErr     bool
-		patchesFunc mockUtils.PatchesFunc
+		name      string
+		wantErr   bool
+		loadCerts func() (*x509.CertPool, *tls.Certificate, error)
 	}{
-		{"case1", false, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(cert.LoadCerts, func() (*x509.CertPool, *tls.Certificate,
-					error) {
-					return &x509.CertPool{}, &tls.Certificate{}, nil
-				})})
-			return patches
+		{"case1", false, func() (*x509.CertPool, *tls.Certificate, error) {
+			return &x509.CertPool{}, &tls.Certificate{}, nil
 		}},
-		{"case2 LoadCerts error", true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(cert.LoadCerts, func() (*x509.CertPool, *tls.Certificate,
-					error) {
-					return &x509.CertPool{}, &tls.Certificate{}, errors.New("error")
-				})})
-			return patches
+		{"case2 LoadCerts error", true, func() (*x509.CertPool, *tls.Certificate, error) {
+			return &x509.CertPool{}, &tls.Certificate{}, errors.New("error")
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patches := tt.patchesFunc()
+			oldLoadStsCerts := loadStsCerts
+			loadStsCerts = tt.loadCerts
+			defer func() {
+				loadStsCerts = oldLoadStsCerts
+			}()
 			_, err := BuildStsCfg()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BuildStsCfg() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			patches.ResetAll()
 		})
 	}
 }

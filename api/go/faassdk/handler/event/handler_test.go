@@ -93,17 +93,17 @@ func (m mockLibruntimeClient) Kill(instanceID string, signal int, payload []byte
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) KillRaw(killReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -263,16 +263,6 @@ func (m mockLibruntimeClient) GetFormatLogger() api.FormatLogger {
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) CreateClient(config api.ConnectArguments) (api.KvClient, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockLibruntimeClient) ReleaseGRefs(remoteClientID string) error {
-	// TODO implement me
-	panic("implement me")
-}
-
 func (m mockLibruntimeClient) GetCredential() api.Credential {
 	return api.Credential{}
 }
@@ -291,26 +281,6 @@ func (m *mockLibruntimeClient) IsDsHealth() bool {
 
 func (m *mockLibruntimeClient) GetActiveMasterAddr() string {
 	return "mockMasterAddr"
-}
-
-func (m mockLibruntimeClient) SetGauge(data api.GaugeData) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockLibruntimeClient) IncreaseGauge(data api.GaugeData) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockLibruntimeClient) DecreaseGauge(data api.GaugeData) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (m mockLibruntimeClient) IncreaseUInt64Counter(data api.UInt64CounterData) error {
-	//TODO implement me
-	panic("implement me")
 }
 
 // FakeLogger -

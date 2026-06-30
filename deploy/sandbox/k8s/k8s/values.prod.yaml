@@ -1,0 +1,34 @@
+global:
+  namespace:
+    name: yr-k8s
+  cluster:
+    name: yr-k8s-prod
+    region: prod
+    azId: prod-az1
+  imageRegistry: registry.example.com/openyuanrong
+  images:
+    controlplane:
+      tag: stable
+    node:
+      tag: stable
+    runtime:
+      tag: stable
+    traefik:
+      registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
+      repository: traefik
+      tag: v2.11.14
+  externalEtcd:
+    addrList: ""
+    metaStoreAddress: ""
+
+etcd:
+  image:
+    registry: swr.cn-southwest-2.myhuaweicloud.com/openyuanrong
+    repository: etcd
+    tag: 20260420-183500-reset
+
+master:
+  replicaCount: 2
+
+frontend:
+  replicaCount: 2

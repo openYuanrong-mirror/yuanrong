@@ -33,6 +33,28 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+func TestPopColdStartTraceDoesNotWaitForSchedulerLock(t *testing.T) {
+	scheduler := &RoundRobinScheduler{
+		coldStartTraceQueue: []*types.TraceContext{{TraceID: "trace-id"}},
+	}
+
+	scheduler.Lock()
+	done := make(chan struct{})
+	go func() {
+		_ = scheduler.PopColdStartTrace()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		scheduler.Unlock()
+	case <-time.After(200 * time.Millisecond):
+		scheduler.Unlock()
+		<-done
+		t.Fatal("PopColdStartTrace blocked on the scheduler lock")
+	}
+}
+
 type fakeInstanceScaler struct {
 	timer          *time.Timer
 	expectInsNum   int

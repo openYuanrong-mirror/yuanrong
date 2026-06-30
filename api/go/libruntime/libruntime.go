@@ -35,6 +35,16 @@ func ReceiveRequestLoop() {
 	clibruntime.ReceiveRequestLoop()
 }
 
+// NeedReInit checks if re-initialization is needed after checkpoint restore.
+func NeedReInit() bool {
+	return clibruntime.NeedReInit()
+}
+
+// ReInit reinitializes runtime after checkpoint restore.
+func ReInit() {
+	clibruntime.ReInit()
+}
+
 // ExecShutdownHandler exec shutdown handler.
 func ExecShutdownHandler(signum int) {
 	clibruntime.ExecShutdownHandler(signum)

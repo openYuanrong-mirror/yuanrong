@@ -195,8 +195,9 @@ class CodeManager:
         # When a class is decorated with @yr.instance, it gets wrapped in a proxy
         # For skip_serialize mode, we need the original unwrapped class
         if code is not None and hasattr(code, "get_original_cls"):
-            # Use public method to get the original class
             code = code.get_original_cls()
+        elif code is not None and hasattr(code, "_InstanceCreator__user_class__"):
+            code = getattr(code, "_InstanceCreator__user_class__")
         elif code is not None and hasattr(code, "__user_class__"):
             code = code.__user_class__
 
@@ -211,17 +212,13 @@ class CodeManager:
 
     def load_module_impl_for_testing(self, code_dir, module_name):
         """
-        Public interface for testing _load_module_impl.
-
-        This method provides access to the protected _load_module_impl method for testing purposes.
+        Public interface for testing module loading.
         """
         return self._load_module_impl(code_dir, module_name)
 
     def register_class_lookup_alias(self, func_meta, class_obj):
         """
-        Register moduleName%%className so get_instance_by_name can resolve the class when
-        runtime returns meta without inline code or codeID (e.g. nested class qualnames are
-        not importable via getattr on the module).
+        Register moduleName%%className for metadata-only class lookup.
         """
         if class_obj is None or not isinstance(class_obj, type):
             return
@@ -306,7 +303,7 @@ class CodeManager:
         return self._load_module_impl(code_dir, module_name)
 
     def _load_module_impl(self, code_dir, module_name):
-        """load module using cache (implementation for testing)"""
+        """load module using cache"""
         if code_dir is None:
             _logger.debug(
                 "code dir is None, import from module name %s directly.", module_name)
@@ -317,9 +314,10 @@ class CodeManager:
             self.module_cache[module_name] = module
             return module
 
-        file_path = os.path.join(code_dir, module_name.replace(".", os.sep) + ".py")
+        module_path = module_name.replace(".", os.sep)
+        file_path = os.path.join(code_dir, module_path + ".py")
         if not os.path.exists(file_path):
-            admin_path = os.path.join(_DEFAULT_ADMIN_FUNC_PATH, module_name.replace(".", os.sep) + ".py")
+            admin_path = os.path.join(_DEFAULT_ADMIN_FUNC_PATH, module_path + ".py")
             if not os.path.exists(admin_path):
                 raise ValueError("entry file does not exist: [{}]".format(file_path))
             file_path = admin_path

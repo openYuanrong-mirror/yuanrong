@@ -408,7 +408,7 @@ func (ffm *FrontendManager) SyncKillAllInstance() {
 		wg.Add(1)
 		go func(instanceID string) {
 			defer wg.Done()
-			if err := ffm.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}); err != nil {
+			if err := ffm.sdkClient.Kill(instanceID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill frontend instance(id=%s), err:%s", instanceID, err.Error())
 				return
 			}
@@ -431,7 +431,7 @@ func (ffm *FrontendManager) KillInstance(instanceID string) error {
 	return wait.ExponentialBackoffWithContext(
 		context.Background(), createInstanceBackoff, func(context.Context) (bool, error) {
 			var err error
-			err = ffm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{})
+			err = ffm.sdkClient.Kill(instanceID, types.KillSignalVal, []byte{}, api.InvokeOptions{})
 			if err != nil && !strings.Contains(err.Error(), "instance not found") {
 				log.GetLogger().Warnf("failed to kill instanceID: %s, err: %s", instanceID, err.Error())
 				return false, nil
@@ -551,7 +551,8 @@ func (ffm *FrontendManager) HandleInstanceUpdate(instanceSpec *types.InstanceSpe
 				currentNum, instanceSpec.InstanceID)
 			delete(ffm.instanceCache, instanceSpec.InstanceID)
 			ffm.Unlock()
-			if err := ffm.sdkClient.Kill(instanceSpec.InstanceID, types.KillSignalVal, []byte{}); err != nil {
+			if err := ffm.sdkClient.Kill(instanceSpec.InstanceID, types.KillSignalVal, []byte{},
+				api.InvokeOptions{}); err != nil {
 				log.GetLogger().Errorf("failed to kill instance %s error:%s", instanceSpec.InstanceID,
 					err.Error())
 			}
@@ -775,7 +776,7 @@ func (ffm *FrontendManager) RollingUpdate(ctx context.Context, event *types.Conf
 		ffm.RUnlock()
 		log.GetLogger().Infof("start to terminate instance:%s", insID)
 		var err error
-		if err = ffm.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}); err != nil {
+		if err = ffm.sdkClient.Kill(insID, types.SyncKillSignalVal, []byte{}, api.InvokeOptions{}); err != nil {
 			log.GetLogger().Errorf("failed to kill frontend instance(id=%s), err:%v", insID, err)
 		}
 		ffm.Lock()

@@ -90,7 +90,7 @@ def validate_ip(input_ip: str):
     ip_regex = \
         r"^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
     compile_ip = re.compile(ip_regex)
-    return compile_ip.match(input_ip) is not None
+    return compile_ip.match(input_ip)
 
 
 def validate_domain(domain_str: str):
@@ -144,13 +144,6 @@ def validate_address(address, localhost_pass=False):
         )
     if localhost_pass and ip in ("127.0.0.1", "localhost"):
         return ip, port
-    # "a127.0.0.1" matches validate_domain() but is almost always a typo for 127.0.0.1
-    _typo_prefixed_ipv4 = re.compile(r"^([a-zA-Z]+)(\d{1,3}(?:\.\d{1,3}){3})$")
-    tm = _typo_prefixed_ipv4.match(ip)
-    if tm and validate_ip(tm.group(2)):
-        raise ValueError(
-            f"host '{ip}' in address '{address}' is not a valid IP or domain name."
-        )
     if not (validate_ip(ip) or validate_domain(ip)):
         raise ValueError(
             f"host '{ip}' in address '{address}' is not a valid IP or domain name."
@@ -306,7 +299,7 @@ def get_module_name(obj):
             file_path = inspect.getfile(obj)
             n = inspect.getmodulename(file_path)
         except (TypeError, OSError):
-            pass
+            n = None
     if n:
         module_name = n
     return module_name

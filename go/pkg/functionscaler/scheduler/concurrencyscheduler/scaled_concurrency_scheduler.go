@@ -287,6 +287,7 @@ func (scs *ScaledConcurrencyScheduler) AcquireInstance(insAcqReq *types.Instance
 		if err := scs.insAcqReqQueue.AddRequest(pendingRequest); err != nil {
 			return nil, err
 		}
+		scs.recordColdStartTrace(insAcqReq.TraceID, insAcqReq.TraceParent)
 		scs.publishInsThdEvent(scheduler.TriggerScaleTopic, nil)
 		insAcqRsp := <-pendingRequest.ResultChan
 		return insAcqRsp.InsAlloc, insAcqRsp.Error

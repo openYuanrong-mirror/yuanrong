@@ -35,6 +35,8 @@ ErrorInfo ConvertStringToInsResp(InstanceResponse &resp, const std::string &bufS
         info.instanceId = jsonData["instanceID"].get<std::string>();
         info.leaseId = jsonData["threadID"].get<std::string>();
         info.tLeaseInterval = jsonData["leaseInterval"].get<int>();
+        info.routeAddress = jsonData.value("routeAddress", "");
+        info.proxyID = jsonData.value("proxyID", "");
         info.forceInvoke = jsonData.value("forceInvoke", false);
         resp.info = info;
         resp.errorCode = jsonData["errorCode"].get<int>();
@@ -61,6 +63,8 @@ void ConvertStringToBatchInsResp(BatchInstanceResponse &resp, const std::string 
             info.funcSig = item.second["funcSig"].get<std::string>();
             info.instanceId = item.second["instanceID"].get<std::string>();
             info.leaseId = item.second["threadID"].get<std::string>();
+            info.routeAddress = item.second.value("routeAddress", "");
+            info.proxyID = item.second.value("proxyID", "");
             resp.instanceAllocSucceed[item.first] = info;
         }
         for (const auto &item : allocFailed) {

@@ -28,7 +28,7 @@ public:
     virtual ~InvokeOrderManager() = default;
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
     void RegisterInstance(const std::string &instanceId);
-    void RegisterInstanceAndUpdateOrder(const std::string &instanceId);
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
     void RemoveInstance(std::shared_ptr<InvokeSpec> spec);
     void Invoke(std::shared_ptr<InvokeSpec> spec);
     void UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec);

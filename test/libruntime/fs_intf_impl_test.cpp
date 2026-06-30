@@ -215,6 +215,37 @@ TEST_F(FSIntfImplTest, After_Receive_Repeated_ShutdownReq_ShutdownHandler_Should
     ASSERT_TRUE(fTwo.get());
 }
 
+TEST_F(FSIntfImplTest, CheckpointShouldNotTreatPendingInitCallAsBusy)
+{
+    std::atomic<bool> checkpointCalled{false};
+    FSIntfHandlers handlers;
+    handlers.checkpoint = [&checkpointCalled](const CheckpointRequest &req) -> CheckpointResponse {
+        checkpointCalled = true;
+        CheckpointResponse resp;
+        resp.set_code(common::ERR_NONE);
+        resp.set_state("state");
+        return resp;
+    };
+    fsIntfImpl_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), 0, handlers, true, nullptr,
+                                               std::make_shared<ClientsManager>(), false);
+    fsIntfImpl_->checkpointRecoverExecutor.Init(1);
+    ASSERT_TRUE(fsIntfImpl_->status.SetInitializing());
+    ASSERT_TRUE(fsIntfImpl_->AddProcessingRequestId("initcall-request-id"));
+
+    std::promise<CheckpointResponse> promise;
+    auto future = promise.get_future();
+    CheckpointRequest req;
+    fsIntfImpl_->HandleCheckpointRequest(req, [&promise](const CheckpointResponse &resp) {
+        promise.set_value(resp);
+    });
+
+    auto resp = future.get();
+    EXPECT_TRUE(checkpointCalled);
+    EXPECT_EQ(resp.code(), common::ERR_NONE);
+    EXPECT_EQ(resp.state(), "state");
+    EXPECT_TRUE(fsIntfImpl_->DeleteProcessingRequestId("initcall-request-id"));
+}
+
 TEST_F(FSIntfImplTest, TestRemoveInsRtIntf)
 {
     Config::Instance().RUNTIME_DIRECT_CONNECTION_ENABLE() = true;
@@ -379,6 +410,36 @@ TEST_F(FSIntfImplTest, DirectlyCallResultWithRetry)
     fsIntfImpl_->CallResultAsync(messageSpec, ackHandler);
     auto wr = fsIntfImpl_->GetWiredRequest(reqId, false);
     EXPECT_NE(wr, nullptr);
+}
+
+TEST_F(FSIntfImplTest, KillAsyncShouldFillMissingRoutingInfoFromHandlers)
+{
+    FSIntfHandlers handlers;
+    handlers.getInstanceRoute = [](const std::string &instanceId) { return instanceId == "instance-1" ? "route-1" : ""; };
+    handlers.getInstanceProxyID = [](const std::string &instanceId) {
+        return instanceId == "instance-1" ? "proxy-1" : "";
+    };
+    auto mockFsIntfMgr = std::make_shared<MockFSIntfManager>();
+    fsIntfImpl_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), 0, handlers, true, nullptr,
+                                               std::make_shared<ClientsManager>(), false);
+    fsIntfImpl_->fsInrfMgr = mockFsIntfMgr;
+    auto mockFsIntfRW = std::make_shared<MockFSIntfReaderWriter>();
+    mockFsIntfMgr->systemIntf = mockFsIntfRW;
+
+    EXPECT_CALL(*mockFsIntfRW, Write)
+        .WillOnce(Invoke([](const std::shared_ptr<StreamingMessage> &msg,
+                            std::function<void(bool, ErrorInfo)> callback, std::function<void(bool)> preWrite) {
+            ASSERT_TRUE(msg->has_killreq());
+            EXPECT_EQ(msg->killreq().routeaddress(), "route-1");
+            EXPECT_EQ(msg->killreq().proxyid(), "proxy-1");
+            callback(false, ErrorInfo());
+        }));
+
+    KillRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    req.set_instanceid("instance-1");
+    req.set_signal(libruntime::Signal::KillInstance);
+    fsIntfImpl_->KillAsync(req, [](const KillResponse &, const ErrorInfo &) {});
 }
 
 TEST_F(FSIntfImplTest, TestIsHealth)

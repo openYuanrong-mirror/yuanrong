@@ -1,4 +1,4 @@
-package com.yuanrong.utils;
+package org.yuanrong.utils;
 
 import org.apache.logging.log4j.Logger;
 import org.junit.Test;
@@ -9,8 +9,6 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import org.yuanrong.utils.RuntimeUtils;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,6 +17,8 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @RunWith(PowerMockRunner.class)
@@ -43,6 +43,8 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
+        System.setProperty("KEY1", "VALUE1");
+        System.setProperty("KEY2", "VALUE2");
         verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
     }
 
@@ -111,6 +113,8 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
         verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
     }
 
@@ -132,9 +136,11 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
+        assertEquals("VALUE3", RuntimeUtils.getEnvOrProperty("KEY3"));
         verify(logger).warn("{}:{}  invalid line, missing '=': {}", "/test/.env", 2, "INVALID_LINE_WITHOUT_EQUALS");
         verify(logger).warn("{}:{}  empty key", "/test/.env", 4);
-        // KEY1, KEY2, KEY3 are valid; middle lines are skipped (invalid / empty key).
         verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
     }
 
@@ -175,6 +181,10 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
+        assertEquals("VALUE3", RuntimeUtils.getEnvOrProperty("KEY3"));
         verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
     }
+
 }

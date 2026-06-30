@@ -37,6 +37,11 @@ import (
 var (
 	streamMessagePool  = sync.Pool{}
 	invokeResponsePool = sync.Pool{}
+	newPoolWithFunc    = ants.NewPoolWithFunc
+	netListen          = net.Listen
+	serveGRPC          = func(server *grpc.Server, lis net.Listener) error {
+		return server.Serve(lis)
+	}
 )
 
 type requestPack struct {
@@ -65,7 +70,7 @@ func CreateSimplifiedStreamServer(listenAddr string, concurrentNum int) (KernelS
 		streamConnMap: make(map[string]connection.Connection, constant.DefaultMapSize),
 		stopCh:        make(chan struct{}),
 	}
-	taskPool, err := ants.NewPoolWithFunc(concurrentNum, func(arg interface{}) {
+	taskPool, err := newPoolWithFunc(concurrentNum, func(arg interface{}) {
 		reqPack, ok := arg.(requestPack)
 		if !ok {
 			return
@@ -120,12 +125,12 @@ func (s *SimplifiedStreamServer) MessageStream(stream api.RuntimeRPC_MessageStre
 
 // Serve starts serving on listenAddr
 func (s *SimplifiedStreamServer) Serve() error {
-	lis, err := net.Listen("tcp", s.listenAddr)
+	lis, err := netListen("tcp", s.listenAddr)
 	if err != nil {
 		log.GetLogger().Errorf("failed to listen to address %s error %s\n", s.listenAddr, err.Error())
 		return err
 	}
-	if err = s.grpcServer.Serve(lis); err != nil {
+	if err = serveGRPC(s.grpcServer, lis); err != nil {
 		log.GetLogger().Errorf("failed to serve on address %s error %s", s.listenAddr, err.Error())
 		return err
 	}

@@ -28,6 +28,8 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/types"
 )
 
+var userAgencyJSONUnmarshal = json.Unmarshal
+
 // UserAgencyRegistry watches user agency event of etcd
 type UserAgencyRegistry struct {
 	userAgencyCacheMap sync.Map
@@ -107,7 +109,7 @@ func (ur *UserAgencyRegistry) watcherHandler(event *etcd3.Event) {
 	switch event.Type {
 	case etcd3.PUT:
 		var agency = types.UserAgency{}
-		if err := json.Unmarshal(event.Value, &agency); err != nil {
+		if err := userAgencyJSONUnmarshal(event.Value, &agency); err != nil {
 			log.GetLogger().Errorf("failed to unmarshal the json, error: %s", err.Error())
 			return
 		}

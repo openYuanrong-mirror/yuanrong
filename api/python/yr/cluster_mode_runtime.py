@@ -28,7 +28,7 @@ from yr.fnruntime import Consumer, Fnruntime, Producer, SharedBuffer
 from yr.libruntime_pb2 import ApiType, FunctionMeta
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.object_ref import ObjectRef
-from yr.base_runtime import BaseRuntime, AlarmInfo, SetParam, MSetParam, CreateParam, GetParams
+from yr.base_runtime import Runtime, AlarmInfo, SetParam, MSetParam, CreateParam, GetParams
 from yr.serialization import Serialization
 from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.accelerate.shm_broadcast import Handle
@@ -36,7 +36,7 @@ from yr.accelerate.shm_broadcast import Handle
 _logger = logging.getLogger(__name__)
 
 
-class ClusterModeRuntime(BaseRuntime):
+class ClusterModeRuntime(Runtime):
     """
     Cluster mode runtime
     """
@@ -317,23 +317,42 @@ class ClusterModeRuntime(BaseRuntime):
         """
         self.libruntime.terminate_group(group_name)
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot with signal 18
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
-        return self.libruntime.snapshot_instance(instance_id, ttl, leave_running)
+        return self.libruntime.snapshot_instance(instance_id, ttl, leave_running, function_type)
 
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot with signal 19
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
         """
         return self.libruntime.snapstart_instance(checkpoint_id)
+
+    def delete_checkpoint(self, checkpoint_id: str) -> None:
+        """
+        Delete a checkpoint by checkpoint_id
+        :param checkpoint_id: checkpoint id to delete
+        :return: None
+        """
+        self.libruntime.delete_checkpoint(checkpoint_id)
+
+    def list_checkpoints(self, function_type: str = "", namespace: str = "") -> list:
+        """
+        List checkpoints by function type or all for current tenant.
+        :param function_type: moduleName.className (empty = all tenant checkpoints)
+        :param namespace: namespace filter
+        :return: list of checkpoint ID strings
+        """
+        return self.libruntime.list_checkpoints(function_type, namespace)
 
     def exit(self) -> None:
         """
@@ -348,6 +367,23 @@ class ClusterModeRuntime(BaseRuntime):
         :return: None
         """
         self.libruntime.receive_request_loop()
+
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: True if re-init is needed
+        """
+        return self.libruntime.need_reinit()
+
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
+        :return: None
+        """
+        self.libruntime.reinit()
+        # Disable current runtime object temporarily; outer runtime main loop will call init(configure())
+        # and construct a fresh runtime instance with enable_flag set back to True.
+        self.__enable_flag = False
 
     def finalize(self) -> None:
         """
@@ -568,46 +604,6 @@ class ClusterModeRuntime(BaseRuntime):
             value
         """
         return self.libruntime.get_value_double_counter(data)
-
-    def set_gauge(self, data: GaugeData) -> None:
-        """
-        Set gauge metrics
-        Args:
-            data: GaugeData
-        Returns:
-            None
-        """
-        self.libruntime.set_gauge(data)
-
-    def increase_gauge(self, data: GaugeData) -> None:
-        """
-        Increase gauge metrics
-        Args:
-            data: GaugeData
-        Returns:
-            None
-        """
-        self.libruntime.increase_gauge(data)
-
-    def decrease_gauge(self, data: GaugeData) -> None:
-        """
-        Decrease gauge metrics
-        Args:
-            data: GaugeData
-        Returns:
-            None
-        """
-        self.libruntime.decrease_gauge(data)
-
-    def get_value_gauge(self, data: GaugeData) -> float:
-        """
-        Get value of gauge metrics
-        Args:
-            data: GaugeData
-        Returns:
-            value
-        """
-        return self.libruntime.get_value_gauge(data)
 
     def report_gauge(self, data: GaugeData) -> None:
         """

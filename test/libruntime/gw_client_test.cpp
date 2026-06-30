@@ -209,7 +209,10 @@ public:
     {
         LeaseResponse rsp;
         rsp.set_code(code);
-        rsp.set_message(msg);
+        // Proto3 omits zero-valued fields, so a success response with code=0 and
+        // empty message serializes to an empty string. GwClient treats an empty
+        // lease body as a parse error, so keep the mock success response non-empty.
+        rsp.set_message(code == common::ERR_NONE && msg.empty() ? "ok" : msg);
         return rsp;
     }
 
@@ -925,7 +928,6 @@ TEST_F(GwClientTest, TestQueryGlobalReferenceWillThrowLibRuntimeException)
 TEST_F(GwClientTest, TestUnsupportedReq1)
 {
     ErrorInfo err;
-    datasystem::ConnectOptions options;
     DsConnectOptions connOptions;
     CreateResourceGroupRequest req;
     std::vector<std::string> objIds;
@@ -951,7 +953,7 @@ TEST_F(GwClientTest, TestUnsupportedReq1)
                           datasystem::SensitiveValue("token"), "ak", datasystem::SensitiveValue("sk"));
     ASSERT_EQ(err.Code(), ERR_INNER_SYSTEM_ERROR);
 
-    err = gwClient_->Init(options);
+    err = gwClient_->Init(connOptions);
     ASSERT_EQ(err.Code(), ERR_INNER_SYSTEM_ERROR);
 
     try {

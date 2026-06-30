@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"encoding/pem"
 	"errors"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,8 +27,6 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
-
-	"yuanrong.org/kernel/pkg/common/crypto"
 )
 
 func TestGetURLScheme(t *testing.T) {
@@ -42,15 +39,22 @@ func TestGetURLScheme(t *testing.T) {
 }
 
 func TestInitTLSConfig(t *testing.T) {
-	p := gomonkey.ApplyFunc(ioutil.ReadFile, func(filename string) ([]byte, error) {
+	oldReadTLSFile := readTLSFile
+	oldTLSX509KeyPair := tlsX509KeyPair
+	readTLSFile = func(filename string) ([]byte, error) {
 		return nil, nil
-	})
-	p.ApplyFunc(containPassPhase, func(keyContent []byte, passPhase string, decryptTool string, isHttps bool) (Content []byte, err error) {
-		return nil, nil
-	})
-	p.ApplyFunc(tls.X509KeyPair, func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+	}
+	tlsX509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
 		var cert tls.Certificate
 		return cert, nil
+	}
+	defer func() {
+		readTLSFile = oldReadTLSFile
+		tlsX509KeyPair = oldTLSX509KeyPair
+	}()
+	p := gomonkey.NewPatches()
+	p.ApplyFunc(containPassPhase, func(keyContent []byte, passPhase string, decryptTool string, isHttps bool) (Content []byte, err error) {
+		return nil, nil
 	})
 	defer p.Reset()
 	os.Setenv("SSL_ROOT", "/home/sn/resource/https")
@@ -69,18 +73,15 @@ func TestGetClientTLSConfig(t *testing.T) {
 func TestContainPassPhase(t *testing.T) {
 	convey.Convey("ContainPassPhase", t, func() {
 		errCtrl := ""
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyFunc(crypto.DecryptPEMBlock, func(b *pem.Block, password []byte) ([]byte, error) {
-				if errCtrl == "returnError" {
-					return nil, errors.New("some error")
-				}
-				return nil, nil
-			}),
+		oldDecryptPEMBlock := decryptPEMBlock
+		decryptPEMBlock = func(b *pem.Block, password []byte) ([]byte, error) {
+			if errCtrl == "returnError" {
+				return nil, errors.New("some error")
+			}
+			return []byte{}, nil
 		}
 		defer func() {
-			for idx := range patches {
-				patches[idx].Reset()
-			}
+			decryptPEMBlock = oldDecryptPEMBlock
 		}()
 		convey.Convey("http error case 1", func() {
 			keyContent := []byte{}
@@ -187,26 +188,25 @@ func TestGetClientTLSConfig_Multi(t *testing.T) {
 func TestLoadServerTLSCertificate(t *testing.T) {
 	readFileCtrl := ""
 	readFileCtrlCount := 0
-	patches := []*gomonkey.Patches{
-		gomonkey.ApplyFunc(tls.X509KeyPair, func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
-			return tls.Certificate{}, errors.New("some error")
-		}),
-		gomonkey.ApplyFunc(ioutil.ReadFile, func(filename string) ([]byte, error) {
-			if readFileCtrl == "successOnce" {
-				if readFileCtrlCount == 0 {
-					readFileCtrlCount++
-					return nil, nil
-				}
-				return nil, errors.New("some error")
+	oldTLSX509KeyPair := tlsX509KeyPair
+	oldReadTLSFile := readTLSFile
+	tlsX509KeyPair = func(certPEMBlock, keyPEMBlock []byte) (tls.Certificate, error) {
+		return tls.Certificate{}, errors.New("some error")
+	}
+	readTLSFile = func(filename string) ([]byte, error) {
+		if readFileCtrl == "successOnce" {
+			if readFileCtrlCount == 0 {
+				readFileCtrlCount++
+				return nil, nil
 			}
-			readFileCtrlCount = 0
-			return nil, nil
-		}),
+			return nil, errors.New("some error")
+		}
+		readFileCtrlCount = 0
+		return nil, nil
 	}
 	defer func() {
-		for idx := range patches {
-			patches[idx].Reset()
-		}
+		tlsX509KeyPair = oldTLSX509KeyPair
+		readTLSFile = oldReadTLSFile
 	}()
 	passLiteral := "testPassPhase"
 	passByteArray := []byte(passLiteral)
@@ -225,27 +225,12 @@ func TestLoadServerTLSCertificate(t *testing.T) {
 }
 
 func Test_loadCertAndKeyBytes(t *testing.T) {
-	patches := [...]*gomonkey.Patches{
-		gomonkey.ApplyFunc(ioutil.ReadFile, func(filename string) ([]byte, error) {
-			return []byte("abc"), nil
-		}),
-		gomonkey.ApplyFunc(pem.Decode, func(data []byte) (p *pem.Block, rest []byte) {
-			return &pem.Block{}, []byte{}
-		}),
-		gomonkey.ApplyFunc(crypto.IsEncryptedPEMBlock, func(b *pem.Block) bool {
-			return true
-		}),
-		gomonkey.ApplyFunc(crypto.DecryptPEMBlock, func(b *pem.Block, password []byte) ([]byte, error) {
-			return []byte{}, nil
-		}),
-		gomonkey.ApplyFunc(pem.EncodeToMemory, func(b *pem.Block) []byte {
-			return []byte("abc")
-		}),
+	oldReadTLSFile := readTLSFile
+	readTLSFile = func(filename string) ([]byte, error) {
+		return []byte("abc"), nil
 	}
 	defer func() {
-		for idx := range patches {
-			patches[idx].Reset()
-		}
+		readTLSFile = oldReadTLSFile
 	}()
 	convey.Convey("loadCertAndKeyBytes", t, func() {
 		bytes, keyPEMBlock, err := loadCertAndKeyBytes("path1", "path2", "", "", true)

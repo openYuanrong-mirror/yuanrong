@@ -143,6 +143,7 @@ function print_info() {
   fi
   printf "\n"
   printf "%30s %10s\n" "SERVICES_PATH:" "${SERVICES_PATH}"
+  printf "%30s %10s\n" "CONTAINER_EP:" "${CONTAINER_EP:-not configured}"
   printf "\n\n"
 }
 
@@ -456,8 +457,11 @@ function start_control_plane() {
   fi
   # function master
   log_info "Deploying function master..."
-  if ! restart_control_plane_component "function_master" $CONTROL_PLANE_RETRY_TIMES; then
-    return 98
+  if [ "X${ENABLE_FUNCTION_MASTER:-true}" != "Xfalse" ] && [ "X${ENABLE_FUNCTION_MASTER:-true}" != "XFALSE" ]; then
+    log_info "Deploying function master..."
+    if ! restart_control_plane_component "function_master" $CONTROL_PLANE_RETRY_TIMES; then
+      return 98
+    fi
   fi
   # iam_server
   if [ "X${ENABLE_IAM_SERVER}" = "Xtrue" ] || [ "X${ENABLE_IAM_SERVER}" = "XTRUE" ]; then
@@ -484,6 +488,10 @@ function dump_master_info() {
     MASTER_INFO_STRING="${MASTER_INFO_STRING}${key}:${control_port_table["${key}"]},"
   done
   write_master_pid_port_temp_file "${master_pid_string}\n${MASTER_INFO_STRING}"
+  # Write master info file for agent to read
+  if [ "X${MASTER_INFO_OUT_FILE}" != "X" ]; then
+    echo "${MASTER_INFO_STRING}" > "${MASTER_INFO_OUT_FILE}"
+  fi
 }
 
 function dump_agent_info() {
@@ -500,6 +508,46 @@ function start_function_proxy() {
   FUNCTION_PROXY_EXEC_GRPC_PORT=${data_port_table["function_proxy_exec_grpc_port"]}
   install_function_system "function_proxy"
   check_and_set_component_checklist "function_proxy" $FUNCTION_PROXY_PID
+}
+
+function start_runtime_launcher() {
+  if [ "X${ENABLE_RUNTIME_LAUNCHER}" != "Xtrue" ]; then
+    return 0
+  fi
+  local bin
+  bin=$(readlink -m "${FUNCTION_SYSTEM_PATH}/bin/runtime-launcher")
+  if [ ! -f "${bin}" ]; then
+    log_warning "runtime-launcher not found at ${bin}, sandbox features will be unavailable"
+    return 0
+  fi
+  local socket_path="${RUNTIME_LAUNCHER_SOCK}"
+  local backend="${RUNTIME_LAUNCHER_BACKEND:-docker}"
+  local docker_host="${DOCKER_HOST:-}"
+  mkdir -p "$(dirname "${socket_path}")"
+  rm -f "${socket_path}"
+  local args="--socket ${socket_path} --backend ${backend}"
+  if [ -n "${docker_host}" ]; then
+    args="${args} --docker-host ${docker_host}"
+  fi
+  log_info "starting runtime-launcher, backend=${backend}, socket=${socket_path}..."
+  "${bin}" ${args} \
+    >>"${FS_LOG_PATH}/${NODE_ID}-runtime-launcher${STD_LOG_SUFFIX}" 2>&1 &
+  local pid=$!
+  local retry=0
+  while [ ! -S "${socket_path}" ] && [ ${retry} -lt 30 ]; do
+    if ! kill -0 ${pid} 2>/dev/null; then
+      log_error "runtime-launcher exited unexpectedly"
+      return 1
+    fi
+    sleep 1
+    retry=$((retry + 1))
+  done
+  if [ ! -S "${socket_path}" ]; then
+    log_warning "runtime-launcher socket not ready after ${retry}s"
+  fi
+  export CONTAINER_EP="unix://${socket_path}"
+  check_and_set_component_checklist "runtime_launcher" ${pid}
+  log_info "runtime-launcher started, pid=${pid}"
 }
 
 function start_function_agent() {
@@ -593,6 +641,32 @@ function start_iam_server() {
   fi
   IAM_SERVER_ADDRESS="${IP_ADDRESS}:${IAM_SERVER_PORT}"
   export IAM_SERVER_ADDRESS
+  # Export local address for co-deployed components (frontend/function_proxy)
+  if [ -n "${IAM_LOCAL_LISTEN_PORT}" ] && [ "${IAM_LOCAL_LISTEN_PORT}" != "0" ]; then
+    # Validate that IAM_LOCAL_LISTEN_PORT is a valid port number (1-65535).
+    if ! [[ "${IAM_LOCAL_LISTEN_PORT}" =~ ^[0-9]+$ ]] || \
+       [ "${IAM_LOCAL_LISTEN_PORT}" -lt 1 ] || \
+       [ "${IAM_LOCAL_LISTEN_PORT}" -gt 65535 ]; then
+      echo "ERROR: --iam_local_listen_port must be a valid port number (1-65535), got: ${IAM_LOCAL_LISTEN_PORT}" >&2
+      return 1
+    fi
+    # Validate that IAM_LOCAL_IP is a loopback address. The local listener has no
+    # TLS or AKSK; exposing it on a non-loopback interface would open an
+    # unauthenticated port on the network.
+    # Only IPv4 loopback (127.x.x.x) and the standard IPv6 loopback (::1) are
+    # accepted. IPv6-mapped IPv4 addresses (::ffff:127.0.0.1) are intentionally
+    # excluded because users should never configure them as a bind address.
+    local resolved_iam_local_ip="${IAM_LOCAL_IP:-127.0.0.1}"
+    case "${resolved_iam_local_ip}" in
+      127.*|::1) ;;
+      *)
+        echo "ERROR: --iam_local_ip must be a loopback address (127.x.x.x or ::1), got: ${resolved_iam_local_ip}" >&2
+        return 1
+        ;;
+    esac
+    IAM_LOCAL_ADDRESS="${resolved_iam_local_ip}:${IAM_LOCAL_LISTEN_PORT}"
+    export IAM_LOCAL_ADDRESS
+  fi
   return ${ret_code}
 }
 
@@ -717,6 +791,9 @@ function restart_component() {
     ;;
   function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service|iam_server)
     restart_module "$1"
+    ;;
+  runtime_launcher)
+    start_runtime_launcher
     ;;
   etcd)
     if [ "X${ENABLE_MULTI_MASTER}" = "Xtrue" ]; then
@@ -950,6 +1027,7 @@ function main() {
   if [ "x${DEPLOY_FUNCTION_PROXY}" = "xtrue" ]; then
       health_check "function_proxy" ${pid_table["function_proxy"]}
   fi
+  start_runtime_launcher
   if [ ${CPU4COMP} -le 100 ]; then
     log_warning "no cpu available for function agent, skip starting it"
   else

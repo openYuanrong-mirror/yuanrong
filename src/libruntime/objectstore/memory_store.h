@@ -75,6 +75,8 @@ struct ObjectDetail {
     absl::Notification notification;
     std::promise<std::string> instanceRoute;
     std::shared_future<std::string> instanceRouteFuture;
+    std::promise<std::string> instanceProxyID;
+    std::shared_future<std::string> instanceProxyIDFuture;
 
     ObjectDetail()
     {
@@ -82,6 +84,8 @@ struct ObjectDetail {
         instanceIdsFuture = instanceIds.get_future();
         instanceRoute = std::promise<std::string>();
         instanceRouteFuture = instanceRoute.get_future();
+        instanceProxyID = std::promise<std::string>();
+        instanceProxyIDFuture = instanceProxyID.get_future();
     }
 };
 
@@ -144,6 +148,8 @@ public:
     std::pair<std::vector<std::string>, ErrorInfo> GetInstanceIds(const std::string &objId, int timeoutSec);
     bool SetInstanceRoute(const std::string &id, const std::string &instanceRoute);
     std::string GetInstanceRoute(const std::string &objId, int timeoutSec = ZERO_TIMEOUT);
+    bool SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID);
+    std::string GetInstanceProxyID(const std::string &objId, int timeoutSec = ZERO_TIMEOUT);
     // Directly Get from datasystem
     SingleResult DSDirectGet(const std::string &objID, int timeoutMS);
     ErrorInfo GetLastError(const std::string &objId);
@@ -167,6 +173,12 @@ private:
     std::pair<ErrorInfo, std::vector<std::string>> IncreaseGRefInMemoryAndDs(const std::vector<std::string> &objectIds,
                                                                              bool toDataSystem,
                                                                              const std::string &remoteId = "");
+    ErrorInfo CheckObjectsExist(const std::vector<std::string> &objectIds);
+    void MarkObjectsForIncrease(const std::vector<std::string> &objectIds, std::vector<std::string> &objectIdsNeedIncre,
+                                std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails,
+                                std::vector<std::shared_ptr<ObjectDetail>> &waitObjectDetails);
+    ErrorInfo IncreaseObjectsInDs(const std::vector<std::string> &objectIdsNeedIncre,
+                                  const std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails);
     std::vector<std::string> DecreaseGRefInMemory(const std::vector<std::string> &objectIds);
     void DoEventCallback(EventCallbackWithData callback, const std::string &reqId, const std::string &eventData);
 

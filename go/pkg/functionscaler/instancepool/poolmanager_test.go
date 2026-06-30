@@ -46,6 +46,53 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
+type deleteOnlyPool struct {
+	expected  *types.Instance
+	deleteErr snerror.SNError
+	t         *testing.T
+}
+
+func (p *deleteOnlyPool) CreateInstance(insCrtReq *types.InstanceCreateRequest) (*types.Instance, snerror.SNError) {
+	return nil, nil
+}
+func (p *deleteOnlyPool) DeleteInstance(instance *types.Instance) snerror.SNError {
+	assert.Equal(p.t, p.expected, instance)
+	return p.deleteErr
+}
+func (p *deleteOnlyPool) AcquireInstance(insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation,
+	snerror.SNError) {
+	return nil, nil
+}
+func (p *deleteOnlyPool) ReleaseInstance(instance *types.InstanceAllocation) {}
+func (p *deleteOnlyPool) HandleFunctionEvent(eventType registry.EventType, funcSpec *types.FunctionSpecification) {
+}
+func (p *deleteOnlyPool) HandleAliasEvent(eventType registry.EventType, aliasUrn string) {}
+func (p *deleteOnlyPool) HandleFaaSSchedulerEvent()                                      {}
+func (p *deleteOnlyPool) HandleInstanceEvent(eventType registry.EventType, instance *types.Instance) {
+}
+func (p *deleteOnlyPool) HandleInstanceConfigEvent(eventType registry.EventType,
+	insConfig *instanceconfig.Configuration) {
+}
+func (p *deleteOnlyPool) UpdateInvokeMetrics(resKey resspeckey.ResSpecKey,
+	insMetrics *types.InstanceThreadMetrics) {
+}
+func (p *deleteOnlyPool) HandleFaaSManagerUpdate(faasManagerInfo faasManagerInfo) {}
+func (p *deleteOnlyPool) GetFuncSpec() *types.FunctionSpecification {
+	return &types.FunctionSpecification{}
+}
+func (p *deleteOnlyPool) RecoverInstance(funcSpec *types.FunctionSpecification, state *types.InstancePoolState,
+	recoverByManager bool, wg *sync.WaitGroup) {
+}
+func (p *deleteOnlyPool) GetAndDeleteState(stateID string) bool { return false }
+func (p *deleteOnlyPool) DeleteStateInstance(stateID string, instaceID string) {
+}
+func (p *deleteOnlyPool) handleManagedChange()        {}
+func (p *deleteOnlyPool) handleRatioChange(ratio int) {}
+func (p *deleteOnlyPool) CleanOrphansInstanceQueue()  {}
+func (p *deleteOnlyPool) QuerySession(sessionID string) (string, error) {
+	return "", nil
+}
+
 func TestNewPoolManager(t *testing.T) {
 	stopCh := make(<-chan struct{})
 	poolManager := NewPoolManager(stopCh)
@@ -121,11 +168,14 @@ func TestPoolManagerAcquireInstanceThread(t *testing.T) {
 			convey.So(err.Code(), convey.ShouldEqual, statuscode.StateMismatch)
 		})
 		convey.Convey("newGenericInstancePool error", func() {
-			patch := gomonkey.ApplyFunc(NewGenericInstancePool, func(funcSpec *types.FunctionSpecification,
+			oldNewGenericInstancePoolFunc := newGenericInstancePoolFunc
+			defer func() {
+				newGenericInstancePoolFunc = oldNewGenericInstancePoolFunc
+			}()
+			newGenericInstancePoolFunc = func(funcSpec *types.FunctionSpecification,
 				faasManagerInfo faasManagerInfo) (InstancePool, error) {
 				return nil, errors.New("new pool error")
-			})
-			defer patch.Reset()
+			}
 			insAcqReq := mockInsAcqReq()
 			poolManager := NewPoolManager(make(chan struct{}))
 			_, err := poolManager.AcquireInstanceThread(insAcqReq)
@@ -818,12 +868,14 @@ func TestJudgeAndReport(t *testing.T) {
 func TestGetAndDeleteState(t *testing.T) {
 	convey.Convey("Test GetAndDeleteState", t, func() {
 		convey.Convey("create instance pool error", func() {
-			patch := gomonkey.ApplyFunc(NewGenericInstancePool,
-				func(funcSpec *types.FunctionSpecification,
-					faasManagerInfo faasManagerInfo) (InstancePool, error) {
-					return &GenericInstancePool{}, errors.New("create instance pool error")
-				})
-			defer patch.Reset()
+			oldNewGenericInstancePoolFunc := newGenericInstancePoolFunc
+			defer func() {
+				newGenericInstancePoolFunc = oldNewGenericInstancePoolFunc
+			}()
+			newGenericInstancePoolFunc = func(funcSpec *types.FunctionSpecification,
+				faasManagerInfo faasManagerInfo) (InstancePool, error) {
+				return &GenericInstancePool{}, errors.New("create instance pool error")
+			}
 			mockInstancePool := &GenericInstancePool{}
 			pm := &PoolManager{
 				instancePool: map[string]InstancePool{
@@ -835,17 +887,19 @@ func TestGetAndDeleteState(t *testing.T) {
 			convey.So(res, convey.ShouldBeFalse)
 		})
 		convey.Convey("get state id success", func() {
-			patch := gomonkey.ApplyFunc(NewGenericInstancePool,
-				func(funcSpec *types.FunctionSpecification,
-					faasManagerInfo faasManagerInfo) (InstancePool, error) {
-					return &GenericInstancePool{}, nil
-				})
-			defer patch.Reset()
-			patch1 := gomonkey.ApplyMethod(reflect.TypeOf(&StateRoute{}),
-				"GetAndDeleteState", func(s *StateRoute, stateID string) bool {
-					return true
-				})
-			defer patch1.Reset()
+			oldNewGenericInstancePoolFunc := newGenericInstancePoolFunc
+			oldGetAndDeleteStateFunc := getAndDeleteStateFunc
+			defer func() {
+				newGenericInstancePoolFunc = oldNewGenericInstancePoolFunc
+				getAndDeleteStateFunc = oldGetAndDeleteStateFunc
+			}()
+			newGenericInstancePoolFunc = func(funcSpec *types.FunctionSpecification,
+				faasManagerInfo faasManagerInfo) (InstancePool, error) {
+				return &GenericInstancePool{}, nil
+			}
+			getAndDeleteStateFunc = func(pool InstancePool, stateID string) bool {
+				return true
+			}
 			mockInstancePool := &GenericInstancePool{}
 			pm := &PoolManager{
 				instancePool: map[string]InstancePool{
@@ -1177,17 +1231,12 @@ func TestPoolManagerDeleteInstance(t *testing.T) {
 			}
 
 			if tt.setupPool {
-				pool := &GenericInstancePool{}
+				pool := &deleteOnlyPool{
+					expected:  tt.instance,
+					deleteErr: tt.mockError,
+					t:         t,
+				}
 				pm.instancePool[tt.instance.FuncKey] = pool
-
-				patches := gomonkey.NewPatches()
-				defer patches.Reset()
-
-				patches.ApplyMethod(reflect.TypeOf(pool), "DeleteInstance",
-					func(_ *GenericInstancePool, instance *types.Instance) snerror.SNError {
-						assert.Equal(t, tt.instance, instance)
-						return tt.mockError
-					})
 			}
 
 			err := pm.DeleteInstance(tt.instance)

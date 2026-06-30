@@ -1,0 +1,23 @@
+ARG BASE_IMAGE=yr-base
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# TODO: Extend this layer into the full CI compile image before replacing
+# ci/ubuntu/Dockerfile.ubuntu2004; that migration must cover the existing
+# JDK, Maven, Go, Bazel, Node.js, protoc, CMake, and multi-Python toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ccache \
+        cmake \
+        git \
+        make \
+        ninja-build \
+        pkg-config \
+        rsync \
+        unzip \
+        xz-utils \
+        zip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace

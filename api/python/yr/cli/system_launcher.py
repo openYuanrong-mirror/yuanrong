@@ -205,11 +205,17 @@ class SessionManager:
                     "restart_count": comp.restart_count,
                 }
 
-        etcd_ip = etcd_port = etcd_peer_port = etcd_addresses = None
+        etcd_ip = etcd_port = etcd_peer_port = None
+        etcd_addresses = config["values"].get("etcd", {}).get("address")
         if config["mode"][self.mode.value].get("etcd", False):
             etcd_ip, etcd_port = _parse_addr(config["etcd"]["args"]["listen-client-urls"])
             _, etcd_peer_port = _parse_addr(config["etcd"]["args"]["listen-peer-urls"])
-            etcd_addresses = config["values"]["etcd"]["address"]
+        elif isinstance(etcd_addresses, list) and etcd_addresses:
+            first_etcd = etcd_addresses[0]
+            if isinstance(first_etcd, dict):
+                etcd_ip = first_etcd.get("ip")
+                etcd_port = first_etcd.get("port")
+                etcd_peer_port = first_etcd.get("peer_port")
         ds_master_ip = ds_master_port = None
         if config["mode"][self.mode.value].get("ds_master", False):
             ds_master_ip, ds_master_port = _parse_addr(config["ds_master"]["args"]["master_address"])
@@ -680,7 +686,14 @@ class SystemLauncher:
             launcher.component_config.prepend_char = override_char
         depends_on_override = self.depends_on_overrides.get(comp_name)
         if depends_on_override is not None:
-            launcher.component_config.depends_on = depends_on_override
+            enabled_components = self.resolver.rendered_config["mode"].get(self.mode.value, {})
+            launcher.component_config.depends_on = [
+                dep
+                for dep in depends_on_override
+                # Some dependencies can be provided externally or disabled by
+                # command-line overrides while their rendered config remains in use.
+                if enabled_components.get(dep, False)
+            ]
 
     def _start_component(self, component_name: str) -> Optional[subprocess.Popen]:
         launcher = self.components[component_name]
@@ -1134,26 +1147,29 @@ class SystemLauncher:
 
 def write_old_current_master_info(session_data: dict[str, any]) -> None:
     master_info = Path(DEFAULT_MASTER_INFO_PATH)
+    join_info = session_data["cluster_info"]["for-join"]
+    etcd_addresses = join_info.get("etcd.addresses") or []
     with master_info.open("w") as f:
         master_info = (
             "local_ip:{},master_ip:{},etcd_ip:{},etcd_port:{},etcd_peer_port:{},"
             "global_scheduler_port:{},ds_master_port:{},bus-proxy:{},bus:{},ds-worker:{},"
         ).format(
-            session_data["cluster_info"]["for-join"]["agent.ip"],
-            session_data["cluster_info"]["for-join"]["function_master.ip"],
-            session_data["cluster_info"]["for-join"]["etcd.ip"],
-            session_data["cluster_info"]["for-join"]["etcd.port"],
-            session_data["cluster_info"]["for-join"]["etcd.peer_port"],
-            session_data["cluster_info"]["for-join"]["function_master.port"],
-            session_data["cluster_info"]["for-join"]["ds_master.port"],
-            session_data["cluster_info"]["for-join"]["function_proxy.port"],
-            session_data["cluster_info"]["for-join"]["function_proxy.grpc_port"],
-            session_data["cluster_info"]["for-join"]["ds_worker.port"],
+            join_info["agent.ip"],
+            join_info["function_master.ip"],
+            join_info["etcd.ip"],
+            join_info["etcd.port"],
+            join_info["etcd.peer_port"],
+            join_info["function_master.port"],
+            join_info["ds_master.port"],
+            join_info["function_proxy.port"],
+            join_info["function_proxy.grpc_port"],
+            join_info["ds_worker.port"],
         )
-        if session_data["cluster_info"]["for-join"]["frontend.port"]:
-            master_info = master_info + f"frontend_port:{session_data['cluster_info']['for-join']['frontend.port']},"
-        if len(session_data["cluster_info"]["for-join"]["etcd.addresses"]) > 1:
-            for addr in session_data["cluster_info"]["for-join"]["etcd.addresses"]:
-                master_info += f"etcd_addr_list:{addr.get('ip')},"
+        if join_info["frontend.port"]:
+            master_info = master_info + f"frontend_port:{join_info['frontend.port']},"
+        if len(etcd_addresses) > 1:
+            for addr in etcd_addresses:
+                if isinstance(addr, dict):
+                    master_info += f"etcd_addr_list:{addr.get('ip')},"
         master_info += "\n"
         f.write(master_info)

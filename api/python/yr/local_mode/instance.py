@@ -30,6 +30,10 @@ class Resource:
     concurrency: int = 1
     resources: Dict[str, float] = field(default_factory=dict)
 
+    def __post_init__(self):
+        if self.concurrency is None:
+            self.concurrency = 1
+
     def __hash__(self):
         return hash(str(self))
 

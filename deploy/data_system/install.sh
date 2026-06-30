@@ -24,6 +24,22 @@ MAX_PROCESS_EXIT_TIMES=20
 
 # before use functions in this script, ${BASE_DIR}/utils.sh should be imported first
 
+function ds_worker_supports_node_role() {
+  local help_output
+  help_output=$(OPENSSL_CONF="" LD_LIBRARY_PATH="${DATA_SYSTEM_DIR}/service/lib:${LD_LIBRARY_PATH}" \
+    "${DATA_SYSTEM_DIR}"/service/datasystem_worker --help 2>&1 || true)
+  echo "${help_output}" | grep -q -- "-node_role"
+}
+
+function get_ds_node_role_arg() {
+  local node_role=$1
+  if ds_worker_supports_node_role; then
+    echo "-node_role=${node_role}"
+  else
+    log_info "datasystem_worker does not support -node_role, skip node_role=${node_role}." >&2
+  fi
+}
+
 function install_ds_master() {
   log_info "start data system master, port=${DS_MASTER_PORT}..."
   local data_system_install_dir=${INSTALL_DIR_PARENT}/"ds_master_$$" # use ds_master_+pid as path, can't same as worker
@@ -34,13 +50,15 @@ function install_ds_master() {
   DS_MASTER_HEALTH_CHECK_PATH="${data_system_install_dir}"/master/health
   mkdir -p "${DS_LOG_PATH}/master"
   if check_port "${DS_MASTER_IP}" "${DS_MASTER_PORT}"; then
+    local ds_node_role_arg
+    ds_node_role_arg=$(get_ds_node_role_arg "${DS_NODE_ROLE:-master}")
     OPENSSL_CONF="" LD_LIBRARY_PATH="${DATA_SYSTEM_DIR}/service/lib:${LD_LIBRARY_PATH}" "${DATA_SYSTEM_DIR}"/service/datasystem_worker -master_address="${DS_MASTER_IP}:${DS_MASTER_PORT}" \
       -log_dir="${DS_LOG_PATH}/master" -worker_address="${DS_MASTER_IP}:${DS_MASTER_PORT}" \
       -unix_domain_socket_dir="${data_system_install_dir}/socket" -v="${DS_DEBUG_LOG_LEVEL}" \
       -minloglevel="${DS_LOG_LEVEL}" \
       -health_check_path="${data_system_install_dir}"/master/health \
       -ready_check_path="${data_system_install_dir}"/master/ready \
-      -enable_reconciliation=false \
+      -enable_reconciliation=${ENABLE_DISTRIBUTED_MASTER} \
       -rpc_thread_num=${DS_RPC_THREAD_NUM} \
       -heartbeat_interval_ms=${DS_HEARTBEAT_INTERVAL_MS} \
       -enable_multi_stubs=true \
@@ -67,7 +85,7 @@ function install_ds_master() {
       -log_monitor=${DS_LOG_MONITOR_ENABLE} \
       -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
       -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
-      -enable_distributed_master=false -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_master${STD_LOG_SUFFIX} 2>&1 &
+      -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} ${ds_node_role_arg} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_master${STD_LOG_SUFFIX} 2>&1 &
     DS_MASTER_PID="$!"
     if data_system_health_check "ds_master" "${DS_MASTER_PID}"; then
       log_info "succeed to start  data system master, port=${DS_MASTER_PORT}, pid=${DS_MASTER_PID}"
@@ -114,6 +132,13 @@ function install_ds_worker() {
   if [ "X${ENABLE_DISTRIBUTED_MASTER}" = "Xtrue" ]; then
     DS_MASTER_ADDRESS=""
   fi
+  # Derive default node_role: master node in distributed mode acts as a ring member
+  local _default_node_role="worker"
+  if [ "X${ENABLE_MASTER}" = "Xtrue" ] && [ "X${ENABLE_DISTRIBUTED_MASTER}" = "Xtrue" ]; then
+    _default_node_role="master"
+  fi
+  local ds_node_role_arg
+  ds_node_role_arg=$(get_ds_node_role_arg "${DS_NODE_ROLE:-${_default_node_role}}")
   OPENSSL_CONF="" LD_LIBRARY_PATH="${DATA_SYSTEM_DIR}/service/lib:${LD_LIBRARY_PATH}" "${DATA_SYSTEM_DIR}"/service/datasystem_worker \
     -master_address=${DS_MASTER_ADDRESS} \
     -log_dir="${DS_LOG_PATH}" -shared_memory_size_mb=${MEM4DATA} -worker_address="${IP_ADDRESS}:${DS_WORKER_PORT}" \
@@ -150,7 +175,7 @@ function install_ds_worker() {
     -log_monitor=${DS_LOG_MONITOR_ENABLE} \
     -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
     -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
-    -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_worker${STD_LOG_SUFFIX} 2>&1 &
+    -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} ${ds_node_role_arg} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_worker${STD_LOG_SUFFIX} 2>&1 &
   DS_WORKER_PID="$!"
   log_info "succeed to start data system worker, port=${DS_WORKER_PORT}, pid=${DS_WORKER_PID}"
 }

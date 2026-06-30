@@ -222,7 +222,8 @@ message FunctionGroupRunningInfo {
 message RuntimeInfo {
   string serverIpAddr = 1;
   int32  serverPort   = 2;
-  string route        = 3;
+  string route        = 3; // litebus bus URL of owner proxy
+  string proxyID      = 4; // functionProxyID of owner proxy
 }
 
 message Bundle {

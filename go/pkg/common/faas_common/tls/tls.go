@@ -26,6 +26,13 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 )
 
+var (
+	parseCertificate = x509.ParseCertificate
+	verifyCert       = func(cert *x509.Certificate, opts x509.VerifyOptions) ([][]*x509.Certificate, error) {
+		return cert.Verify(opts)
+	}
+)
+
 // LoadRootCAs returns system cert pool with caFiles added
 func LoadRootCAs(caFiles ...string) (*x509.CertPool, error) {
 	rootCAs, err := x509.SystemCertPool()
@@ -58,7 +65,7 @@ func VerifyCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		Intermediates: x509.NewCertPool(),
 	}
 	for i, asn1Data := range rawCerts {
-		cert, err := x509.ParseCertificate(asn1Data)
+		cert, err := parseCertificate(asn1Data)
 		if err != nil {
 			log.GetLogger().Errorf("failed to parse certificate from server: %s", err.Error())
 			return err
@@ -69,6 +76,6 @@ func VerifyCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		}
 		opts.Intermediates.AddCert(cert)
 	}
-	_, err := certs[0].Verify(opts)
+	_, err := verifyCert(certs[0], opts)
 	return err
 }

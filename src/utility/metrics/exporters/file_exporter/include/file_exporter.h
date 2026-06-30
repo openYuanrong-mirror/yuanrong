@@ -16,10 +16,10 @@
 #ifndef OBSERVABILITY_METRICS_FILE_EXPORTER_H
 #define OBSERVABILITY_METRICS_FILE_EXPORTER_H
 
-#include "exporters/file_exporter/include/json_parser.h"
-#include "exporters/file_exporter/include/metric_logger.h"
-#include "sdk/include/basic_exporter.h"
-#include "sdk/include/metrics_data.h"
+#include "src/utility/metrics/exporters/file_exporter/include/json_parser.h"
+#include "src/utility/metrics/exporters/file_exporter/include/metric_logger.h"
+#include "src/utility/metrics/sdk/include/basic_exporter.h"
+#include "src/utility/metrics/sdk/include/metrics_data.h"
 
 namespace observability {
 namespace metrics {

@@ -45,10 +45,10 @@ public:
         Stop();
     }
     virtual void PreStart() = 0;
-    virtual ErrorInfo Start() = 0;
+    ErrorInfo Start() override = 0;
     void Init();
-    virtual bool IsHealth() = 0;
-    virtual bool IsSameDstAddr(const std::string &dstIp, const int &dstPort) = 0;
+    bool IsHealth() override = 0;
+    bool IsSameDstAddr(const std::string &dstIp, const int &dstPort) override = 0;
     void Stop() override;
     bool Available() override;
     bool Abnormal() override;

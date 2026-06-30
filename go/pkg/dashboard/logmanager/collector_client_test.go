@@ -57,11 +57,11 @@ func TestCollectorClient_Connect(t *testing.T) {
 		}
 
 		Convey("When connecting to the collector successfully", func() {
-			// 模拟 grpc.NewClient 成功
-			patches := gomonkey.ApplyFunc(grpc.NewClient, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+			oldNewClient := newCollectorGrpcClient
+			newCollectorGrpcClient = func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 				return &grpc.ClientConn{}, nil
-			})
-			defer patches.Reset()
+			}
+			defer func() { newCollectorGrpcClient = oldNewClient }()
 
 			err := client.Connect()
 
@@ -73,11 +73,11 @@ func TestCollectorClient_Connect(t *testing.T) {
 		})
 
 		Convey("When connecting to the collector fails", func() {
-			// 模拟 grpc.NewClient 失败
-			patches := gomonkey.ApplyFunc(grpc.NewClient, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+			oldNewClient := newCollectorGrpcClient
+			newCollectorGrpcClient = func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 				return nil, errors.New("NewClient failed")
-			})
-			defer patches.Reset()
+			}
+			defer func() { newCollectorGrpcClient = oldNewClient }()
 			err := client.Connect()
 
 			Convey("Then the connection should fail", func() {

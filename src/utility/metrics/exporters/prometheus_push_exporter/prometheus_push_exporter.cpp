@@ -19,12 +19,12 @@
 #include <functional>
 #include <future>
 #include <iostream>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 #include "metrics/sdk/metric_processor.h"
 #include "metrics/exporters/http_exporter/curl_helper.h"
-#include "exporters/http_exporter/http_heartbeat_client.h"
+#include "src/utility/metrics/exporters/http_exporter/http_heartbeat_client.h"
 
 namespace observability::exporters::metrics {
 static const char CONTENT_TYPE[] = "Content-Type: text/plain; version=0.0.4; charset=utf-8";

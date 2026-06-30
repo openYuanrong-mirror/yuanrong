@@ -38,6 +38,7 @@ func TestInstanceLeaseHolder(t *testing.T) {
 		ConcurrentNum: 100,
 	}
 	leaseHolder := newInstanceLeaseHolder(instance)
+	defer leaseHolder.stop()
 	assert.Equal(t, true, leaseHolder.enable)
 	thread1 := &types.InstanceAllocation{
 		Instance:     instance,
@@ -52,8 +53,9 @@ func TestInstanceLeaseHolder(t *testing.T) {
 	err = leaseHolder.extendLease(thread1)
 	time.Sleep(300 * time.Millisecond)
 	assert.Equal(t, false, thread1Released)
-	time.Sleep(600 * time.Millisecond)
-	assert.Equal(t, true, thread1Released)
+	assert.Eventually(t, func() bool {
+		return thread1Released
+	}, 2*time.Second, 20*time.Millisecond)
 	err = leaseHolder.releaseLease(thread1)
 	assert.Nil(t, err)
 }

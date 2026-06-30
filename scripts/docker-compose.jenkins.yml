@@ -1,0 +1,36 @@
+# Jenkins CI/CD for YuanRong ARM64 构建
+# 使用方法: docker-compose -f scripts/docker-compose.jenkins.yml up -d
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: yr-jenkins
+    restart: unless-stopped
+    ports:
+      - "8080:8080"    # Web UI
+      - "50000:50000"  # Agent 连接端口
+    environment:
+      - JENKINS_ADMIN_ID=admin
+      - JENKINS_ADMIN_PASSWORD=${JENKINS_PASSWORD:-admin123}
+      - JAVA_OPTS=-Dhudson.slaves.NodeProvisioner.MARGIN=50 -Dhudson.slaves.NodeProvisioner.MARGIN0=0.85
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker in Docker
+      - ../:/workspace/yuanrong  # 挂载项目目录
+
+  # Jenkins Agent: macOS ARM64 构建节点
+  # 此服务在 macOS 上运行，不在 Linux 主机上
+  # agent-macos:
+  #   image: jenkins/inbound-agent:latest-jdk17
+  #   container_name: yr-jenkins-agent-macos
+  #   restart: unless-stopped
+  #   environment:
+  #     - JENKINS_URL=http://jenkins:8080
+  #     - JENKINS_SECRET=${AGENT_SECRET}
+  #     - JENKINS_AGENT_NAME=macos-arm64
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - ../:/workspace/yuanrong
+
+volumes:
+  jenkins_data:

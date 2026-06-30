@@ -30,7 +30,7 @@ const int WEIGHT_MULTIPLIER = 100;
 
 const std::string ALIAS_PATTERN_STRING = "^[a-zA-Z]([a-zA-Z0-9_-]*[a-zA-Z0-9])?$";
 const re2::RE2 ALIAS_PATTERN(ALIAS_PATTERN_STRING);
-const int ALIAS_LENGTH_LIMIT = 32;
+[[maybe_unused]] const int ALIAS_LENGTH_LIMIT = 32;
 
 void AliasRouting::UpdateAliasInfo(const std::vector<AliasElement> &aliasInfo)
 {

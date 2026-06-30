@@ -17,11 +17,20 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 #include "src/libruntime/libruntime.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/libruntime/utils/token_manager.h"
 #include "src/utility/logger/log_manager.h"
+
+// Ensure singleton instance is exported from shared library
+#if defined(_WIN32) || defined(_WIN64)
+    #define YR_SINGLETON_EXPORT __declspec(dllexport)
+#else
+    #define YR_SINGLETON_EXPORT __attribute__((visibility("default")))
+#endif
+
 namespace YR {
 namespace Libruntime {
 using YR::utility::LogManager;
@@ -29,15 +38,15 @@ const int DEFAULT_TOKEN_REFRESH_TIMEOUT = 5; // second
 const int DEFAULT_TOKEN_REFRESH_BUFFER_TIME = 30; // second
 class LibruntimeManager {
 public:
-    static LibruntimeManager &Instance()
-    {
-        static LibruntimeManager instance;
-        return instance;
-    }
+    YR_SINGLETON_EXPORT static LibruntimeManager &Instance();
+
+    YR_SINGLETON_EXPORT static void Cleanup();
 
     ErrorInfo Init(const LibruntimeConfig &config, const std::string &rtCtx = "");
 
     void Finalize(const std::string &rtCtx = "");
+
+    void ReInit(const std::string &rtCtx = "");
 
     std::shared_ptr<Libruntime> GetLibRuntime(const std::string &rtCtx = "");
 
@@ -48,6 +57,8 @@ public:
     bool IsInitialized(const std::string &rtCtx = "");
 
     void ReceiveRequestLoop(const std::string &rtCtx = "");
+
+    bool NeedReInit(const std::string &rtCtx = "");
 
     ErrorInfo HandleInitialized(const LibruntimeConfig &config, const std::string &rtCtx);
 
@@ -62,6 +73,9 @@ public:
     void StopTokenRefresh();
 
 private:
+    // Static pointer for singleton to avoid duplication when statically linked
+    static std::unique_ptr<LibruntimeManager> instance_;
+    static std::mutex instanceMutex_;
     LibruntimeManager();
 
     void InstallSigtermHandler();

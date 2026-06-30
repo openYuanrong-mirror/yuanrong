@@ -23,38 +23,23 @@
 #include "src/libruntime/gwclient/http/client_manager.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/notification_utility.h"
+#include "src/utility/platform_compat.h"
+
+namespace {
+[[maybe_unused]] const int RETRY_TIME = 3;
+[[maybe_unused]] const int INTERVAL_TIME = 2;
+}  // namespace
 
 namespace ssl = boost::asio::ssl;
-
-namespace {
-const int RETRY_TIME = 3;
-const int INTERVAL_TIME = 2;
-}  // namespace
-
 namespace YR {
 namespace Libruntime {
-namespace {
-void ConfigureSslVerifyPeer(const std::shared_ptr<LibruntimeConfig> &cfg, const std::shared_ptr<ssl::context> &ctx)
-{
-    if (cfg->skipServerVerify) {
-        ctx->set_verify_mode(ssl::verify_none);
-        return;
-    }
-    ctx->set_verify_mode(ssl::verify_peer);
-    if (cfg->verifyFilePath.empty()) {
-        ctx->set_default_verify_paths();
-    } else {
-        ctx->load_verify_file(cfg->verifyFilePath);
-    }
-}
-}  // namespace
-
 using YR::utility::NotificationUtility;
 ClientManager::ClientManager(const std::shared_ptr<LibruntimeConfig> &libruntimeConfig) : librtCfg(libruntimeConfig)
 {
     this->ioc = std::make_shared<boost::asio::io_context>();
     this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         boost::asio::make_work_guard(*ioc));
+    this->strand_ = std::make_unique<asio::strand<asio::io_context::executor_type>>(ioc->get_executor());
     this->maxIocThread = libruntimeConfig->httpIocThreadsNum;
     // enableMTLS: Enable mutual TLS authentication (both client and server verify each other's certificates)
     // true = mutual TLS (client provides certificate for authentication)
@@ -94,89 +79,6 @@ void ClientManager::Stop()
     }
 }
 
-ErrorInfo ClientManager::InitMtlsClients()
-{
-    ErrorInfo err;
-    try {
-        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
-        ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
-                         ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-
-        if (librtCfg->certificateFilePath.empty() || librtCfg->privateKeyPath.empty()) {
-            YRLOG_ERROR("enableMTLS is true, but certificateFilePath or privateKeyPath is empty");
-            err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
-                                 "certificateFilePath or privateKeyPath is empty for mTLS");
-            return err;
-        }
-        ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
-
-        if (strlen(librtCfg->privateKeyPaaswd) > 0) {
-            ctx->set_password_callback([this](std::size_t, ssl::context::password_purpose) {
-                return std::string(librtCfg->privateKeyPaaswd);
-            });
-        }
-        ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
-
-        ConfigureSslVerifyPeer(librtCfg, ctx);
-
-        for (uint32_t i = 0; i < maxConnSize_; i++) {
-            this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
-        }
-    } catch (const std::exception &e) {
-        YRLOG_ERROR("caught exception when init mTLS context: {}", e.what());
-        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, e.what());
-        return err;
-    } catch (...) {
-        YRLOG_ERROR("caught unknown exception when init mTLS context");
-        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
-                             "caught unknown exception when init mTLS context");
-        return err;
-    }
-    return err;
-}
-
-ErrorInfo ClientManager::InitOneWayTlsClients()
-{
-    ErrorInfo err;
-    try {
-        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
-        ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
-                         ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-
-        ConfigureSslVerifyPeer(librtCfg, ctx);
-
-        for (uint32_t i = 0; i < maxConnSize_; i++) {
-            this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
-        }
-    } catch (const std::exception &e) {
-        YRLOG_ERROR("caught exception when init TLS context: {}", e.what());
-        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, e.what());
-        return err;
-    } catch (...) {
-        YRLOG_ERROR("caught unknown exception when init TLS context");
-        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
-                             "caught unknown exception when init TLS context");
-        return err;
-    }
-    return err;
-}
-
-void ClientManager::InitPlainHttpClients()
-{
-    for (uint32_t i = 0; i < maxConnSize_; i++) {
-        this->clients.emplace_back(std::make_shared<AsyncHttpClient>(this->ioc));
-    }
-}
-
-void ClientManager::StartIocThreads()
-{
-    for (uint32_t i = 0; i < maxIocThread; i++) {
-        asyncRunners.push_back(std::make_unique<std::thread>([&] { this->ioc->run(); }));
-        std::string name = "yr_client_io_" + std::to_string(i);
-        pthread_setname_np(this->asyncRunners[i]->native_handle(), name.c_str());
-    }
-}
-
 ErrorInfo ClientManager::InitCtxAndIocThread()
 {
     ErrorInfo err;
@@ -192,6 +94,99 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
     }
     StartIocThreads();
     return err;
+}
+
+ErrorInfo ClientManager::InitMtlsClients()
+{
+    ErrorInfo err;
+    try {
+        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
+        ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                         ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+        if (librtCfg->certificateFilePath.empty() || librtCfg->privateKeyPath.empty()) {
+            YRLOG_ERROR("enableMTLS is true, but certificateFilePath or privateKeyPath is empty");
+            err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
+                                 "certificateFilePath or privateKeyPath is empty for mTLS");
+            return err;
+        }
+        ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
+        if (strlen(librtCfg->privateKeyPaaswd) > 0) {
+            ctx->set_password_callback([this](std::size_t, ssl::context::password_purpose) {
+                return std::string(librtCfg->privateKeyPaaswd);
+            });
+        }
+        ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
+        if (librtCfg->skipServerVerify) {
+            ctx->set_verify_mode(ssl::verify_none);
+        } else {
+            ctx->set_verify_mode(ssl::verify_peer);
+            if (librtCfg->verifyFilePath.empty()) {
+                ctx->set_default_verify_paths();
+            } else {
+                ctx->load_verify_file(librtCfg->verifyFilePath);
+            }
+        }
+        for (uint32_t _ = 0; _ < maxConnSize_; _++) {
+            this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
+        }
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("caught exception when init mTLS context: {}", e.what());
+        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, e.what());
+    } catch (...) {
+        YRLOG_ERROR("caught unknown exception when init mTLS context");
+        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
+                             "caught unknown exception when init mTLS context");
+    }
+    return err;
+}
+
+ErrorInfo ClientManager::InitOneWayTlsClients()
+{
+    ErrorInfo err;
+    try {
+        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
+        ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                         ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+        if (librtCfg->skipServerVerify) {
+            ctx->set_verify_mode(ssl::verify_none);
+        } else {
+            ctx->set_verify_mode(ssl::verify_peer);
+            if (librtCfg->verifyFilePath.empty()) {
+                ctx->set_default_verify_paths();
+            } else {
+                ctx->load_verify_file(librtCfg->verifyFilePath);
+            }
+        }
+        for (uint32_t _ = 0; _ < maxConnSize_; _++) {
+            this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
+        }
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("caught exception when init TLS context: {}", e.what());
+        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, e.what());
+    } catch (...) {
+        YRLOG_ERROR("caught unknown exception when init TLS context");
+        err.SetErrCodeAndMsg(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
+                             "caught unknown exception when init TLS context");
+    }
+    return err;
+}
+
+void ClientManager::InitPlainHttpClients()
+{
+    for (uint32_t _ = 0; _ < maxConnSize_; _++) {
+        this->clients.emplace_back(std::make_shared<AsyncHttpClient>(this->ioc));
+    }
+}
+
+void ClientManager::StartIocThreads()
+{
+    for (uint32_t i = 0; i < maxIocThread; i++) {
+        std::string name = "yr_client_io_" + std::to_string(i);
+        asyncRunners.push_back(std::make_unique<std::thread>([this, name] {
+            YR_SET_THREAD_NAME_CURRENT(name.c_str());
+            this->ioc->run();
+        }));
+    }
 }
 
 ErrorInfo ClientManager::Init(const ConnectionParam &param)
@@ -211,13 +206,17 @@ ErrorInfo ClientManager::Init(const ConnectionParam &param, const uint32_t &clie
     for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
         for (int j = 0; j < retryTime; j++) {
             error = clients[i]->Init(param);
-            clients[i]->SetAvailable();
             if (error.OK()) {
+                clients[i]->SetAvailable();
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(INTERVAL_TIME));
+            YRLOG_WARN("http connection {} init failed (attempt {}/{}): {}", i, j + 1, RETRY_TIME, error.Msg());
+            if (j < RETRY_TIME - 1) {
+                std::this_thread::sleep_for(std::chrono::seconds(INTERVAL_TIME));
+            }
         }
         if (!error.OK()) {
+            clients[i]->SetAvailable();
             return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, error.Msg());
         }
     }
@@ -229,57 +228,18 @@ void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::str
                                         const std::string &body, const std::shared_ptr<std::string> requestId,
                                         const HttpCallbackFunction &receiver)
 {
-    for (;;) {
-        if (SubmitRequest(method, target, headers, body, requestId, receiver)) {
-            break;
+    // Non-blocking: post to strand, either dispatch immediately or enqueue.
+    // Caller thread is never blocked waiting for a free connection.
+    asio::post(*strand_, [this, method, target, headers, body, requestId, receiver]() {
+        if (stopped_) {
+            return;
         }
-        std::this_thread::yield();
-    }
-}
-
-bool ClientManager::SubmitRequest(const http::verb &method, const std::string &target,
-                                  const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                                  const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver)
-{
-    for (uint32_t i = 0;; i++) {
-        {
-            absl::ReaderMutexLock l(&connCntMu_);
-            if (i >= connectedClientsCnt_) {
-                break;
-            }
+        PendingRequest req{method, target, headers, body, requestId, receiver, HttpCallbackFunctionV2 {}, false};
+        if (!TryDispatch(req)) {
+            YRLOG_DEBUG("all connections busy, enqueueing request. requestId: {}", *requestId);
+            pendingQueue_.push(std::move(req));
         }
-        if (!this->clients[i]->SetUnavailable()) {
-            continue;
-        }
-        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
-        // while the connection idletime exceed setup timeout, the server may close the connection
-        // in this situation, client should try to reconnect
-        if (!this->clients[i]->IsConnActive()) {
-            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *requestId);
-            auto err = this->clients[i]->ReInit(requestId);
-            if (!err.OK()) {
-                YRLOG_DEBUG("httpclient {} is reInit failed, requestId:{} err: {}", i, *requestId, err.CodeAndMsg());
-                receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                         HTTP_CONNECTION_ERROR_CODE);
-                this->clients[i]->SetAvailable();
-                return true;
-            }
-        }
-        this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
-        return true;
-    }
-    uint32_t newClientIdx = 0;
-    {
-        absl::WriterMutexLock l(&connCntMu_);
-        if (connectedClientsCnt_ >= maxConnSize_) {
-            return false;
-        }
-        newClientIdx = connectedClientsCnt_++;
-    }
-    YRLOG_DEBUG("init httpclient {}", newClientIdx);
-    this->clients[newClientIdx]->Init(this->connParam);
-    this->clients[newClientIdx]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
-    return true;
+    });
 }
 
 void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::string &target,
@@ -287,56 +247,99 @@ void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::str
                                         const std::string &body, const std::shared_ptr<std::string> requestId,
                                         const HttpCallbackFunctionV2 &receiver)
 {
-    for (;;) {
-        if (SubmitRequest(method, target, headers, body, requestId, receiver)) {
-            break;
+    asio::post(*strand_, [this, method, target, headers, body, requestId, receiver]() {
+        if (stopped_) {
+            return;
         }
-        std::this_thread::yield();
-    }
+        PendingRequest req{method, target, headers, body, requestId, HttpCallbackFunction {}, receiver, true};
+        if (!TryDispatch(req)) {
+            YRLOG_DEBUG("all connections busy, enqueueing request. requestId: {}", *requestId);
+            pendingQueue_.push(std::move(req));
+        }
+    });
 }
 
-bool ClientManager::SubmitRequest(const http::verb &method, const std::string &target,
-                                  const std::unordered_map<std::string, std::string> &headers,
-                                  const std::string &body, const std::shared_ptr<std::string> requestId,
-                                  const HttpCallbackFunctionV2 &receiver)
+// TryDispatch: must be called on strand_.
+// Finds a free connection (or creates a new one up to maxConnSize_) and dispatches req.
+// Returns true if dispatched, false if all connections are at capacity.
+bool ClientManager::TryDispatch(const PendingRequest &req)
 {
-    for (uint32_t i = 0;; i++) {
-        {
-            absl::ReaderMutexLock l(&connCntMu_);
-            if (i >= connectedClientsCnt_) {
-                break;
-            }
-        }
-        if (!this->clients[i]->SetUnavailable()) {
+    // Scan existing connections for a free one.
+    for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
+        if (!clients[i]->SetUnavailable()) {
             continue;
         }
-        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
-        if (!this->clients[i]->IsConnActive()) {
-            YRLOG_DEBUG("httpclient {} id not active, reinit now. requestId: {}", i, *requestId);
-            auto err = this->clients[i]->ReInit(requestId);
+        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *req.requestId);
+        // If the connection has been idle past the server-side timeout, reconnect.
+        if (!clients[i]->IsConnActive()) {
+            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *req.requestId);
+            auto err = clients[i]->ReInit(req.requestId);
             if (!err.OK()) {
-                YRLOG_DEBUG("httpclient {} id reInit failed, requestId: {} err: {}", i, *requestId, err.CodeAndMsg());
-                receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                         HTTP_CONNECTION_ERROR_CODE, std::unordered_map<std::string, std::string> {});
-                this->clients[i]->SetAvailable();
+                YRLOG_DEBUG("httpclient {} reInit failed, requestId:{} err: {}", i, *req.requestId,
+                            err.CodeAndMsg());
+                auto errorCode = boost::asio::error::make_error_code(boost::asio::error::connection_reset);
+                if (req.useReceiverV2) {
+                    req.receiverV2(err.CodeAndMsg(), errorCode, HTTP_CONNECTION_ERROR_CODE,
+                                   std::unordered_map<std::string, std::string> {});
+                } else {
+                    req.receiver(err.CodeAndMsg(), errorCode, HTTP_CONNECTION_ERROR_CODE);
+                }
+                clients[i]->SetAvailable();
                 return true;
             }
         }
-        this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+        // When this connection finishes, post DrainQueue back onto the strand so the
+        // next pending request (if any) is dispatched without blocking any thread.
+        clients[i]->SetOnRelease([this]() {
+            asio::post(*strand_, [this]() { DrainQueue(); });
+        });
+        if (req.useReceiverV2) {
+            clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                            req.receiverV2);
+        } else {
+            clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                            req.receiver);
+        }
         return true;
     }
-    uint32_t newClientIdx = 0;
-    {
-        absl::WriterMutexLock l(&connCntMu_);
-        if (connectedClientsCnt_ >= maxConnSize_) {
-            return false;
-        }
-        newClientIdx = connectedClientsCnt_++;
+    // No free connection; try to lazily open a new one up to the pool limit.
+    if (connectedClientsCnt_ >= maxConnSize_) {
+        return false;
     }
-    YRLOG_DEBUG("init httpclient {}", newClientIdx);
-    this->clients[newClientIdx]->Init(this->connParam);
-    this->clients[newClientIdx]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+    uint32_t newIdx = connectedClientsCnt_++;
+    YRLOG_DEBUG("init httpclient {}", newIdx);
+    auto err = clients[newIdx]->Init(connParam);
+    if (!err.OK()) {
+        YRLOG_ERROR("failed to init httpclient {}: {}", newIdx, err.Msg());
+        connectedClientsCnt_--;
+        return false;
+    }
+    clients[newIdx]->SetOnRelease([this]() {
+        asio::post(*strand_, [this]() { DrainQueue(); });
+    });
+    if (req.useReceiverV2) {
+        clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                             req.receiverV2);
+    } else {
+        clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                             req.receiver);
+    }
     return true;
+}
+
+// DrainQueue: must be called on strand_.
+// Dispatches queued requests to any newly free connections.
+void ClientManager::DrainQueue()
+{
+    while (!pendingQueue_.empty()) {
+        auto req = std::move(pendingQueue_.front());
+        pendingQueue_.pop();
+        if (!TryDispatch(req)) {
+            // All connections are busy again; re-enqueue and wait for the next release.
+            pendingQueue_.push(std::move(req));
+            break;
+        }
+    }
 }
 }  // namespace Libruntime
 }  // namespace YR

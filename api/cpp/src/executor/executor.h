@@ -26,6 +26,7 @@ namespace internal {
 
 class Executor {
 public:
+    virtual ~Executor() = default;
     virtual Libruntime::ErrorInfo LoadFunctions(const std::vector<std::string> &paths) = 0;
 
     virtual Libruntime::ErrorInfo ExecuteFunction(

@@ -1,0 +1,72 @@
+ARG BASE_IMAGE=yr-base
+FROM ${BASE_IMAGE}
+
+ENV HOME="/home/sn" \
+    YR_CONTROLPLANE_HELPER_DIR="/home/sn/bin/alias" \
+    YR_PRIVATE_KEY_FILE="/openyuanrong/cert/module.key" \
+    YR_CERT_FILE="/openyuanrong/cert/module.crt" \
+    YR_VERIFY_FILE="/openyuanrong/cert/ca.crt"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /openyuanrong
+
+COPY openyuanrong-*.whl /tmp/pkg/
+COPY openyuanrong_runtime-*.whl /tmp/pkg/
+COPY openyuanrong_faas-*.whl /tmp/pkg/
+COPY openyuanrong_dashboard-*.whl /tmp/pkg/
+COPY openyuanrong_cpp_sdk-*.whl /tmp/pkg/
+COPY openyuanrong_functionsystem-*.whl /tmp/pkg/
+COPY openyuanrong_datasystem-*.whl /tmp/pkg/
+COPY openyuanrong_sdk*.whl /tmp/pkg/
+COPY .yr-k8s-deploy/bin/start-master.sh /usr/local/bin/start-master.sh
+COPY .yr-k8s-deploy/bin/start-frontend.sh /usr/local/bin/start-frontend.sh
+
+RUN set -euo pipefail \
+    && resolve_single_wheel() { \
+        local pattern="$1"; \
+        local matches=(); \
+        mapfile -t matches < <(find /tmp/pkg -maxdepth 1 -type f -name "${pattern}" -printf '%f\n' | sort -V); \
+        if [ "${#matches[@]}" -eq 0 ]; then \
+            printf 'Missing required wheel artifact matching %s\n' "${pattern}" >&2; \
+            exit 1; \
+        fi; \
+        if [ "${#matches[@]}" -ne 1 ]; then \
+            printf 'Expected exactly one wheel matching %s, found %s\n' "${pattern}" "${#matches[@]}" >&2; \
+            printf '%s\n' "${matches[@]}" >&2; \
+            exit 1; \
+        fi; \
+        printf '/tmp/pkg/%s' "${matches[0]}"; \
+    } \
+    && resolve_single_wheel 'openyuanrong_sdk*.whl' >/dev/null \
+    && OPENYUANRONG_WHEEL="$(resolve_single_wheel 'openyuanrong-*.whl')" \
+    && RUNTIME_WHEEL="$(resolve_single_wheel 'openyuanrong_runtime-*.whl')" \
+    && FAAS_WHEEL="$(resolve_single_wheel 'openyuanrong_faas-*.whl')" \
+    && DASHBOARD_WHEEL="$(resolve_single_wheel 'openyuanrong_dashboard-*.whl')" \
+    && CPP_SDK_WHEEL="$(resolve_single_wheel 'openyuanrong_cpp_sdk-*.whl')" \
+    && FUNCTIONSYSTEM_WHEEL="$(resolve_single_wheel 'openyuanrong_functionsystem-*.whl')" \
+    && DATASYSTEM_WHEEL="$(resolve_single_wheel 'openyuanrong_datasystem-*.whl')" \
+    && python3 -m pip install --no-cache-dir \
+        --index-url https://mirrors.aliyun.com/pypi/simple \
+        --trusted-host mirrors.aliyun.com \
+        --retries 5 \
+        --timeout 100 \
+        "${OPENYUANRONG_WHEEL}" \
+        "${RUNTIME_WHEEL}" \
+        "${FAAS_WHEEL}" \
+        "${DASHBOARD_WHEEL}" \
+        "${CPP_SDK_WHEEL}" \
+        "${DATASYSTEM_WHEEL}" \
+        "${FUNCTIONSYSTEM_WHEEL}" \
+    && python_bin_dir="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" \
+    && test -x "${python_bin_dir}/yr" \
+    && test -x "${python_bin_dir}/yrcli" \
+    && python3 -c 'from pathlib import Path; import yr; base = Path(yr.__file__).resolve().parent; required = ["cli", "runtime", "faas", "dashboard", "cpp", "functionsystem", "datasystem"]; missing = [name for name in required if not (base / name).exists()]; assert not missing, f"missing split wheel payloads: {missing}"' \
+    && ln -sf "${python_bin_dir}/yr" /usr/local/bin/yr \
+    && ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli \
+    && install -d /openyuanrong/bin /openyuanrong/cert /openyuanrong/config \
+        "${YR_CONTROLPLANE_HELPER_DIR}" /home/sn /home/sn/config /home/sn/iam-config \
+        /home/sn/log /home/sn/upload /etc/yuanrong \
+    && install -m 0644 /dev/null /home/sn/.bashrc \
+    && chmod +x /usr/local/bin/start-master.sh /usr/local/bin/start-frontend.sh \
+    && rm -rf /tmp/pkg

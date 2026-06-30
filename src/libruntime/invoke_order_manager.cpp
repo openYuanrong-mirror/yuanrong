@@ -18,12 +18,22 @@
 
 namespace YR {
 namespace Libruntime {
+namespace {
+std::string GetNamedInstanceId(std::shared_ptr<InvokeSpec> spec, const std::shared_ptr<LibruntimeConfig> &config)
+{
+    if (config != nullptr) {
+        return spec->GetNamedInstanceId(config);
+    }
+    return spec->GetNamedInstanceId();
+}
+}  // namespace
+
 void InvokeOrderManager::CreateInstance(std::shared_ptr<InvokeSpec> spec)
 {
     if (!spec->opts.needOrder || spec->returnIds.empty()) {
         return;
     }
-    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
+    auto instanceId = GetNamedInstanceId(spec, this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->returnIds[0].id;
     }
@@ -91,7 +101,7 @@ void InvokeOrderManager::RegisterInstance(const std::string &instanceId)
     }
 }
 
-void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &instanceId)
+void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored)
 {
     if (instanceId.empty()) {
         return;
@@ -99,7 +109,9 @@ void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &insta
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) == instances.end()) {
         instances.insert({instanceId, ConstuctInstOrder()});
-        instances[instanceId]->orderingCounter++;
+        if (!restored) {
+            instances[instanceId]->orderingCounter++;
+        }
         YRLOG_DEBUG("current order of instance {} is : {}", instanceId, instances[instanceId]->orderingCounter.load());
     } else {
         YRLOG_DEBUG("register instance for ordering, instance already exists, instance id: {}", instanceId);
@@ -111,7 +123,7 @@ void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
     if (!spec->opts.needOrder || spec->returnIds.empty()) {
         return;
     }
-    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
+    auto instanceId = GetNamedInstanceId(spec, this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->returnIds[0].id;
     }
@@ -128,7 +140,7 @@ void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
 
 void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
+    auto instanceId = GetNamedInstanceId(spec, this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->instanceId;
     }
@@ -159,7 +171,7 @@ void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
 
 void InvokeOrderManager::UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
+    auto instanceId = GetNamedInstanceId(spec, this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->instanceId;
     }
@@ -202,7 +214,7 @@ void InvokeOrderManager::ClearInsOrderMsg(const std::string &insId, int signal)
 
 void InvokeOrderManager::NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
+    auto instanceId = GetNamedInstanceId(spec, this->libConfig);
     if (instanceId.empty()) {
         if (spec->invokeType == libruntime::InvokeType::CreateInstance) {
             // create spec use return id as instance id

@@ -25,6 +25,7 @@ from yr.cli.component.function_master import FunctionMasterLauncher
 from yr.cli.component.function_proxy import FunctionProxyLauncher
 from yr.cli.component.function_scheduler import FaaSSchedulerLauncher
 from yr.cli.component.meta_service import MetaServiceLauncher
+from yr.cli.component.runtime_launcher import RuntimeLauncherLauncher
 from yr.cli.const import StartMode
 
 LAUNCHER_CLASSES: dict[str, type[ComponentLauncher]] = {
@@ -39,6 +40,7 @@ LAUNCHER_CLASSES: dict[str, type[ComponentLauncher]] = {
     "dashboard": DashboardLauncher,
     "collector": CollectorLauncher,
     "meta_service": MetaServiceLauncher,
+    "runtime_launcher": RuntimeLauncherLauncher,
     # used for yr k8s deployment
     "iam_server": ComponentLauncher,
     "function_manager": ComponentLauncher,
@@ -58,7 +60,7 @@ PREPEND_CHAR_OVERRIDES: dict[str, str] = {
 DEPENDS_ON_OVERRIDES_BY_MODE: dict[StartMode, dict[str, list[str]]] = {
     StartMode.MASTER: {
         "function_master": ["etcd"],
-        "function_proxy": ["ds_worker"],
+        "function_proxy": ["ds_worker", "runtime_launcher"],
         "function_agent": ["ds_worker", "function_proxy"],
         "frontend": ["function_proxy"],
         "function_scheduler": ["function_proxy"],
@@ -71,7 +73,9 @@ DEPENDS_ON_OVERRIDES_BY_MODE: dict[StartMode, dict[str, list[str]]] = {
     },
     StartMode.AGENT: {
         "function_agent": ["ds_worker", "function_proxy"],
-        "function_proxy": ["ds_worker"],
+        "function_proxy": ["ds_worker", "runtime_launcher"],
+        "frontend": ["function_proxy"],
+        "runtime_launcher": [],
     },
 }
 

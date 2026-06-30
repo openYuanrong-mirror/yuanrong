@@ -467,10 +467,13 @@ func Test_getDataSystemKey(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 	})
 	convey.Convey("getDataSystemKey ok 1", t, func() {
-		p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+		oldGetClient := getClient
+		getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 			return DsClientImpl{kvClient: &FakeKvClient{num: 1}}, false, nil
-		})
-		defer p.Reset()
+		}
+		defer func() {
+			getClient = oldGetClient
+		}()
 		config := &Config{}
 		config.NoNeedGenKey = false
 		config.KeyPrefix = "aaa"
@@ -479,10 +482,13 @@ func Test_getDataSystemKey(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 	})
 	convey.Convey("getDataSystemKey ok 2", t, func() {
-		p := gomonkey.ApplyFunc(getClient, func(cfg *Config) (DsClientImpl, bool, error) {
+		oldGetClient := getClient
+		getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 			return DsClientImpl{kvClient: &FakeKvClient{num: 1}}, false, nil
-		})
-		defer p.Reset()
+		}
+		defer func() {
+			getClient = oldGetClient
+		}()
 		config := &Config{}
 		config.NoNeedGenKey = false
 		config.KeyPrefix = "aaa"
@@ -540,10 +546,6 @@ func TestUploadWithoutKeyRetry(t *testing.T) {
 			localClientLibruntime: &mockUtils.FakeLibruntimeSdkClient{}}, "", true, func() mockUtils.PatchSlice {
 			patches := mockUtils.InitPatchSlice()
 			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(NewClient,
-					func(tenantID string, nodeIP string) (DsClientImpl, error) {
-						return DsClientImpl{}, errors.New("failed to upload")
-					}),
 				gomonkey.ApplyFunc((*Cache).healthCheckProcess,
 					func(_ *Cache, node string) {
 						return
@@ -555,6 +557,16 @@ func TestUploadWithoutKeyRetry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.patchesFunc()
+			defer patches.ResetAll()
+			oldGetClient := getClient
+			if tt.name == "case2 failed to upload without key node ip and tenantID is null" {
+				getClient = func(cfg *Config, traceID string) (DsClientImpl, bool, error) {
+					return DsClientImpl{}, false, errors.New("failed to upload")
+				}
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 			localClientLibruntime = tt.args.localClientLibruntime
 			got, err := UploadWithoutKeyRetry(tt.args.value, tt.args.config, tt.args.param, "traceID")
 			if (err != nil) != tt.wantErr {
@@ -564,7 +576,6 @@ func TestUploadWithoutKeyRetry(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("UploadWithoutKeyRetry() got = %v, want %v", got, tt.want)
 			}
-			patches.ResetAll()
 		})
 	}
 	clientMap = concurrentMap{mp: make(map[string]*nodeIP2ClientMap)}
@@ -645,6 +656,7 @@ func TestDeleteArrayRetry(t *testing.T) {
 		want        []string
 		wantErr     bool
 		patchesFunc mockUtils.PatchesFunc
+		getClient   func(cfg *Config, traceID string) (DsClientImpl, bool, error)
 	}{
 		{"case1 succeed to download array", args{keys: []string{"key1", "key2"},
 			config:       &Config{TenantID: "tenant1", NodeIP: "127.2.2.101"},
@@ -661,7 +673,7 @@ func TestDeleteArrayRetry(t *testing.T) {
 					}),
 			})
 			return patches
-		}},
+		}, nil},
 		{"case2  failed to download array after retry", args{keys: []string{"key3"},
 			config:       &Config{TenantID: "tenant1", NodeIP: "127.2.2.102"},
 			sourceClient: DsClientImpl{kvClient: &FakeKvClient{}}}, []string{"key3"}, true, func() mockUtils.PatchSlice {
@@ -677,7 +689,7 @@ func TestDeleteArrayRetry(t *testing.T) {
 					}),
 			})
 			return patches
-		}},
+		}, nil},
 		{"case3  failed to download node ip and tenantID is null", args{keys: []string{"key3"},
 			config:       &Config{TenantID: "", NodeIP: ""},
 			sourceClient: DsClientImpl{kvClient: &FakeKvClient{}}}, []string{"key3"}, true, func() mockUtils.PatchSlice {
@@ -693,28 +705,34 @@ func TestDeleteArrayRetry(t *testing.T) {
 					}),
 			})
 			return patches
-		}},
+		}, nil},
 		{
 			"case4 len key is 0", args{keys: []string{},
 				config:       &Config{TenantID: "", NodeIP: ""},
 				sourceClient: DsClientImpl{kvClient: &FakeKvClient{}}}, []string{}, true, func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
 				patches.Append(mockUtils.PatchSlice{
-					gomonkey.ApplyFunc(NewClient,
-						func(tenantID string, nodeIP string) (DsClientImpl, error) {
-							return DsClientImpl{}, errors.New("failed to delete")
-						}),
 					gomonkey.ApplyFunc((*Cache).healthCheckProcess,
 						func(_ *Cache, node string) {
 							return
 						}),
 				})
 				return patches
+			}, func(cfg *Config, traceID string) (DsClientImpl, bool, error) {
+				return DsClientImpl{}, false, errors.New("failed to delete")
 			}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.patchesFunc()
+			defer patches.ResetAll()
+			if tt.getClient != nil {
+				oldGetClient := getClient
+				getClient = tt.getClient
+				defer func() {
+					getClient = oldGetClient
+				}()
+			}
 			got, err := DeleteArrayRetry(tt.args.keys, tt.args.config, "traceID")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DeleteArrayRetry() error = %v, wantErr %v", err, tt.wantErr)
@@ -723,7 +741,6 @@ func TestDeleteArrayRetry(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("DeleteArrayRetry() got = %v, want %v", got, tt.want)
 			}
-			patches.ResetAll()
 		})
 	}
 	clientMap = concurrentMap{mp: make(map[string]*nodeIP2ClientMap)}
@@ -787,10 +804,14 @@ func TestDeleteClient(t *testing.T) {
 func Test_uploadWithKeyKvClient(t *testing.T) {
 	convey.Convey("uploadWithKey test", t, func() {
 		convey.Convey("test encrypt", func() {
-			p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 				return DsClientImpl{kvClient: &FakeKvClient{num: 1}}, false, nil
-			})
-			defer p.Reset()
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
+			localClientLibruntime = &mockUtils.FakeLibruntimeSdkClient{}
 			key, b, err := uploadWithKey([]byte("value"), &Config{NeedEncrypt: true, KeyPrefix: "aaa"}, api.SetParam{},
 				"")
 			convey.So(key, convey.ShouldEqual, "1")
@@ -798,19 +819,15 @@ func Test_uploadWithKeyKvClient(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("test set tenantID fail", func() {
-			patches := []*gomonkey.Patches{
-				gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
-					return DsClientImpl{kvClient: &FakeKvClient{num: 1}}, false, nil
-				}),
-				gomonkey.ApplyFunc((*mockUtils.FakeLibruntimeSdkClient).SetTenantID,
-					func(_ *mockUtils.FakeLibruntimeSdkClient, tenantID string) error {
-						return errors.New("set tenant failed")
-					}),
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+				return DsClientImpl{kvClient: &FakeKvClient{num: 1}}, false, nil
 			}
-			for _, patch := range patches {
-				patch.Reset()
-			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 
+			localClientLibruntime = &invokerLibruntimeMock{setTenantIDSuccessfully: false}
 			key, b, err := uploadWithKey([]byte("value"), &Config{NeedEncrypt: false}, api.SetParam{}, "")
 			convey.So(key, convey.ShouldEqual, "")
 			convey.So(b, convey.ShouldBeFalse)
@@ -828,24 +845,23 @@ func Test_uploadWithKey(t *testing.T) {
 		traceID  string
 	}
 	tests := []struct {
-		name        string
-		args        args
-		want1       bool
-		wantErr     bool
-		patchesFunc mockUtils.PatchesFunc
+		name      string
+		args      args
+		want1     bool
+		wantErr   bool
+		getClient func(cfg *Config, traceID string) (DsClientImpl, bool, error)
 	}{
-		{"case1 dsClient is nil", args{config: &Config{}}, true, true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(getClient,
-					func(cfg *Config, _ string) (DsClientImpl, bool, error) { return DsClientImpl{}, true, errors.New("e") }),
-			})
-			return patches
+		{"case1 dsClient is nil", args{config: &Config{}}, true, true, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			return DsClientImpl{}, true, errors.New("e")
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			patches := tt.patchesFunc()
+			oldGetClient := getClient
+			getClient = tt.getClient
+			defer func() {
+				getClient = oldGetClient
+			}()
 			_, got1, err := uploadWithKey(tt.args.value, tt.args.config, tt.args.param, tt.args.traceID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("uploadWithKey() error = %v, wantErr %v", err, tt.wantErr)
@@ -854,13 +870,13 @@ func Test_uploadWithKey(t *testing.T) {
 			if got1 != tt.want1 {
 				t.Errorf("uploadWithKey() got1 = %v, want %v", got1, tt.want1)
 			}
-			patches.ResetAll()
 		})
 	}
 }
 
 type invokerLibruntimeMock struct {
 	setTenantIDSuccessfully bool
+	kvStore                 map[string][]byte
 }
 
 func (c *invokerLibruntimeMock) CreateInstance(funcMeta api.FunctionMeta, args []api.Arg,
@@ -886,19 +902,23 @@ func (c *invokerLibruntimeMock) ReleaseInstance(allocation api.InstanceAllocatio
 
 }
 
-func (c *invokerLibruntimeMock) Kill(instanceID string, signal int, payload []byte) (err error) {
+func (c *invokerLibruntimeMock) Kill(instanceID string, signal int, payload []byte,
+	invokeOpt api.InvokeOptions) (err error) {
 	return nil
 }
 
-func (c *invokerLibruntimeMock) CreateInstanceRaw(createReqRaw []byte) (createRespRaw []byte, err error) {
+func (c *invokerLibruntimeMock) CreateInstanceRaw(createReqRaw []byte,
+	option api.RawRequestOption) (createRespRaw []byte, err error) {
 	return []byte{}, nil
 }
 
-func (c *invokerLibruntimeMock) InvokeByInstanceIdRaw(invokeReqRaw []byte) (resultRaw []byte, err error) {
+func (c *invokerLibruntimeMock) InvokeByInstanceIdRaw(invokeReqRaw []byte,
+	option api.RawRequestOption) (resultRaw []byte, err error) {
 	return []byte{}, nil
 }
 
-func (f *invokerLibruntimeMock) KillRaw(killReqRaw []byte) (killRespRaw []byte, err error) {
+func (f *invokerLibruntimeMock) KillRaw(killReqRaw []byte,
+	option api.RawRequestOption) (killRespRaw []byte, err error) {
 	return []byte{}, nil
 }
 
@@ -910,6 +930,10 @@ func (f *invokerLibruntimeMock) LoadState(checkpointID string) (state []byte, er
 	return []byte{}, nil
 }
 
+func (f *invokerLibruntimeMock) DeleteGetEventCallback(objectID string) {
+	return
+}
+
 func (f *invokerLibruntimeMock) Exit(code int, message string) {
 	return
 }
@@ -919,6 +943,9 @@ func (f *invokerLibruntimeMock) Finalize() {
 }
 
 func (f *invokerLibruntimeMock) KVSet(key string, value []byte, param api.SetParam) (err error) {
+	if f.kvStore != nil {
+		f.kvStore[key] = value
+	}
 	return nil
 }
 
@@ -935,6 +962,17 @@ func (f *invokerLibruntimeMock) KVGet(key string, timeoutms uint) (value []byte,
 }
 
 func (f *invokerLibruntimeMock) KVGetMulti(keys []string, timeoutms uint) (values [][]byte, err error) {
+	if f.kvStore != nil {
+		values := [][]byte{}
+		for _, key := range keys {
+			value, ok := f.kvStore[key]
+			if !ok {
+				return values, api.ErrorInfo{Code: 1, Err: fmt.Errorf("key %s not found", key)}
+			}
+			values = append(values, value)
+		}
+		return values, nil
+	}
 	return [][]byte{}, nil
 }
 
@@ -986,19 +1024,11 @@ func (f *invokerLibruntimeMock) GDecreaseRef(objectIDs []string, remoteClientID 
 	return []string{}, nil
 }
 
-func (c *invokerLibruntimeMock) ReleaseGRefs(remoteClientID string) error {
-	return nil
-}
-
 func (f *invokerLibruntimeMock) GetAsync(objectID string, cb api.GetAsyncCallback) {
 	return
 }
 
 func (f *invokerLibruntimeMock) GetEvent(objectID string, cb api.GetEventCallback) {
-	return
-}
-
-func (f *invokerLibruntimeMock) DeleteGetEventCallback(objectID string) {
 	return
 }
 
@@ -1020,6 +1050,10 @@ func (c *invokerLibruntimeMock) DeleteStream(streamName string) (err error) {
 
 func (c *invokerLibruntimeMock) CreateClient(config api.ConnectArguments) (api.KvClient, error) {
 	return &FakeKvClient{1}, nil
+}
+
+func (c *invokerLibruntimeMock) ReleaseGRefs(remoteClientID string) error {
+	return nil
 }
 
 func (l *invokerLibruntimeMock) GIncreaseRefRaw(objectIDs []string, remoteClientID ...string) ([]string, error) {
@@ -1075,35 +1109,9 @@ func (f *invokerLibruntimeMock) IncreaseUInt64Counter(data api.UInt64CounterData
 
 func TestKVGet(t *testing.T) {
 	convey.Convey("TestKVGetLibruntime", t, func() {
-		keyNotFound := 1
-		mock := &invokerLibruntimeMock{setTenantIDSuccessfully: true}
-		kvStore := map[string][]byte{}
+		mock := &invokerLibruntimeMock{setTenantIDSuccessfully: true, kvStore: map[string][]byte{}}
 		testKey := "test_key"
 		testValue := []byte{'1', '1', '1'}
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyMethod(reflect.TypeOf(mock), "KVGetMulti", func(_ *invokerLibruntimeMock, keys []string,
-				timeoutms uint) ([][]byte, error) {
-				values := [][]byte{}
-				for _, key := range keys {
-					if value, ok := kvStore[key]; ok {
-						values = append(values, value)
-						continue
-					}
-					return values, api.ErrorInfo{Code: keyNotFound, Err: fmt.Errorf("key %s not found", key)}
-				}
-				return values, nil
-			}),
-			gomonkey.ApplyMethod(reflect.TypeOf(mock), "KVSet", func(_ *invokerLibruntimeMock, key string,
-				value []byte, param api.SetParam) error {
-				kvStore[key] = value
-				return nil
-			}),
-		}
-		defer func() {
-			for _, patch := range patches {
-				patch.Reset()
-			}
-		}()
 
 		setLocalClient(mock)
 		setReq := data.KvSetRequest{
@@ -1278,30 +1286,39 @@ func Test_downloadArray(t *testing.T) {
 	convey.Convey("download array test", t, func() {
 		localClientLibruntime = &mockUtils.FakeLibruntimeSdkClient{}
 		convey.Convey("decrypt failed", func() {
-			p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 				return DsClientImpl{kvClient: &FakeKvClient{}}, false, nil
-			})
-			defer p.Reset()
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 			key, b, err := downloadArray([]string{"aaa", "bbb"}, &Config{NeedEncrypt: true, TenantID: "aaaa"}, "")
 			convey.So(key, convey.ShouldBeNil)
 			convey.So(b, convey.ShouldBeFalse)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("decrypt failed with tenantID dataKey", func() {
-			p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 				return DsClientImpl{kvClient: &FakeKvClient{}}, false, nil
-			})
-			defer p.Reset()
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 			key, b, err := downloadArray([]string{"aaa", "bbb"}, &Config{NeedEncrypt: true, TenantID: "aaaa", DataKey: []byte("test")}, "")
 			convey.So(key, convey.ShouldBeNil)
 			convey.So(b, convey.ShouldBeFalse)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
 		convey.Convey("decrypt ok", func() {
-			p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 				return DsClientImpl{kvClient: &FakeKvClient{}}, false, nil
-			})
-			defer p.Reset()
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 			p1 := gomonkey.ApplyFunc(decryptData, func(cfg *Config, data []byte) ([]byte, error) {
 				return []byte("hello"), nil
 			})
@@ -1313,10 +1330,13 @@ func Test_downloadArray(t *testing.T) {
 		})
 		convey.Convey("retry", func() {
 			kvclient := &FakeKvClient{}
-			p := gomonkey.ApplyFunc(getClient, func(cfg *Config, _ string) (DsClientImpl, bool, error) {
+			oldGetClient := getClient
+			getClient = func(cfg *Config, _ string) (DsClientImpl, bool, error) {
 				return DsClientImpl{kvClient: kvclient}, false, nil
-			})
-			defer p.Reset()
+			}
+			defer func() {
+				getClient = oldGetClient
+			}()
 			p1 := gomonkey.ApplyFunc(decryptData, func(cfg *Config, data []byte) ([]byte, error) {
 				return []byte("hello"), nil
 			})

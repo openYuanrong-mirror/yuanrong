@@ -1,5 +1,19 @@
 load("@rules_cc//cc:defs.bzl", "cc_test")
 
+genrule(
+    name = "metrics_file_exporter_so_in_test_dir",
+    srcs = ["//src/utility/metrics:libobservability-metrics-file-exporter.so"],
+    outs = ["libobservability-metrics-file-exporter.so"],
+    cmd = "cp $< $@",
+)
+
+genrule(
+    name = "metrics_prometheus_push_exporter_so_in_test_dir",
+    srcs = ["//src/utility/metrics:libobservability-prometheus-push-exporter.so"],
+    outs = ["libobservability-prometheus-push-exporter.so"],
+    cmd = "cp $< $@",
+)
+
 cc_test(
   name = "utility_test",
   size = "small",
@@ -17,6 +31,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+
   linkstatic = True,
 )
 
@@ -25,24 +40,20 @@ cc_test(
   srcs = [
     "libruntime/metrics_adaptor_test.cpp",
   ],
+  copts = select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
+  data = [
+    "//src/utility/metrics:libobservability-metrics-file-exporter.so",
+    "//src/utility/metrics:libobservability-prometheus-push-exporter.so",
+  ],
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
-  linkstatic = True,
-)
 
-cc_test(
-  name = "invoke_collector_test",
-  srcs = [
-    "libruntime/invoke_collector_test.cpp",
-  ],
-  deps = [
-    "@gtest//:gtest_main",
-    "//src/utility:yr_utils",
-    "//:runtime_lib",
-  ],
   linkstatic = True,
 )
 
@@ -57,6 +68,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+
   linkstatic = True,
 )
 
@@ -78,7 +90,14 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
+
   linkstatic = True,
 )
 
@@ -99,7 +118,14 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
+
   linkstatic = True,
 )
 
@@ -124,7 +150,11 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
+
   linkstatic = True,
 )
 
@@ -136,7 +166,6 @@ cc_test(
     "libruntime/httpserver/async_http_server.h",
     "libruntime/httpserver/async_https_server.h",
     "libruntime/invoke_adaptor_test.cpp",
-    "libruntime/agent_session_manager_test.cpp",
     "libruntime/libruntime_manager_test.cpp",
     "libruntime/libruntime_test.cpp",
     "libruntime/fm_client_test.cpp",
@@ -154,39 +183,31 @@ cc_test(
     "libruntime/resource_group_test.cpp",
     "libruntime/request_queue_test.cpp",
     "libruntime/http_utils_test.cpp",
-    "libruntime/aes_crypto_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
+    "@boringssl//:crypto",
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   data = [
+    ":metrics_file_exporter_so_in_test_dir",
+    ":metrics_prometheus_push_exporter_so_in_test_dir",
     "data/cert/ca.crt",
     "data/cert/client.crt",
     "data/cert/client.key",
     "data/cert/server.crt",
     "data/cert/server.key"
-  ],
-  linkstatic = True,
-)
-
-cc_test(
-  name = "tenant_ak_sk_test",
-  srcs = [
-    "libruntime/ak_sk_manager_test.cpp",
-  ],
-  deps = [
-    "@gtest//:gtest_main",
-    "//src/utility:yr_utils",
-    "//:runtime_lib",
-  ],
-  copts = [
-    "-fno-access-control",
   ],
   linkstatic = True,
 )
@@ -207,7 +228,10 @@ cc_test(
   ],
   copts = [
     "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -217,7 +241,6 @@ cc_test(
     "libruntime/group_manager_test.cpp",
     "libruntime/function_group_test.cpp",
     "libruntime/range_group_test.cpp",
-    "libruntime/named_group_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",
@@ -225,6 +248,11 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
+
   linkstatic = True,
 )
 
@@ -240,6 +268,11 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
+
   linkstatic = True,
 )
 
@@ -253,11 +286,16 @@ cc_test(
     "libruntime/http_client_test.cpp",
     "libruntime/https_client_test.cpp",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+
   data = [
     "data/cert/ca.crt",
     "data/cert/client.crt",
@@ -275,12 +313,17 @@ cc_test(
     "libruntime/faas_instance_manager_test.cpp",
     "libruntime/normal_instance_manager_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -291,11 +334,19 @@ cc_test(
     "libruntime/alias_routing_test.cpp",
     "libruntime/limiter_consistant_hash_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   linkstatic = True,
 )
 
@@ -310,6 +361,7 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+
   linkstatic = True,
 )
 
@@ -319,12 +371,20 @@ cc_test(
   srcs = [
     "libruntime/object_id_pool_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   linkstatic = True,
 )
 
@@ -334,11 +394,19 @@ cc_test(
   srcs = [
     "libruntime/invoke_order_manager_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   linkstatic = True,
 )
 
@@ -349,7 +417,11 @@ cc_test(
     "libruntime/fs_client_test.cpp",
     "libruntime/rt_direct_call_test.cpp"
   ],
-  copts = ["-fno-access-control"],
+
+  copts = ["-fno-access-control"] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -367,6 +439,7 @@ cc_test(
     "dto/dataobject_test.cpp",
     "dto/affinity_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -395,22 +468,23 @@ cc_test(
     "common/common.h",
     "common/mock_libruntime.h",
   ],
-  data = [":test_dummy_lib.so"],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   includes = ["."],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
+    "//:runtime_lib",
     "//api/cpp:yr_api_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
   linkstatic = True,
-)
-
-cc_binary(
-  name = "test_dummy_lib.so",
-  srcs = ["api/dummy_lib.cpp"],
-  linkshared = True,
-  linkstatic = False,
 )
 
 cc_test(
@@ -421,6 +495,11 @@ cc_test(
     "faas/function_test.cpp",
     "common/mock_libruntime.h",
   ],
+
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -428,6 +507,7 @@ cc_test(
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
   linkstatic = True,
+  tags = ["manual"],
 )
 
 cc_test(
@@ -436,9 +516,11 @@ cc_test(
   srcs = [
     "api/parallel_for_local_test.cpp"
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
+    "//:runtime_lib",
     "//api/cpp:yr_api_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
@@ -452,6 +534,14 @@ cc_test(
     "clibruntime/clibruntime_test.cpp",
     "common/mock_libruntime.h",
   ],
+
+  copts = select({
+    "//:disable_datasystem": [],
+    "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }) + select({
+    "//:disable_observability": [],
+    "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -467,12 +557,17 @@ cc_test(
   srcs = [
     "libruntime/generator_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -482,11 +577,28 @@ cc_test(
   srcs = [
     "libruntime/driverlog_test.cpp",
   ],
+
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
+  ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
+  linkstatic = True,
+)
+
+cc_test(
+  name = "ws_transport_test",
+  size = "small",
+  srcs = [
+    "libruntime/ws_transport_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
   ],
   linkstatic = True,
 )
@@ -502,5 +614,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
+
   linkstatic = True,
 )

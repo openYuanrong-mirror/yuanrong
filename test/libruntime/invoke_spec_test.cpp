@@ -81,12 +81,16 @@ TEST_F(InvokeSpecTest, BuildRequestPbOptions)
     conf.isLowReliabilityTask = true;
     spec->opts.customExtensions["DELEGATE_DIRECTORY_QUOTA"] = "/tmp1";
     spec->opts.customExtensions["DELEGATE_DIRECTORY_INFO"] = "1024";
+    spec->opts.customExtensions["traceparent"] = "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01";
     spec->opts.recoverRetryTimes = 3;
     spec->opts.debug.enable = true;
     spec->invokeType = libruntime::InvokeType::CreateInstanceStateless;
     spec->BuildRequestPbOptions(spec->opts, conf, req);
     ASSERT_EQ(req.createoptions().at("DELEGATE_DIRECTORY_QUOTA"), "/tmp1");
     ASSERT_EQ(req.createoptions().at("DELEGATE_DIRECTORY_INFO"), "1024");
+    ASSERT_EQ(req.createoptions().at("traceparent"), "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01");
+    ASSERT_EQ(req.schedulingops().extension().at("traceparent"),
+              "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01");
     ASSERT_EQ(req.createoptions().at(RECOVER_RETRY_TIMES), "3");
     nlohmann::json debugJson = nlohmann::json::parse(req.createoptions().at("debug_config"));
     auto debugMap = debugJson.get<std::unordered_map<std::string, std::string>>();
@@ -174,10 +178,13 @@ TEST_F(InvokeSpecTest, BuildInvokeRequestPbOptionsTest)
     InvokeSpec spec;
     spec.functionMeta.functionId = "testFunctionId";
     spec.opts.customExtensions["testKey"] = "testValue";
+    spec.opts.customExtensions["traceparent"] = "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01";
     spec.BuildInstanceInvokeRequest(config);
     EXPECT_EQ(spec.requestInvoke->Immutable().function(), "testFunctionId");
     auto invokeOptions = spec.requestInvoke->Mutable().invokeoptions();
     EXPECT_EQ(invokeOptions.customtag().at("testKey"), "testValue");
+    EXPECT_EQ(invokeOptions.customtag().at("traceparent"),
+              "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01");
 
     spec.functionMeta.functionId = "";
     config.functionIds[libruntime::LanguageType::Cpp] = "testFunctionId1";

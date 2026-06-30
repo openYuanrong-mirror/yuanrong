@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CUR_DIR=$(dirname $(readlink -f "$0"))
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    CUR_DIR=$(cd "$(dirname "$0")"; pwd)
+else
+    CUR_DIR=$(dirname $(readlink -f "$0"))
+fi
 set -e
 
 THIRD_PARTY_DIR="${CUR_DIR}/../../vendor/"
@@ -21,15 +25,30 @@ OPENSOURCE="${CUR_DIR}/openSource.txt"
 MODULES="all"
 DOWNLOAD_TEST_THIRDPARTY="ON"
 
-LOCAL_OS=$(head -1 /etc/os-release | tail -1 | awk -F "\"" '{print $2}')_$(uname -m)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    LOCAL_OS="$(sw_vers -productName)_$(uname -m)"
+elif [ -f /etc/os-release ]; then
+    LOCAL_OS=$(head -1 /etc/os-release | tail -1 | awk -F "\"" '{print $2}')_$(uname -m)
+else
+    LOCAL_OS="Unknown_$(uname -m)"
+fi
 THIRD_PARTY_CACHE=${THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/deps/"}
 echo -e "local os is $LOCAL_OS"
+
+if [[ "${LOCAL_OS}" == macOS_* ]]; then
+    THIRD_PARTY_CACHE=""
+    echo -e "disable third-party cache on macOS"
+fi
 
 
 while getopts 'T:M:F:r' opt; do
     case "$opt" in
     T)
-        THIRD_PARTY_DIR=$(readlink -f "${OPTARG}")
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            THIRD_PARTY_DIR=$(cd "${OPTARG}" 2>/dev/null && pwd || echo "${OPTARG}")
+        else
+            THIRD_PARTY_DIR=$(readlink -f "${OPTARG}")
+        fi
         ;;
     M)
         MODULES="${OPTARG}"
@@ -61,6 +80,9 @@ function checksum_and_decompress() {
     actual_sha256=$(shasum -a 256 "${filename}" | awk '{print $1}')
     if [ "$actual_sha256" != "$sha256" ]; then
         echo "=== download ${name}-${tag} to ${savepath} checksum failed ==="
+        echo "expected sha256: ${sha256}"
+        echo "actual sha256: ${actual_sha256}"
+        rm -f "${filename}"
         cd ..
         rm -rf "${savepath}/${name}"
         return 1
@@ -71,7 +93,7 @@ function checksum_and_decompress() {
     *.tar.gz)
         echo "use tar to decompress"
         mkdir "${savepath}/${name}"
-        tar -zxvf ${filename} -C "$name" --strip-components=1 && rm ${filename}
+        tar -zxf ${filename} -C "$name" --strip-components=1 && rm ${filename}
         ;;
     *.zip)
         echo "use unzip to decompress"
@@ -101,23 +123,60 @@ function download_open_src() {
     cd "$savepath"
 
     local filename="${name}"-"$(basename ${repo})"
-    if [ -n "${THIRD_PARTY_CACHE}" ]; then
-        if ! wget "${THIRD_PARTY_CACHE}/${filename}"; then
-            echo -e "=== download ${name}-${tag} cache to ${savepath} failed ==="
-            cd ..
-            rm -rf "${savepath}/${name}"
-            return 1
+    local download_repo="${repo}"
+    local prefer_repo_first="false"
+    if [[ "${LOCAL_OS}" == macOS_* && "${name}" == "boost" ]]; then
+        prefer_repo_first="true"
+        echo -e "=== macOS prefers OBS boost source: ${download_repo} ==="
+    fi
+
+    if [ ! -f "${filename}" ]; then
+        if [ "${prefer_repo_first}" = "true" ]; then
+            if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                echo -e "=== direct repo download ${name}-${tag} failed, fallback to cache ==="
+                rm -f "${filename}"
+            fi
         fi
-    else
-        if ! curl -sS -L ${repo} -o ${filename} --retry 3; then
-            echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
-            cd ..
-            rm -rf "${savepath}/${name}"
-            return 1
+
+        if [ -n "${THIRD_PARTY_CACHE}" ]; then
+            if [ ! -f "${filename}" ] && ! wget -q --timeout=30 --tries=1 "${THIRD_PARTY_CACHE}/${filename}"; then
+                echo -e "=== download ${name}-${tag} cache to ${savepath} failed ==="
+                if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                    echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+                    cd ..
+                    rm -rf "${savepath}/${name}"
+                    return 1
+                fi
+            fi
+        else
+            if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+                cd ..
+                rm -rf "${savepath}/${name}"
+                return 1
+            fi
         fi
     fi
 
-    checksum_and_decompress ${name} ${filename}
+    if checksum_and_decompress "${name}" "${filename}"; then
+        return 0
+    fi
+
+    if [ -z "${download_repo}" ]; then
+        return 1
+    fi
+
+    echo -e "=== retry ${name}-${tag} from source: ${download_repo} ==="
+    cd "${savepath}"
+    rm -f "${filename}"
+    if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+        echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+        cd ..
+        rm -rf "${savepath}/${name}"
+        return 1
+    fi
+
+    checksum_and_decompress "${name}" "${filename}"
 }
 
 download_a_repo() {

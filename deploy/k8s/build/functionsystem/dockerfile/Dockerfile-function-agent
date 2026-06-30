@@ -42,10 +42,11 @@ RUN mkdir -p /etc/yuanrong/cli && \
 
 WORKDIR /etc/yuanrong/cli
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/runtime/service/python/yr/cli/ /etc/yuanrong/cli/yr/cli/
+COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/runtime/service/python/requirements.txt /etc/yuanrong/cli/requirements.txt
 
 USER ${USER_UID}
 RUN pip3.9 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
     pip3.9 config --user set global.trusted-host mirrors.huaweicloud.com && \
-    pip3.9 install --user click==8.1.8 tomli_w==1.2.0 jinja2==3.1.6
+    pip3.9 install --user -r /etc/yuanrong/cli/requirements.txt
 
 # ENTRYPOINT ["/home/sn/bin/entrypoint"]

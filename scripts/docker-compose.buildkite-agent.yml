@@ -1,0 +1,55 @@
+# Buildkite Agent for macOS ARM64
+# 在 macOS 上运行 Buildkite Agent
+
+services:
+  buildkite-agent:
+    image: buildkite/agent:latest-arm64
+    container_name: yr-buildkite-agent
+    restart: unless-stopped
+    platform: linux/arm64
+
+    # Buildkite Agent 配置
+    environment:
+      # 必需: 从 Buildkite 获取
+      - BUILDKITE_AGENT_TOKEN=${BUILDKITE_AGENT_TOKEN}
+
+      # 可选配置
+      - BUILDKITE_AGENT_NAME=macos-arm64-builder
+      - BUILDkITE_AGENT_META_DATA=os=linux,arch=arm64,docker=true
+      - BUILDKITE_AGENT_TAGS=os=linux,arch=arm64,docker=true
+
+      # 构建配置
+      - BUILDKITE_ENABLE_DYNAMIC_SCHEDULING=true
+      - BUILDKITE_MAX_CONCURRENT_JOBS=4
+      - BUILDKITE_HIDE_SECRETS_IN_AUTOMATIC_UPLOADER=true
+
+      # Docker 配置
+      - DOCKER_ENABLED=true
+
+    # 挂载 Docker socket
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # 挂载构建工作目录
+      - /tmp/buildkite-builds:/var/lib/buildkite-agent/builds
+
+      # SSH 密钥 (如果需要访问私有仓库)
+      - ~/.ssh:/root/.ssh:ro
+
+    # 限制资源
+    deploy:
+      resources:
+        limits:
+          cpus: '6'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 4G
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "buildkite-agent", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

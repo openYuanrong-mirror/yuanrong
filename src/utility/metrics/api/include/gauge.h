@@ -20,7 +20,7 @@
 #include <map>
 
 #include "basic_metric.h"
-#include "common/include/atomic_calc.h"
+#include "src/utility/metrics/common/include/atomic_calc.h"
 namespace observability {
 namespace metrics {
 

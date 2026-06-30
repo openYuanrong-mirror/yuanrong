@@ -100,8 +100,9 @@ func (oi *OnDemandInstanceQueue) CreateInstance(insCrtReq *types.InstanceCreateR
 	oi.RLock()
 	functionSignature := oi.funcSig
 	oi.RUnlock()
-	instance, createErr = oi.createInstanceFunc(insCrtReq.TraceID, insCrtReq.InstanceName, oi.instanceType, oi.resKey,
-		insCrtReq.CreateEvent, nil)
+	instance, createErr = oi.createInstanceFunc(
+		insCrtReq.TraceID, insCrtReq.InstanceName, oi.instanceType, oi.resKey, insCrtReq.CreateEvent,
+		insCrtReq.TraceParent, nil)
 	if createErr != nil {
 		log.GetLogger().Errorf("failed to create instance for function %s error %s", oi.funcKeyWithRes,
 			createErr.Error())

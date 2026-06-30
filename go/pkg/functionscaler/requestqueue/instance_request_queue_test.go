@@ -20,12 +20,10 @@ package requestqueue
 import (
 	"context"
 	"errors"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 
@@ -36,7 +34,6 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
-	"yuanrong.org/kernel/pkg/functionscaler/workermanager"
 )
 
 var testFuncSpec = &types.FunctionSpecification{
@@ -89,7 +86,7 @@ func TestScheduleRequest(t *testing.T) {
 		ch <- "scheFuncSucc"
 		return &types.InstanceAllocation{}, nil
 	})
-	req := &PendingInsAcqReq{ResultChan: make(chan *PendingInsAcqRsp, 1)}
+	req := &PendingInsAcqReq{CreatedTime: time.Now(), ResultChan: make(chan *PendingInsAcqRsp, 1)}
 	q.AddRequest(req)
 	q.ScheduleRequest("scheFuncFail")
 	failOut := <-ch
@@ -256,20 +253,21 @@ func TestHandlerWorkMangerError(t *testing.T) {
 				RWMutex:          &sync.RWMutex{},
 			}
 
-			patches := gomonkey.NewPatches()
-			defer patches.Reset()
-
 			clearCalled := false
-
-			patches.ApplyMethod(reflect.TypeOf(iq), "ClearReqQueueWithError",
-				func(_ *InsAcqReqQueue, err error) {
-					clearCalled = true
-				})
-
-			patches.ApplyFunc(workermanager.NeedTryError,
-				func(err error) bool {
-					return tt.needTryError
-				})
+			originClearReqQueueWithError := clearReqQueueWithError
+			clearReqQueueWithError = func(_ *InsAcqReqQueue, err error) {
+				clearCalled = true
+			}
+			defer func() {
+				clearReqQueueWithError = originClearReqQueueWithError
+			}()
+			originNeedTryErrorFunc := needTryErrorFunc
+			needTryErrorFunc = func(err error) bool {
+				return tt.needTryError
+			}
+			defer func() {
+				needTryErrorFunc = originNeedTryErrorFunc
+			}()
 
 			iq.handlerWorkMangerError(tt.createError)
 

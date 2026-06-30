@@ -15,14 +15,13 @@
  */
 #include <chrono>
 #include <future>
-#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <boost/beast/http.hpp>
-#include <fstream>
 #include <json.hpp>
 #include <string>
+#include <fstream>
 #include "mock/mock_datasystem_client.h"
 #include "mock/mock_fs_intf.h"
 #include "mock/mock_fs_intf_with_callback.h"
@@ -36,10 +35,9 @@
 #include "src/libruntime/generator/stream_generator_notifier.h"
 #include "src/libruntime/generator/stream_generator_receiver.h"
 #include "src/libruntime/groupmanager/group.h"
-#include "src/libruntime/invokeadaptor/general_execution_manager.h"
 #include "src/libruntime/invokeadaptor/invoke_adaptor.h"
 #include "src/libruntime/invokeadaptor/ordered_execution_manager.h"
-#include "src/libruntime/metricsadaptor/invoke_collector.h"
+#include "src/libruntime/invokeadaptor/general_execution_manager.h"
 #include "src/libruntime/objectstore/datasystem_object_store.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/runtime_context.h"
@@ -62,11 +60,25 @@ bool ParseFunctionGroupRunningInfo(const CallRequest &request, bool isPosix,
 bool ParseFaasController(const CallRequest &request, std::vector<std::shared_ptr<DataObject>> &rawArgs, bool isPosix);
 }  // namespace Libruntime
 namespace test {
+namespace {
+constexpr size_t kMockMetaSize = 16;
+const std::string kMockObjectId = "mock-123";
+
+std::shared_ptr<Buffer> MakeMockRuntimeObjectBuffer(const std::string &payload = "mockdata")
+{
+    std::string raw(kMockMetaSize, '\0');
+    raw += payload;
+    auto buffer = std::make_shared<NativeBuffer>(raw.size());
+    auto err = buffer->MemoryCopy(raw.data(), raw.size());
+    EXPECT_EQ(err.Code(), ErrorCode::ERR_OK);
+    return buffer;
+}
+}  // namespace
 
 class InvokeAdaptorTest : public testing::Test {
 public:
-    InvokeAdaptorTest() {};
-    ~InvokeAdaptorTest() {};
+    InvokeAdaptorTest(){};
+    ~InvokeAdaptorTest(){};
     void SetUp() override
     {
         Mkdir("/tmp/log");
@@ -99,18 +111,21 @@ public:
         libConfig->isDriver = false;
         libConfig->inCluster = false;
         this->memoryStore->Init(dsObjectStore, wom);
+        ASSERT_TRUE(this->memoryStore->AddReturnObject(kMockObjectId));
+        auto err = this->memoryStore->Put(MakeMockRuntimeObjectBuffer(), kMockObjectId, {}, false);
+        ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
         auto dependencyResolver = std::make_shared<DependencyResolver>(this->memoryStore);
         this->gwClient = std::make_shared<MockFsIntf>();
         this->taskSubmitter = std::make_shared<MockTaskSubmitter>();
         auto cb = []() { return; };
         auto clientsMgr = std::make_shared<ClientsManager>();
-        auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+        auto metricsAdaptor = MetricsAdaptor::GetInstance();
+        auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
         auto fsClient = std::make_shared<FSClient>(this->gwClient);
         auto mapper = std::make_shared<GeneratorIdMap>();
         auto dsStreamStore = std::shared_ptr<StreamStore>();
         auto generatorReceiver = std::make_shared<StreamGeneratorReceiver>(libConfig, dsStreamStore, this->memoryStore);
         auto generatorNotifier = std::make_shared<StreamGeneratorNotifier>(dsStreamStore, mapper);
-        auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
         auto rGroupManager = std::make_shared<ResourceGroupManager>();
         auto security = std::make_shared<Security>();
         this->invokeAdaptor =
@@ -129,6 +144,7 @@ public:
         this->gwClient.reset();
         this->libConfig.reset();
         this->memoryStore.reset();
+        this->taskSubmitter.reset();
         this->invokeAdaptor.reset();
     }
     std::shared_ptr<MockFsIntf> gwClient;
@@ -149,7 +165,7 @@ TEST_F(InvokeAdaptorTest, ParseInvokeRequestTest)
 
     auto pbArg2 = request.add_args();
     pbArg2->set_type(common::Arg::OBJECT_REF);
-    std::string objId("mock-123");
+    std::string objId(kMockObjectId);
     pbArg2->set_value(objId.c_str(), objId.size());
 
     std::vector<std::shared_ptr<DataObject>> rawArgs;
@@ -162,7 +178,7 @@ TEST_F(InvokeAdaptorTest, ParseInvokeRequestTest)
 
     auto pbArg3 = request.add_args();
     pbArg3->set_type(common::Arg::VALUE);
-    pbArg3->set_value(objId.c_str(), objId.size());
+    pbArg3->set_value(std::string(kMockMetaSize, '\0') + objId);
     ok = invokeAdaptor->ParseRequest(request, rawArgs, false);
     ASSERT_EQ(ok, true);
 }
@@ -179,7 +195,7 @@ TEST_F(InvokeAdaptorTest, ParseCreateRequestTest)
 
     auto pbArg2 = request.add_args();
     pbArg2->set_type(common::Arg::OBJECT_REF);
-    std::string objId("mock-123");
+    std::string objId(kMockObjectId);
     pbArg2->set_value(objId.c_str(), objId.size());
 
     std::vector<std::shared_ptr<DataObject>> rawArgs;
@@ -231,13 +247,13 @@ TEST_F(InvokeAdaptorTest, PrepareCallExecutorTest)
     auto gwClient = std::make_shared<GwClient>(librtCfg->functionIds[libruntime::LanguageType::Cpp], handlers);
     auto cb = []() { return; };
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
+    auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
     auto fsClient = std::make_shared<FSClient>(gwClient);
     auto mapper = std::make_shared<GeneratorIdMap>();
     auto dsStreamStore = std::shared_ptr<StreamStore>();
     auto generatorReceiver = std::make_shared<StreamGeneratorReceiver>(librtCfg, dsStreamStore, memStore);
     auto generatorNotifier = std::make_shared<StreamGeneratorNotifier>(dsStreamStore, mapper);
-    auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
     auto rGroupManager = std::make_shared<ResourceGroupManager>();
     auto invokeAdaptor = std::make_shared<InvokeAdaptor>(librtCfg, dependencyResolver, fsClient, memStore,
                                                          runtimeContext, cb, nullptr, execMgr, clientsMgr,
@@ -285,6 +301,7 @@ TEST_F(InvokeAdaptorTest, CallTest)
     req.set_senderid("instance_id");
     req.set_iscreate(true);
 
+
     libruntime::MetaData metaData;
     auto result = invokeAdaptor->Call(req, metaData, options, objectsInDs);
     ASSERT_EQ(result.code(), ::common::ERR_NONE);
@@ -295,7 +312,7 @@ TEST_F(InvokeAdaptorTest, CallTest)
     pbArg1->set_value(invokeSpec.BuildInvokeMetaData(*invokeAdaptor->librtConfig));
     auto pbArg = req.add_args();
     pbArg->set_type(common::Arg::OBJECT_REF);
-    std::string objId("mock-123");
+    std::string objId(kMockObjectId);
     pbArg->set_value(objId.c_str(), objId.size());
     auto result1 = invokeAdaptor->Call(req, metaData, options, objectsInDs);
     ASSERT_EQ(result1.code(), ::common::ERR_NONE);
@@ -311,11 +328,11 @@ TEST_F(InvokeAdaptorTest, CallTest)
     req.add_args();
     auto arg2 = req.add_args();
     arg2->set_type(Arg_ArgType::Arg_ArgType_VALUE);
-    arg2->set_value(
-        "{\"schedulerFuncK{\"schedulerFuncKey\":\"0/0-system-faasscheduler/"
-        "$latest\",\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\","
-        "\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-"
-        "c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
+    // DataObject::SetBuffer treats the first MetaDataLen (16) bytes as metadata header;
+    // prepend 16 zero bytes so rawArgs[SCHEDULER_DATA_INDEX]->data points to the JSON.
+    arg2->set_value(std::string(16, '\0') +
+        "{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\","
+        "\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
 
     options.functionExecuteCallback = [](const FunctionMeta &function, const libruntime::InvokeType invokeType,
                                          const std::vector<std::shared_ptr<DataObject>> &rawArgs,
@@ -327,15 +344,15 @@ TEST_F(InvokeAdaptorTest, CallTest)
     this->taskSubmitter = std::make_shared<MockTaskSubmitter>();
     EXPECT_CALL(*(this->taskSubmitter), UpdateFaaSSchedulerInfo(_, _))
         .WillOnce([=](std::string schedulerFuncKey, const std::vector<SchedulerInstance> &sInstanceList) {
-            ASSERT_EQ(sInstanceList.size(), 2);
-            return;
+       ASSERT_EQ(sInstanceList.size(), 2);
+        return;
         });
     invokeAdaptor->taskSubmitter = this->taskSubmitter;
     libruntime::FunctionMeta functionMeta;
     functionMeta.set_apitype(libruntime::ApiType::Faas);
     metaData.set_allocated_functionmeta(&functionMeta);
     invokeAdaptor->Call(req, metaData, options, objectsInDs);
-    (void)metaData.release_functionmeta();
+    metaData.release_functionmeta();
 }
 
 TEST_F(InvokeAdaptorTest, InitCallTest)
@@ -377,7 +394,7 @@ TEST_F(InvokeAdaptorTest, CreateInstanceTest)
     invokeSpec->returnIds = returnObjs;
     invokeSpec->BuildInstanceCreateRequest(cfg);
     invokeAdaptor->CreateInstance(invokeSpec);
-    auto [rawRequestId, seq] = YR::utility::IDGenerator::DecodeRawRequestId(invokeSpec->requestCreate.requestid());
+    auto [rawRequestId, seq] =YR::utility::IDGenerator::DecodeRawRequestId(invokeSpec->requestCreate.requestid());
     EXPECT_EQ(rawRequestId, invokeSpec->requestId);
     EXPECT_EQ(seq, 1);
 }
@@ -507,6 +524,34 @@ TEST_F(InvokeAdaptorTest, CreateResponseHandlerTest)
     resp.set_code(common::ERR_RESOURCE_NOT_ENOUGH);
     invokeAdaptor->CreateResponseHandler(spec, resp);
     ASSERT_EQ(spec->opts.retryTimes, 0);
+}
+
+TEST_F(InvokeAdaptorTest, CreateNotifyHandlerCachesNamedInstanceCodeTest)
+{
+    NotifyRequest req;
+    req.set_code(common::ERR_NONE);
+    req.set_requestid("cae7c30c8d63f5ed00");
+
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->invokeType = libruntime::InvokeType::CreateInstance;
+    spec->requestId = "cae7c30c8d63f5ed00";
+    spec->functionMeta.moduleName = "test_yr_api";
+    spec->functionMeta.className = "test_get_instance.<locals>.Instance";
+    spec->functionMeta.languageType = libruntime::LanguageType::Python;
+    spec->functionMeta.apiType = libruntime::ApiType::Function;
+    spec->functionMeta.name = "actor";
+    spec->functionMeta.ns = "ns";
+    spec->functionMeta.code.assign({'s', 'e', 'r', 'i', 'a', 'l', 'i', 'z', 'e', 'd'});
+    spec->returnIds = {DataObject("returnID")};
+    invokeAdaptor->requestManager->PushRequest(spec);
+
+    invokeAdaptor->CreateNotifyHandler(req);
+
+    auto [cachedMeta, exists] = invokeAdaptor->GetCachedInsMeta("ns-actor");
+    ASSERT_TRUE(exists);
+    ASSERT_EQ(cachedMeta.modulename(), "test_yr_api");
+    ASSERT_EQ(cachedMeta.classname(), "test_get_instance.<locals>.Instance");
+    ASSERT_EQ(cachedMeta.code(), "serialized");
 }
 
 TEST_F(InvokeAdaptorTest, CreateGroupInstanceTest)
@@ -806,11 +851,8 @@ TEST_F(InvokeAdaptorTest, SignalHandlerTest)
     ASSERT_EQ(invokeAdaptor->metaMap.size() == 0, true);
 
     req.set_signal(libruntime::Signal::UpdateSchedulerHash);
-    req.set_payload(
-        "{\"schedulerFuncKey\":\"0/0-system-faasscheduler/"
-        "$latest\",\"schedulerIDList\":null,\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-"
-        "87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-"
-        "4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
+    req.set_payload("{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\",\"schedulerIDList\":null,"
+        "\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
     response = invokeAdaptor->SignalHandler(req);
     ASSERT_EQ(response.code(), ::common::ErrorCode::ERR_NONE);
 
@@ -836,8 +878,10 @@ TEST_F(InvokeAdaptorTest, SignalHandlerTest)
     ASSERT_EQ(response.code(), ::common::ErrorCode::ERR_NONE);
 
     req.set_signal(libruntime::Signal::Accelerate);
-    libConfig->libruntimeOptions.accelerateCallback =
-        [](const AccelerateMsgQueueHandle &, AccelerateMsgQueueHandle &) -> ErrorInfo { return ErrorInfo(); };
+    libConfig->libruntimeOptions.accelerateCallback = [](const AccelerateMsgQueueHandle &,
+                                                         AccelerateMsgQueueHandle &) -> ErrorInfo {
+        return ErrorInfo();
+    };
     AccelerateMsgQueueHandle handle;
     req.set_payload(handle.ToJson());
     response = invokeAdaptor->SignalHandler(req);
@@ -1039,7 +1083,7 @@ TEST_F(InvokeAdaptorTest, ParseFaasControllerTest)
     CallRequest request;
     auto pbArg = request.add_args();
     pbArg->set_type(common::Arg::OBJECT_REF);
-    std::string objId("mock-123");
+    std::string objId(kMockObjectId);
     pbArg->set_value(objId.c_str(), objId.size());
     std::vector<std::shared_ptr<DataObject>> rawArgs;
     auto res = ParseFaasController(request, rawArgs, true);
@@ -1095,7 +1139,6 @@ TEST_F(InvokeAdaptorTest, PausedInitHandlerTest)
     pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
     InvokeSpec invokeSpec;
     invokeSpec.invokeType = libruntime::InvokeType::InvokeFunction;
-    invokeSpec.functionMeta.languageType = libruntime::LanguageType::Cpp;
     pbArg->set_value(invokeSpec.BuildInvokeMetaData(*invokeAdaptor->librtConfig));
 
     auto createOpt = req->Mutable().mutable_createoptions();
@@ -1130,6 +1173,32 @@ TEST_F(InvokeAdaptorTest, CallHandlerTest)
     pbArg->set_value(spec.BuildInvokeMetaData(*invokeAdaptor->librtConfig));
     invokeAdaptor->CallHandler(req);
     ASSERT_EQ(res, 1);
+}
+
+TEST_F(InvokeAdaptorTest, CallHandlerUpdatesEventServerInfoFromCreateOptions)
+{
+    std::shared_ptr<CallMessageSpec> req = std::make_shared<CallMessageSpec>();
+    req->Mutable().set_requestid("event-request-id");
+    req->Mutable().set_senderid("frontend-instance-id");
+    req->Mutable().set_iscreate(false);
+    (*req->Mutable().mutable_createoptions())[YR_EVENT_SERVER_IP] = "127.0.0.10";
+    (*req->Mutable().mutable_createoptions())[YR_EVENT_SERVER_PORT] = "18888";
+
+    libConfig->libruntimeOptions.functionExecuteCallback =
+        [](const FunctionMeta &, const libruntime::InvokeType, const std::vector<std::shared_ptr<DataObject>> &,
+           std::vector<std::shared_ptr<DataObject>> &) -> ErrorInfo { return ErrorInfo(); };
+    auto pbArg = req->Mutable().add_args();
+    pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
+    InvokeSpec spec;
+    spec.invokeType = libruntime::InvokeType::InvokeFunctionStateless;
+    pbArg->set_value(spec.BuildInvokeMetaData(*invokeAdaptor->librtConfig));
+
+    invokeAdaptor->CallHandler(req);
+
+    ASSERT_TRUE(gwClient->eventServerInfoUpdated);
+    ASSERT_EQ(gwClient->eventServerIp, "127.0.0.10");
+    ASSERT_EQ(gwClient->eventServerPort, 18888);
+    ASSERT_EQ(gwClient->eventServerInstanceId, "frontend-instance-id");
 }
 
 TEST_F(InvokeAdaptorTest, CheckpointHandlerTest)
@@ -1317,6 +1386,57 @@ TEST_F(InvokeAdaptorTest, AdaptorGetInsTest)
     this->gwClient->isGetInstance = false;
 }
 
+TEST_F(InvokeAdaptorTest, AdaptorGetInsPreservesCodeTest)
+{
+    auto mockGwClient = std::make_shared<MockGwClient>();
+    auto fsClient = std::make_shared<FSClient>(mockGwClient);
+    invokeAdaptor->fsClient = fsClient;
+
+    EXPECT_CALL(*mockGwClient, KillAsync(_, _, _))
+        .WillRepeatedly(Invoke([](const KillRequest &req, KillCallBack callback, int) {
+            KillResponse resp;
+            resp.set_code(::common::ErrorCode::ERR_NONE);
+            if (req.signal() == libruntime::Signal::GetInstance) {
+                libruntime::FunctionMeta meta;
+                meta.set_modulename("test_yr_api");
+                meta.set_classname("test_get_instance.<locals>.Instance");
+                meta.set_language(libruntime::LanguageType::Python);
+                meta.set_code("serialized-code");
+                std::string serializedMeta;
+                ASSERT_TRUE(google::protobuf::util::MessageToJsonString(meta, &serializedMeta).ok());
+                resp.set_message(serializedMeta);
+            }
+            callback(resp, ErrorInfo());
+        }));
+
+    auto [res, err] = invokeAdaptor->GetInstance("actor", "ns", 60);
+    ASSERT_TRUE(err.OK());
+    ASSERT_EQ(res.moduleName, "test_yr_api");
+    ASSERT_EQ(res.className, "test_get_instance.<locals>.Instance");
+    ASSERT_EQ(std::string(res.code.begin(), res.code.end()), "serialized-code");
+}
+
+TEST_F(InvokeAdaptorTest, KillWithRoutingSetsKillRequestFieldsTest)
+{
+    auto mockGwClient = std::make_shared<MockGwClient>();
+    auto fsClient = std::make_shared<FSClient>(mockGwClient);
+    invokeAdaptor->fsClient = fsClient;
+
+    EXPECT_CALL(*mockGwClient, KillAsync(_, _, _))
+        .WillOnce(Invoke([](const KillRequest &req, KillCallBack callback, int) {
+            EXPECT_EQ(req.instanceid(), "instance-id");
+            EXPECT_EQ(req.routeaddress(), "10.0.0.1:7788");
+            EXPECT_EQ(req.proxyid(), "proxy-abc");
+            KillResponse resp;
+            resp.set_code(::common::ErrorCode::ERR_NONE);
+            callback(resp, ErrorInfo());
+        }));
+
+    auto err = invokeAdaptor->KillWithRouting("instance-id", "", libruntime::Signal::KillInstance,
+                                              "10.0.0.1:7788", "proxy-abc");
+    EXPECT_TRUE(err.OK());
+}
+
 TEST_F(InvokeAdaptorTest, UpdateAndSubcribeInsStatusTest)
 {
     libruntime::FunctionMeta funcMeta;
@@ -1352,8 +1472,10 @@ TEST_F(InvokeAdaptorTest, CallTimerTest)
     invokeAdaptor->CreateCallTimer(reqId, insId, 1);
     auto called = std::make_shared<std::promise<bool>>();
     EXPECT_CALL(*this->gwClient, ReturnCallResult)
-        .WillOnce(::testing::Invoke([called](const std::shared_ptr<CallResultMessageSpec> result, bool isCreate,
-                                             CallResultCallBack callback) { called->set_value(true); }));
+        .WillOnce(::testing::Invoke(
+            [called](const std::shared_ptr<CallResultMessageSpec> result, bool isCreate, CallResultCallBack callback) {
+                called->set_value(true);
+            }));
     ASSERT_EQ(called->get_future().get(), true);
 }
 
@@ -1387,10 +1509,10 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     )";
     // empty metric -> expect init not to be called
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, false);
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
     Config::Instance().METRICS_CONFIG_ = "invalid json";
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, false);
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
     // 创建输出文件流
     std::string file = "./metric.json";
     std::ofstream outFile(file);
@@ -1403,12 +1525,30 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     Config::Instance().METRICS_CONFIG_ = "";
     // valid metric file -> expected successful called
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, true);
+#ifdef ENABLE_OBSERVABILITY
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), true);
+#else
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
+#endif
     Config::Instance().ENABLE_METRICS_ = true;
     invokeAdaptor->ReportMetrics("request", "trace", 1);
     std::remove(file.c_str());
     Config::Instance().METRICS_CONFIG_FILE_ = "";
     Config::Instance().ENABLE_METRICS_ = false;
+}
+
+TEST_F(InvokeAdaptorTest, MetricsEnabledFallsBackToInstanceConfigWhenInvokeMetaOmitsFlag)
+{
+    Config::Instance().ENABLE_METRICS_ = false;
+    libConfig->enableMetrics = true;
+
+    libruntime::MetaData metaData;
+    metaData.mutable_config()->set_enablemetrics(false);
+
+    ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled());
+    ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled(metaData));
+
+    libConfig->enableMetrics = false;
 }
 
 TEST_F(InvokeAdaptorTest, StreamWriteEventTest)
@@ -1438,47 +1578,6 @@ TEST_F(InvokeAdaptorTest, EventHandlerTest)
 
     libConfig->enableEvent = false;
     ASSERT_NO_THROW(invokeAdaptor->EventHandler(req));
-}
-
-TEST_F(InvokeAdaptorTest, SessionWaitNotifyWithoutManagerTest)
-{
-    invokeAdaptor->agentSessionManager_ = nullptr;
-    auto [waitErr, waitBuf] = invokeAdaptor->SessionWait("sessionId", 100);
-    ASSERT_EQ(waitErr.Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
-    ASSERT_EQ(waitBuf, nullptr);
-
-    auto notifyErr = invokeAdaptor->SessionNotify("sessionId", nullptr);
-    ASSERT_EQ(notifyErr.Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
-}
-
-TEST_F(InvokeAdaptorTest, SessionWaitNotifyWithManagerTest)
-{
-    auto manager = std::make_shared<AgentSessionManager>(libConfig, invokeAdaptor->runtimeContext);
-    invokeAdaptor->agentSessionManager_ = manager;
-
-    const std::string sessionId = "session-1";
-    auto sessionCtx = manager->GetOrCreateSessionContext(sessionId, "mock-key-" + sessionId);
-    sessionCtx->value.sessionData = manager->BuildDefaultSession(sessionId);
-
-    std::promise<ErrorCode> waitResult;
-    auto waitFuture = waitResult.get_future();
-    std::thread waiter([&]() {
-        sessionCtx->mutex.lock();
-        auto [err, buf] = invokeAdaptor->SessionWait(sessionId, 3000);
-        waitResult.set_value(err.Code());
-        sessionCtx->mutex.unlock();
-        manager->ReleaseSessionContextReference(sessionCtx);
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    std::string payload = "ok";
-    auto data = std::make_shared<StringNativeBuffer>(payload.size());
-    ASSERT_EQ(data->MemoryCopy(payload.data(), payload.size()).Code(), ErrorCode::ERR_OK);
-    auto notifyErr = invokeAdaptor->SessionNotify(sessionId, data);
-    ASSERT_EQ(notifyErr.Code(), ErrorCode::ERR_OK);
-
-    ASSERT_EQ(waitFuture.get(), ErrorCode::ERR_OK);
-    waiter.join();
 }
 
 TEST_F(InvokeAdaptorTest, CancelTest)

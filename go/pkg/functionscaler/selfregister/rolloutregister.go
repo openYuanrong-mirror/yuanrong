@@ -93,7 +93,7 @@ func ContendRolloutInEtcd(stopCh <-chan struct{}) error {
 	}
 	var err error
 	for i := 0; i < maxContendTime; i++ {
-		err = rolloutLocker.TryLockWithPrefix(constant.SchedulerRolloutPrefix, contendFilterForRollout)
+		err = tryLockWithPrefix(rolloutLocker, constant.SchedulerRolloutPrefix, contendFilterForRollout)
 		if err != nil {
 			log.GetLogger().Errorf("failed to contend for rollout key, lock failed error %s", err.Error())
 			time.Sleep(contendWaitInterval)
@@ -107,7 +107,7 @@ func ContendRolloutInEtcd(stopCh <-chan struct{}) error {
 		return err
 	}
 	log.GetLogger().Infof("succeed to contend for rollout key in etcd, rollout key is %s",
-		rolloutLocker.GetLockedKey())
+		getLockedKeyFunc(rolloutLocker))
 	return nil
 }
 
@@ -124,7 +124,7 @@ func ReplaceRolloutSubject(stopCh <-chan struct{}) {
 		log.GetLogger().Errorf("failed to replace rollout subject, rolloutLocker or selfLocker is nil")
 		return
 	}
-	lockedRolloutKey := rolloutLocker.GetLockedKey()
+	lockedRolloutKey := getLockedKeyFunc(rolloutLocker)
 	if err := rolloutLocker.Unlock(); err != nil {
 		log.GetLogger().Errorf("failed to unlock rollout key %s , unlock error %s", lockedRolloutKey, err.Error())
 	}
@@ -132,7 +132,7 @@ func ReplaceRolloutSubject(stopCh <-chan struct{}) {
 	if err := rolloutLocker.EtcdClient.Delete(ctx, lockedRolloutKey); err != nil {
 		log.GetLogger().Errorf("failed to delete rollout key %s, delete error %s", lockedRolloutKey, err.Error())
 	}
-	if err := selfLocker.TryLock(RolloutRegisterKey); err != nil {
+	if err := tryLockFunc(selfLocker, RolloutRegisterKey); err != nil {
 		log.GetLogger().Warnf("failed to lock rollout register key %s, lock error %s, try lock another key",
 			RolloutRegisterKey, err.Error())
 		err = contendInstanceInEtcd(stopCh)
@@ -141,7 +141,7 @@ func ReplaceRolloutSubject(stopCh <-chan struct{}) {
 		}
 		return
 	}
-	if err := processLockedInstanceKey(selfLocker.GetLockedKey()); err != nil {
+	if err := processLockedInstanceKey(getLockedKeyFunc(selfLocker)); err != nil {
 		log.GetLogger().Errorf("failed to process lock key %s, process error %s", RolloutRegisterKey, err.Error())
 		return
 	}
@@ -175,7 +175,7 @@ func contendFilterForRollout(key, value []byte) bool {
 }
 
 func putInsSpecForRolloutKey(locker *etcd3.EtcdLocker) error {
-	lockedKey := locker.GetLockedKey()
+	lockedKey := getLockedKeyFunc(locker)
 	log.GetLogger().Infof("start to put insSpec for rollout key %s", lockedKey)
 	if len(lockedKey) == 0 {
 		log.GetLogger().Errorf("failed to get locked key")
@@ -205,7 +205,7 @@ func putInsSpecForRolloutKey(locker *etcd3.EtcdLocker) error {
 		log.GetLogger().Errorf("failed to marshal insSpec error %s", err.Error())
 		return err
 	}
-	if err = processEtcdPut(locker.EtcdClient, lockedKey, string(rolloutInsSpecData)); err != nil {
+	if err = processEtcdPutFunc(locker.EtcdClient, lockedKey, string(rolloutInsSpecData)); err != nil {
 		log.GetLogger().Errorf("failed to put insSpec for rollout key into etcd error %s", err.Error())
 		return err
 	}
@@ -214,16 +214,16 @@ func putInsSpecForRolloutKey(locker *etcd3.EtcdLocker) error {
 }
 
 func delInsSpecForRolloutKey(locker *etcd3.EtcdLocker) error {
-	lockedKey := locker.GetLockedKey()
+	lockedKey := getLockedKeyFunc(locker)
 	log.GetLogger().Infof("start to clean insSpec for rollout key %s", lockedKey)
 	if len(lockedKey) == 0 {
 		log.GetLogger().Errorf("failed to get locked key")
 		return errors.New("locked key is empty")
 	}
-	if exist, err := isKeyExist(locker.EtcdClient, lockedKey); err != nil || !exist {
+	if exist, err := isKeyExistFunc(locker.EtcdClient, lockedKey); err != nil || !exist {
 		return fmt.Errorf("key not exist or get error %v, no need clean it", err)
 	}
-	if err := processEtcdPut(locker.EtcdClient, lockedKey, ""); err != nil {
+	if err := processEtcdPutFunc(locker.EtcdClient, lockedKey, ""); err != nil {
 		log.GetLogger().Errorf("failed to clean insSpec for rollout key in etcd error %s", err.Error())
 		return err
 	}

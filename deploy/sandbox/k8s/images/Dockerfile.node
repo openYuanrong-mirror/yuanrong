@@ -1,0 +1,26 @@
+ARG CONTROLPLANE_IMAGE=yr-controlplane
+FROM ${CONTROLPLANE_IMAGE}
+
+WORKDIR /openyuanrong
+
+ENV CONTAINER_EP="unix:///var/run/runtime-launcher.sock"
+ENV DOCKER_HOST="unix:///var/run/docker.sock"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    docker.io \
+    iptables \
+    supervisor \
+    uidmap \
+    && rm -rf /var/lib/apt/lists/*
+
+# Shared node-plane image:
+# - node uses the default start-node.sh entrypoint
+COPY .yr-k8s-deploy/bin/start-node.sh /usr/local/bin/start-node.sh
+COPY .yr-k8s-deploy/bin/supervisord-node-entrypoint.sh /usr/local/bin/supervisord-node-entrypoint.sh
+COPY .yr-k8s-deploy/images/supervisord-node.conf /etc/supervisor/supervisord.conf
+
+RUN install -d /home/snuser/config /home/snuser/runtime/java /openyuanrong/node-state \
+    && test -x "$(python3 -c 'from pathlib import Path; import yr; print(Path(yr.__file__).resolve().parent / "functionsystem/bin/runtime-launcher")')" \
+    && chmod +x /usr/local/bin/start-node.sh /usr/local/bin/supervisord-node-entrypoint.sh
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/supervisord-node-entrypoint.sh"]

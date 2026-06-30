@@ -17,9 +17,11 @@
 #pragma once
 
 #include <mutex>
+#include <queue>
 #include <thread>
 #include <vector>
 
+#include <boost/asio/strand.hpp>
 #include "src/libruntime/gwclient/http/http_client.h"
 #include "src/libruntime/libruntime_config.h"
 
@@ -27,6 +29,18 @@ namespace asio = boost::asio;
 
 namespace YR {
 namespace Libruntime {
+
+struct PendingRequest {
+    http::verb method;
+    std::string target;
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+    std::shared_ptr<std::string> requestId;
+    HttpCallbackFunction receiver;
+    HttpCallbackFunctionV2 receiverV2;
+    bool useReceiverV2{false};
+};
+
 class ClientManager : public HttpClient {
 public:
     ClientManager(const std::shared_ptr<LibruntimeConfig> &librtCfg);
@@ -42,14 +56,13 @@ public:
                                      const std::unordered_map<std::string, std::string> &headers,
                                      const std::string &body, const std::shared_ptr<std::string> requestId,
                                      const HttpCallbackFunctionV2 &receiver) override;
-    void Stop();
+    void Stop() override;
 private:
-    bool SubmitRequest(const http::verb &method, const std::string &target,
-                       const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                       const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver);
-    bool SubmitRequest(const http::verb &method, const std::string &target,
-                       const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                       const std::shared_ptr<std::string> requestId, const HttpCallbackFunctionV2 &receiver);
+    // TryDispatch: runs on strand_; attempts to find a free connection and dispatch req.
+    // Returns true if dispatched (req consumed), false if all connections are busy.
+    bool TryDispatch(const PendingRequest &req);
+    // DrainQueue: runs on strand_; dispatches pending requests to any free connection.
+    void DrainQueue();
     ErrorInfo InitCtxAndIocThread();
     ErrorInfo InitMtlsClients();
     ErrorInfo InitOneWayTlsClients();
@@ -61,8 +74,10 @@ private:
 
     ConnectionParam connParam;
     std::vector<std::shared_ptr<HttpClient>> clients;
-    uint32_t connectedClientsCnt_ ABSL_GUARDED_BY(connCntMu);
-    mutable absl::Mutex connCntMu_;
+    uint32_t connectedClientsCnt_{0};
+    // strand_ serializes all dispatch / queue operations; no separate mutex needed.
+    std::unique_ptr<asio::strand<asio::io_context::executor_type>> strand_;
+    std::queue<PendingRequest> pendingQueue_;
     std::shared_ptr<LibruntimeConfig> librtCfg;
     uint32_t maxIocThread;
     bool enableMTLS;

@@ -36,6 +36,8 @@ message CallRequest {
   string              requestID        = 7;
   repeated string     returnObjectIDs  = 8;
   map<string, string> createOptions        = 9;
+  string              spanID               = 10;
+  bool                bypass_datasystem    = 11;
 }
 
 message CallResponse {
@@ -107,7 +109,6 @@ message SignalRequest {
 message SignalResponse {
   common.ErrorCode code    = 1;
   string           message = 2;
-  bytes            payload = 3;
 }
 
 // called before sandbox checkpoint

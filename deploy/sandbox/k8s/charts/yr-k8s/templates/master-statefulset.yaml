@@ -1,0 +1,111 @@
+{{- if .Values.master.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "master") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  serviceName: {{ include "yr-k8s.componentName" (dict "root" . "component" "master-headless") }}
+  replicas: {{ .Values.master.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        {{- include "yr-k8s.labels" . | nindent 8 }}
+        app.kubernetes.io/component: master
+      annotations:
+        checksum/components: {{ include (print $.Template.BasePath "/components-configmap.yaml") . | sha256sum }}
+        checksum/services: {{ tpl .Values.global.services.servicesYaml . | sha256sum }}
+    spec:
+{{- include "yr-k8s.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "yr-k8s.serviceAccountName" (dict "root" . "component" "master" "values" .Values.master) }}
+      containers:
+        - name: master
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.controlplane) }}
+          imagePullPolicy: {{ .Values.global.images.controlplane.pullPolicy }}
+          command:
+            - /usr/local/bin/start-master.sh
+          env:
+            - name: RUNTIME_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: RUNTIME_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: RUNTIME_HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: YR_ETCD_ADDR_LIST
+              value: {{ include "yr-k8s.etcdAddrList" . | quote }}
+          ports:
+            - name: master
+              containerPort: {{ .Values.master.service.ports.master }}
+              protocol: TCP
+            - name: meta-service
+              containerPort: {{ .Values.master.service.ports.metaService }}
+              protocol: TCP
+            - name: iam-server
+              containerPort: {{ .Values.master.service.ports.iamServer }}
+              protocol: TCP
+{{- with .Values.master.probes.readiness }}
+          readinessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.master.probes.liveness }}
+          livenessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.master.resources }}
+          resources:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: components
+              mountPath: /etc/yuanrong/config.toml
+              subPath: config.toml
+            - name: services-config
+              mountPath: /home/sn/service-config/services.yaml
+              subPath: services.yaml
+              readOnly: true
+            - name: session-dir
+              mountPath: {{ .Values.debug.sidecar.sessionDir }}
+        - name: debug-busybox
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.debug.sidecar.image) }}
+          imagePullPolicy: {{ .Values.debug.sidecar.image.pullPolicy }}
+          command:
+{{ toYaml .Values.debug.sidecar.command | nindent 12 }}
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: components
+              mountPath: /etc/yuanrong/config.toml
+              subPath: config.toml
+            - name: services-config
+              mountPath: /home/sn/service-config/services.yaml
+              subPath: services.yaml
+              readOnly: true
+            - name: session-dir
+              mountPath: {{ .Values.debug.sidecar.sessionDir }}
+      volumes:
+        - name: components
+          configMap:
+            name: {{ include "yr-k8s.fullname" . }}-components
+        - name: services-config
+          configMap:
+            name: {{ include "yr-k8s.componentName" (dict "root" . "component" "services") }}
+            items:
+              - key: services.yaml
+                path: services.yaml
+        - name: session-dir
+          emptyDir: {}
+{{- end }}

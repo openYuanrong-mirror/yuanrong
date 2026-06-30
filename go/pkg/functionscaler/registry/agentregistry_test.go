@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,9 +32,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
-	"k8s.io/client-go/rest"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	commonType "yuanrong.org/kernel/pkg/common/faas_common/types"
@@ -44,16 +43,22 @@ import (
 )
 
 func TestNewAgentRegistry_BasicInitialization(t *testing.T) {
-	defer gomonkey.ApplyFunc(rest.InClusterConfig, func() (*rest.Config, error) {
-		return &rest.Config{}, nil
-	}).Reset()
 	os.Setenv(constant.EnableAgentCRDRegistry, "true")
+	rawGetDynamicClient := getDynamicClient
+	scheme := runtime.NewScheme()
+	listResourceMap := map[schema.GroupVersionResource]string{
+		functioncr.GetCrdGVR(): agentListGVK.Kind,
+	}
+	fakeClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listResourceMap)
+	getDynamicClient = func() dynamic.Interface { return fakeClient }
+	defer func() {
+		getDynamicClient = rawGetDynamicClient
+		os.Setenv(constant.EnableAgentCRDRegistry, "")
+	}()
 	stopCh := make(chan struct{})
 	registry := NewAgentRegistry(stopCh)
 	assert.NotNil(t, registry.dynamicClient, "dynamic client initialization failed")
 	assert.NotNil(t, registry.workQueue, "work queue not initialized")
-
-	os.Setenv(constant.EnableAgentCRDRegistry, "")
 }
 
 // createTestCR 创建一个测试用的自定义资源

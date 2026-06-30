@@ -91,6 +91,17 @@ std::string InvokeSpec::ConstructRequestID()
     return YR::utility::IDGenerator::GenRequestId(this->requestId, this->seq);
 }
 
+std::string InvokeSpec::GetNamedInstanceId()
+{
+    if (!functionMeta.name.empty()) {
+        if (!functionMeta.ns.empty()) {
+            return functionMeta.ns + "-" + functionMeta.name;
+        }
+        return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name;
+    }
+    return "";
+}
+
 std::string InvokeSpec::GetNamedInstanceId(std::shared_ptr<LibruntimeConfig> config)
 {
     if (!functionMeta.name.empty()) {
@@ -173,13 +184,9 @@ void InvokeSpec::BuildRequestPbOptions(InvokeOptions &opts, const LibruntimeConf
     BuildRequestPbCreateOptions(opts, config, request);
 }
 
-void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const LibruntimeConfig &config,
-                                               CreateRequest &request)
+namespace {
+void BuildScheduleResourcesAndExtensions(InvokeOptions &opts, SchedulingOptions *schedulingOps)
 {
-    SchedulingOptions *schedulingOps = request.mutable_schedulingops();
-    schedulingOps->set_priority(opts.instancePriority);
-    schedulingOps->set_scheduletimeoutms(opts.scheduleTimeoutMs);
-    schedulingOps->set_preemptedallowed(opts.preemptedAllowed);
     auto *resourceMap = schedulingOps->mutable_resources();
     if (opts.cpu >= 0) {
         resourceMap->insert({"CPU", static_cast<double>(opts.cpu)});
@@ -196,9 +203,16 @@ void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const Librun
     for (auto &extention : opts.customExtensions) {
         extensionMap->insert({extention.first, extention.second});
     }
-    if (ResourceGroupEnabled(opts.resourceGroupOpts)) {
-        schedulingOps->set_rgroupname(opts.resourceGroupOpts.resourceGroupName);
+    if (opts.cpuLimit != 0) {
+        extensionMap->insert({"CPU_LIMIT", std::to_string(opts.cpuLimit)});
     }
+    if (opts.memoryLimit != 0) {
+        extensionMap->insert({"Memory_LIMIT", std::to_string(opts.memoryLimit)});
+    }
+}
+
+void BuildScheduleAffinity(InvokeOptions &opts, SchedulingOptions *schedulingOps)
+{
     static std::unordered_map<std::string, core_service::AffinityType> affinityMap = {
         {"PreferredAffinity", core_service::AffinityType::PreferredAffinity},
         {"PreferredAntiAffinity", core_service::AffinityType::PreferredAntiAffinity},
@@ -220,13 +234,33 @@ void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const Librun
     for (auto &affinity : opts.scheduleAffinities) {
         affinity->UpdatePbAffinity(scheduleAffinity);
     }
+}
 
-    if (InstanceRangeEnabled(opts.instanceRange)) {
-        auto *instanceRange = schedulingOps->mutable_range();
-        instanceRange->set_min(opts.instanceRange.min);
-        instanceRange->set_max(opts.instanceRange.max);
-        instanceRange->set_step(opts.instanceRange.step);
+void BuildScheduleInstanceRange(InvokeOptions &opts, SchedulingOptions *schedulingOps)
+{
+    if (!InstanceRangeEnabled(opts.instanceRange)) {
+        return;
     }
+    auto *instanceRange = schedulingOps->mutable_range();
+    instanceRange->set_min(opts.instanceRange.min);
+    instanceRange->set_max(opts.instanceRange.max);
+    instanceRange->set_step(opts.instanceRange.step);
+}
+}  // namespace
+
+void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const LibruntimeConfig &config,
+                                               CreateRequest &request)
+{
+    SchedulingOptions *schedulingOps = request.mutable_schedulingops();
+    schedulingOps->set_priority(opts.instancePriority);
+    schedulingOps->set_scheduletimeoutms(opts.scheduleTimeoutMs);
+    schedulingOps->set_preemptedallowed(opts.preemptedAllowed);
+    BuildScheduleResourcesAndExtensions(opts, schedulingOps);
+    if (ResourceGroupEnabled(opts.resourceGroupOpts)) {
+        schedulingOps->set_rgroupname(opts.resourceGroupOpts.resourceGroupName);
+    }
+    BuildScheduleAffinity(opts, schedulingOps);
+    BuildScheduleInstanceRange(opts, schedulingOps);
 }
 
 void InvokeSpec::BuildRequestPbCreateOptions(InvokeOptions &opts, const LibruntimeConfig &config,
@@ -359,6 +393,7 @@ void InvokeSpec::BuildInstanceInvokeRequest(const LibruntimeConfig &config)
     if (!instanceRoute.empty()) {
         customTag->insert({YR_ROUTE, instanceRoute});
     }
+    invokeOptions->set_bypass_datasystem(opts.bypassDatasystem);
 }
 
 std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config, std::string &funcMetaStr)
@@ -531,7 +566,8 @@ bool RequestResource::operator==(const RequestResource &r) const
            (functionMeta.functionId == r.functionMeta.functionId) && (opts.cpu == r.opts.cpu) &&
            (opts.memory == r.opts.memory) && (concurrency == r.concurrency) &&
            (opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
-           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) && (affinityHash == 0);
+           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) &&
+           (opts.debug.enable == r.opts.debug.enable) && (affinityHash == 0);
 }
 
 std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const

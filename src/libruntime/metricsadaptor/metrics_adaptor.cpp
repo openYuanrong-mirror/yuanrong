@@ -23,17 +23,196 @@
 #include "metrics_adaptor.h"
 
 
+#ifdef ENABLE_OBSERVABILITY
 #include "metrics/api/metric_data.h"
 #include "metrics/api/null.h"
 #include "metrics/api/provider.h"
 #include "metrics/sdk/immediately_export_processor.h"
 #include "metrics/sdk/meter_provider.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/logger/fileutils.h"
 
 namespace YR {
 namespace Libruntime {
+std::once_flag MetricsAdaptor::initFlag;
+std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
+
+MetricsAdaptor::MetricsAdaptor() {}
+
+#ifndef ENABLE_OBSERVABILITY
+namespace {
+ErrorInfo MetricsDisabledError()
+{
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+}
+
+std::string BuildDisabledGaugeSampleKey(const YR::Libruntime::GaugeData &gauge)
+{
+    std::map<std::string, std::string> labels(gauge.labels.begin(), gauge.labels.end());
+    std::ostringstream oss;
+    oss << gauge.name;
+    for (const auto &[labelName, labelValue] : labels) {
+        oss << '\n' << labelName << '=' << labelValue;
+    }
+    return oss.str();
+}
+}  // namespace
+
+bool MetricsAdaptor::IsInited() const
+{
+    return false;
+}
+
+void MetricsAdaptor::SetMetricsTLSConfig(const std::string &rootCertData, const std::string &certData,
+                                         const std::string &keyData)
+{
+    (void)rootCertData;
+    (void)certData;
+    (void)keyData;
+}
+
+void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
+{
+    (void)json;
+    (void)userEnable;
+}
+
+void MetricsAdaptor::SetContextAttr(const std::string &attr, const std::string &value)
+{
+    metricsContext_.SetAttr(attr, value);
+}
+
+std::string MetricsAdaptor::GetContextValue(const std::string &attr) const
+{
+    return metricsContext_.GetAttr(attr);
+}
+
+void MetricsAdaptor::CleanMetrics() noexcept {}
+
+ErrorInfo MetricsAdaptor::SetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::ResetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::IncreaseUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+std::pair<ErrorInfo, uint64_t> MetricsAdaptor::GetValueUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
+{
+    (void)data;
+    return std::make_pair(MetricsDisabledError(), 0);
+}
+
+ErrorInfo MetricsAdaptor::SetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::ResetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::IncreaseDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
+{
+    (void)data;
+    return MetricsDisabledError();
+}
+
+std::pair<ErrorInfo, double> MetricsAdaptor::GetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
+{
+    (void)data;
+    return std::make_pair(MetricsDisabledError(), 0);
+}
+
+ErrorInfo MetricsAdaptor::SetGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    std::lock_guard<std::mutex> lock(gauge_mutex_);
+    const auto key = BuildDisabledGaugeSampleKey(gauge);
+    doubleGaugeSamples_[key] = {
+        gauge.name,
+        gauge.description,
+        gauge.unit,
+        std::map<std::string, std::string>(gauge.labels.begin(), gauge.labels.end()),
+        gauge.value
+    };
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::IncreaseGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    std::lock_guard<std::mutex> lock(gauge_mutex_);
+    auto &sample = doubleGaugeSamples_[BuildDisabledGaugeSampleKey(gauge)];
+    sample.name = gauge.name;
+    sample.description = gauge.description;
+    sample.unit = gauge.unit;
+    sample.labels = std::map<std::string, std::string>(gauge.labels.begin(), gauge.labels.end());
+    sample.value += gauge.value;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::DecreaseGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    std::lock_guard<std::mutex> lock(gauge_mutex_);
+    auto &sample = doubleGaugeSamples_[BuildDisabledGaugeSampleKey(gauge)];
+    sample.name = gauge.name;
+    sample.description = gauge.description;
+    sample.unit = gauge.unit;
+    sample.labels = std::map<std::string, std::string>(gauge.labels.begin(), gauge.labels.end());
+    sample.value -= gauge.value;
+    if (sample.value < 0) {
+        sample.value = 0;
+    }
+    return MetricsDisabledError();
+}
+
+std::pair<ErrorInfo, double> MetricsAdaptor::GetValueGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    std::lock_guard<std::mutex> lock(gauge_mutex_);
+    auto iter = doubleGaugeSamples_.find(BuildDisabledGaugeSampleKey(gauge));
+    if (iter == doubleGaugeSamples_.end()) {
+        return std::make_pair(ErrorInfo(), 0);
+    }
+    return std::make_pair(ErrorInfo(), iter->second.value);
+}
+
+ErrorInfo MetricsAdaptor::ReportGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    (void)gauge;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::ReportMetrics(const YR::Libruntime::GaugeData &gauge)
+{
+    (void)gauge;
+    return MetricsDisabledError();
+}
+
+ErrorInfo MetricsAdaptor::SetAlarm(const std::string &name, const std::string &description,
+                                   const YR::Libruntime::AlarmInfo &alarmInfo)
+{
+    (void)name;
+    (void)description;
+    (void)alarmInfo;
+    return MetricsDisabledError();
+}
+
+#else
 const char *const IMMEDIATELY_EXPORT = "immediatelyExport";
 const char *const FILE_EXPORTER = "fileExporter";
 const char *const PROMETHEUS_PUSH_EXPORTER = "prometheusPushExporter";
@@ -94,11 +273,6 @@ static std::string GetLibraryPath(const std::string &exporterType)
     YRLOG_INFO("exporter {} get library path: {}", exporterType, filePath);
     return filePath;
 }
-
-std::once_flag MetricsAdaptor::initFlag;
-std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
-
-MetricsAdaptor::MetricsAdaptor() {}
 
 bool MetricsAdaptor::IsInited() const
 {
@@ -1102,5 +1276,6 @@ std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
     }
     return backendName + "-metrics.data";
 }
+#endif  // ENABLE_OBSERVABILITY
 }  // namespace Libruntime
 }  // namespace YR

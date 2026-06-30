@@ -1,0 +1,151 @@
+{{- if .Values.node.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "node") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: node
+  template:
+    metadata:
+      labels:
+        {{- include "yr-k8s.labels" . | nindent 8 }}
+        app.kubernetes.io/component: node
+      annotations:
+        checksum/components: {{ include (print $.Template.BasePath "/components-configmap.yaml") . | sha256sum }}
+        checksum/services: {{ tpl .Values.global.services.servicesYaml . | sha256sum }}
+    spec:
+{{- include "yr-k8s.imagePullSecrets" . | nindent 6 }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: {{ include "yr-k8s.serviceAccountName" (dict "root" . "component" "node" "values" .Values.node) }}
+      containers:
+        - name: node
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.node) }}
+          imagePullPolicy: {{ .Values.global.images.node.pullPolicy }}
+{{- with .Values.node.securityContext }}
+          securityContext:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          env:
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: YR_ETCD_ADDR_LIST
+              value: {{ include "yr-k8s.etcdAddrList" . | quote }}
+            - name: YR_MASTER_IP
+              value: {{ include "yr-k8s.componentName" (dict "root" . "component" "master-access") }}
+            - name: FUNCTION_PROXY_PORT
+              value: {{ .Values.node.ports.functionProxy.containerPort | quote }}
+            - name: FUNCTION_PROXY_GRPC_PORT
+              value: {{ .Values.node.ports.functionProxyGrpc.containerPort | quote }}
+            - name: DS_WORKER_PORT
+              value: {{ .Values.node.ports.dsWorker.containerPort | quote }}
+            - name: DOCKER_DRIVER
+              value: {{ .Values.node.docker.storageDriver | quote }}
+          ports:
+            - name: function-proxy
+              containerPort: {{ .Values.node.ports.functionProxy.containerPort }}
+              hostPort: {{ .Values.node.ports.functionProxy.hostPort }}
+              protocol: TCP
+            - name: proxy-grpc
+              containerPort: {{ .Values.node.ports.functionProxyGrpc.containerPort }}
+              hostPort: {{ .Values.node.ports.functionProxyGrpc.hostPort }}
+              protocol: TCP
+            - name: ds-worker
+              containerPort: {{ .Values.node.ports.dsWorker.containerPort }}
+              hostPort: {{ .Values.node.ports.dsWorker.hostPort }}
+              protocol: TCP
+{{- with .Values.node.probes.readiness }}
+          readinessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.node.probes.liveness }}
+          livenessProbe:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.node.resources }}
+          resources:
+{{ toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: node-workdir
+              mountPath: /openyuanrong
+            - name: shm
+              mountPath: /dev/shm
+            - name: components
+              mountPath: /etc/yuanrong/config.toml
+              subPath: config.toml
+            - name: services-config
+              mountPath: /home/sn/service-config/services.yaml
+              subPath: services.yaml
+              readOnly: true
+            - name: runtime-secret
+              mountPath: /home/sn/secret
+              readOnly: true
+            - name: session-dir
+              mountPath: {{ .Values.debug.sidecar.sessionDir }}
+            - name: docker-root
+              mountPath: /var/lib/docker
+        - name: debug-busybox
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.debug.sidecar.image) }}
+          imagePullPolicy: {{ .Values.debug.sidecar.image.pullPolicy }}
+          command:
+{{ toYaml .Values.debug.sidecar.command | nindent 12 }}
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: node-workdir
+              mountPath: /openyuanrong
+            - name: shm
+              mountPath: /dev/shm
+            - name: components
+              mountPath: /etc/yuanrong/config.toml
+              subPath: config.toml
+            - name: services-config
+              mountPath: /home/sn/service-config/services.yaml
+              subPath: services.yaml
+              readOnly: true
+            - name: runtime-secret
+              mountPath: /home/sn/secret
+              readOnly: true
+            - name: session-dir
+              mountPath: {{ .Values.debug.sidecar.sessionDir }}
+      volumes:
+        - name: node-workdir
+          hostPath:
+            path: /openyuanrong
+            type: DirectoryOrCreate
+        - name: shm
+          emptyDir: {}
+        - name: components
+          configMap:
+            name: {{ include "yr-k8s.fullname" . }}-components
+        - name: services-config
+          configMap:
+            name: {{ include "yr-k8s.componentName" (dict "root" . "component" "services") }}
+            items:
+              - key: services.yaml
+                path: services.yaml
+        - name: runtime-secret
+          secret:
+            secretName: {{ include "yr-k8s.fullname" . }}-runtime
+        - name: session-dir
+          emptyDir: {}
+        - name: docker-root
+          hostPath:
+            path: {{ .Values.node.docker.rootHostPath | quote }}
+            type: DirectoryOrCreate
+{{- end }}

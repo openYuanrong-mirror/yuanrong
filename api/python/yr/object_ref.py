@@ -122,6 +122,18 @@ class ObjectRef:
     def __await__(self):
         return self.as_future().__await__()
 
+    def __reduce__(self):
+        """Support for cloudpickle serialization.
+
+        Returns a tuple (callable, args) for pickle to reconstruct this ObjectRef.
+        The _object_ref_deserializer will be called during unpickling.
+        """
+        from yr.serialization.serializers import _object_ref_deserializer, global_thread_local
+        if not hasattr(global_thread_local, "object_refs"):
+            global_thread_local.object_refs = set()
+        global_thread_local.object_refs.add(self)
+        return _object_ref_deserializer, (self._id,)
+
     @property
     def task_id(self):
         """Task id."""
@@ -271,3 +283,13 @@ class ObjectRef:
     def set_exception(self, e):
         """Set exception."""
         self._exception = e
+
+
+class ObjectRefDirect(ObjectRef):
+    """ObjectRefDirect bypasses datasystem — no IncreaseRef/DecreaseRef.
+
+    Return values exceeding the truncation threshold (100MB) will be truncated.
+    """
+
+    def __init__(self, object_id: str, task_id=None, exception=None):
+        super().__init__(object_id, task_id=task_id, need_incre=False, need_decre=False, exception=exception)

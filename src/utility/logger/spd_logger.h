@@ -47,6 +47,7 @@ public:
     std::string GetLogDir(void) const;
     std::string GetNodeName(void) const;
     std::string GetModelName(void) const;
+    bool IsOnlyStdout(void) const;
     void SetGetLoggerNameFunc(GetLoggerNameFunc func);
 
 private:
@@ -65,9 +66,10 @@ private:
     yr_spdlog::level::level_enum logLevel;
     std::vector<yr_spdlog::sink_ptr> sinks;
     std::atomic<int> logMergeType_{0};  // 0: not merge log;1: merge log
-    std::unordered_map<std::string, std::string> logPrefixMap_ ABSL_GUARDED_BY(mu_);
+    std::unordered_map<std::string, std::string> logPrefixMap_;
     absl::Mutex mu_;
     GetLoggerNameFunc getLoggerNameFunc = nullptr;
+    bool onlyStdout_ = false;
     absl::Mutex spdLoggerMu_;
 };
 }  // namespace utility

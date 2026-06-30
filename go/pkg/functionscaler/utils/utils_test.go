@@ -406,13 +406,13 @@ func TestCheckInstanceSessionValid(t *testing.T) {
 				SessionTTL:  1,
 				Concurrency: 0,
 			})
-			convey.So(res, convey.ShouldEqual, false)
+			convey.So(res, convey.ShouldEqual, true)
 			res = CheckInstanceSessionValid(commonTypes.InstanceSessionConfig{
 				SessionID:   "aaa",
 				SessionTTL:  1,
 				Concurrency: -2,
 			})
-			convey.So(res, convey.ShouldEqual, false)
+			convey.So(res, convey.ShouldEqual, true)
 		})
 	})
 }

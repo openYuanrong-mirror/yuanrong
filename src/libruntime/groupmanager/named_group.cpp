@@ -42,9 +42,9 @@ CreateRequests NamedGroup::BuildCreateReqs()
     options->set_timeout(opts.timeout);
     options->set_samerunninglifecycle(opts.sameLifecycle);
     options->set_grouppolicy(ConvertStrategyToPolicy(opts.strategy));
-    BindOptions *bind = options->mutable_bind();
-    bind->set_resource(ConvertBindResource(opts.bind.resource));
-    bind->set_policy(ConvertBindStrategy(opts.bind.strategy));
+    BindOptions *bindOpts = options->mutable_bind();
+    bindOpts->set_resource(ConvertBindResource(opts.bind.resource));
+    bindOpts->set_policy(ConvertBindStrategy(opts.bind.strategy));
     return reqs;
 }
 

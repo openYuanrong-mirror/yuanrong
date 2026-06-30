@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "exporters/file_exporter/include/metric_logger.h"
+#include "src/utility/metrics/exporters/file_exporter/include/metric_logger.h"
 
 #include <iomanip>
 #include <iostream>
 
-#include "exporters/file_exporter/include/file_utils.h"
-#include "exporters/file_exporter/include/metric_file_sink.h"
+#include "src/utility/metrics/exporters/file_exporter/include/file_utils.h"
+#include "src/utility/metrics/exporters/file_exporter/include/metric_file_sink.h"
 #include "spdlog/async.h"
 
 namespace observability {

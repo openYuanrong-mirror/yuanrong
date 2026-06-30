@@ -18,18 +18,45 @@ set -e
 CUR_DIR=$(dirname "$(readlink -f "$0")")
 PROJECT_DIR=$(cd "${CUR_DIR}/.."; pwd)
 CLIENT_DIR="${PROJECT_DIR}/pkg/dashboard/client"
+YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
+DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/"\
+"openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
+
+function prepare_datasystem_go_sdk() {
+    local ds_output_dir="${YR_DATASYSTEM_DIR}/output"
+    if [ -f "${ds_output_dir}/sdk/go/go.mod" ]; then
+        return
+    fi
+
+    mkdir -p "${ds_output_dir}"
+    if ls "${ds_output_dir}"/yr-datasystem-*.tar.gz 1>/dev/null 2>&1; then
+        tar --no-same-owner -zxf "${ds_output_dir}"/yr-datasystem-*.tar.gz --strip-components=1 -C "${ds_output_dir}"
+    else
+        echo "start to download datasystem"
+        pushd "${ds_output_dir}"
+        wget -O datasystem.tar.gz "${DATA_SYSTEM_CACHE}"
+        tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
+        popd
+    fi
+}
 
 # go module prepare
 export GO111MODULE=on
 export GONOSUMDB=*
 export CGO_ENABLED=1
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+prepare_datasystem_go_sdk
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}:${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+else
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+fi
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 go install github.com/axw/gocov/gocov@latest
 go install github.com/matm/gocov-html/cmd/gocov-html@latest
 
 # resolve missing go.sum entry
-go env -w "GOFLAGS"="-mod=mod"
+# go env -w "GOFLAGS"="-mod=mod"
 
 # coverage mode
 # set: 每个语句是否执行？

@@ -22,6 +22,7 @@ from yr.code_manager import CodeManager
 from yr.decorator import instance_proxy, function_proxy
 from yr.object_ref import ObjectRef
 from yr.config import InvokeOptions
+from yr.config_manager import ConfigManager
 from yr.common.utils import CrossLanguageInfo
 from yr.libruntime_pb2 import LanguageType, FunctionMeta
 
@@ -30,6 +31,39 @@ logger = logging.getLogger(__name__)
 
 
 class TestDecorator(TestCase):
+
+    def setUp(self):
+        ConfigManager().bypass_datasystem = None
+
+    def tearDown(self):
+        ConfigManager().bypass_datasystem = None
+
+    def test_instance_need_order_auto_default_only_when_unset(self):
+        class Actor:
+            def ping(self):
+                return "pong"
+
+        default_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, InvokeOptions())
+        self.assertTrue(default_creator.__invoke_options__.need_order)
+
+        explicit_false_creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(need_order=False))
+        self.assertFalse(explicit_false_creator.__invoke_options__.need_order)
+
+        with self.assertRaises(ValueError):
+            instance_proxy.InstanceCreator.create_from_user_class(
+                Actor, InvokeOptions(need_order=True, concurrency=100))
+
+        explicit_true_single_creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(need_order=True, concurrency=1))
+        self.assertTrue(explicit_true_single_creator.__invoke_options__.need_order)
+
+        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor)
+        options_creator.options(InvokeOptions(need_order=False))
+        self.assertFalse(options_creator.__invoke_options__.need_order)
+
+        with self.assertRaises(ValueError):
+            options_creator.options(InvokeOptions(need_order=True, concurrency=100))
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.log.get_logger")
@@ -77,7 +111,7 @@ class TestDecorator(TestCase):
         with self.assertRaises(ValueError):
             ins_creator.options(name="ins", namespace="")
 
-        ins_creator = ins_creator.options([InvokeOptions(cpu=1000, need_order=True, concurrency=100)])
+        ins_creator = ins_creator.options([InvokeOptions(cpu=1000, need_order=True, concurrency=1)])
         ins1 = ins_creator.invoke()
         self.assertTrue(ins1.need_order)
 
@@ -88,6 +122,11 @@ class TestDecorator(TestCase):
 
         obj = ins1.get.options(InvokeOptions()).invoke()
         self.assertTrue(isinstance(obj, ObjectRef))
+
+        ConfigManager().bypass_datasystem = True
+        ins1.get.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertTrue(mock_runtime.invoke_instance.call_args.kwargs["opt"].bypass_datasystem)
+        ConfigManager().bypass_datasystem = None
 
         ins1.group_name = ""
         with self.assertRaises(RuntimeError):
@@ -109,7 +148,7 @@ class TestDecorator(TestCase):
         ins1.terminate()
         self.assertFalse(ins1.is_activate())
 
-        with self.assertRaises(TypeError):
+        with self.assertRaises(RuntimeError):
             instance_proxy.InstanceCreator().create_from_user_class(CppClass, InvokeOptions(name="instance1")).get_instance("instance1")
 
         mock_runtime.get_instance_by_name.return_value = FunctionMeta()
@@ -121,6 +160,41 @@ class TestDecorator(TestCase):
         with self.assertRaises(RuntimeError):
             decorator = instance_proxy.make_decorator()
             decorator("test")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_named_instance_create_does_not_probe_existing_instance_by_name(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "ns-named"
+        get_runtime.return_value = mock_runtime
+
+        class NamedActor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(NamedActor, opt)
+        instance = creator.invoke()
+
+        self.assertEqual(instance.instance_id, "ns-named")
+        mock_runtime.create_instance.assert_called_once()
+        mock_runtime.get_instance_by_name.assert_not_called()
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_named_instance_create_propagates_existing_instance_failure(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.side_effect = RuntimeError("instance already exists")
+        get_runtime.return_value = mock_runtime
+
+        class NamedActor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(NamedActor, opt)
+
+        with self.assertRaisesRegex(RuntimeError, "instance already exists"):
+            creator.invoke()
+
+        mock_runtime.create_instance.assert_called_once()
+        mock_runtime.get_instance_by_name.assert_not_called()
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.log.get_logger")
@@ -235,7 +309,7 @@ class TestDecorator(TestCase):
     @patch("yr.decorator.function_proxy.Serialization")
     @patch("yr.log.get_logger")
     def test_function_proxy_small_serialize_sets_inline_code_on_meta(self, mock_logger, mock_ser_cls, get_runtime):
-        """Small serialized payload: FunctionMeta carries inline code bytes (merge ant behavior)."""
+        """Small serialized payload: FunctionMeta carries inline code without initializing datasystem."""
         mock_logger.return_value = logger
         mock_rt = Mock()
         mock_rt.is_object_existing_in_local.return_value = False
@@ -260,7 +334,50 @@ class TestDecorator(TestCase):
         _ia = mock_rt.invoke_by_name.call_args
         func_meta = (_ia.kwargs or _ia[1])["func_meta"]
         self.assertEqual(func_meta.code, b"ut-inline-payload")
-        mock_rt.put_serialized.assert_called_once()
+        mock_rt.put_serialized.assert_not_called()
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_function_proxy_respects_global_bypass_override(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.invoke_by_name.return_value = ["obj1"]
+        get_runtime.return_value = mock_runtime
+
+        proxy = function_proxy.make_cpp_function_proxy("cppfunc", "key")
+        proxy.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertFalse(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+        ConfigManager().bypass_datasystem = True
+        proxy.options(InvokeOptions(bypass_datasystem=False)).invoke()
+        self.assertTrue(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+        ConfigManager().bypass_datasystem = False
+        proxy.invoke_direct()
+        self.assertFalse(mock_runtime.invoke_by_name.call_args.kwargs["opt"].bypass_datasystem)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_instance_creator_respects_global_bypass_override(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "instance-id"
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        ConfigManager().bypass_datasystem = False
+        creator = instance_proxy.InstanceCreator.create_from_user_class(
+            Actor, InvokeOptions(skip_serialize=True, bypass_datasystem=True))
+        creator.invoke()
+
+        opt = mock_runtime.create_instance.call_args.kwargs["opt"]
+        self.assertFalse(opt.bypass_datasystem)
+
+    def test_config_manager_preserves_per_invoke_bypass_without_override(self):
+        opt = InvokeOptions(bypass_datasystem=True)
+
+        overridden = ConfigManager().override_bypass_datasystem(opt)
+
+        self.assertIs(overridden, opt)
+        self.assertTrue(overridden.bypass_datasystem)
 
 
 if __name__ == "__main__":

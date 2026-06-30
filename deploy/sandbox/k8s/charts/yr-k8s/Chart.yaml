@@ -1,0 +1,6 @@
+apiVersion: v2
+name: yr-k8s
+description: Minimal Helm scaffold for the yr-k8s deployment surface
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

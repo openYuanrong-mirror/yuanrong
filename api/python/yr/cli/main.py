@@ -15,13 +15,12 @@
 # limitations under the License.
 
 import logging
-import sys
+import time
 from pathlib import Path
 from typing import Optional
 
 import click
 
-import yr.cli.discovery as discovery
 from yr.cli.config import ConfigResolver
 from yr.cli.const import (
     DEFAULT_CONFIG_PATH,
@@ -31,19 +30,19 @@ from yr.cli.const import (
     StartMode,
 )
 from yr.cli.system_launcher import SystemLauncher
+from yr.cli.checkpoint import CheckpointClient, get_frontend_address_from_session
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d | %(levelname)-7s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    force=True,
 )
 logger = logging.getLogger(__name__)
 
 print_logger = logging.getLogger("print")
 print_logger.setLevel(logging.INFO)
 print_logger.propagate = False
-handler = logging.StreamHandler(sys.stdout)
+handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter("%(message)s"))
 print_logger.addHandler(handler)
 
@@ -69,7 +68,9 @@ def print_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
     "--config",
     "config_opt",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help=(f"Path to config.toml. If omitted, uses the default path ({DEFAULT_CONFIG_PATH})."),
+    help=(
+        f"Path to config.toml. If omitted, uses the default path ({DEFAULT_CONFIG_PATH})."
+    ),
 )
 @click.option(
     "-v",
@@ -114,6 +115,7 @@ Runs in either master (control-plane) or agent (data-plane) mode.
 Common patterns:\n
   - Start master: yr start --master\n
   - Start agent:  yr start\n
+  - Override config: yr start -s 'values.log_level="DEBUG"'
 """,
 )
 @click.option(
@@ -128,8 +130,8 @@ Common patterns:\n
         Examples:\n
           - Override a string: -s 'etcd.bin_path=\"/custom/etcd\"'\n
           - Override an int: -s 'values.ds_master.port=12123'\n
-          - Override a table: -s 'values.ds_master={ip=\"10.88.0.9\",port=12123}'\n
-          - Override a list: -s 'values.etcd.address=[{ip=\"10.88.0.9\",peer_port=32380,port=32379}]'
+          - Override a table: -s 'values.ds_master={ip=\"192.0.2.9\",port=12123}'\n
+          - Override a list: -s 'values.etcd.address=[{ip=\"192.0.2.9\",peer_port=32380,port=32379}]'
     """,
 )
 @click.option(
@@ -144,44 +146,67 @@ Common patterns:\n
     """,
 )
 @click.option(
-    "--master_address",
-    "function_master_addr",
-    help="""
-        Address of function_master in http(s)://host:port format for service discovery.\n
-        If using https://, TLS cert paths must be provided via --config or -s in values.fs.tls
-        (cert_file, key_file, ca_file, with optional base_path).
-    """,
+    "--function-proxy-merge-process-enable",
+    "--function_proxy_merge_process_enable",
+    "function_proxy_merge_process_enable",
+    is_flag=True,
+    help=(
+        "Run function_agent/runtime_manager inside function_proxy and skip the "
+        "standalone function_agent component."
+    ),
+)
+@click.option(
+    "--enable-runtime-launcher",
+    "--enable_runtime_launcher",
+    "enable_runtime_launcher",
+    is_flag=True,
+    help="Start runtime-launcher for sandbox container backend.",
+)
+@click.option(
+    "--block",
+    "block",
+    type=bool,
+    default=False,
+    help="Keep yr start in the foreground after components become healthy.",
 )
 @click.pass_context
-def start(
-    ctx: click.Context,
-    overrides: tuple[str, ...],
-    master_mode: Optional[bool],
-    function_master_addr: Optional[str],
-) -> None:
+def start(ctx: click.Context, **kwargs) -> None:
     """Start the YuanRong system in master or agent mode."""
+    overrides = kwargs["overrides"]
+    master_mode = kwargs["master_mode"]
+    function_proxy_merge_process_enable = kwargs["function_proxy_merge_process_enable"]
+    enable_runtime_launcher = kwargs["enable_runtime_launcher"]
+    block = kwargs["block"]
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
     mode = StartMode.MASTER if master_mode else StartMode.AGENT
     logger.info(f"Starting yr in {mode.value} mode")
-    if function_master_addr:
-        logger.info(f"Discovering services from function_master at {function_master_addr}...")
-        try:
-            overrides = discovery.resolve_overrides_from_function_master(
-                config_path=config_path,
-                cli_dir=cli_dir,
-                mode=mode,
-                overrides=overrides,
-                function_master_addr=function_master_addr,
-            )
-            logger.debug(f"Final config overrides after adding service discovery info: {overrides}")
-        except Exception as e:
-            logger.error(f"Failed to get service discovery info from function_master: {e}")
-            ctx.exit(1)
 
-    launcher = SystemLauncher(config_path, cli_dir, mode, overrides=overrides)
+    effective_overrides = list(overrides)
+    if function_proxy_merge_process_enable:
+        effective_overrides.extend(
+            [
+                f"mode.{mode.value}.function_agent=false",
+                "function_proxy.args.enable_merge_process=true",
+            ]
+        )
+    if enable_runtime_launcher:
+        effective_overrides.extend(
+            [
+                f"mode.{mode.value}.runtime_launcher=true",
+                "values.runtime_launcher.enable=true",
+            ]
+        )
+
+    launcher = SystemLauncher(config_path, cli_dir, mode, overrides=tuple(effective_overrides))
     launcher.load_components()
     success = launcher.start_all()
+    if success and block:
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            pass
 
     ctx.exit(0 if success else 1)
 
@@ -213,7 +238,9 @@ def start(
 )
 @click.argument("component")
 @click.pass_context
-def launch(ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], component: str) -> None:
+def launch(
+    ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], component: str
+) -> None:
     from yr.cli.component.registry import LAUNCHER_CLASSES
 
     config_path: Path = ctx.obj["config_path"]
@@ -223,7 +250,9 @@ def launch(ctx: click.Context, inherit_env: bool, env_subst: tuple[str, ...], co
     for item in env_subst:
         env_subst_keys.extend([k.strip() for k in item.split(",") if k.strip()])
 
-    cfg = ConfigResolver(config_path, cli_dir, render=False, env_subst_keys=tuple(env_subst_keys))
+    cfg = ConfigResolver(
+        config_path, cli_dir, render=False, env_subst_keys=tuple(env_subst_keys)
+    )
     launcher_cls = LAUNCHER_CLASSES.get(component)
     if launcher_cls is None:
         logger.error(f"Unknown component: {component}")
@@ -248,7 +277,9 @@ def health(ctx: click.Context, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
 
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     ok = launcher.health()
     ctx.exit(0 if ok else 1)
 
@@ -269,7 +300,9 @@ def status(ctx: click.Context, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
 
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     ok = launcher.status()
     ctx.exit(0 if ok else 1)
 
@@ -295,7 +328,9 @@ def stop(ctx: click.Context, force: bool, session_file: Optional[str]) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
     logger.info("Stopping yr system components...")
-    launcher = SystemLauncher(config_path, cli_dir, session_file=session_file, render=None)
+    launcher = SystemLauncher(
+        config_path, cli_dir, session_file=session_file, render=None
+    )
     if force:
         logger.warning("Force stopping components...")
         daemon_ok = launcher.stop_daemon_from_session(force)
@@ -347,8 +382,125 @@ def config_template(ctx: click.Context) -> None:
     cfg.print_default_config(values_path, template_path)
 
 
+@cli.group(help="Checkpoint management commands")
+@click.option(
+    "-f",
+    "--file",
+    "session_file",
+    type=click.Path(dir_okay=False, path_type=Path, exists=True),
+    help=(
+        f"Path to session file (default: {SESSION_JSON_PATH}). "
+        "This file is created when `yr start` succeeds."
+    ),
+)
+@click.pass_context
+def checkpoint(ctx: click.Context, session_file: Optional[str]) -> None:
+    pass
+
+
+def _get_checkpoint_client(
+    session_file: Optional[str],
+) -> tuple[Optional[CheckpointClient], Optional[str]]:
+    """Get checkpoint client and return error message if failed."""
+    session_path = Path(session_file) if session_file else Path(SESSION_JSON_PATH)
+    addr = get_frontend_address_from_session(session_path)
+    if not addr:
+        return None, "Failed to get frontend address from session file"
+    return CheckpointClient(addr[0], addr[1]), None
+
+
+@checkpoint.command(name="list", help="List checkpoints by function key or tenant")
+@click.option(
+    "--tenant-id",
+    "tenant_id",
+    required=True,
+    help="Tenant ID",
+)
+@click.option(
+    "--function-type",
+    "function_type",
+    help="Function type (e.g., moduleName.className for actors)",
+)
+@click.option(
+    "--namespace",
+    "namespace",
+    help="Optional namespace",
+)
+@click.option(
+    "--by-tenant",
+    "by_tenant",
+    is_flag=True,
+    help="List checkpoints by tenant instead of by function key",
+)
+@click.pass_context
+def checkpoint_list(ctx: click.Context, **kwargs) -> None:
+    tenant_id = kwargs["tenant_id"]
+    function_type = kwargs["function_type"]
+    namespace = kwargs["namespace"]
+    by_tenant = kwargs["by_tenant"]
+    session_file = kwargs["session_file"]
+    client, err = _get_checkpoint_client(session_file)
+    if err:
+        print_logger.error(err)
+        ctx.exit(1)
+
+    if by_tenant:
+        if function_type or namespace:
+            print_logger.error(
+                "Cannot specify --function-type or --namespace with --by-tenant"
+            )
+            ctx.exit(1)
+        result = client.list_by_tenant(tenant_id)
+    else:
+        if not function_type:
+            print_logger.error("--function-type is required when not using --by-tenant")
+            ctx.exit(1)
+        result = client.list_by_function_key(tenant_id, function_type, namespace)
+
+    if result.get("code") != 0:
+        print_logger.error(f"Error: {result.get('message', 'unknown error')}")
+        ctx.exit(1)
+
+    checkpoint_ids = result.get("checkpointIDs", [])
+    if checkpoint_ids:
+        print_logger.info(f"Found {len(checkpoint_ids)} checkpoint(s):")
+        for cid in checkpoint_ids:
+            print_logger.info(f"  {cid}")
+    else:
+        print_logger.info("No checkpoints found")
+    ctx.exit(0)
+
+
+@checkpoint.command(name="delete", help="Delete a checkpoint")
+@click.option(
+    "--checkpoint-id",
+    "checkpoint_id",
+    required=True,
+    help="Checkpoint ID to delete",
+)
+@click.pass_context
+def checkpoint_delete(
+    ctx: click.Context,
+    checkpoint_id: str,
+    session_file: Optional[str],
+) -> None:
+    client, err = _get_checkpoint_client(session_file)
+    if err:
+        print_logger.error(err)
+        ctx.exit(1)
+
+    result = client.delete(checkpoint_id)
+
+    if result.get("code") != 0:
+        print_logger.error(f"Error: {result.get('message', 'unknown error')}")
+        ctx.exit(1)
+
+    print_logger.info(f"Checkpoint {checkpoint_id} deleted successfully")
+    ctx.exit(0)
+
+
 def main(cmdargs: Optional[list[str]] = None) -> None:
-    cli.main(args=cmdargs, prog_name="yr", standalone_mode=True)
+    cli.main(args=cmdargs, prog_name="yrexp", standalone_mode=True)
 
 
 if __name__ == "__main__":

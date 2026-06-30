@@ -3,10 +3,10 @@ function initLanguageSwitcher() {
   var dropdownMenus = document.querySelectorAll('#language-dropdown-menu');
   var switchLinksEn = document.querySelectorAll('#switch-to-en');
   var switchLinksZh = document.querySelectorAll('#switch-to-zh');
-  
-  var isChinese = window.location.pathname.indexOf('/zh-cn') !== -1 || 
+
+  var isChinese = window.location.pathname.indexOf('/zh-cn') !== -1 ||
                   document.querySelector('#switch-to-en') !== null;
-  
+
   var allSwitchLinks = Array.from(switchLinksEn).concat(Array.from(switchLinksZh));
   allSwitchLinks.forEach(function(switchLink) {
     var currentPath = window.location.pathname;
@@ -14,7 +14,7 @@ function initLanguageSwitcher() {
     var targetUrl = window.location.origin + newPath + window.location.search + window.location.hash;
     switchLink.href = targetUrl;
     switchLink.setAttribute('data-target-url', targetUrl);
-    
+
     switchLink.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -22,15 +22,15 @@ function initLanguageSwitcher() {
       return false;
     });
   });
-  
+
   buttons.forEach(function(button, index) {
     var dropdownMenu = dropdownMenus[index];
     if (!dropdownMenu) return;
-    
+
     button.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       if (dropdownMenu.style.display === 'none' || dropdownMenu.style.display === '') {
         var rect = button.getBoundingClientRect();
         dropdownMenu.style.display = 'block';
@@ -45,7 +45,7 @@ function initLanguageSwitcher() {
       }
     });
   });
-  
+
   document.addEventListener('click', function(e) {
     dropdownMenus.forEach(function(dropdownMenu) {
       var button = dropdownMenu.previousElementSibling;

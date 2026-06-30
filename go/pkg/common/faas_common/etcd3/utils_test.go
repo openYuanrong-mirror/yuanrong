@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -62,6 +61,10 @@ func TestGetValueFromEtcdWithRetry(t *testing.T) {
 	funcKey := "123/testFunc/1"
 	tenantID, funcName, funcVersion := utils.ParseFuncKey(funcKey)
 	silentEtcdKey := fmt.Sprintf(constant.SilentFuncKey, tenantID, funcName, funcVersion)
+	oldGetEtcdValues := getEtcdValues
+	defer func() {
+		getEtcdValues = oldGetEtcdValues
+	}()
 	convey.Convey("Test GetValueFromEtcdWithRetry", t, func() {
 		convey.Convey("etcd connection loss", func() {
 			etcdClient := &EtcdClient{}
@@ -73,10 +76,9 @@ func TestGetValueFromEtcdWithRetry(t *testing.T) {
 				etcdStatusAfterLostContact: true,
 				Client:                     &clientv3.Client{},
 			}
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetValues",
-				func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
-					return nil, errors.New("error")
-				}).Reset()
+			getEtcdValues = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
+				return nil, errors.New("error")
+			}
 			_, err := GetValueFromEtcdWithRetry(silentEtcdKey, etcdClient)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
@@ -85,10 +87,9 @@ func TestGetValueFromEtcdWithRetry(t *testing.T) {
 				etcdStatusAfterLostContact: true,
 				Client:                     &clientv3.Client{},
 			}
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetValues",
-				func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
-					return []string{}, nil
-				}).Reset()
+			getEtcdValues = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
+				return []string{}, nil
+			}
 			_, err := GetValueFromEtcdWithRetry(silentEtcdKey, etcdClient)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
@@ -97,10 +98,9 @@ func TestGetValueFromEtcdWithRetry(t *testing.T) {
 				etcdStatusAfterLostContact: true,
 				Client:                     &clientv3.Client{},
 			}
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&EtcdClient{}), "GetValues",
-				func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
-					return []string{"silent func"}, nil
-				}).Reset()
+			getEtcdValues = func(_ *EtcdClient, ctxInfo EtcdCtxInfo, key string, opts ...clientv3.OpOption) ([]string, error) {
+				return []string{"silent func"}, nil
+			}
 			value, err := GetValueFromEtcdWithRetry(silentEtcdKey, etcdClient)
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(string(value), convey.ShouldEqual, "silent func")

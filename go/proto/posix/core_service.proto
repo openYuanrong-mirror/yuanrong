@@ -80,11 +80,6 @@ message CreateResponse {
   string           instanceID = 3;
 }
 
-message BindOptions {
-  string resource = 1;
-  common.BindStrategy policy = 2;
-};
-
 message GroupOptions {
   // group schedule timeout (sec)
   int64         timeout               = 1;
@@ -94,8 +89,6 @@ message GroupOptions {
   // indicated which rgroup submit to
   string        rGroupName            = 4;
   common.GroupPolicy   groupPolicy    = 5;
-  // group binding resource and binding strategy
-  BindOptions bind = 6;
 }
 
 // gang scheduling
@@ -215,10 +208,12 @@ message SnapStartedInfo {
 }
 
 message KillRequest {
-  string instanceID = 1;
-  int32  signal     = 2;
-  bytes  payload    = 3;
-  string requestID  = 4;
+  string instanceID   = 1;
+  int32  signal       = 2;
+  bytes  payload      = 3;
+  string requestID    = 4;
+  string routeAddress = 5; // litebus bus URL of owner proxy (for DR kill routing)
+  string proxyID      = 6; // functionProxyID of owner proxy (for DR kill routing)
 }
 
 message KillResponse {

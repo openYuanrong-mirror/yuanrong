@@ -17,13 +17,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "mock/mock_fs_intf.h"
-#include "src/libruntime/objectstore/datasystem_object_store.h"
+#include "mock/mock_datasystem.h"
+#include "src/libruntime/gwclient/http/http_client.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/logger/logger.h"
 
 #define protected public
+#define private public
 #include "mock/mock_fs_intf_with_callback.h"
 #include "src/libruntime/invokeadaptor/faas_instance_manager.h"
+#undef private
+#undef protected
 
 namespace YR {
 namespace Libruntime {
@@ -69,8 +73,7 @@ public:
         mockFsIntf = std::make_shared<MockFsIntf>();
         auto fsClient = std::make_shared<FSClient>(mockFsIntf);
         std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
-        auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
-        dsObjectStore->Init("127.0.0.1", 8080);
+        auto dsObjectStore = std::make_shared<MockObjectStore>();
         auto wom = std::make_shared<WaitingObjectManager>();
         memoryStore->Init(dsObjectStore, wom);
         insManager = std::make_shared<FaasInsManager>(cb, fsClient, memoryStore, reqMgr, librtCfg);
@@ -123,6 +126,28 @@ TEST_F(FaasInstanceManagerTest, BuildAcquireRequestTest)
     std::dynamic_pointer_cast<MockFsIntf>(mockFsIntf)->needCheckArgs = true;
     auto [instanceAllocation, err] = insManager->AcquireInstance("", spec);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(FaasInstanceManagerTest, BuildAcquireRequestPreservesCustomExtensionsTest)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->jobId = "jobId";
+    spec->traceId = "traceId";
+    spec->functionMeta = {"",
+                          "",
+                          "funcname",
+                          "classname",
+                          libruntime::LanguageType::Cpp,
+                          "",
+                          "",
+                          "poollabel",
+                          libruntime::ApiType::Function};
+    spec->opts.customExtensions["traceparent"] =
+        "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01";
+
+    auto acquireSpec = insManager->BuildAcquireRequest(spec);
+
+    ASSERT_EQ(acquireSpec->opts.customExtensions["traceparent"], spec->opts.customExtensions["traceparent"]);
 }
 
 TEST_F(FaasInstanceManagerTest, RecordRequestTest)
@@ -462,7 +487,8 @@ TEST_F(FaasInstanceManagerTest, GetFaasInstanceRspTest)
     object->set_id("123");
 
     std::string json_str =
-        R"({"funcKey":"","funcSig":"","instanceID":"","threadID":"","leaseInterval":0,"errorCode":150428,"errorMessage":"","schedulerTime":30})";
+        R"({"funcKey":"","funcSig":"","instanceID":"","threadID":"","leaseInterval":0,"errorCode":150428,
+            "errorMessage":"","schedulerTime":30})";
     std::string value = "0000000000000000" + json_str;
     object->set_value(value);
     auto [resp, errorInfo] = GetFaasInstanceRsp(notifyReq);
@@ -498,6 +524,7 @@ TEST_F(FaasInstanceManagerTest, GetFaasBatchInstanceRsp)
 
     std::string json_str =
         R"({"instanceAllocSucceed":{"f1a00e58-f2a1-4000-8000-000000f8e9e3-thread26":{"funcKey":"default/0@functest@functest/latest","funcSig":"4243308021","instanceID":"f1a00e58-f2a1-4000-8000-000000f8e9e3","threadID":"f1a00e58-f2a1-4000-8000-000000f8e9e3-thread26","instanceIP":"127.0.0.1","instancePort":"22771","nodeIP":"","nodePort":"","leaseInterval":0,"cpu":600,"memory":512}},"instanceAllocFailed":{},"leaseInterval":1000,"schedulerTime":0.000118108})";
+
     std::string value = "0000000000000000" + json_str;
     object->set_value(value);
     auto [resp, errorInfo] = GetFaasBatchInstanceRsp(notifyReq);
@@ -528,7 +555,8 @@ TEST_F(FaasInstanceManagerTest, AcquireCallbackTest)
 
     ErrorInfo err(YR::Libruntime::ErrorCode::ERR_INSTANCE_EXITED, "err msg");
     ErrorInfo outputErr;
-    insManager->scheduleInsCb = [&outputErr](const RequestResource &resource, const ErrorInfo &err, bool isRemainIs) -> void {
+    insManager->scheduleInsCb = [&outputErr](const RequestResource &resource, const ErrorInfo &err,
+        bool isRemainIs) -> void {
         outputErr = err;
     };
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
@@ -572,12 +600,12 @@ TEST_F(FaasInstanceManagerTest, BuildAcquireRequestWithSessionCtx)
     // verify sessionCtxID is written to instanceRequirement
     // DataObject prepends a MetaDataLen (16-byte) meta header before the actual JSON data
     auto reqJson = nlohmann::json::parse(mockFs->lastInstanceRequirement.substr(MetaDataLen));
- 	ASSERT_TRUE(reqJson.contains("sessionCtxID"));
- 	std::string ctxId;
- 	for (const auto &c : reqJson["sessionCtxID"]) {
- 	    ctxId.push_back(static_cast<char>(c.get<int>()));
+    ASSERT_TRUE(reqJson.contains("sessionCtxID"));
+    std::string ctxId;
+    for (const auto &c : reqJson["sessionCtxID"]) {
+        ctxId.push_back(static_cast<char>(c.get<int>()));
     }
- 	ASSERT_EQ(ctxId, "useraaa");
+    ASSERT_EQ(ctxId, "useraaa");
 }
 
 TEST_F(FaasInstanceManagerTest, BuildAcquireRequestWithoutSessionCtx)
@@ -617,11 +645,11 @@ TEST_F(FaasInstanceManagerTest, BuildReacquireInstanceDataWithSessionCtx)
     std::string str(vec.begin(), vec.end());
     auto reacquireJson = nlohmann::json::parse(str);
     ASSERT_TRUE(reacquireJson.contains("sessionCtxID"));
- 	std::string ctxId;
- 	for (const auto &c : reacquireJson["sessionCtxID"]) {
- 	    ctxId.push_back(static_cast<char>(c.get<int>()));
- 	}
- 	ASSERT_EQ(ctxId, "useraaa");
+    std::string ctxId;
+    for (const auto &c : reacquireJson["sessionCtxID"]) {
+        ctxId.push_back(static_cast<char>(c.get<int>()));
+    }
+    ASSERT_EQ(ctxId, "useraaa");
 }
 
 TEST_F(FaasInstanceManagerTest, BuildReacquireInstanceDataWithoutSessionCtx)

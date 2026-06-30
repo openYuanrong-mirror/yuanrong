@@ -59,7 +59,7 @@ type InsQueConfig struct {
 type InstanceOperationFunc struct{}
 
 // CreateInstanceFunc -
-type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, *string) (
+type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string, *string) (
 	*types.Instance, error)
 
 // SessionCtxIdleFunc handles an instance becoming idle after its session binding expires.

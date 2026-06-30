@@ -38,6 +38,10 @@ var (
 	defaultCoreInfo CoreInfo
 	// LogLevel -
 	LogLevel zapcore.Level = zapcore.InfoLevel
+
+	extractCoreInfoFromEnv = ExtractCoreInfoFromEnv
+	validateFilePath       = utils.ValidateFilePath
+	mkdirAll               = os.MkdirAll
 )
 
 func init() {
@@ -82,14 +86,14 @@ func GetDefaultCoreInfo() CoreInfo {
 
 // GetCoreInfoFromEnv extracts the logger config and ensures that the log file is available
 func GetCoreInfoFromEnv() (CoreInfo, error) {
-	coreInfo, err := ExtractCoreInfoFromEnv(logConfigKey)
+	coreInfo, err := extractCoreInfoFromEnv(logConfigKey)
 	if err != nil {
 		return defaultCoreInfo, err
 	}
-	if err = utils.ValidateFilePath(coreInfo.FilePath); err != nil {
+	if err = validateFilePath(coreInfo.FilePath); err != nil {
 		return defaultCoreInfo, err
 	}
-	if err = os.MkdirAll(coreInfo.FilePath, fileMode); err != nil && !os.IsExist(err) {
+	if err = mkdirAll(coreInfo.FilePath, fileMode); err != nil && !os.IsExist(err) {
 		return defaultCoreInfo, err
 	}
 

@@ -19,6 +19,7 @@
 namespace YR {
 class Buffer {
 public:
+    virtual ~Buffer() = default;
     Buffer() = default;
 
     Buffer(void *data, uint64_t size)

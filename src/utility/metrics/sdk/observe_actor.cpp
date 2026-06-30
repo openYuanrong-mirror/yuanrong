@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#include "sdk/include/observe_actor.h"
+#include "src/utility/metrics/sdk/include/observe_actor.h"
 
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 
 namespace observability::sdk::metrics {
 
@@ -24,9 +24,11 @@ const uint16_t SEC2MS = 1000;
 
 ObserveActor::~ObserveActor()
 {
-    for (auto timerInfo : std::as_const(collectTimerMap_)) {
+    for (auto timerInfo : collectTimerMap_) {
         auto timer = timerInfo.second;
-        (void)litebus::TimerTools::Cancel(timer);
+        if (timer) {
+            YR::utility::CancelGlobalTimer(timer);
+        }
     }
     collectTimerMap_.clear();
     collectIntervals_.clear();
@@ -40,21 +42,34 @@ void ObserveActor::RegisterTimer(const int interval)
     }
     if (auto it = collectIntervals_.find(interval); it == collectIntervals_.end()) {
         METRICS_LOG_DEBUG("Register observable instrument timer {}", interval);
-        (void)collectIntervals_.insert(interval);
-        litebus::AsyncAfter(interval * SEC2MS, GetAID(), &ObserveActor::StartCollect, interval);
+        collectIntervals_.insert(interval);
+        StartCollect(interval);  // Start collection immediately
     }
 }
 
 void ObserveActor::StartCollect(const int interval)
 {
     METRICS_LOG_DEBUG("Start to collect {} observable instrument", interval);
-    (void)litebus::Async(GetAID(), &ObserveActor::Collect, interval);
-    collectTimerMap_[interval] =
-        litebus::AsyncAfter(interval * SEC2MS, GetAID(), &ObserveActor::StartCollect, interval);
+
+    // Collect immediately
+    Collect(interval);
+
+    // Schedule next collection
+    collectTimerMap_[interval] = YR::utility::ExecuteByGlobalTimer(
+        [this, interval]() {
+            if (collectIntervals_.count(interval) > 0) {
+                StartCollect(interval);  // Reschedule
+            }
+        },
+        interval * SEC2MS,  // Convert to milliseconds
+        -1  // Execute indefinitely
+    );
 }
 
 void ObserveActor::Collect(const int interval)
 {
-    return collectFunc_(interval);
+    if (collectFunc_) {
+        collectFunc_(interval);
+    }
 }
 }

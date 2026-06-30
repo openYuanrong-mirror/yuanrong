@@ -335,8 +335,16 @@ func DefaultStringEnv(key string, val string) string {
 }
 
 // ReplaceByDNS update /etc/hosts
+var (
+	readHostLines    = ReadLines
+	writeHostLines   = WriteLines
+	saveHostFileInfo = func(info hostFileInfo) error {
+		return info.SaveHostFileInfo()
+	}
+)
+
 func ReplaceByDNS(filePath string, domainNames map[string]string) error {
-	lines, err := ReadLines(filePath)
+	lines, err := readHostLines(filePath)
 	if err != nil {
 		return err
 	}
@@ -371,10 +379,10 @@ func ReplaceByDNS(filePath string, domainNames map[string]string) error {
 	}
 	HostFile.Mutex.Lock()
 	defer HostFile.Mutex.Unlock()
-	if err := WriteLines(filePath, lines); err != nil {
+	if err := writeHostLines(filePath, lines); err != nil {
 		return err
 	}
-	if err := HostFile.SaveHostFileInfo(); err != nil {
+	if err := saveHostFileInfo(HostFile); err != nil {
 		return err
 	}
 	return nil

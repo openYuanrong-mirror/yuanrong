@@ -37,13 +37,12 @@ void OrderedExecutionManager::Handle(const libruntime::InvocationMeta &meta, std
 
     std::shared_ptr<Invoker> invoker = it->second;
     int64_t unfinishedSeqNo = meta.minunfinishedsequenceno();
+    int64_t seqNo = meta.invocationsequenceno();
+
     if (unfinishedSeqNo > invoker->invokeUnfinishedSeqNo) {
-        YRLOG_DEBUG("update invoker {} invoke unfinished sequence No. from {} to {}", invokerId,
-                    invoker->invokeUnfinishedSeqNo, unfinishedSeqNo);
         invoker->invokeUnfinishedSeqNo = unfinishedSeqNo;
     }
 
-    int64_t seqNo = meta.invocationsequenceno();
     if (seqNo >= invoker->invokeUnfinishedSeqNo) {
         invoker->waitingInvokeReqs.insert({seqNo, ConstructInokeReq(std::move(hdlr), reqId)});
     }
@@ -69,8 +68,6 @@ void OrderedExecutionManager::Handle(const libruntime::InvocationMeta &meta, std
         invoker->waitingInvokeReqs.erase(invoker->waitingInvokeReqs.begin());
         ++invoker->invokeUnfinishedSeqNo;
     }
-
-    YRLOG_DEBUG("current invoker {} waiting unfinished sequence No.: {}", invokerId, invoker->invokeUnfinishedSeqNo);
 }
 
 std::shared_ptr<InvokeReq> OrderedExecutionManager::ConstructInokeReq(std::function<void()> &&hdlr, std::string reqId)
@@ -104,6 +101,19 @@ ErrorInfo OrderedExecutionManager::CancelInsFunction(const CancelReqInfo &cancal
         this->cancelReqs[reqId] = true;
     }
     return ErrorInfo();
+}
+
+void OrderedExecutionManager::Clear()
+{
+    {
+        absl::MutexLock lock(&mu);
+        invokers.clear();
+    }
+    {
+        absl::MutexLock lock(&cancelMu);
+        cancelReqs.clear();
+    }
+    YRLOG_INFO("OrderedExecutionManager::Clear - cleared all invokers and cancel requests for checkpoint restore");
 }
 
 }  // namespace Libruntime

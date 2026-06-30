@@ -174,7 +174,7 @@ function initAgentIDInstancesMap() {
 }
 
 function saveRowExpansion() {
-  originExpandRows = treeRef.value.getTreeExpandeds();
+  originExpandRows = treeRef.value?.getTreeExpandeds?.() || [];
   expandRowMap = new Set();
   for (let row of originExpandRows) {
     expandRowMap.add(row.hostname);
@@ -194,8 +194,8 @@ function loadRowExpansion() {
       }
     }
   }
-  treeRef.value.setTreeExpansion(originExpandRows, false);
-  treeRef.value.setTreeExpansion(expandRows, true);
+  treeRef.value?.setTreeExpansion?.(originExpandRows, false);
+  treeRef.value?.setTreeExpansion?.(expandRows, true);
 }
 
 async function initChart() {
@@ -227,7 +227,7 @@ async function initChart() {
     }
     // 恢复折叠状态
     loadRowExpansion();
-    treeRef.value.handleFetch();
+    treeRef.value?.handleFetch?.();
   }).catch((err: any)=>{
     WarningNotify('GetCompAPI', err);
   });

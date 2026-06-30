@@ -26,6 +26,7 @@ import yr
 
 from yr import signature
 from yr.exception import YRInvokeError, YRError
+from yr.fnruntime import load_code_from_bytes
 from yr.libruntime_pb2 import InvokeType
 from yr.local_mode.local_object_store import LocalObjectStore
 from yr.local_mode.task_spec import TaskSpec
@@ -118,7 +119,7 @@ class Worker(threading.Thread):
         return getattr(self._instance, instance_function_name)(*args, **kwargs)
 
     def _create_instance(self, task: TaskSpec, *args, **kwargs):
-        code = LocalObjectStore().get(task.function_meta.codeID)
+        code = _load_function_code(task)
         self._instance = code(*args, **kwargs)
 
 
@@ -128,8 +129,14 @@ def _error_logging(future: concurrent.futures.Future):
 
 
 def _normal_function(task: TaskSpec, *args, **kwargs):
-    code = LocalObjectStore().get(task.function_meta.codeID)
+    code = _load_function_code(task)
     return code(*args, **kwargs)
+
+
+def _load_function_code(task: TaskSpec):
+    if task.function_meta.code:
+        return load_code_from_bytes(task.function_meta.code)
+    return LocalObjectStore().get(task.function_meta.codeID)
 
 
 def _process_args(args_list):

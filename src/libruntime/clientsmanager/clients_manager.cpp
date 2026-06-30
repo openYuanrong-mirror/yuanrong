@@ -20,6 +20,30 @@
 namespace YR {
 namespace Libruntime {
 
+#ifdef ENABLE_DATASYSTEM
+namespace {
+std::string GetTenantIdFromConfig(const std::shared_ptr<LibruntimeConfig> &librtCfg)
+{
+    auto tenantId = Config::Instance().YR_TENANT_ID();
+    if (!tenantId.empty() || librtCfg == nullptr) {
+        return tenantId;
+    }
+    if (!librtCfg->tenantId.empty()) {
+        return librtCfg->tenantId;
+    }
+    auto it = librtCfg->functionIds.find(librtCfg->selfLanguage);
+    if (it == librtCfg->functionIds.end()) {
+        return "";
+    }
+    auto tenantEnd = it->second.find_first_of('/');
+    if (tenantEnd == std::string::npos) {
+        return "";
+    }
+    return it->second.substr(0, tenantEnd);
+}
+}  // namespace
+#endif  // ENABLE_DATASYSTEM
+
 std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::GetFsConn(const std::string &ip, int port,
                                                                                const std::string &dstInstance)
 {
@@ -79,8 +103,9 @@ ErrorInfo ClientsManager::ReleaseFsConn(const std::string &ip, int port, const s
     return ErrorInfo();
 }
 
+#ifdef ENABLE_DATASYSTEM
 std::pair<DatasystemClients, ErrorInfo> ClientsManager::GetOrNewDsClient(
-    const std::shared_ptr<LibruntimeConfig> librtCfg, const std::string &ak, const datasystem::SensitiveValue &sk,
+    const std::shared_ptr<LibruntimeConfig> librtCfg, const std::string &ak, const SensitiveValue &sk,
     std::int32_t connectTimeout)
 {
     auto key = GetIpAddr(librtCfg->dataSystemIpAddr, librtCfg->dataSystemPort);
@@ -92,14 +117,16 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::GetOrNewDsClient(
     }
     auto res = InitDatasystemClient(librtCfg->dataSystemIpAddr, librtCfg->dataSystemPort, librtCfg->enableAuth,
                                     librtCfg->encryptEnable, librtCfg->runtimePublicKey, librtCfg->runtimePrivateKey,
-                                    librtCfg->dsPublicKey, librtCfg->token, ak, sk, connectTimeout);
+                                    librtCfg->dsPublicKey, librtCfg->token, ak, sk, librtCfg, connectTimeout);
     if (res.second.OK()) {
         dsClients[key] = res.first;
         dsClientsReferCounter[key]++;
     }
     return res;
 }
+#endif  // ENABLE_DATASYSTEM
 
+#ifdef ENABLE_DATASYSTEM
 ErrorInfo ClientsManager::ReleaseDsClient(const std::string &ip, int port)
 {
     auto key = GetIpAddr(ip, port);
@@ -132,6 +159,7 @@ ErrorInfo ClientsManager::ReleaseDsClient(const std::string &ip, int port)
     }
     return ErrorInfo();
 }
+#endif  // ENABLE_DATASYSTEM
 
 std::pair<std::shared_ptr<ClientManager>, ErrorInfo> ClientsManager::GetOrNewHttpClient(
     const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &librtCfg)
@@ -222,33 +250,31 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctio
     return std::make_pair(nullptr, err);
 }
 
+#ifdef ENABLE_DATASYSTEM
 std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
     const std::string &ip, int port, bool enableDsAuth, bool encryptEnable, const std::string &runtimePublicKey,
-    const datasystem::SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
-    const datasystem::SensitiveValue &token, const std::string &ak, const datasystem::SensitiveValue &sk,
-    std::int32_t connectTimeout)
+    const SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
+    const SensitiveValue &token, const std::string &ak, const SensitiveValue &sk,
+    const std::shared_ptr<LibruntimeConfig> &librtCfg, std::int32_t connectTimeout)
 {
-    datasystem::ConnectOptions connectOptions;
+    DsConnectOptions connectOptions;
     connectOptions.host = ip;
     connectOptions.port = port;
     connectOptions.connectTimeoutMs = connectTimeout * S_TO_MS;
     if (encryptEnable) {
         connectOptions.clientPublicKey = runtimePublicKey;
-        connectOptions.clientPrivateKey = runtimePrivateKey;
+        connectOptions.clientPrivateKey = runtimePrivateKey.GetData();
         connectOptions.serverPublicKey = dsPublicKey;
     }
     if (enableDsAuth) {
         if (!ak.empty() && !sk.Empty()) {
             connectOptions.accessKey = ak;
-            connectOptions.secretKey = sk;
+            connectOptions.secretKey = sk.GetData();
         } else {
-                connectOptions.token = token;
+            connectOptions.token = token.GetData();
         }
     }
-    if (!token.Empty() && ak.empty() && sk.Empty()) {
-        connectOptions.token = token;
-    }
-    std::string tenantId = Config::Instance().YR_TENANT_ID();
+    std::string tenantId = GetTenantIdFromConfig(librtCfg);
     if (!tenantId.empty()) {
         connectOptions.tenantId = tenantId;
     }
@@ -267,7 +293,7 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
     clients.dsStateStore = std::make_shared<DSCacheStateStore>();
     ErrorInfo infoStateStore = clients.dsStateStore->Init(connectOptions);
     if (!infoStateStore.OK()) {
-        return std::make_pair(clients, infoObjectStore);
+        return std::make_pair(clients, infoStateStore);
     }
 
     clients.dsStreamStore = std::make_shared<DatasystemStreamStore>();
@@ -284,12 +310,15 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
 
     return std::make_pair(clients, ErrorInfo());
 }
+#endif  // ENABLE_DATASYSTEM
 
 std::pair<std::shared_ptr<ClientManager>, ErrorInfo> ClientsManager::InitHttpClient(
     const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &config)
 {
     auto httpClient = std::make_shared<ClientManager>(config);
-    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port), config->httpIdleTime});
+
+    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port), config->httpIdleTime,
+                                                       YR::Libruntime::Config::Instance().INITIAL_HTTP_CONNECT_SEC()});
     if (!error.OK()) {
         return std::make_pair(nullptr, error);
     }

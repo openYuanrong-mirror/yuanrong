@@ -52,6 +52,14 @@ const (
 	minSLATime = time.Duration(500) * time.Millisecond
 )
 
+var (
+	newOneShotInstancePoolFunc = NewOneShotInstancePool
+	newGenericInstancePoolFunc = NewGenericInstancePool
+	getAndDeleteStateFunc      = func(pool InstancePool, stateID string) bool {
+		return pool.GetAndDeleteState(stateID)
+	}
+)
+
 type faasManagerInfo struct {
 	funcKey    string
 	instanceID string
@@ -184,9 +192,9 @@ func (pm *PoolManager) GetAndDeleteState(stateID string, funcKey string, funcSpe
 	if !exist {
 		var err error
 		if funcSpec.InstanceMetaData.ScalePolicy == types.InstanceScalePolicyOneshot {
-			pool, err = NewOneShotInstancePool(funcSpec, pm.faasManagerInfo)
+			pool, err = newOneShotInstancePoolFunc(funcSpec, pm.faasManagerInfo)
 		} else {
-			pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+			pool, err = newGenericInstancePoolFunc(funcSpec, pm.faasManagerInfo)
 		}
 		if err != nil {
 			pm.Unlock()
@@ -197,7 +205,7 @@ func (pm *PoolManager) GetAndDeleteState(stateID string, funcKey string, funcSpe
 	pm.Unlock()
 
 	logger.Infof("getAndDeleteStateInstance, stateKey %s", stateID)
-	return pool.GetAndDeleteState(stateID)
+	return getAndDeleteStateFunc(pool, stateID)
 }
 
 // CreateInstance will create an instance of a specific function
@@ -374,9 +382,9 @@ func (pm *PoolManager) processInstancePoolCreate(funcSpec *types.FunctionSpecifi
 	var pool InstancePool
 	var err error
 	if funcSpec.InstanceMetaData.ScalePolicy == types.InstanceScalePolicyOneshot {
-		pool, err = NewOneShotInstancePool(funcSpec, pm.faasManagerInfo)
+		pool, err = newOneShotInstancePoolFunc(funcSpec, pm.faasManagerInfo)
 	} else {
-		pool, err = NewGenericInstancePool(funcSpec, pm.faasManagerInfo)
+		pool, err = newGenericInstancePoolFunc(funcSpec, pm.faasManagerInfo)
 	}
 	if err != nil {
 		log.GetLogger().Errorf("failed to create instance pool of function %s error %s", funcSpec.FuncKey, err.Error())

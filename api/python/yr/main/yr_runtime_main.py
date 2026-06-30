@@ -21,7 +21,7 @@ import os
 import sys
 
 from yr import init
-from yr.apis import receive_request_loop
+from yr.apis import receive_request_loop, need_reinit, reinit
 from yr.config import Config
 from yr.common.utils import load_env_from_file, try_install_uvloop
 
@@ -100,6 +100,16 @@ def main():
     init(configure())
     try_install_uvloop()
     receive_request_loop()
+
+    # Checkpoint restore re-init loop
+    while need_reinit():
+        # Reload environment variables from file BEFORE reinit
+        # This ensures ReInit can read the new environment variables
+        load_env_from_file(os.environ.get("YR_ENV_FILE", ""))
+        reinit()
+        init(configure())
+        try_install_uvloop()
+        receive_request_loop()
 
 
 if __name__ == "__main__":

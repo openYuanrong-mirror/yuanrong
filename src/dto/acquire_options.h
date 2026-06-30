@@ -38,6 +38,8 @@ struct InstanceAllocation {
     std::string instanceId;
     std::string leaseId;
     int tLeaseInterval;
+    std::string routeAddress;
+    std::string proxyID;
     bool forceInvoke;
 };
 

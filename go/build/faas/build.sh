@@ -33,9 +33,9 @@ export GONOSUMDB=*
 export CGO_ENABLED=1
 mkdir -p ${OUTPUT_DIR}
 # resolve missing go.sum entry
-go env -w "GOFLAGS"="-mod=mod"
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+# go env -w "GOFLAGS"="-mod=mod"
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 # remove hard coded cert file in net/http
 [ -f "${TEST_CERT_PATH}" ] && rm -f "${TEST_CERT_PATH}"
 

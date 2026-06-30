@@ -18,8 +18,7 @@
 #define OBSERVABILITY_METRICS_UTILS_H
 
 #include "metrics/sdk/metric_processor.h"
-#include "logs/api/provider.h"
-#include "common/logs/log.h"
+#include "src/utility/metrics/common/include/metric_logger.h"
 
 namespace observability {
 namespace metrics {

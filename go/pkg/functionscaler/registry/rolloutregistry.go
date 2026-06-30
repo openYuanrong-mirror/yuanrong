@@ -47,6 +47,15 @@ type RolloutRegistry struct {
 	sync.RWMutex
 }
 
+var (
+	rolloutEtcdWatcherStartListFunc = func(watcher etcd3.Watcher) {
+		watcher.StartList()
+	}
+	rolloutEtcdWatcherStartWatchFunc = func(watcher etcd3.Watcher) {
+		watcher.StartWatch()
+	}
+)
+
 // NewRolloutRegistry will create RolloutRegistry
 func NewRolloutRegistry(stopCh <-chan struct{}) *RolloutRegistry {
 	rolloutRegistry := &RolloutRegistry{
@@ -66,14 +75,14 @@ func (rr *RolloutRegistry) initWatcher(etcdClient *etcd3.EtcdClient) {
 		rr.watcherHandlerForConfig,
 		rr.stopCh,
 		etcdClient)
-	rr.configWatcher.StartList()
+	rolloutEtcdWatcherStartListFunc(rr.configWatcher)
 	rr.rolloutWatcher = etcd3.NewEtcdWatcher(
 		constant.SchedulerRolloutPrefix,
 		rr.watcherFilterForRollout,
 		rr.watcherHandlerForRollout,
 		rr.stopCh,
 		etcdClient)
-	rr.rolloutWatcher.StartList()
+	rolloutEtcdWatcherStartListFunc(rr.rolloutWatcher)
 	rr.WaitForETCDList()
 }
 
@@ -94,8 +103,8 @@ func (rr *RolloutRegistry) RunWatcher() {
 	if !config.GlobalConfig.EnableRollout {
 		return
 	}
-	go rr.configWatcher.StartWatch()
-	go rr.rolloutWatcher.StartWatch()
+	go rolloutEtcdWatcherStartWatchFunc(rr.configWatcher)
+	go rolloutEtcdWatcherStartWatchFunc(rr.rolloutWatcher)
 }
 
 // watcherFilterForConfig will filter alias event from etcd event eg:/sn/faas-scheduler/rolloutConfig/cluster1

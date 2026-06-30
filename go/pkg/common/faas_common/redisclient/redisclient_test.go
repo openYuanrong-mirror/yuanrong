@@ -323,9 +323,13 @@ func Test_initClient(t *testing.T) {
 			EnableTLS:       false,
 			HotloadConfFunc: nil,
 		}
-		defer gomonkey.ApplyFunc(New, func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
+		oldNewRedisClient := newRedisClient
+		newRedisClient = func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
 			return &Client{}, nil
-		}).Reset()
+		}
+		defer func() {
+			newRedisClient = oldNewRedisClient
+		}()
 		stopCh := make(chan struct{})
 		redisClient, _ := initClient(&param, stopCh)
 		convey.So(redisClient, convey.ShouldNotBeNil)
@@ -339,9 +343,13 @@ func Test_initClient(t *testing.T) {
 			EnableTLS:       false,
 			HotloadConfFunc: nil,
 		}
-		defer gomonkey.ApplyFunc(New, func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
+		oldNewRedisClient := newRedisClient
+		newRedisClient = func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
 			return &Client{}, errors.New("redis is not ready")
-		}).Reset()
+		}
+		defer func() {
+			newRedisClient = oldNewRedisClient
+		}()
 		stopCh := make(chan struct{})
 		_, err := initClient(&param, stopCh)
 		convey.So(err, convey.ShouldNotBeNil)
@@ -359,15 +367,19 @@ func TestCheckRedisConnectivity(t *testing.T) {
 			EnableTLS:       false,
 			HotloadConfFunc: nil,
 		}
-		patch1 := gomonkey.ApplyFunc(New, func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
+		oldNewRedisClient := newRedisClient
+		newRedisClient = func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
 			isCalled++
 			return &Client{}, nil
-		})
+		}
 		patch := gomonkey.ApplyFunc((*redis.Client).Ping,
 			func(_ *redis.Client, _ context.Context) *redis.StatusCmd {
 				return &redis.StatusCmd{}
 			})
-		defer patch.Reset()
+		defer func() {
+			newRedisClient = oldNewRedisClient
+			patch.Reset()
+		}()
 		stopCh := make(chan struct{}, 0)
 		tickerCh := make(chan time.Time)
 		patch.ApplyFunc(time.NewTicker, func(_ time.Duration) *time.Ticker {
@@ -378,11 +390,10 @@ func TestCheckRedisConnectivity(t *testing.T) {
 		tickerCh <- time.Time{}
 		stopCh <- struct{}{}
 		convey.So(isCalled, convey.ShouldEqual, 1)
-		patch1.Reset()
-		patch.ApplyFunc(New, func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
+		newRedisClient = func(newClientParam NewRedisClientParam, stopCh <-chan struct{}, options ...Option) (*Client, error) {
 			isCalled++
 			return &Client{}, errors.New("state is not ready")
-		})
+		}
 		stopCh = make(chan struct{}, 0)
 		go CheckRedisConnectivity(&param, nil, stopCh)
 		tickerCh <- time.Time{}

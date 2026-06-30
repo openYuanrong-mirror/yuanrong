@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  casdoor-db:
+    image: postgres:15-alpine
+    container_name: casdoor-db
+    restart: always
+    environment:
+      POSTGRES_USER: casdoor
+      POSTGRES_PASSWORD: casdoor_password
+      POSTGRES_DB: casdoor
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - yr-net
+
+  casdoor:
+    image: casbin/casdoor:latest
+    container_name: casdoor
+    restart: always
+    depends_on:
+      - casdoor-db
+      - mailpit
+    environment:
+      - driverName=postgres
+      - dataSourceName=user=casdoor password=casdoor_password host=casdoor-db port=5432 sslmode=disable dbname=casdoor
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./conf/app.conf:/conf/app.conf
+    networks:
+      - yr-net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: yr-mailpit
+    restart: always
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    environment:
+      - MP_MAX_MESSAGES=500
+      - MP_DATABASE=/data/mailpit.db
+    volumes:
+      - ./.mailpit:/data
+    networks:
+      - yr-net
+
+networks:
+  yr-net:
+    external: true

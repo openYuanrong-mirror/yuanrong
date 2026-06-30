@@ -15,7 +15,7 @@
  */
 #include "metrics/exporters/common/ssl_config.h"
 
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 #include "metrics/exporters/common/sensitive_data.h"
 

@@ -87,6 +87,8 @@ var (
 
 	dashboardConfigPath    string
 	dashboardLogConfigPath string
+	readFileWithTimeout    = reader.ReadFileWithTimeout
+	initRunLogFunc         = log.InitRunLog
 )
 
 // AddHTTPPrefix -
@@ -103,7 +105,7 @@ func AddHTTPPrefix(url string, enableSsl bool) string {
 }
 
 func initLog() error {
-	if err := log.InitRunLog(dashboardLogFileName, true); err != nil {
+	if err := initRunLogFunc(dashboardLogFileName, true); err != nil {
 		log.GetLogger().Errorf("failed to init dashboard log, err: %s", err.Error())
 	}
 	return nil
@@ -111,7 +113,7 @@ func initLog() error {
 
 func initConfig(configFilePath string) error {
 	// InitConfig get config info from configPath
-	data, err := reader.ReadFileWithTimeout(configFilePath)
+	data, err := readFileWithTimeout(configFilePath)
 	if err != nil {
 		log.GetLogger().Errorf("failed to read config, filename: %s, error: %s", configFilePath, err.Error())
 		return err

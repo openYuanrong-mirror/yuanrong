@@ -17,7 +17,7 @@
 #include <actor/actor.hpp>
 #include <async/asyncafter.hpp>
 
-#include "sdk/include/litebus_manager.h"
+#include "src/utility/metrics/sdk/include/litebus_manager.h"
 
 namespace observability::sdk::metrics {
 

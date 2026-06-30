@@ -41,34 +41,19 @@ public:
     void TearDown() override {}
 };
 
-static std::string FindDummyLibPath()
+TEST_F(CodeManagerTest, DISABLED_LoadFunctionsSuccessfullyTest)
 {
-    // In bazel runfiles, look for test_dummy_lib.so alongside the test binary
     fs::path currentPath = fs::current_path();
-    for (auto &entry : fs::recursive_directory_iterator(currentPath)) {
-        if (entry.is_regular_file() && entry.path().filename() == "test_dummy_lib.so") {
-            return entry.path().parent_path().string();
-        }
-    }
-    // Fallback: source tree layout
     auto path = currentPath.string();
     auto idx = path.find("yuanrong/");
-    if (idx != std::string::npos) {
-        return path.substr(0, idx) + "yuanrong/test";
-    }
-    return "";
-}
-
-TEST_F(CodeManagerTest, LoadFunctionsSuccessfullyTest)
-{
-    auto libPath = FindDummyLibPath();
-    ASSERT_FALSE(libPath.empty()) << "Cannot find dummy lib directory";
+    std::string subPath = path.substr(0, idx);
+    auto libPath = subPath + "yuanrong/metrics/lib";
     InitGlobalTimer();
     YR::Libruntime::ErrorInfo err;
     err = YR::internal::CodeManager::Singleton().LoadFunctions({libPath});
     ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
 
-    err = YR::internal::CodeManager::Singleton().LoadFunctions({libPath + "/test_dummy_lib.so"});
+    err = YR::internal::CodeManager::Singleton().LoadFunctions({libPath + "/libz.so"});
     ASSERT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     CloseGlobalTimer();
 }

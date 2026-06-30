@@ -87,6 +87,22 @@ const (
 	defaultSessionCtxIdleTTL     = 5 * time.Second
 )
 
+var instanceQueueAcquireInstanceFunc = func(queue instancequeue.InstanceQueue,
+	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, snerror.SNError) {
+	return queue.AcquireInstance(insAcqReq)
+}
+
+var (
+	onDemandQueueHandleInstanceUpdateFunc = (*instancequeue.OnDemandInstanceQueue).HandleInstanceUpdate
+	onDemandQueueHandleInstanceDeleteFunc = (*instancequeue.OnDemandInstanceQueue).HandleInstanceDelete
+	scaledQueueHandleInstanceUpdateFunc   = (*instancequeue.ScaledInstanceQueue).HandleInstanceUpdate
+	scaledQueueHandleInstanceDeleteFunc   = (*instancequeue.ScaledInstanceQueue).HandleInstanceDelete
+	scaledQueueHandleFaultyInstanceFunc   = (*instancequeue.ScaledInstanceQueue).HandleFaultyInstance
+	scaledQueueHandleInsConfigUpdateFunc  = (*instancequeue.ScaledInstanceQueue).HandleInsConfigUpdate
+	scaledQueueEnableInstanceScaleFunc    = (*instancequeue.ScaledInstanceQueue).EnableInstanceScale
+	scaledQueueDestroyFunc                = (*instancequeue.ScaledInstanceQueue).Destroy
+)
+
 const (
 	invokeTypeEnvName   = "INVOKE_TYPE"
 	invokeTypeEnvValue  = "faas"
@@ -116,6 +132,7 @@ const (
 
 type createOption struct {
 	traceID       string
+	traceParent   string
 	callerPodName string
 	sessionCtxID  *string
 }
@@ -149,6 +166,7 @@ type patSvcCreateResponse struct {
 type createInstanceRequest struct {
 	createEvent     []byte
 	traceID         string
+	traceParent     string
 	instanceName    string
 	callerPodName   string
 	poolLabel       string
@@ -516,7 +534,7 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				logger.Errorf("failed to acquire on-demand instance queue of function, error %s", err.Error())
 				return nil, err
 			}
-			insAlloc, err = onDemandInstanceQueue.AcquireInstance(insAcqReq)
+			insAlloc, err = instanceQueueAcquireInstanceFunc(onDemandInstanceQueue, insAcqReq)
 			return insAlloc, err
 		}
 		if !insAcqReq.TrafficLimited {
@@ -525,7 +543,7 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				logger.Errorf("failed to acquire reserved instance queue of function, error %s", err.Error())
 				return nil, err
 			}
-			insAlloc, err = reservedInstanceQueue.AcquireInstance(insAcqReq)
+			insAlloc, err = instanceQueueAcquireInstanceFunc(reservedInstanceQueue, insAcqReq)
 			if insAlloc != nil {
 				logger.Infof("acquired reserved instance thread %s of function", insAlloc.AllocationID)
 				return insAlloc, nil
@@ -622,10 +640,10 @@ func (gi *GenericInstancePool) acquireInstanceFromScaleQueueWithBackup(resKey re
 		logger.Errorf("failed to acquire scaled instance queue of function, error %s", err.Error())
 		return nil, err
 	}
-	insAlloc, err := scaledInstanceQueue.AcquireInstance(insAcqReq)
+	insAlloc, err := instanceQueueAcquireInstanceFunc(scaledInstanceQueue, insAcqReq)
 	if insAlloc == nil {
 		for _, queue := range backupQueue {
-			insAlloc, err = queue.AcquireInstance(insAcqReq)
+			insAlloc, err = instanceQueueAcquireInstanceFunc(queue, insAcqReq)
 			if insAlloc != nil {
 				logger.Infof("acquired backup instance thread %s of function", insAlloc.AllocationID)
 				return insAlloc, nil
@@ -773,11 +791,11 @@ func (gi *GenericInstancePool) HandleFunctionDeleteEvent() {
 	gi.RLock()
 	if gi.reservedInstanceQueue != nil {
 		for _, queue := range gi.reservedInstanceQueue {
-			queue.Destroy()
+			scaledQueueDestroyFunc(queue)
 		}
 	}
 	for _, queue := range gi.scaledInstanceQueue {
-		queue.Destroy()
+		scaledQueueDestroyFunc(queue)
 	}
 	for _, insThdReqQueue := range gi.insAcqReqQueue {
 		insThdReqQueue.Stop()
@@ -809,11 +827,11 @@ func (gi *GenericInstancePool) HandleFunctionUpdateEvent(funcSpec *types.Functio
 				if queue, exist := gi.reservedInstanceQueue[resKey]; exist {
 					log.GetLogger().Debugf("reservedInstanceQueue for function %s destroy start",
 						gi.FuncSpec.FuncKey)
-					queue.Destroy()
+					scaledQueueDestroyFunc(queue)
 				}
 				reservedInstanceQueueMap[newResKey] = reservedInstanceQueue.(*instancequeue.ScaledInstanceQueue)
-				reservedInstanceQueueMap[newResKey].HandleInsConfigUpdate(configuration)
-				reservedInstanceQueueMap[newResKey].EnableInstanceScale()
+				scaledQueueHandleInsConfigUpdateFunc(reservedInstanceQueueMap[newResKey], configuration)
+				scaledQueueEnableInstanceScaleFunc(reservedInstanceQueueMap[newResKey])
 			}
 		}
 		gi.reservedInstanceQueue = reservedInstanceQueueMap
@@ -898,7 +916,7 @@ func (gi *GenericInstancePool) resetInstanceScheduler(instanceQueue *instanceque
 	}
 	instanceQueue.ReconnectWithScaler()
 	for _, instance := range currentInstance {
-		instanceQueue.HandleInstanceUpdate(instance)
+		scaledQueueHandleInstanceUpdateFunc(instanceQueue, instance)
 	}
 	return nil
 }
@@ -1041,21 +1059,21 @@ func (gi *GenericInstancePool) handleInstanceUpdate(instance *types.Instance, lo
 				logger.Errorf("failed to acquire on-demand instance queue error %s", err.Error())
 				break
 			}
-			onDemandInstanceQueue.HandleInstanceUpdate(instance)
+			onDemandQueueHandleInstanceUpdateFunc(onDemandInstanceQueue, instance)
 		case types.InstanceTypeReserved:
 			reservedInstanceQueue, err := gi.acquireReservedInstanceQueue(instance.ResKey)
 			if err != nil {
 				logger.Errorf("failed to acquire reserved instance queue error %s", err.Error())
 				break
 			}
-			reservedInstanceQueue.HandleInstanceUpdate(instance)
+			scaledQueueHandleInstanceUpdateFunc(reservedInstanceQueue, instance)
 		case types.InstanceTypeScaled:
 			scaledInstanceQueue, err := gi.acquireScaleInstanceQueue(instance.ResKey)
 			if err != nil {
 				logger.Errorf("failed to acquire scaled instance queue error %s", err.Error())
 				break
 			}
-			scaledInstanceQueue.HandleInstanceUpdate(instance)
+			scaledQueueHandleInstanceUpdateFunc(scaledInstanceQueue, instance)
 		case types.InstanceTypeState:
 			gi.stateRoute.HandleInstanceUpdate(instance)
 		default:
@@ -1080,21 +1098,21 @@ func (gi *GenericInstancePool) handleInstanceDelete(instance *types.Instance, lo
 		onDemandInstanceQueue, exist := gi.onDemandInstanceQueue[instance.ResKey]
 		gi.RUnlock()
 		if exist {
-			onDemandInstanceQueue.HandleInstanceDelete(instance)
+			onDemandQueueHandleInstanceDeleteFunc(onDemandInstanceQueue, instance)
 		}
 	case types.InstanceTypeReserved:
 		gi.RLock()
 		reservedInstanceQueue, exist := gi.reservedInstanceQueue[instance.ResKey]
 		gi.RUnlock()
 		if exist {
-			reservedInstanceQueue.HandleInstanceDelete(instance)
+			scaledQueueHandleInstanceDeleteFunc(reservedInstanceQueue, instance)
 		}
 	case types.InstanceTypeScaled:
 		gi.RLock()
 		scaledInstanceQueue, exist := gi.scaledInstanceQueue[instance.ResKey]
 		gi.RUnlock()
 		if exist {
-			scaledInstanceQueue.HandleInstanceDelete(instance)
+			scaledQueueHandleInstanceDeleteFunc(scaledInstanceQueue, instance)
 		}
 	default:
 		logger.Warnf("instance type %s update not implemented", instance.InstanceType)
@@ -1148,7 +1166,7 @@ func (gi *GenericInstancePool) acquireReservedInstanceQueue(resKey resspeckey.Re
 			gi.reservedInstanceQueue[resKey] = insQ.(*instancequeue.ScaledInstanceQueue)
 			instanceQueue = insQ.(*instancequeue.ScaledInstanceQueue)
 			if gi.insConfig[resKey] != nil {
-				instanceQueue.HandleInsConfigUpdate(gi.insConfig[resKey])
+				scaledQueueHandleInsConfigUpdateFunc(instanceQueue, gi.insConfig[resKey])
 			}
 		}
 		snErr = err
@@ -1178,7 +1196,7 @@ func (gi *GenericInstancePool) acquireScaleInstanceQueue(resKey resspeckey.ResSp
 			gi.scaledInstanceQueue[resKey] = insQ.(*instancequeue.ScaledInstanceQueue)
 			instanceQueue = insQ.(*instancequeue.ScaledInstanceQueue)
 			if gi.insConfig[resKey] != nil {
-				instanceQueue.HandleInsConfigUpdate(gi.insConfig[resKey])
+				scaledQueueHandleInsConfigUpdateFunc(instanceQueue, gi.insConfig[resKey])
 			}
 		}
 		snErr = err
@@ -1202,7 +1220,7 @@ func (gi *GenericInstancePool) removeInstance(instance *types.Instance, logger a
 			go DeleteUnexpectInstance(instance.ParentID, instance.InstanceID, instance.FuncKey, logger)
 			break
 		}
-		reservedInstanceQueue.HandleFaultyInstance(instance)
+		scaledQueueHandleFaultyInstanceFunc(reservedInstanceQueue, instance)
 	case types.InstanceTypeScaled:
 		gi.RLock()
 		scaledInstanceQueue, exist := gi.scaledInstanceQueue[instance.ResKey]
@@ -1214,7 +1232,7 @@ func (gi *GenericInstancePool) removeInstance(instance *types.Instance, logger a
 			go DeleteUnexpectInstance(instance.ParentID, instance.InstanceID, instance.FuncKey, logger)
 			break
 		}
-		scaledInstanceQueue.HandleFaultyInstance(instance)
+		scaledQueueHandleFaultyInstanceFunc(scaledInstanceQueue, instance)
 		// todo 以后这里要考虑删除对应的租约
 		gi.stateRoute.DeleteStateInstanceByInstanceID(instance.InstanceID)
 	default:
@@ -1295,8 +1313,8 @@ func (gi *GenericInstancePool) handleInstanceConfigUpdate(insConfig *instancecon
 	resKey resspeckey.ResSpecKey, logger api.FormatLogger) {
 	reservedInstanceQueue, err := gi.acquireReservedInstanceQueue(resKey)
 	if err == nil {
-		reservedInstanceQueue.HandleInsConfigUpdate(insConfig)
-		reservedInstanceQueue.EnableInstanceScale()
+		scaledQueueHandleInsConfigUpdateFunc(reservedInstanceQueue, insConfig)
+		scaledQueueEnableInstanceScaleFunc(reservedInstanceQueue)
 	} else {
 		logger.Errorf("acquire reserved instance queue failed, err %s", err.Error())
 	}
@@ -1305,8 +1323,8 @@ func (gi *GenericInstancePool) handleInstanceConfigUpdate(insConfig *instancecon
 		if scaleResKey.InvokeLabel != resKey.InvokeLabel {
 			continue
 		}
-		queue.HandleInsConfigUpdate(insConfig)
-		queue.EnableInstanceScale()
+		scaledQueueHandleInsConfigUpdateFunc(queue, insConfig)
+		scaledQueueEnableInstanceScaleFunc(queue)
 	}
 	gi.RUnlock()
 }
@@ -1325,10 +1343,10 @@ func (gi *GenericInstancePool) handleInstanceConfigDelete(insConfig *instancecon
 			gi.Lock()
 			delete(gi.reservedInstanceQueue, resKey)
 			gi.Unlock()
-			reservedInstanceQueue.Destroy()
+			scaledQueueDestroyFunc(reservedInstanceQueue)
 		} else {
-			reservedInstanceQueue.HandleInsConfigUpdate(insConfig)
-			reservedInstanceQueue.EnableInstanceScale()
+			scaledQueueHandleInsConfigUpdateFunc(reservedInstanceQueue, insConfig)
+			scaledQueueEnableInstanceScaleFunc(reservedInstanceQueue)
 		}
 	}
 	// labeled instance queue need to be destroyed,  instance queue with no label takes no action, minInstance won't
@@ -1338,7 +1356,7 @@ func (gi *GenericInstancePool) handleInstanceConfigDelete(insConfig *instancecon
 			gi.Lock()
 			delete(gi.scaledInstanceQueue, resKey)
 			gi.Unlock()
-			queue.Destroy()
+			scaledQueueDestroyFunc(queue)
 		}
 	}
 }
@@ -1350,7 +1368,7 @@ func (gi *GenericInstancePool) CleanOrphansInstanceQueue() {
 	for resKey, queue := range gi.reservedInstanceQueue {
 		if _, ok := gi.insConfig[resKey]; !ok && resKey.InvokeLabel != DefaultInstanceLabel {
 			delete(gi.reservedInstanceQueue, resKey)
-			queue.Destroy()
+			scaledQueueDestroyFunc(queue)
 		}
 	}
 	for key, queue := range gi.scaledInstanceQueue {
@@ -1358,7 +1376,7 @@ func (gi *GenericInstancePool) CleanOrphansInstanceQueue() {
 		insConfResKey.InvokeLabel = key.InvokeLabel
 		if _, ok := gi.insConfig[insConfResKey]; !ok {
 			delete(gi.scaledInstanceQueue, key)
-			queue.Destroy()
+			scaledQueueDestroyFunc(queue)
 		}
 	}
 	for key, queue := range gi.onDemandInstanceQueue {
@@ -1487,14 +1505,21 @@ func (gi *GenericInstancePool) checkTenantLimit(instanceType types.InstanceType)
 }
 
 func (gi *GenericInstancePool) createInstanceAndAddCallerPodName(resSpec *resspeckey.ResourceSpecification,
-	instanceType types.InstanceType, callerPodName string) (*types.Instance, error) {
-	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{callerPodName: callerPodName})
+	instanceType types.InstanceType, traceID, traceParent, callerPodName string) (*types.Instance, error) {
+	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{
+		traceID:       traceID,
+		traceParent:   traceParent,
+		callerPodName: callerPodName,
+	})
 }
 
 func (gi *GenericInstancePool) createInstance(traceID string, insName string, instanceType types.InstanceType,
-	resKey resspeckey.ResSpecKey, createEvent []byte, sessionCtxID *string) (*types.Instance, error) {
-	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent,
-		createOption{traceID: traceID, sessionCtxID: sessionCtxID})
+	resKey resspeckey.ResSpecKey, createEvent []byte, traceParent string, sessionCtxID *string) (*types.Instance, error) {
+	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent, createOption{
+		traceID:      traceID,
+		traceParent:  traceParent,
+		sessionCtxID: sessionCtxID,
+	})
 }
 
 func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType types.InstanceType,
@@ -1541,6 +1566,7 @@ func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType t
 
 	createRequest := createInstanceRequest{
 		traceID:         createOption.traceID,
+		traceParent:     createOption.traceParent,
 		funcSpec:        gi.FuncSpec,
 		poolLabel:       gi.currentPoolLabel,
 		createTimeout:   gi.createTimeout,
@@ -1582,7 +1608,7 @@ func (gi *GenericInstancePool) handleManagedChange() {
 	for k, q := range gi.reservedInstanceQueue {
 		q.HandleFuncOwnerChange(gi.recoverFuncCall)
 		if _, ok := gi.insConfig[k]; ok {
-			q.HandleInsConfigUpdate(gi.insConfig[k])
+			scaledQueueHandleInsConfigUpdateFunc(q, gi.insConfig[k])
 		}
 	}
 	gi.Unlock()

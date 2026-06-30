@@ -21,7 +21,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/resspeckey"
@@ -66,19 +65,25 @@ func TestCreateInstanceForFG(t *testing.T) {
 	}
 	convey.Convey("Test createInstanceForFG", t, func() {
 		convey.Convey("create success", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleUpInstance,
-				func(scaleUpParam *workermanager.ScaleUpParam) (*types.WmInstance, error) {
-					return &types.WmInstance{}, nil
-				}).Reset()
+			rawScaleUpInstanceFunc := scaleUpInstanceFunc
+			defer func() {
+				scaleUpInstanceFunc = rawScaleUpInstanceFunc
+			}()
+			scaleUpInstanceFunc = func(scaleUpParam *workermanager.ScaleUpParam) (*types.WmInstance, error) {
+				return &types.WmInstance{}, nil
+			}
 			instance, err := createInstanceForFG(request)
 			convey.So(instance, convey.ShouldNotBeNil)
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("create failed", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleUpInstance,
-				func(scaleUpParam *workermanager.ScaleUpParam) (*types.WmInstance, error) {
-					return nil, errors.New("create failed")
-				}).Reset()
+			rawScaleUpInstanceFunc := scaleUpInstanceFunc
+			defer func() {
+				scaleUpInstanceFunc = rawScaleUpInstanceFunc
+			}()
+			scaleUpInstanceFunc = func(scaleUpParam *workermanager.ScaleUpParam) (*types.WmInstance, error) {
+				return nil, errors.New("create failed")
+			}
 			instance, err := createInstanceForFG(request)
 			convey.So(instance, convey.ShouldBeNil)
 			convey.So(err, convey.ShouldNotBeNil)
@@ -89,18 +94,24 @@ func TestCreateInstanceForFG(t *testing.T) {
 func TestDeleteInstanceForFG(t *testing.T) {
 	convey.Convey("Test deleteInstanceForFG", t, func() {
 		convey.Convey("delete success", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleDownInstance,
-				func(instanceID, functionKey, traceID string) error {
-					return nil
-				}).Reset()
+			rawScaleDownInstanceFunc := scaleDownInstanceFunc
+			defer func() {
+				scaleDownInstanceFunc = rawScaleDownInstanceFunc
+			}()
+			scaleDownInstanceFunc = func(instanceID, functionKey, traceID string) error {
+				return nil
+			}
 			err := deleteInstanceForFG(&types.FunctionSpecification{}, faasManagerInfo{}, &types.Instance{})
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("delete failed", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleDownInstance,
-				func(instanceID, functionKey, traceID string) error {
-					return errors.New("delete failed")
-				}).Reset()
+			rawScaleDownInstanceFunc := scaleDownInstanceFunc
+			defer func() {
+				scaleDownInstanceFunc = rawScaleDownInstanceFunc
+			}()
+			scaleDownInstanceFunc = func(instanceID, functionKey, traceID string) error {
+				return errors.New("delete failed")
+			}
 			err := deleteInstanceForFG(&types.FunctionSpecification{}, faasManagerInfo{}, &types.Instance{})
 			convey.So(err, convey.ShouldNotBeNil)
 		})
@@ -110,18 +121,24 @@ func TestDeleteInstanceForFG(t *testing.T) {
 func TestDeleteInstanceByIDForFG(t *testing.T) {
 	convey.Convey("Test deleteInstanceByIDForFG", t, func() {
 		convey.Convey("delete by id success", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleDownInstance,
-				func(instanceID, functionKey, traceID string) error {
-					return nil
-				}).Reset()
+			rawScaleDownInstanceFunc := scaleDownInstanceFunc
+			defer func() {
+				scaleDownInstanceFunc = rawScaleDownInstanceFunc
+			}()
+			scaleDownInstanceFunc = func(instanceID, functionKey, traceID string) error {
+				return nil
+			}
 			err := deleteInstanceByIDForFG("instance", "testFunc")
 			convey.So(err, convey.ShouldBeNil)
 		})
 		convey.Convey("delete by id failed", func() {
-			defer gomonkey.ApplyFunc(workermanager.ScaleDownInstance,
-				func(instanceID, functionKey, traceID string) error {
-					return errors.New("delete failed")
-				}).Reset()
+			rawScaleDownInstanceFunc := scaleDownInstanceFunc
+			defer func() {
+				scaleDownInstanceFunc = rawScaleDownInstanceFunc
+			}()
+			scaleDownInstanceFunc = func(instanceID, functionKey, traceID string) error {
+				return errors.New("delete failed")
+			}
 			err := deleteInstanceByIDForFG("instance", "testFunc")
 			convey.So(err, convey.ShouldNotBeNil)
 		})

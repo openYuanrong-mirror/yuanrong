@@ -58,7 +58,7 @@ public:
     {
         tw_ = std::make_shared<YR::utility::TimerWorker>();
     }
-    ~InsManager() = default;
+    virtual ~InsManager() = default;
     void DelInsInfo(const std::string &insId, const RequestResource &resource);
     InstanceSummary GetAvailableIns(const RequestResource &resource);
     virtual bool ScaleUp(std::shared_ptr<InvokeSpec> spec, size_t reqNum) = 0;
@@ -149,18 +149,17 @@ protected:
     mutable absl::Mutex insMtx;
     std::atomic<bool> runFlag{true};
     std::shared_ptr<LimiterCsHash> csHash;
-    int totalCreatedInstanceNum_{0} ABSL_GUARDED_BY(createInstanceNumMutex);
-    int totalCreatingInstanceNum_{0} ABSL_GUARDED_BY(createInstanceNumMutex);
+    int totalCreatedInstanceNum_{0};
+    int totalCreatingInstanceNum_{0};
     mutable absl::Mutex createInstanceNumMutex;
-    std::unordered_map<std::string, YR::utility::TimeMeasurement> createCostMap ABSL_GUARDED_BY(createCostMtx);
+    std::unordered_map<std::string, YR::utility::TimeMeasurement> createCostMap;
     mutable absl::Mutex createCostMtx;
-    std::unordered_map<std::string, YR::utility::TimeMeasurement> invokeCostMap ABSL_GUARDED_BY(invokeCostMtx);
+    std::unordered_map<std::string, YR::utility::TimeMeasurement> invokeCostMap;
     mutable absl::Mutex invokeCostMtx;
-    std::unordered_map<RequestResource, std::shared_ptr<RequestResourceInfo>, HashFn> requestResourceInfoMap
-        ABSL_GUARDED_BY(insMtx);
-    std::unordered_map<std::string, RequestResource> globalLeases ABSL_GUARDED_BY(leaseMtx);
-    int64_t tLeaseInterval{DEFAULT_LEASE_INTERVAL} ABSL_GUARDED_BY(leaseMtx);
-    std::shared_ptr<YR::utility::Timer> leaseTimer ABSL_GUARDED_BY(leaseMtx);
+    std::unordered_map<RequestResource, std::shared_ptr<RequestResourceInfo>, HashFn> requestResourceInfoMap;
+    std::unordered_map<std::string, RequestResource> globalLeases;
+    int64_t tLeaseInterval{DEFAULT_LEASE_INTERVAL};
+    std::shared_ptr<YR::utility::Timer> leaseTimer;
     mutable absl::Mutex leaseMtx;
     mutable absl::Mutex schedulerMtx;
     std::shared_ptr<YR::utility::TimerWorker> tw_;

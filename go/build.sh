@@ -24,13 +24,12 @@ Options:
 "
 
 PROJECT_DIR=$(cd "$(dirname "$0")"; pwd)
-# All go commands must run with module root as cwd (go.mod lives under PROJECT_DIR, not repo root).
-cd "${PROJECT_DIR}"
-YR_DATASYSTEM_DIR="${YR_DATASYSTEM_DIR:-${PROJECT_DIR}/../datasystem}"
-DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
 OUTPUT_DIR="${PROJECT_DIR}/output"
 RUNTIME_OUTPUT_DIR="${PROJECT_DIR}/../output"
+YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
 POSIX_DIR="${PROJECT_DIR}/proto/posix"
+YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
+DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
 BUILD_TAGS=""
 VERSION="latest"
 FLAGS='-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"'
@@ -55,31 +54,32 @@ done
 export GO111MODULE=on
 export GONOSUMDB=*
 export CGO_ENABLED=1
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 # resolve missing go.sum entry
-go env -w "GOFLAGS"="-mod=mod"
+# go env -w "GOFLAGS"="-mod=mod"
 
 # download datasystem
 if [ ! -d "${YR_DATASYSTEM_DIR}"/output/sdk/go/stream ]; then
-    if ls "${YR_DATASYSTEM_DIR}"/output/yr-datasystem-*.tar.gz 1>/dev/null 2>&1; then
-        tar --no-same-owner -zxf "${YR_DATASYSTEM_DIR}"/output/yr-datasystem-*.tar.gz --strip-components=1 -C "${YR_DATASYSTEM_DIR}/output"
+    if ls ${YR_DATASYSTEM_DIR}/output/yr-datasystem-*.tar.gz 1>/dev/null 2>&1; then
+        tar --no-same-owner -zxf ${YR_DATASYSTEM_DIR}/output/yr-datasystem-*.tar.gz --strip-components=1 -C "${YR_DATASYSTEM_DIR}/output"
     else
         echo "start to download datasystem"
-        if [ -z "${DATA_SYSTEM_CACHE}" ]; then
-            echo "ERROR: DATA_SYSTEM_CACHE is empty. Export a yr-datasystem tarball URL, or unset it to use the default in build.sh."
-            exit 1
-        fi
         DS_OUT_DIR="${YR_DATASYSTEM_DIR}/output"
         rm -rf "${DS_OUT_DIR}"
         mkdir -p "${DS_OUT_DIR}"
         pushd "${DS_OUT_DIR}"
-        wget -O datasystem.tar.gz "${DATA_SYSTEM_CACHE}"
+        wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
         tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
         popd
     fi
 fi
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}:${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+else
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
+fi
 
 echo "generating fs proto pb objects"
 mkdir -p "${OUTPUT_DIR}"
@@ -106,7 +106,11 @@ cd "${PROJECT_DIR}/pkg/dashboard/client"
 CLIENT_CONFIG_DIR="${PROJECT_DIR}/pkg/dashboard/client/src/config"
 rm -f "${CLIENT_CONFIG_DIR}/config.json"
 cp "${CLIENT_CONFIG_DIR}/config.json.bak" "${CLIENT_CONFIG_DIR}/config.json"
-sed -i "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+else
+    sed -i "s#{version}#${VERSION}#g" "${CLIENT_CONFIG_DIR}/config.json"
+fi
 npm install || die "dashboard client install failed"
 npm run build || die "dashboard client build failed"
 mkdir -p "${OUTPUT_DIR}/bin/client"

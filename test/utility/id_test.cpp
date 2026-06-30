@@ -84,14 +84,19 @@ TEST_F(IdTest, ObjectIdTest)
 
 TEST_F(IdTest, TraceIdTest)
 {
+    // Format: "job-<8hex>-trace-<32hex>", total length = 4+8+7+32 = 51
     auto traceId = IDGenerator::GenTraceId();
-    ASSERT_EQ(traceId.size(), 20);
+    ASSERT_EQ(traceId.size(), 51u);
     ASSERT_EQ(traceId.substr(0, 4), "job-");
-    ASSERT_EQ(traceId.substr(12), "-trace-X");
+    ASSERT_EQ(traceId.substr(12, 7), "-trace-");
+    auto otelPart = traceId.substr(19);
+    ASSERT_EQ(otelPart.size(), 32u);
+    ASSERT_TRUE(otelPart.find_first_not_of("0123456789abcdef") == std::string::npos);
 
     auto appId = IDGenerator::GenApplicationId();
     traceId = IDGenerator::GenTraceId(appId);
     ASSERT_EQ(traceId.substr(4, 8), appId.substr(4));
+    ASSERT_EQ(traceId.size(), 51u);
 }
 
 TEST_F(IdTest, GroupIdTest)

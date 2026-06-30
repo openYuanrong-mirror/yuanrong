@@ -1,0 +1,215 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("//bazel:yr.bzl", "COPTS", "LOPTS")
+
+# Common utilities for metrics
+cc_library(
+    name = "metrics_common",
+    srcs = glob([
+        "common/file/*.cpp",
+    ]),
+    hdrs = glob([
+        "common/include/*.h",
+        "common/file/*.h",
+    ]),
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@spdlog//:spdlog",
+        "@zlib//:zlib",
+        "@nlohmann_json//:nlohmann_json",
+        "//src/utility:yr_utils",
+    ],
+)
+
+# Core metrics library (combines API and SDK)
+cc_library(
+    name = "metrics_core",
+    srcs = glob(
+        [
+            "api/*.cpp",
+            "sdk/*.cpp",
+        ],
+        exclude = [
+            "sdk/litebus_manager.cpp",
+        ],
+    ),
+    hdrs = glob([
+        "api/include/*.h",
+        "sdk/include/*.h",
+        "include/metrics/**/*.h",
+    ]),
+    includes = ["include"],  # Add include/ to include path
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_common",
+        "//src/utility:yr_utils",
+        "@nlohmann_json//:nlohmann_json",
+        "@spdlog//:spdlog",
+    ],
+)
+
+# Common utilities shared across exporters (SSL config, sensitive data)
+cc_library(
+    name = "exporter_common",
+    srcs = glob([
+        "exporters/common/*.cpp",
+    ]),
+    hdrs = glob([
+        "include/metrics/exporters/common/*.h",
+    ]),
+    includes = ["include"],
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        "@nlohmann_json//:nlohmann_json",
+        "//src/utility:yr_utils",
+    ],
+)
+
+# Exporter - OStream
+cc_library(
+    name = "ostream_exporter",
+    srcs = glob([
+        "exporters/ostream/*.cpp",
+    ]),
+    hdrs = glob([
+        "include/metrics/exporters/ostream/*.h",
+    ]),
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        ":metrics_common",
+        "@nlohmann_json//:nlohmann_json",
+    ],
+)
+
+# Exporter - File
+cc_library(
+    name = "file_exporter",
+    srcs = glob(
+        ["exporters/file_exporter/*.cpp"],
+        exclude = ["exporters/file_exporter/factory_impl.cpp"],
+    ),
+    hdrs = glob([
+        "exporters/file_exporter/include/*.h",
+        "include/metrics/exporters/file_exporter/*.h",
+    ]),
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        ":metrics_common",
+        "@spdlog//:spdlog",
+        "@zlib//:zlib",
+        "@nlohmann_json//:nlohmann_json",
+    ],
+)
+
+# Exporter - HTTP (using system libraries for now)
+cc_library(
+    name = "http_exporter",
+    srcs = glob([
+        "exporters/http_exporter/*.cpp",
+    ]),
+    hdrs = glob([
+        "exporters/http_exporter/*.h",
+        "include/metrics/exporters/http_exporter/*.h",
+    ]),
+    copts = COPTS,
+    linkopts = LOPTS + [
+        "-lcurl",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        ":metrics_common",
+        ":exporter_common",
+        "@boringssl//:ssl",
+        "@nlohmann_json//:nlohmann_json",
+        "//src/utility:yr_utils",
+    ],
+)
+
+# Exporter - Prometheus Push (using system libraries for now)
+cc_library(
+    name = "prometheus_push_exporter",
+    srcs = glob(
+        ["exporters/prometheus_push_exporter/*.cpp"],
+        exclude = ["exporters/prometheus_push_exporter/factory_impl.cpp"],
+    ),
+    hdrs = glob([
+        "include/metrics/exporters/prometheus_push_exporter/*.h",
+    ]),
+    copts = COPTS,
+    linkopts = LOPTS + [
+        "-lcurl",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        ":metrics_common",
+        ":exporter_common",
+        ":http_exporter",
+        "@boringssl//:ssl",
+        "@nlohmann_json//:nlohmann_json",
+    ],
+)
+
+# Shared library builds for dlopen use at runtime.
+# factory_impl.cpp defines the plugin entry point ObservabilityMakeFactoryImpl
+# via OBSERVABILITY_DEFINE_PLUGIN_HOOK. It must be compiled directly into the
+# shared library (not through a cc_library dep) to ensure the linker includes it.
+cc_binary(
+    name = "libobservability-metrics-file-exporter.so",
+    srcs = ["exporters/file_exporter/factory_impl.cpp"],
+    linkshared = True,
+    copts = COPTS + ["-fPIC"],
+    visibility = ["//visibility:public"],
+    deps = [":file_exporter"],
+)
+
+cc_binary(
+    name = "libobservability-prometheus-push-exporter.so",
+    srcs = ["exporters/prometheus_push_exporter/factory_impl.cpp"],
+    linkshared = True,
+    copts = COPTS + ["-fPIC"],
+    visibility = ["//visibility:public"],
+    deps = [":prometheus_push_exporter"],
+)
+
+filegroup(
+    name = "shared_exporters",
+    srcs = select({
+        "//:disable_observability": [],
+        "//conditions:default": [
+            ":libobservability-metrics-file-exporter.so",
+            ":libobservability-prometheus-push-exporter.so",
+        ],
+    }),
+    visibility = ["//visibility:public"],
+)
+
+# All exporters combined
+cc_library(
+    name = "all_exporters",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":ostream_exporter",
+        ":file_exporter",
+        ":http_exporter",
+        ":prometheus_push_exporter",
+    ],
+)
+
+# Complete metrics library
+cc_library(
+    name = "metrics",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":metrics_core",
+        ":all_exporters",
+    ],
+)

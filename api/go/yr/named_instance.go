@@ -20,6 +20,7 @@ package yr
 import (
 	"github.com/vmihailenco/msgpack"
 
+	"yuanrong.org/kernel/runtime/libruntime/api"
 	"yuanrong.org/kernel/runtime/libruntime/config"
 )
 
@@ -53,5 +54,6 @@ func (instance *NamedInstance) Function(fn any) *InstanceFunctionHandler {
 
 // Terminate kill instance
 func (instance *NamedInstance) Terminate() error {
-	return GetRuntimeHolder().GetRuntime().Kill(instance.instanceId, config.KillInstance, make([]byte, 0))
+	return GetRuntimeHolder().GetRuntime().Kill(instance.instanceId, config.KillInstance, make([]byte, 0),
+		api.InvokeOptions{})
 }

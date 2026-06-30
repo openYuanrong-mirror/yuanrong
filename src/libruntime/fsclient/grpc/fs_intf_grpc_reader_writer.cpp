@@ -18,6 +18,7 @@
 
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
+#include "src/utility/platform_compat.h"
 
 namespace YR {
 namespace Libruntime {
@@ -215,9 +216,11 @@ void FSIntfGrpcReaderWriter::Init()
 {
     isDirectConnection_ = (dstInstance != FUNCTION_PROXY);
     stop_ = false;
-    worker_ = std::thread([this] { Run(); });
     std::string name = "writer." + dstInstance.substr(dstInstance.size() - 6, 6);
-    pthread_setname_np(worker_.native_handle(), name.c_str());
+    worker_ = std::thread([this, name] {
+        YR_SET_THREAD_NAME_CURRENT(name.c_str());
+        Run();
+    });
 }
 
 void FSIntfGrpcReaderWriter::Stop()
@@ -261,6 +264,7 @@ std::shared_ptr<StreamingMessage> FSIntfGrpcReaderWriter::TransDirectInvokeReque
     callreq->set_iscreate(false);
     *callreq->mutable_args() = std::move(*invokereq->mutable_args());
     *callreq->mutable_createoptions() = std::move(*invokereq->mutable_invokeoptions()->mutable_customtag());
+    callreq->set_bypass_datasystem(invokereq->invokeoptions().bypass_datasystem());
     *callreq->mutable_returnobjectids() = std::move(*invokereq->mutable_returnobjectids());
     callreq->set_senderid(dstInstance);
     return msg;
