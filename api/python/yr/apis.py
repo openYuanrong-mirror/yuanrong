@@ -1470,8 +1470,11 @@ def resources() -> List[dict]:
 
     Examples:
         >>> import yr
-        >>> yr.init()
-        >>>
+        >>> conf = yr.Config(
+        >>>    master_addr_list=["127.0.0.1:8888"]    
+        >>> )
+        >>> yr.init(conf)
+        >>> 
         >>> res = yr.resources()
         >>> print(res)
         [{'id': 'function-agent-192.0.2.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},

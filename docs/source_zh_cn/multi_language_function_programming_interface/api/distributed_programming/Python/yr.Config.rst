@@ -37,6 +37,8 @@ yr.Config
          - 是否启用客户端双向认证，默认 ``False``。
        * - :ref:`function_id <function_id_cf>`
          - 部署的函数 ID，默认通过环境变量 `YRFUNCID` 获取。
+       * - :ref:`in_cluster <in_cluster_cf>`
+         - 若为 ``True``，则在集群客户端中启用 DataSystem；默认值为 ``False``。
        * - :ref:`invoke_timeout <invoke_timeout_cf>`
          - HTTP 客户端读取超时时间（秒），默认 ``900``。
        * - :ref:`is_driver <is_driver_cf>`
@@ -117,6 +119,7 @@ yr.Config
     yr.Config.enable_metrics
     yr.Config.enable_mtls
     yr.Config.function_id
+    yr.Config.in_cluster
     yr.Config.invoke_timeout
     yr.Config.is_driver 
     yr.Config.job_id
