@@ -100,9 +100,7 @@ runtime_launcher:
 	@echo "Generating protobuf files..."
 	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
 	cd functionsystem/runtime-launcher && \
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		api/proto/runtime/v1/runtime_launcher.proto
+	./scripts/generate-proto.sh
 	@echo "Compiling runtime-launcher..."
 	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
 	cd functionsystem/runtime-launcher && \
