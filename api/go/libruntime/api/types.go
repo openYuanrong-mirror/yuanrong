@@ -303,7 +303,7 @@ type SetParam struct {
 	CacheType CacheTypeEnum
 }
 
-// MSetParam structure is used to transfer parameters during the mSetTx operation.
+// MSetParam configures batch write operations. The public mSetTx API that also uses this type is deprecated.
 type MSetParam struct {
 	WriteMode WriteModeEnum
 	TTLSecond uint32
