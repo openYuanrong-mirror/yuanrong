@@ -1365,7 +1365,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
           "kind" : "faas",
           "storageType": "s3",
           "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:30110}"
           }  
@@ -1376,7 +1376,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         
     ```bash 
     META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
-    curl -X POST -i ${META_SERVCICE_ENDPOINT}/serverless/v1/functions \
+    curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/functions \
             -H 'Content-Type: application/json' -H 'x-storage-type: local' \
             -d @create_func.json
         
@@ -1559,7 +1559,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         "timeout": 60,
         "storageType": "s3",
         "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:9000}"
         }
@@ -1579,7 +1579,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     结果返回格式如下，记录 `functionVersionUrn` 字段的值用于调用，这里对应 `sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest`
 
     ```bash
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","createTime":"2025-05-20 03:43:19.117 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo","name":"0@myService@cpp-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","revisionId":"20250520034319117","codeSize":0,"codeSha256":"","bucketId":"mys3/demo-bucket","objectId":"demo.zip","handler":"demo","layers":null,"cpu":600,"memory":512,"runtime":"posix-custom-runtime","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 03:43:19.117 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","createTime":"2025-05-20 03:43:19.117 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo","name":"0@myService@cpp-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","revisionId":"20250520034319117","codeSize":0,"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"demo","layers":null,"cpu":600,"memory":512,"runtime":"posix-custom-runtime","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 03:43:19.117 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：
@@ -1830,7 +1830,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         "timeout": 60,
         "storageType": "s3",
         "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:9000}"
         }
@@ -1848,7 +1848,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     结果返回格式如下，记录 `functionVersionUrn` 字段的值用    于调用，这里对应 `sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest`
 
     ```bash
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"mys3/demo-bucket","objectId":"demo.zip","handler":"org.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"org.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：

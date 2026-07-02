@@ -11,6 +11,7 @@
    metrics/index
    trace_optimization
    traces
+   distributed_stack
 ```
 
 可观察性是指用户通过各种外部输出（例如日志、指标、事件等）观察和推断 openYuanrong 应用程序和 openYuanrong 集群的内部状态的能力。openYuanrong 通过提供可观测性能力帮助用户轻松监控和调试 openYuanrong 应用程序和集群。
@@ -31,3 +32,4 @@
 
 - [调用链](./traces.md)
 - [Trace 全链路优化说明](./trace_optimization.md)
+- [分布式融合调用栈](./distributed_stack.md)

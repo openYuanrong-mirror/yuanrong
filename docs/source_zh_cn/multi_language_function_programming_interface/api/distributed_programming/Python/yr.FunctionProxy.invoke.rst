@@ -1,3 +1,5 @@
+.. _invoke_fp:
+
 yr.FunctionProxy.invoke
 =======================================
 

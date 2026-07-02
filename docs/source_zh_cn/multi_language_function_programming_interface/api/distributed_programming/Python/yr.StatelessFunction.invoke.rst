@@ -1,3 +1,5 @@
+.. _invoke_sf:
+
 yr.StatelessFunction.invoke
 ==========================
 
