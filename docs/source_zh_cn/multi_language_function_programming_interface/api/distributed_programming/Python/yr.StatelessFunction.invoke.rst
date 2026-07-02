@@ -1,7 +1,7 @@
 .. _invoke_sf:
 
 yr.StatelessFunction.invoke
-==========================
+-------------------------------
 
 .. currentmodule:: yr
 
@@ -56,8 +56,8 @@ yr.StatelessFunction.invoke
 
        yr.finalize()
 
-   .. seealso:: 
-      
+   .. seealso::
+
       - :py:func:`yr.invoke` - 创建无状态函数装饰器
       - :py:func:`yr.get` - 获取远程执行结果
       - :py:class:`ObjectRef` - 远程对象引用

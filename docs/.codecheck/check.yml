@@ -7,9 +7,3 @@ steps:
 tool_params:
   secsolar:
     source_dir: ./
-    exclude_paths:
-      - test/smoke/
-      - test/libruntime/
-      - docs/
-      - api/python/yr/tests/
-      - src/libruntime/gwclient/
