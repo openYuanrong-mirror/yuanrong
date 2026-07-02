@@ -135,11 +135,11 @@
     set(CMAKE_CXX_FLAGS "-pthread")
     set(BUILD_SHARED_LIBS ON)
 
-    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 安装路径，可通过 yr version 命令查看
-    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr/inner")
-    link_directories(${YR_INSTALL_PATH}/runtime/sdk/cpp/lib)
+    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径
+    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr")
+    link_directories(${YR_INSTALL_PATH}/cpp/lib)
     include_directories(
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include
+        ${YR_INSTALL_PATH}/cpp/include
     )
 
     # 生成可执行文件 example，修改 example.cpp 为您对应的源码文件
@@ -522,11 +522,11 @@
     set(CMAKE_CXX_FLAGS "-pthread")
     set(BUILD_SHARED_LIBS ON)
 
-    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 安装路径，可通过 yr version 命令查看
-    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr/inner")
-    link_directories(${YR_INSTALL_PATH}/runtime/sdk/cpp/lib)
+    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径
+    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr")
+    link_directories(${YR_INSTALL_PATH}/cpp/lib)
     include_directories(
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include
+        ${YR_INSTALL_PATH}/cpp/include
     )
 
     # 生成可执行文件 example，修改 example.cpp 为您对应的源码文件
@@ -767,7 +767,23 @@
 
 ### 在主机集群中运行函数服务
 
-参考[配置支持函数服务](deploy-processes-config-support-faas)确保您部署的 openYuanrong 集群支持运行函数服务。在所有节点创建相同的代码包目录，例如 `/opt/mycode/service`，用于存放构建生成的可执行函数代码。
+默认配置部署只支持运行无状态函数和有状态函数，参考以下命令可增加支持函数服务。
+
+首先部署主节点：
+
+```bash
+yr start --master \
+-s 'mode.master.frontend=true' -s 'mode.master.function_scheduler=true' -s 'mode.master.meta_service=true'
+```
+
+部署从节点：
+
+```bash
+# 替换 {http_scheme}、{function_master_ip} 和 {function_master_port} 为成功部署主节点时输出的对应信息
+yr start --master_address {http_scheme}://{function_master_ip}:{function_master_port}
+```
+
+在所有节点创建相同的代码包目录，例如 `/opt/mycode/service`，用于存放构建生成的可执行函数代码。
 
 :::::{tab-set}
 ::::{tab-item} Python
@@ -930,7 +946,7 @@
     ```
 
     :::
-    :::{dropdown} CMakeLists.txt 文件内容，**需对应修改 YR_INSTALL_PATH 为您的openYuanrong安装路径**
+    :::{dropdown} CMakeLists.txt 文件内容，**需对应修改 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径**
     :chevron: down-up
     :icon: chevron-down
 
@@ -942,12 +958,12 @@
     set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set(BINARY_DIR ${SOURCE_DIR}/build)
 
-    # 替换 YR_INSTALL_PATH 的值为openYuanrong安装路径，可通过 yr version 命令查看
-    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr/inner")
-    link_directories(${YR_INSTALL_PATH}/runtime/sdk/cpp/lib)
+    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径
+    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr")
+    link_directories(${YR_INSTALL_PATH}/cpp/lib)
     include_directories(
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include/faas
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include
+        ${YR_INSTALL_PATH}/cpp/include/faas
+        ${YR_INSTALL_PATH}/cpp/include
     )
 
     add_executable(demo demo.cpp)
@@ -1209,7 +1225,7 @@
     mvn clean package
     ```
 
-    成功构建将在 `service-java-demo/target` 目录下生成压缩包 `demo.zip` ，拷贝文件到所有节点的代码包目录下并使用命令 `unzip demo.zip` 解压。
+    成功构建将在 `service-java-demo/target` 目录下生成压缩包 `demo.zip` ，拷贝文件到所有节点的代码包目录下并且使用命令 `unzip demo.zip` 解压。
 
 3. 函数注册及调用
 
@@ -1281,16 +1297,16 @@ K8s 中运行函数服务需要先创建资源池，如果您在部署 openYuanr
     ]
 }
 ```
-    
+
 使用 curl 工具创建资源池，参数含义详见[API 说明](../../deploy/deploy_on_k8s/api/create_pod_pool.md)：
 
 ```bash
 META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
 curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type: application/json' -d @create_pool.json
 ```
-    
+
 返回结果格式如下。
-    
+
 ```json
 {
   "code":0,
@@ -1299,7 +1315,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     "failed_pools": null
   }
 }
-``` 
+```
 
 :::::{tab-set}
 ::::{tab-item} Python
@@ -1326,23 +1342,22 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         except Exception as e:
             print(e)
             response = "please enter your name,for example:{'name':'yuanrong'}"
-    
+
         return response
 
     # 函数初始化入口，函数实例启动时执行一次
     def init(context):
         print("function instance initialization completed")
-    
+
     # 函数退出入口，函数实例被销毁时执行一次
     def pre_stop():
-        print("function instance is being destroyed")    
+        print("function instance is being destroyed")
     ```
 
-    打包成demo.zip 并使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
-        
+    打包成demo.zip并且使用[MinIO Client](tools-minio-client)上传代码包到 openYuanrong 集群中的 MinIO 服务 。
+
     ```bash
     zip demo.zip demo.py
-    # 上传到s3上面
     mc mb mys3/demo-bucket
     mc cp ./demo.zip mys3/demo-bucket/demo.zip
     ```
@@ -1365,31 +1380,31 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
           "kind" : "faas",
           "storageType": "s3",
           "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:30110}"
-          }  
+          }
      }
     ```
-     
+
     通过 curl 工具注册函数，参数含义详见 [API 说明](../api/function_service/register_function.md)：
-        
-    ```bash 
+
+    ```bash
     META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
-    curl -X POST -i ${META_SERVCICE_ENDPOINT}/serverless/v1/functions \
+    curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/functions \
             -H 'Content-Type: application/json' -H 'x-storage-type: local' \
             -d @create_func.json
-        
+
     ```
-        
+
     结果格式如下， 记录 ` functionVersionUrn ` 字段的值用于调用， 这里对应 ` sn:cn:yrk:default:function:0@myService@python-demo:latest `
-        
+
     ```json
     {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:default:function:0@myService@python-demo:latest","createTime":"2026-01-20 01:57:36.938 UTC","updateTime":"","functionUrn":"sn:cn:yrk:default:function:0@myService@python-demo","name":"0@myService@python-demo","tenantId":"default","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:default:function:0@myService@python-demo:latest","revisionId":"20260120015736938","codeSize":0,"extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"demo.handler","layers":null,"cpu":600,"memory":512,"runtime":"python3.11","timeout":30,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2016-01-20 01:57:36.936 UTC","minInstance":1,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
-    使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)： 
-    
+    使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：
+
     ```bash
     FRONTEND_ENDPOINT=<frontend 组件的终端节点，默认为：http://{主节点 ip}:8888`>
     #设置 functionVersionUrn 环境变量，根据之前创建函数返回的functionVersionUrn
@@ -1397,7 +1412,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
          -i ${FRONTEND_ENDPOINT}/serverless/v1/functions/${functionVersionUrn}/invocations \
          -d {\"name\":\"openyuanrong\"}
     ```
-    
+
     结果输出: "hello yuanrong,today is 2026-01-20"
 
 ::::
@@ -1484,7 +1499,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     ```
 
     :::
-    :::{dropdown} CMakeLists.txt 文件内容，**需对应修改 YR_INSTALL_PATH 为您的openYuanrong安装路径**
+    :::{dropdown} CMakeLists.txt 文件内容，**需对应修改 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径**
     :chevron: down-up
     :icon: chevron-down
 
@@ -1496,12 +1511,12 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     set(SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set(BINARY_DIR ${SOURCE_DIR}/build)
 
-    # 替换 YR_INSTALL_PATH 的值为openYuanrong安装路径，可通过 yr version 命令查看
-    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr/inner")
-    link_directories(${YR_INSTALL_PATH}/runtime/sdk/cpp/lib)
+    # 替换 YR_INSTALL_PATH 的值为 openYuanrong 实际安装路径
+    set(YR_INSTALL_PATH "/usr/local/lib/python3.9/site-packages/yr")
+    link_directories(${YR_INSTALL_PATH}/cpp/lib)
     include_directories(
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include/faas
-        ${YR_INSTALL_PATH}/runtime/sdk/cpp/include
+        ${YR_INSTALL_PATH}/cpp/include/faas
+        ${YR_INSTALL_PATH}/cpp/include
     )
 
     add_executable(demo demo.cpp)
@@ -1532,11 +1547,10 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     make
     ```
 
-    成功构建将在该目录下生成二进制文件 `demo` ，打包成demo.zip 并使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
-        
+    成功构建将在该目录下生成二进制文件 `demo` ，打包成demo.zip 并且使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
+
     ```bash
     zip demo.zip demo
-    # 上传到s3上面
     mc mb mys3/demo-bucket
     mc cp ./demo.zip mys3/demo-bucket/demo.zip
     ```
@@ -1559,11 +1573,11 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         "timeout": 60,
         "storageType": "s3",
         "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:9000}"
         }
-    }   
+    }
     ```
 
     使用 curl 工具注册函数，参数含义详见 [API 说明](../api/function_service/register_function.md)：
@@ -1576,10 +1590,10 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
          -d @create_func.json
     ```
 
-    结果返回格式如下，记录 `functionVersionUrn` 字段的值用于调用，这里对应 `sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest`
+    结果返回格式如下，记录 `functionVersionUrn` 字段的值用于调用，这里对应 `sn:cn:yrk:default:function:0@myService@cpp-demo:latest`
 
     ```bash
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","createTime":"2025-05-20 03:43:19.117 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo","name":"0@myService@cpp-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@cpp-demo:latest","revisionId":"20250520034319117","codeSize":0,"codeSha256":"","bucketId":"mys3/demo-bucket","objectId":"demo.zip","handler":"demo","layers":null,"cpu":600,"memory":512,"runtime":"posix-custom-runtime","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 03:43:19.117 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:default:function:0@myService@cpp-demo:latest","createTime":"2025-05-20 03:43:19.117 UTC","updateTime":"","functionUrn":"sn:cn:yrk:default:function:0@myService@cpp-demo","name":"0@myService@cpp-demo","tenantId":"default","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:default:function:0@myService@cpp-demo:latest","revisionId":"20250520034319117","codeSize":0,"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"demo","layers":null,"cpu":600,"memory":512,"runtime":"posix-custom-runtime","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 03:43:19.117 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：
@@ -1796,10 +1810,9 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     mvn clean package
     ```
 
-    成功构建将在 `service-java-demo/target` 目录下生成压缩包 `demo.zip` ，并使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
-        
+    成功构建将在 `service-java-demo/target` 目录下生成压缩包 `demo.zip` ，并且使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
+
     ```bash
-    # 上传到s3上面
     mc mb mys3/demo-bucket
     mc cp ./demo.zip mys3/demo-bucket/demo.zip
     ```
@@ -1830,7 +1843,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         "timeout": 60,
         "storageType": "s3",
         "s3CodePath": {
-            "bucketId": "mys3/demo-bucket",
+            "bucketId": "demo-bucket",
             "objectId": "demo.zip",
             "bucketUrl": "http://{Your MinIO Address:9000}"
         }
@@ -1845,10 +1858,10 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
          -d @create_func.json
     ```
 
-    结果返回格式如下，记录 `functionVersionUrn` 字段的值用    于调用，这里对应 `sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest`
+    结果返回格式如下，记录 `functionVersionUrn` 字段的值用    于调用，这里对应 `sn:cn:yrk:default:function:0@myService@java-demo:latest`
 
     ```bash
-    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"mys3/demo-bucket","objectId":"demo.zip","handler":"org.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:default:function:0@myService@java-demo:latest","createTime":"2025-05-20 06:26:42.396 UTC","updateTime":"","functionUrn":"sn:cn:yrk:default:function:0@myService@java-demo","name":"0@myService@java-demo","tenantId":"default","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:default:function:0@myService@java-demo:latest","revisionId":"20250520062642396","codeSize":0,"codeSha256":"","bucketId":"demo-bucket","objectId":"demo.zip","handler":"org.yuanrong.demo.Demo::handler","layers":null,"cpu":600,"memory":512,"runtime":"java8","timeout":60,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2025-05-20 06:26:42.396 UTC","minInstance":0,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
     ```
 
     使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)：
