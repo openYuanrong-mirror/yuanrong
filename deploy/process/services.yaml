@@ -30,7 +30,7 @@
       #   mountpoint: /var/task/code
       # bootstrap:
       #   type: path
-      #   root: "/home/wyc/code/openyuanrong/example/makeimage/__yuanrong"
+      #   root: "/path/to/openyuanrong/example/makeimage/__yuanrong"
       #   entrypoint: "sh /home/entryfile.sh"
     py310:
       cpu: 0

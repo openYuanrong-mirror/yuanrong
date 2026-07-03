@@ -86,7 +86,7 @@
 - [ ] **Step 1: 查看现有配置加载方式**
 
 ```bash
-find /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy -name "*.h" | xargs grep -l "config\|Config" | head -5
+find /path/to/yuanrong-functionsystem/functionsystem/src/function_proxy -name "*.h" | xargs grep -l "config\|Config" | head -5
 # 找到现有配置类，复用其加载模式（JSON config, env var, 或 CLI flag）
 
 ```
@@ -132,7 +132,7 @@ YRLOG_INFO("DirectRouting feature flag: {}", enableDirectRouting);
 - [ ] **Step 4: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
@@ -159,7 +159,7 @@ git commit --signoff -m "feat(config): add enable_direct_routing feature flag fo
 - [ ] **Step 1: Cherry-pick LRU commit**
 
 ```bash
-cd /Users/robbluo/code/yuanrong-functionsystem
+cd /path/to/yuanrong-functionsystem
 git log remotes/robb/001-generic-lru-module --oneline | head -5
 # 找到 LRU 相关 commit hash（通常是最新的那个）
 git cherry-pick <lru-commit-hash>
@@ -177,7 +177,7 @@ ls functionsystem/src/common/lru/
 - [ ] **Step 3: 运行 LRU 单元测试**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s LruCacheTest"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh test -s LruCacheTest"
 
 ```
 
@@ -211,7 +211,7 @@ git commit --signoff -m "feat(common): merge LRU cache module from feature branc
 
 ```bash
 grep -n "readyinstance\|readyInstance\|mutable_readyinstance" \
-  /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp | head -10
+  /path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp | head -10
 
 ```
 
@@ -259,7 +259,7 @@ if (result.has_readyinstance() && !result.readyinstance().proxygRPCaddress().emp
 - [ ] **Step 5: 重新生成 runtime_service proto stubs（手动）**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && \
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && \
   protoc --cpp_out=functionsystem/src/common/proto/pb/posix \
          --grpc_out=functionsystem/src/common/proto/pb/posix \
          --plugin=protoc-gen-grpc=$(which grpc_cpp_plugin) \
@@ -272,7 +272,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 
 ```bash
 # Find ALL runtime_service.proto copies across all repos
-find /Users/robbluo/code/yuanrong /Users/robbluo/code/yuanrong-functionsystem \
+find /path/to/yuanrong /path/to/yuanrong-functionsystem \
   -name "runtime_service.proto" 2>/dev/null
 
 ```
@@ -287,7 +287,7 @@ find /Users/robbluo/code/yuanrong /Users/robbluo/code/yuanrong-functionsystem \
 - [ ] **Step 6: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
@@ -355,7 +355,7 @@ grep -n "GetInstanceRouterInfo\|GetRouterInfo\|proxyGrpcAddress" \
 - [ ] **Step 4: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
@@ -417,7 +417,7 @@ void TransToRouteInfoFromInstanceInfo(const InstanceInfo &instanceInfo, resource
 
 ```bash
 grep -n "proxyGrpcAddress\|proxygRPCaddress\|functionproxyid" \
-  /Users/robbluo/code/yuanrong-functionsystem/proto/posix/resource.proto
+  /path/to/yuanrong-functionsystem/proto/posix/resource.proto
 
 ```
 
@@ -479,7 +479,7 @@ git commit --signoff -m "feat(metadata): include proxyGrpcAddress in RouteInfo f
 
 ```bash
 grep -n "static TxnOperation\|PutOption\|Create.*PutOption\|CreatePut\|Put(" \
-  /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/meta_store/client/cpp/include/meta_store_client/txn_transaction.h
+  /path/to/yuanrong-functionsystem/functionsystem/src/meta_store/client/cpp/include/meta_store_client/txn_transaction.h
 
 ```
 
@@ -507,7 +507,7 @@ txn.Then(/* PUT_API_FROM_STEP_5A */ (instanceStateKey, SerializeState(newTermina
 - [ ] **Step 6: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
@@ -536,7 +536,7 @@ git commit --signoff -m "feat(instance_control): use TXN CAS for route/state wri
 - [ ] **Step 1: 阅读当前 DataPlaneObserver 接口**
 
 ```bash
-cat /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy/common/observer/data_plane_observer/data_plane_observer.h
+cat /path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/common/observer/data_plane_observer/data_plane_observer.h
 
 ```
 
@@ -575,7 +575,7 @@ MOCK_METHOD(litebus::Future<std::shared_ptr<resources::RouteInfo>>,
 - [ ] **Step 5: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
@@ -642,7 +642,7 @@ TEST_F(InstanceProxyTest, FallbackToObserverWhenLRUCacheMiss) {
 - [ ] **Step 3: 运行测试确认失败**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
 
 ```
 
@@ -755,7 +755,7 @@ void InstanceProxy::OnForwardResult(
 - [ ] **Step 7: 运行测试确认通过**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
 
 ```
 
@@ -910,14 +910,14 @@ void OnNodeAbnormal(const std::string &nodeID);
 - [ ] **Step 6: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"
 
 ```
 
 - [ ] **Step 5: 运行全量测试**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4"
 
 ```
 
@@ -939,14 +939,14 @@ git commit --signoff -m "feat(observer): add QueryInstanceRoute on-demand query,
 
 **Files:**
 
-- Modify: `/Users/robbluo/code/yuanrong/api/go/faassdk/runtime.go`
-- Modify: `/Users/robbluo/code/yuanrong/api/go/libruntime/api/types.go`
+- Modify: `/path/to/yuanrong/api/go/faassdk/runtime.go`
+- Modify: `/path/to/yuanrong/api/go/libruntime/api/types.go`
 
 - [ ] **Step 1: 阅读 faassdk/runtime.go 的 CreateInstance 和 Invoke 逻辑**
 
 ```bash
 grep -n "CreateInstance\|GetAsync\|routeInfo\|YR_ROUTE" \
-  /Users/robbluo/code/yuanrong/api/go/faassdk/runtime.go | head -30
+  /path/to/yuanrong/api/go/faassdk/runtime.go | head -30
 
 ```
 
@@ -1013,14 +1013,14 @@ func (s *SDK) invokeInstance(instanceID string, opts InvokeOptions) error {
 - [ ] **Step 6: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go build ./..."
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/api/go && go build ./..."
 
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/robbluo/code/yuanrong
+cd /path/to/yuanrong
 git add api/go/faassdk/runtime.go api/go/libruntime/api/types.go
 git commit --signoff -m "feat(faassdk): cache route from CreateInstance response, pass YR_ROUTE in invoke"
 
@@ -1031,26 +1031,26 @@ git commit --signoff -m "feat(faassdk): cache route from CreateInstance response
 > **Breaking Change 调用方清单**（修改签名前必须找到所有调用方并同步更新）：
 >
 > ```bash
-> grep -rn "\.Kill(" /Users/robbluo/code/yuanrong/api/go \
->   /Users/robbluo/code/yuanrong/go \
->   /Users/robbluo/code/yuanrong-frontend/pkg --include="*.go" | grep -v "_test.go" | grep -v "mock"
+> grep -rn "\.Kill(" /path/to/yuanrong/api/go \
+>   /path/to/yuanrong/go \
+>   /path/to/yuanrong-frontend/pkg --include="*.go" | grep -v "_test.go" | grep -v "mock"
 > # 预期找到：api.go接口定义、clibruntime.go binding、faassdk wrapper、instance_operation_kernel.go
 > # 如有 frontend 调用也需同步更新
 > ```
 
 **Files:**
 
-- Modify: `/Users/robbluo/code/yuanrong/api/go/libruntime/api/api.go`
-- Modify: `/Users/robbluo/code/yuanrong/api/go/faassdk/runtime.go`
-- Modify: `/Users/robbluo/code/yuanrong/go/pkg/functionscaler/instance_operation_kernel.go`
+- Modify: `/path/to/yuanrong/api/go/libruntime/api/api.go`
+- Modify: `/path/to/yuanrong/api/go/faassdk/runtime.go`
+- Modify: `/path/to/yuanrong/go/pkg/functionscaler/instance_operation_kernel.go`
 - Update: All other callers found by the inventory grep above
 
 - [ ] **Step 1: 先执行调用方清单搜索，列出所有需要更新的文件**
 
 ```bash
-grep -rn "\.Kill(" /Users/robbluo/code/yuanrong/api/go \
-  /Users/robbluo/code/yuanrong/go \
-  /Users/robbluo/code/yuanrong-frontend/pkg --include="*.go" | grep -v "_test.go" | grep -v "mock"
+grep -rn "\.Kill(" /path/to/yuanrong/api/go \
+  /path/to/yuanrong/go \
+  /path/to/yuanrong-frontend/pkg --include="*.go" | grep -v "_test.go" | grep -v "mock"
 
 ```
 
@@ -1099,14 +1099,14 @@ func killInstanceAndIgnoreNotFoundError(instanceId string) error {
 - [ ] **Step 5: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && bash build.sh"
 
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/robbluo/code/yuanrong
+cd /path/to/yuanrong
 git add api/go/libruntime/api/api.go api/go/faassdk/runtime.go go/pkg/functionscaler/
 git commit --signoff -m "feat(sdk): add route parameter to Kill path, clean route cache on kill"
 
@@ -1124,15 +1124,15 @@ git commit --signoff -m "feat(sdk): add route parameter to Kill path, clean rout
 
 **Files:**
 
-- Modify: `/Users/robbluo/code/yuanrong/go/pkg/common/faas_common/types/lease.go`
-- Modify: `/Users/robbluo/code/yuanrong/go/pkg/functionscaler/faasscheduler.go`
+- Modify: `/path/to/yuanrong/go/pkg/common/faas_common/types/lease.go`
+- Modify: `/path/to/yuanrong/go/pkg/functionscaler/faasscheduler.go`
 
 - [ ] **Step 1: 验证 InstanceSpecification.FunctionProxyID 已被填充**
 
 ```bash
 grep -n "FunctionProxyID\|functionProxyID" \
-  /Users/robbluo/code/yuanrong/go/pkg/functionscaler/types/types.go \
-  /Users/robbluo/code/yuanrong/go/pkg/functionscaler/instancepool/instancepool.go | head -20
+  /path/to/yuanrong/go/pkg/functionscaler/types/types.go \
+  /path/to/yuanrong/go/pkg/functionscaler/instancepool/instancepool.go | head -20
 # 期望：FunctionProxyID 已在 Instance 对象中，从 etcd/registry 读取后填充
 
 ```
@@ -1141,7 +1141,7 @@ grep -n "FunctionProxyID\|functionProxyID" \
 
 ```bash
 grep -n "FunctionProxyID\|functionProxyID" \
-  /Users/robbluo/code/yuanrong/go/pkg/functionscaler/instancepool/*.go | head -20
+  /path/to/yuanrong/go/pkg/functionscaler/instancepool/*.go | head -20
 # 如果 CreateInstance 后返回的 Instance 对象已有 FunctionProxyID（从 registry 读取），
 # 则跳过 notifyresult 路由解析步骤，直接使用
 
@@ -1205,14 +1205,14 @@ if insAlloc.Instance.FunctionProxyID == "" && notifyResult != nil {
 - [ ] **Step 5: 编译验证**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && bash build.sh"
 
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/robbluo/code/yuanrong
+cd /path/to/yuanrong
 git add go/pkg/common/faas_common/types/lease.go go/pkg/functionscaler/
 git commit --signoff -m "feat(faasscheduler): propagate FunctionProxyID from notifyresult to lease response"
 
@@ -1226,8 +1226,8 @@ git commit --signoff -m "feat(faasscheduler): propagate FunctionProxyID from not
 
 **Files:**
 
-- Modify: `/Users/robbluo/code/yuanrong-frontend/pkg/frontend/common/util/client.go`
-- Modify: `/Users/robbluo/code/yuanrong-frontend/pkg/frontend/invocation/function_invoke_for_kernel.go`
+- Modify: `/path/to/yuanrong-frontend/pkg/frontend/common/util/client.go`
+- Modify: `/path/to/yuanrong-frontend/pkg/frontend/invocation/function_invoke_for_kernel.go`
 
 - [ ] **Step 1: InvokeRequest 添加 RouteAddress 字段**
 
@@ -1262,7 +1262,7 @@ func TestConvert_PopulatesRouteFromLease(t *testing.T) {
 - [ ] **Step 3: 运行测试确认失败**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
 
 ```
 
@@ -1308,21 +1308,21 @@ if request.RouteAddress != "" {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
 
 ```
 
 - [ ] **Step 7: 编译 frontend**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && bash build.sh"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-frontend && bash build.sh"
 
 ```
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/robbluo/code/yuanrong-frontend
+cd /path/to/yuanrong-frontend
 git add pkg/frontend/common/util/client.go pkg/frontend/invocation/
 git commit --signoff -m "feat(frontend): pass FunctionProxyID as YR_ROUTE in invoke for direct routing"
 
@@ -1337,28 +1337,28 @@ git commit --signoff -m "feat(frontend): pass FunctionProxyID as YR_ROUTE in inv
 - [ ] **Step 1: 编译 functionsystem**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4 && bash run.sh pack"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4 && bash run.sh pack"
 
 ```
 
 - [ ] **Step 2: 运行 functionsystem 全量测试**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4"
 
 ```
 
 - [ ] **Step 3: 编译 yuanrong faas 组件（Go）**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && bash build.sh"
 
 ```
 
 - [ ] **Step 4: 编译 frontend**
 
 ```bash
-docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && bash build.sh"
+docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-frontend && bash build.sh"
 
 ```
 
