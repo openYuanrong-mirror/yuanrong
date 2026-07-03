@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 print_logger = logging.getLogger("print")
 print_logger.setLevel(logging.INFO)
 print_logger.propagate = False
-handler = logging.StreamHandler()
+handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(message)s"))
 print_logger.addHandler(handler)
 

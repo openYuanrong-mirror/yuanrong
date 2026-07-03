@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+# coding=UTF-8
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import importlib.util
+import io
+import logging
+from pathlib import Path
+import sys
+import types
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
+import unittest
+
+
+class TestCliMain(unittest.TestCase):
+    def load_cli_main_with_stubbed_deps(self):
+        main_path = Path(__file__).resolve().parents[1] / "cli" / "main.py"
+        spec = importlib.util.spec_from_file_location("yr_cli_main_for_test", main_path)
+        module = importlib.util.module_from_spec(spec)
+
+        fake_yr = types.ModuleType("yr")
+        fake_yr_cli = types.ModuleType("yr.cli")
+        fake_config = types.ModuleType("yr.cli.config")
+        fake_config.ConfigResolver = object
+
+        fake_const = types.ModuleType("yr.cli.const")
+        fake_const.DEFAULT_CONFIG_PATH = "/tmp/config.toml"
+        fake_const.DEFAULT_CONFIG_TEMPLATE_PATH = "config.toml.jinja"
+        fake_const.DEFAULT_VALUES_TOML = "values.toml"
+        fake_const.SESSION_JSON_PATH = "/tmp/session.json"
+        fake_const.StartMode = types.SimpleNamespace(
+            MASTER=types.SimpleNamespace(value="master"),
+            AGENT=types.SimpleNamespace(value="agent"),
+        )
+
+        fake_launcher = types.ModuleType("yr.cli.system_launcher")
+        fake_launcher.SystemLauncher = object
+
+        fake_checkpoint = types.ModuleType("yr.cli.checkpoint")
+        fake_checkpoint.CheckpointClient = object
+
+        def get_frontend_address_from_session(session_path):
+            return None
+
+        fake_checkpoint.get_frontend_address_from_session = get_frontend_address_from_session
+
+        # The module creates a named logger at import time. Keep tests isolated
+        # from handlers left by previous imports.
+        print_logger = logging.getLogger("print")
+        print_logger.handlers.clear()
+
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "yr": fake_yr,
+                "yr.cli": fake_yr_cli,
+                "yr.cli.config": fake_config,
+                "yr.cli.const": fake_const,
+                "yr.cli.system_launcher": fake_launcher,
+                "yr.cli.checkpoint": fake_checkpoint,
+            },
+        ):
+            spec.loader.exec_module(module)
+        return module
+
+    def test_user_visible_print_logger_writes_to_stdout(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        print_logger = logging.getLogger("print")
+        old_handlers = list(print_logger.handlers)
+        old_propagate = print_logger.propagate
+
+        try:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                main = self.load_cli_main_with_stubbed_deps()
+                main.print_logger.info("visible output")
+        finally:
+            for handler in print_logger.handlers:
+                if handler not in old_handlers:
+                    handler.close()
+            print_logger.handlers = old_handlers
+            print_logger.propagate = old_propagate
+
+        self.assertEqual(stdout.getvalue(), "visible output\n")
+        self.assertEqual(stderr.getvalue(), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
