@@ -41,14 +41,14 @@ All builds depend on the `compile` container. It is defined in `ci/openeuler/doc
 **Start the container (x86_64 by default):**
 
 ```bash
-cd /home/wyc/code/ant/yuanrong/ci/openeuler
+cd /path/to/yuanrong/ci/openeuler
 docker-compose up -d
 ```
 
 **Start on aarch64 (ARM):**
 
 ```bash
-cd /home/wyc/code/ant/yuanrong/ci/openeuler
+cd /path/to/yuanrong/ci/openeuler
 ARCH=aarch64 docker-compose up -d
 ```
 
@@ -69,7 +69,7 @@ ARCH=aarch64 docker-compose up -d
 **Build inside the container:**
 
 ```bash
-docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong && make all'
+docker exec compile bash -lc 'cd /path/to/yuanrong && make all'
 ```
 
 ## Project Structure
@@ -138,5 +138,5 @@ Python smoke tests located at `test/smoke/minimal-python/`:
 Run inside `compile` container:
 
 ```bash
-docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong/test/smoke/minimal-python && bash run_smoke.sh'
+docker exec compile bash -lc 'cd /path/to/yuanrong/test/smoke/minimal-python && bash run_smoke.sh'
 ```

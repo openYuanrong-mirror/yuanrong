@@ -215,6 +215,8 @@ MultipleReadResult GwClient::Read(const std::vector<std::string> &keys, int time
 
 #### Multi-Key Transaction
 
+Deprecated. Retained only for compatibility; do not use in new code.
+
 ```cpp
 ErrorInfo GwClient::MSetTx(const std::vector<std::string> &keys, 
                           const std::vector<std::shared_ptr<Buffer>> &vals,

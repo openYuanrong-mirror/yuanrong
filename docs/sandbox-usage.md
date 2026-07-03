@@ -5,8 +5,8 @@
 设置环境变量（仅需 2 个）：
 
 ```bash
-export YR_SERVER_ADDRESS="114.116.246.103:8888"
-export YR_JWT_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjc3NzQzNTczNzgsInJvbGUiOiJkZXZlbG9wZXIiLCJzdWIiOiJkZWZhdWx0In0.OWFlZjU5MzQ2ZmU2NzFjNzJhYTk1YmY2M2M1ZDA1YzRlZWRmMDhiN2VlNjQxZWI0NGMzOTg2NGFjZWJmNGM1MQ"
+export YR_SERVER_ADDRESS="<server-address>:8888"
+export YR_JWT_TOKEN="<jwt-token>"
 ```
 
 SDK 会自动推断 `in_cluster=false`、`enable_tls=true`、`server_name`，无需手动设置。

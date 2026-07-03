@@ -248,7 +248,12 @@ public class SdkUtils {
             } catch (JsonProcessingException e) {
                 throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME_INVOKE, e);
             }
-            invokeArg.setObjectRef(false);
+            if (arg instanceof ObjectRef) {
+                invokeArg.setObjectRef(true);
+                invokeArg.setObjId(((ObjectRef) arg).getObjId());
+            } else {
+                invokeArg.setObjectRef(false);
+            }
             invokeArg.setNestedObjects(new HashSet<>());
             invokeArgs.add(invokeArg);
         }

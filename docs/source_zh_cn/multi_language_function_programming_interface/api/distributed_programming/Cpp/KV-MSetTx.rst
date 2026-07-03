@@ -1,11 +1,15 @@
 KV().MSetTx
 ============
 
-支持批量存储二进制数据到数据系统，类似 Redis 的 Mset 接口。
+.. warning::
+
+    ``KV().MSetTx`` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
+
+``KV().MSetTx`` 曾用于批量存储二进制数据到数据系统，类似 Redis 的 Mset 接口。
 
 .. cpp:function:: static inline void YR::KVManager::MSetTx(const std::vector<std::string> &keys, const std::vector<char*> &vals, const std::vector<size_t> &lens, ExistenceOpt existence)
 
-    用于批量设置多个二进制数据的事务性接口，保证操作的原子性。
+    已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
 
     .. note::
         支持最大每秒 250 次请求。
@@ -25,24 +29,7 @@ KV().MSetTx
 
 .. cpp:function:: static inline void YR::KVManager::MSetTx(const std::vector<std::string> &keys, const std::vector<std::string> &vals, ExistenceOpt existence)
 
-    用于批量设置多个二进制数据的事务性接口，保证操作的原子性。
-
-    .. code-block:: cpp
-
-        int main() {
-            YR::Config conf;
-            conf.mode = Config::Mode::CLUSTER_MODE;
-            YR::Init(conf);
-            std::vector<std::string> keys = { "key1", "key2" };
-            std::vector<std::string> vals = { "val1", "val2" };
-            try {
-                YR::KV().MSetTx(keys, vals, YR::ExistenceOpt::NX);
-                std::cout << "Data stored successfully." << std::endl;
-            } catch (const YR::Exception& e) {
-                std::cerr << "Error: " << e.what() << std::endl;
-            }
-            return 0;
-        }
+    已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
 
     .. note::
         支持最大每秒 250 次请求。
@@ -61,7 +48,7 @@ KV().MSetTx
 
 .. cpp:function:: static inline void YR::KVManager::MSetTx(const std::vector<std::string> &keys, const std::vector<char*> &vals, const std::vector<size_t> &lens, const MSetParam &mSetParam)
 
-    用于批量设置多个二进制数据的事务性接口，保证操作的原子性。可设置可靠性等属性。
+    已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
 
     .. note::
         支持最大每秒 250 次请求。
@@ -81,28 +68,7 @@ KV().MSetTx
 
 .. cpp:function:: static inline void YR::KVManager::MSetTx(const std::vector<std::string> &keys, const std::vector<std::string> &vals, const MSetParam &mSetParam)
 
-    用于批量设置多个二进制数据的事务性接口，保证操作的原子性。可设置可靠性等属性。
-
-    .. code-block:: cpp
-
-        int main() {
-            YR::Config conf;
-            conf.mode = Config::Mode::CLUSTER_MODE;
-            YR::Init(conf);
-            std::vector<std::string> keys = { "key1", "key2" };
-            std::vector<std::string> vals = { "val1", "val2" };
-            YR::MSetParam param;
-            param.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT;
-            param.ttlSecond = 10;
-            param.cacheType = YR::CacheType::MEMORY;
-            try {
-                YR::KV().MSetTx(keys, vals, param);
-                std::cout << "Data stored successfully." << std::endl;
-            } catch (const YR::Exception& e) {
-                std::cerr << "Error: " << e.what() << std::endl;
-            }
-            return 0;
-        }
+    已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
 
     .. note::
         支持最大每秒 250 次请求。

@@ -273,7 +273,7 @@ KV 缓存 API
    * - :doc:`KV-Set`
      - 存储二进制数据到数据系统，类似 Redis 的 SET 接口。
    * - :doc:`KV-MSetTx`
-     - 批量存储二进制数据到数据系统，类似 Redis 的 Mset 接口。
+     - 已废弃，仅为兼容历史版本保留。
    * - :doc:`KV-Write`
      - 写入一个键的值。
    * - :doc:`KV-MWriteTx`

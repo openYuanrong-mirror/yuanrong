@@ -3,6 +3,10 @@
 yr.MSetParam.existence
 ------------------------------------
 
+.. warning::
+
+   ``yr.MSetParam`` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用。
+
 .. py:attribute:: MSetParam.existence
    :type: ExistenceOpt
    :value: 0

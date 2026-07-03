@@ -43,7 +43,7 @@ YR.kv().mWriteTx(keys, vals, msetParam);
 
 - 抛出：
 
-   - **YRException** - mSetTx 出错，可能由数据系统断连，keys 和 vals 数量不匹配，keys 为空，`ExistenceOpt` 选项为 ``NONE`` 等导致。
+   - **YRException** - mWriteTx 出错，可能由数据系统断连，keys 和 vals 数量不匹配，keys 为空，`ExistenceOpt` 选项为 ``NONE`` 等导致。
 
 MSetParam 类介绍
 

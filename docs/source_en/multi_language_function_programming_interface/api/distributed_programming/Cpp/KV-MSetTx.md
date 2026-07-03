@@ -1,5 +1,9 @@
 # KV().MSetTx
 
+:::{warning}
+`KV().MSetTx` is deprecated and retained only for compatibility. Do not use it in new code.
+:::
+
 ```{doxygenfunction} YR::KVManager::MSetTx(const std::vector<std::string> &keys, const std::vector<char *> &vals, const std::vector<size_t> &lens, ExistenceOpt existence)
 ```
 

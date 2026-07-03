@@ -61,6 +61,7 @@ exclude_patterns = [
     "_build",
     "README.md",
     "sample_code",
+    "observability/trace_optimization.md",
 
     ""
 ]
