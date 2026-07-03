@@ -44,7 +44,7 @@ YR.kv().mWriteTx(keys, vals, msetParam);
 
 - Throws:
 
-   - **YRException** - The `mWriteTx` operation failed, possibly due to disconnection from the data system, mismatched numbers of keys and values, empty keys, or the `ExistenceOpt` option being set to ``NONE``.
+   - **YRException** - The `mSetTx` operation failed, possibly due to disconnection from the data system, mismatched numbers of keys and values, empty keys, or the `ExistenceOpt` option being set to ``NONE``.
 
 SetParam class description
 

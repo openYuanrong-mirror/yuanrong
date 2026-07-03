@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 CONDA_ENV_NAME="${YR_CONDA_ENV:-yr}"
-PYTHON_BIN="${YR_HOST_PYTHON_BIN:-${HOME}/.local/miniconda3/envs/${CONDA_ENV_NAME}/bin/python}"
+PYTHON_BIN="${YR_HOST_PYTHON_BIN:-/home/wyc/.local/miniconda3/envs/${CONDA_ENV_NAME}/bin/python}"
 SDK_WHEEL="${YR_SDK_WHEEL:-${ROOT_DIR}/output/openyuanrong_sdk-0.7.0.dev0-cp39-cp39-manylinux_2_34_x86_64.whl}"
 SERVER_ADDRESS="${YR_HOST_SERVER_ADDRESS:-127.0.0.1:38888}"
 ENABLE_TLS="${YR_HOST_ENABLE_TLS:-false}"

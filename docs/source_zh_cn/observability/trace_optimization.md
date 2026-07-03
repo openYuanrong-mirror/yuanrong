@@ -134,7 +134,7 @@ yr start --master -a <HOST_IP> \
 如果只需要快速验证 scheduler 侧修复，可以直接用新产物覆盖安装件：
 
 ```bash
-cp /path/to/yuanrong/build/_output/faasscheduler/faasscheduler.so \
+cp /home/robbluo/code/yuanrong/build/_output/faasscheduler/faasscheduler.so \
   /opt/buildtools/python3.11/lib/python3.11/site-packages/yr/inner/pattern/pattern_faas/faasscheduler/faasscheduler.so
 ```
 

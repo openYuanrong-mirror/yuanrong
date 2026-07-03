@@ -118,3 +118,70 @@ def ds_proto_cc_library(name, proto_name, zmq = False, deps = []):
         includes = ["gen", "gen/datasystem/protos"],
         visibility = ["//visibility:public"],
     )
+
+def _brpc_proto_outs(name):
+    return [
+        "gen/datasystem/protos/{}.brpc.pb.h".format(name),
+        "gen/datasystem/protos/{}.brpc.pb.cc".format(name),
+        "gen/datasystem/protos/{}.brpc.stub.pb.h".format(name),
+        "gen/datasystem/protos/{}.brpc.stub.pb.cc".format(name),
+        "gen/datasystem/protos/{}.irpc.pb.h".format(name),
+    ]
+
+def ds_brpc_proto_gen(name, proto_src, extra_proto_deps = []):
+    """Generate brpc adapter code from a datasystem proto."""
+    outs = _brpc_proto_outs(name)
+    filtered_deps = [d for d in extra_proto_deps if d != proto_src]
+    copy_cmds = "\n            ".join([
+        "cp $$GEN/{} $$OUT_DIR/".format(out.rsplit("/", 1)[1])
+        for out in outs
+    ])
+
+    native.genrule(
+        name = "gen_{}_brpc".format(name),
+        srcs = [proto_src, "@com_google_protobuf//:well_known_protos"] + filtered_deps,
+        outs = outs,
+        cmd = """
+            PROTO_DIR=$$(dirname $(location {proto_src}))
+            PROTO_ROOT=$$(dirname $$(dirname $$PROTO_DIR))
+            DESC_PATH=$$(echo $(locations @com_google_protobuf//:well_known_protos) | tr ' ' '\\n' | grep 'descriptor\\.proto$$' | head -1)
+            WKT_ROOT=$$(dirname $$(dirname $$(dirname $$DESC_PATH)))
+            OUT_DIR=$(@D)/gen/datasystem/protos
+            TMPD=$$(mktemp -d)
+            mkdir -p $$OUT_DIR
+            $(location @com_google_protobuf//:protoc) \\
+                -I$$PROTO_ROOT \\
+                -I$$WKT_ROOT \\
+                --plugin=protoc-gen-rpc=$(location :rpc_plugin) \\
+                --rpc_out=$$TMPD \\
+                $(location {proto_src})
+            GEN=$$TMPD/datasystem/protos
+            {copy_cmds}
+            rm -rf $$TMPD
+        """.format(proto_src = proto_src, copy_cmds = copy_cmds),
+        tools = [
+            "@com_google_protobuf//:protoc",
+            ":rpc_plugin",
+        ],
+    )
+
+def ds_brpc_cc_library(name, proto_name, deps = []):
+    """Create a cc_library from generated brpc adapter code."""
+    outs = _brpc_proto_outs(proto_name)
+    native.cc_library(
+        name = name,
+        srcs = [f for f in outs if f.endswith(".cc")],
+        hdrs = [f for f in outs if f.endswith(".h")],
+        deps = deps + [
+            "@com_github_apache_brpc//:brpc",
+            "@com_google_protobuf//:protobuf",
+            ":datasystem_hdrs",
+        ],
+        copts = [
+            "-Wno-unused-parameter",
+            "-fPIC",
+            "-isystem", "external/com_google_absl",
+        ],
+        includes = ["gen", "gen/datasystem/protos"],
+        visibility = ["//visibility:public"],
+    )

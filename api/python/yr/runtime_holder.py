@@ -18,10 +18,10 @@
 runtime holder
 """
 
-from yr.config_manager import ConfigManager
-from yr.cluster_mode_runtime import ClusterModeRuntime
-from yr.local_mode.local_mode_runtime import LocalModeRuntime
-from yr.base_runtime import Runtime
+import importlib
+from yr import _preload_native_libraries
+
+_preload_native_libraries()
 
 
 class RuntimeHolder:
@@ -32,11 +32,11 @@ class RuntimeHolder:
     def __init__(self):
         self.yr_runtime = None
 
-    def init(self, runtime: Runtime):
+    def init(self, runtime):
         """init"""
         self.yr_runtime = runtime
 
-    def get_runtime(self) -> Runtime:
+    def get_runtime(self):
         """get runtime"""
         runtime = self.yr_runtime
         if runtime is None:
@@ -63,10 +63,17 @@ def init(runtime=global_runtime) -> None:
     :param runtime: RuntimeHolder
     :return: None
     """
-    if ConfigManager().local_mode:
-        rt = LocalModeRuntime()
+    config_manager_cls = importlib.import_module("yr.config_manager").ConfigManager
+    if config_manager_cls().local_mode:
+        local_mode_runtime_cls = importlib.import_module(
+            "yr.local_mode.local_mode_runtime"
+        ).LocalModeRuntime
+        rt = local_mode_runtime_cls()
         rt.init()
     else:
-        rt = ClusterModeRuntime()
+        cluster_mode_runtime_cls = importlib.import_module(
+            "yr.cluster_mode_runtime"
+        ).ClusterModeRuntime
+        rt = cluster_mode_runtime_cls()
         rt.init()
     runtime.init(rt)

@@ -3,10 +3,6 @@
 yr.MSetParam.cache_type
 ------------------------------------
 
-.. warning::
-
-   ``yr.MSetParam`` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用。
-
 .. py:attribute:: MSetParam.cache_type
    :type: CacheType
    :value: 0

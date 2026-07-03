@@ -25,7 +25,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HELM_BIN = pathlib.Path(os.environ.get("HELM_BIN") or shutil.which("helm") or "helm")
+HELM_BIN = pathlib.Path(os.environ.get("HELM_BIN") or shutil.which("helm") or "/home/wyc/.local/bin/helm")
 RELEASE = "yr-k8s"
 NAMESPACE = "yr-k8s"
 

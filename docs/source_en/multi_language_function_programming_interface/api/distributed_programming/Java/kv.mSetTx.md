@@ -4,12 +4,6 @@ package: `package org.yuanrong.runtime.client`.
 
 :::{Warning}
 
-`YR.kv().mSetTx()` is deprecated and retained only for compatibility. Do not use it in new code.
-
-:::
-
-:::{Warning}
-
 Calling the interfaces in this section will trigger the initialization of the data system client, and the runtime process will additionally consume 50MB of memory. When deploying with K8S, this may pose a potential OOM risk. Therefore, when using the interfaces in this section, please declare a larger memory resource specification for the function using the interface.
 
 :::
@@ -26,7 +20,19 @@ Constraint: Users should avoid using special characters when setting keys and va
 
 #### public void mSetTx(List<String> keys, List<byte[]> vals, MSetParam mSetParam) Throws YR Exception
 
-This interface is deprecated and retained only for compatibility.
+The `mSetTx` interface is provided for synchronous storage, supporting the saving of a set of binary data to the data system.
+
+```java
+
+MSetParam msetParam = new MSetParam();
+List<String> keys = new ArrayList<String>(){{
+    add("synchronous-key1");
+}};
+List<byte[]> vals = new ArrayList<byte[]>(){{
+    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
+}};
+YR.kv().mSetTx(keys, vals, msetParam);
+```
 
 - Parameters:
 
@@ -40,7 +46,22 @@ This interface is deprecated and retained only for compatibility.
 
 #### public void mSetTx(List<String> keys, List<byte[]> vals, List<Integer> lengths, MSetParam mSetParam) Throws YRException
 
-This interface is deprecated and retained only for compatibility.
+The `set` interface is provided for synchronous storage, supporting the saving of binary data to the data system.
+
+```java
+
+MSetParam msetParam = new MSetParam();
+List<String> keys = new ArrayList<String>(){{
+    add("synchronous-key1");
+}};
+List<byte[]> vals = new ArrayList<byte[]>(){{
+    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
+}};
+List<Integer> lengths = new ArrayList<Integer>(){{
+    add(18);
+}};
+YR.kv().mSetTx(keys, vals, lengths, msetParam);
+```
 
 - Parameters:
 

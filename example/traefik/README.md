@@ -88,7 +88,7 @@ cd example/traefik
 ./traefik-start.sh start
 
 # 4. 启动 frontend 开发容器（如还未启动）
-cd /path/to/dev
+cd /home/wyc/code/dev
 docker compose up -d
 
 # 5. 初始化 Keycloak realm（首次）

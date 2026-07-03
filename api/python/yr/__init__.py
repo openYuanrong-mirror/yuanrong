@@ -18,11 +18,12 @@
 yr api
 """
 # pylint: disable=huawei-wrong-import-position
+import importlib
 import os
 import ctypes
-from yr.session_service import ManagedSessionObj, SessionService  # noqa: E402
+import sys
 
-for so_path in [
+_NATIVE_PRELOADS = [
     "libsecurec.so",  # securec must before libdatasystem
     "libtbb.so.2",
     "libcrypto.so.3",
@@ -58,64 +59,149 @@ for so_path in [
     "libobservability-prometheus-push-exporter.so",
     "libobservability-metrics.so",
     "libobservability-metrics-sdk.so",
-]:
-    # load current dir's
-    so_path = os.path.join(os.path.dirname(
-        os.path.realpath(__file__)), so_path)
-    try:
-        ctypes.cdll.LoadLibrary(so_path)
-    except OSError:
-        pass
-
-
-# E402: import not at top of file
-# We must load so before import datasystem, so the lint is not really useful
-from yr.apis import (  # noqa: E402
-    init, finalize,
-    put, get,
-    invoke, instance, wait, cancel, method, exit,
-    create_stream_producer, create_stream_consumer, delete_stream,
-    kv_read, kv_write, kv_del, kv_set, kv_get, kv_get_with_param,
-    kv_m_write_tx, kv_write_with_param, get_instance, is_initialized,
-    query_global_producers_num, query_global_consumers_num, save_state, load_state,
-    cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
-    go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
-    list_named_instances, kill_instance, restore_from_checkpoint, delete_checkpoint, list_checkpoints,
-    StatelessFunction,
-    StatefulInstance,
-    StatefulInstanceCreator,
+]
+_SYSTEM_LIBRARY_DIRS = ("/usr/lib64", "/usr/lib", "/lib64", "/lib")
+_SYSTEM_SSL_PRELOADS = (
+    "libcrypto.so.3",
+    "libcrypto.so.1.1",
+    "libssl.so.3",
+    "libssl.so.1.1",
 )
+_NATIVE_PRELOADED = False
+_NATIVE_EXPORT_MODULES = {
+    "yr.apis",
+    "yr.cluster_mode_runtime",
+    "yr.runtime_holder",
+    "yr.session_service",
+    "yr.functionsdk.context",
+}
 
-from yr.fcc import (  # noqa: E402
-    create_function_group, get_function_group_context
-)
-from yr.resource_group import ResourceGroup  # noqa: E402
-from yr.base_runtime import (  # noqa: E402
-    ExistenceOpt, WriteMode, CacheType, SetParam, MSetParam, CreateParam, AlarmSeverity, AlarmInfo,
-    ConsistencyType, GetParams, GetParam
-)
-from yr.config import (  # noqa: E402
-    Config, InvokeOptions, UserTLSConfig, FunctionGroupOptions, SchedulingAffinityType,
-    FunctionGroupContext, ServerInfo, DeviceInfo, ResourceGroupOptions, GroupOptions,
-    PortForwarding,
-)
-from yr.checkpoint import SnapstartInfo, SnapstartResponse  # noqa: E402
 
-from yr.group import Group
-from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
-from yr.functionsdk.function import Function  # noqa: E402
-from yr.functionsdk.context import Context  # noqa: E402
-from yr.affinity import Affinity, AffinityType, AffinityKind, AffinityScope, LabelOperator, OperatorType  # noqa: E402
-from yr.metrics import Gauge, Alarm, UInt64Counter, DoubleCounter, CustomGauge, CustomCounter, Histogram  # noqa: E402
-from yr import trace  # noqa: E402
+def _preload_system_library(so_name):
+    for lib_dir in _SYSTEM_LIBRARY_DIRS:
+        so_path = os.path.join(lib_dir, so_name)
+        try:
+            ctypes.CDLL(so_path, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
+            return True
+        except OSError:
+            pass
+    return False
 
-from yr.decorator.function_proxy import FunctionProxy  # noqa: E402
-from yr.decorator.instance_proxy import (  # noqa: E402
-    InstanceCreator, InstanceProxy, MethodProxy, FunctionGroupHandler, FunctionGroupMethodProxy)
-from yr.debug_server.debug_server import DebugServer  # noqa: E402
-from yr.debug_server.rpdb import set_trace  # noqa: E402
 
-from yr import sandbox  # noqa: E402
+def _preload_native_libraries():
+    """Load bundled runtime libraries only when native runtime APIs are requested."""
+    global _NATIVE_PRELOADED
+    if _NATIVE_PRELOADED:
+        return
+    _NATIVE_PRELOADED = True
+    yr_dir = os.path.dirname(os.path.realpath(__file__))
+    system_preloaded = {
+        so_name
+        for so_name in _SYSTEM_SSL_PRELOADS
+        if _preload_system_library(so_name)
+    }
+    for so_name in _NATIVE_PRELOADS:
+        if so_name in system_preloaded:
+            continue
+        so_path = os.path.join(yr_dir, so_name)
+        try:
+            ctypes.CDLL(so_path, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
+        except OSError:
+            pass
+
+
+_API_EXPORTS = {
+    "init", "finalize", "put", "get", "invoke", "instance", "wait", "cancel", "method", "exit",
+    "create_stream_producer", "create_stream_consumer", "delete_stream",
+    "kv_read", "kv_write", "kv_del", "kv_set", "kv_get", "kv_get_with_param",
+    "kv_m_write_tx", "kv_write_with_param", "get_instance", "is_initialized",
+    "query_global_producers_num", "query_global_consumers_num", "save_state", "load_state",
+    "cpp_function", "java_function", "go_function", "cpp_instance_class", "java_instance_class",
+    "go_instance_class", "resources", "create_resource_group", "remove_resource_group",
+    "get_node_ip_address", "list_named_instances", "kill_instance", "restore_from_checkpoint",
+    "delete_checkpoint", "list_checkpoints", "StatelessFunction", "StatefulInstance",
+    "StatefulInstanceCreator",
+}
+
+_LAZY_EXPORTS = {name: ("yr.apis", name) for name in _API_EXPORTS}
+_LAZY_EXPORTS.update({
+    "fcc": ("yr.fcc", None),
+    "create_function_group": ("yr.fcc", "create_function_group"),
+    "get_function_group_context": ("yr.fcc", "get_function_group_context"),
+    "ResourceGroup": ("yr.resource_group", "ResourceGroup"),
+    "ExistenceOpt": ("yr.base_runtime", "ExistenceOpt"),
+    "WriteMode": ("yr.base_runtime", "WriteMode"),
+    "CacheType": ("yr.base_runtime", "CacheType"),
+    "SetParam": ("yr.base_runtime", "SetParam"),
+    "MSetParam": ("yr.base_runtime", "MSetParam"),
+    "CreateParam": ("yr.base_runtime", "CreateParam"),
+    "AlarmSeverity": ("yr.base_runtime", "AlarmSeverity"),
+    "AlarmInfo": ("yr.base_runtime", "AlarmInfo"),
+    "ConsistencyType": ("yr.base_runtime", "ConsistencyType"),
+    "GetParams": ("yr.base_runtime", "GetParams"),
+    "GetParam": ("yr.base_runtime", "GetParam"),
+    "Config": ("yr.config", "Config"),
+    "InvokeOptions": ("yr.config", "InvokeOptions"),
+    "UserTLSConfig": ("yr.config", "UserTLSConfig"),
+    "FunctionGroupOptions": ("yr.config", "FunctionGroupOptions"),
+    "SchedulingAffinityType": ("yr.config", "SchedulingAffinityType"),
+    "FunctionGroupContext": ("yr.config", "FunctionGroupContext"),
+    "ServerInfo": ("yr.config", "ServerInfo"),
+    "DeviceInfo": ("yr.config", "DeviceInfo"),
+    "ResourceGroupOptions": ("yr.config", "ResourceGroupOptions"),
+    "GroupOptions": ("yr.config", "GroupOptions"),
+    "PortForwarding": ("yr.config", "PortForwarding"),
+    "SnapstartInfo": ("yr.checkpoint", "SnapstartInfo"),
+    "SnapstartResponse": ("yr.checkpoint", "SnapstartResponse"),
+    "Group": ("yr.group", "Group"),
+    "ProducerConfig": ("yr.stream", "ProducerConfig"),
+    "SubscriptionConfig": ("yr.stream", "SubscriptionConfig"),
+    "Element": ("yr.stream", "Element"),
+    "Function": ("yr.functionsdk.function", "Function"),
+    "Context": ("yr.functionsdk.context", "Context"),
+    "Affinity": ("yr.affinity", "Affinity"),
+    "AffinityType": ("yr.affinity", "AffinityType"),
+    "AffinityKind": ("yr.affinity", "AffinityKind"),
+    "AffinityScope": ("yr.affinity", "AffinityScope"),
+    "LabelOperator": ("yr.affinity", "LabelOperator"),
+    "OperatorType": ("yr.affinity", "OperatorType"),
+    "Gauge": ("yr.metrics", "Gauge"),
+    "Alarm": ("yr.metrics", "Alarm"),
+    "UInt64Counter": ("yr.metrics", "UInt64Counter"),
+    "DoubleCounter": ("yr.metrics", "DoubleCounter"),
+    "CustomGauge": ("yr.metrics", "CustomGauge"),
+    "CustomCounter": ("yr.metrics", "CustomCounter"),
+    "Histogram": ("yr.metrics", "Histogram"),
+    "trace": ("yr.trace", None),
+    "FunctionProxy": ("yr.decorator.function_proxy", "FunctionProxy"),
+    "InstanceCreator": ("yr.decorator.instance_proxy", "InstanceCreator"),
+    "InstanceProxy": ("yr.decorator.instance_proxy", "InstanceProxy"),
+    "MethodProxy": ("yr.decorator.instance_proxy", "MethodProxy"),
+    "FunctionGroupHandler": ("yr.decorator.instance_proxy", "FunctionGroupHandler"),
+    "FunctionGroupMethodProxy": ("yr.decorator.instance_proxy", "FunctionGroupMethodProxy"),
+    "DebugServer": ("yr.debug_server.debug_server", "DebugServer"),
+    "set_trace": ("yr.debug_server.rpdb", "set_trace"),
+    "sandbox": ("yr.sandbox", None),
+    "ManagedSessionObj": ("yr.session_service", "ManagedSessionObj"),
+    "SessionService": ("yr.session_service", "SessionService"),
+    "cluster_mode_runtime": ("yr.cluster_mode_runtime", None),
+    "runtime_holder": ("yr.runtime_holder", None),
+})
+
+
+def __getattr__(name):
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module 'yr' has no attribute {name!r}")
+    module_name, attr_name = target
+    if module_name in _NATIVE_EXPORT_MODULES:
+        _preload_native_libraries()
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = importlib.import_module(module_name)
+    value = module if attr_name is None else getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     "init", "finalize", "Config", "UserTLSConfig",
@@ -129,7 +215,7 @@ __all__ = [
     "ExistenceOpt", "WriteMode", "CacheType", "SetParam", "MSetParam", "CreateParam", "ConsistencyType",
     "save_state", "load_state", "get_instance", "is_initialized",
     "query_global_producers_num", "query_global_consumers_num",
-    "Gauge", "Alarm", "java_instance_class", "go_instance_class", "create_function_group",
+    "Gauge", "Alarm", "java_instance_class", "go_instance_class", "fcc", "create_function_group",
     "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter", "CustomGauge", "CustomCounter", "Histogram",
     "trace",
     "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
@@ -140,4 +226,5 @@ __all__ = [
     "DebugServer", "set_trace", "sandbox", "kill_instance",
     "restore_from_checkpoint", "delete_checkpoint", "list_checkpoints",
     "SnapstartInfo", "SnapstartResponse", "ManagedSessionObj", "SessionService",
+    "cluster_mode_runtime",
 ]

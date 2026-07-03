@@ -40,14 +40,9 @@ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "new_git_repository")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 load("//bazel:host_platform_repo.bzl", "host_platform_repo")
-load("//bazel:datasystem_layout_repo.bzl", "datasystem_layout_repo")
 load("//bazel:platform_local_repository.bzl", "platform_local_repository")
 
 host_platform_repo(name = "host_platform")
-datasystem_layout_repo(
-    name = "datasystem_layout",
-    path = "datasystem",
-)
 
 http_archive(
     name = "rules_jvm_external",
@@ -411,16 +406,14 @@ platform_local_repository(
     name = "datasystem_sdk",
     build_file = "@//bazel:datasystem_build.bzl",
     path = "datasystem",
-    prebuilt_build_file = "@//bazel:prebuilt_datasystem.bzl",
     stub_build_file = "@//bazel:stub_datasystem.bzl",
 )
 
 # DataSystem SDK source build external dependencies
 load("@host_platform//:defs.bzl", "IS_MACOS")
-load("@datasystem_layout//:defs.bzl", "USE_DATASYSTEM_PREBUILT")
 load("//bazel:maybe_datasystem_deps.bzl", "maybe_datasystem_deps")
 
-maybe_datasystem_deps(not IS_MACOS and not USE_DATASYSTEM_PREBUILT)
+maybe_datasystem_deps(not IS_MACOS)
 
 load("@bazel_tools//tools/jdk:remote_java_repository.bzl", "remote_java_repository")
 
