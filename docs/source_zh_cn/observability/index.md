@@ -9,7 +9,6 @@
    dashboard
    logs
    metrics/index
-   trace_optimization
    traces
    distributed_stack
 ```
@@ -31,5 +30,4 @@
 通过记录和关联分布式系统中各个服务的调用过程，调用链提供端到端的请求追踪能力
 
 - [调用链](./traces.md)
-- [Trace 全链路优化说明](./trace_optimization.md)
 - [分布式融合调用栈](./distributed_stack.md)
