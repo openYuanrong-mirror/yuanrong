@@ -19,40 +19,60 @@
 import atexit
 from collections import defaultdict
 import functools
+import importlib
 import logging
 import os
 from typing import Dict, List, Optional, Tuple, Union
 
-from yr.libruntime_pb2 import LanguageType
+from yr import _preload_native_libraries
 
-from yr import log, runtime_holder
-from yr.base_runtime import (
-    CacheType,
-    ConsistencyType,
-    CreateParam,
-    ExistenceOpt,
-    GetParams,
-    MSetParam,
-    SetParam,
-    WriteMode,
-)
-from yr.code_manager import CodeManager
-from yr.common import constants, utils
-from yr.common.utils import CrossLanguageInfo
-from yr.config import ClientInfo, Config, InvokeOptions
-from yr.config_manager import ConfigManager
-from yr.decorator import function_proxy, instance_proxy
-from yr.decorator.function_proxy import FunctionProxy
-from yr.decorator.instance_proxy import InstanceCreator, InstanceProxy
-from yr.ds_tensor_client_manager import get_tensor_client
-from yr.executor.executor import Executor
-from yr.fnruntime import Consumer, Producer, auto_get_cluster_access_info
-from yr.npu_object import NpuObject
-from yr.object_ref import ObjectRef
-from yr.resource_group import ResourceGroup
-from yr.resource_group_ref import RgObjectRef
-from yr.serialization import Serialization
-from yr.stream import ProducerConfig, SubscriptionConfig
+_preload_native_libraries()
+
+LanguageType = importlib.import_module("yr.libruntime_pb2").LanguageType
+log = importlib.import_module("yr.log")
+runtime_holder = importlib.import_module("yr.runtime_holder")
+
+_base_runtime = importlib.import_module("yr.base_runtime")
+CacheType = _base_runtime.CacheType
+ConsistencyType = _base_runtime.ConsistencyType
+CreateParam = _base_runtime.CreateParam
+ExistenceOpt = _base_runtime.ExistenceOpt
+GetParams = _base_runtime.GetParams
+MSetParam = _base_runtime.MSetParam
+SetParam = _base_runtime.SetParam
+WriteMode = _base_runtime.WriteMode
+
+CodeManager = importlib.import_module("yr.code_manager").CodeManager
+constants = importlib.import_module("yr.common.constants")
+utils = importlib.import_module("yr.common.utils")
+CrossLanguageInfo = utils.CrossLanguageInfo
+
+_config = importlib.import_module("yr.config")
+ClientInfo = _config.ClientInfo
+Config = _config.Config
+InvokeOptions = _config.InvokeOptions
+ConfigManager = importlib.import_module("yr.config_manager").ConfigManager
+
+function_proxy = importlib.import_module("yr.decorator.function_proxy")
+instance_proxy = importlib.import_module("yr.decorator.instance_proxy")
+FunctionProxy = function_proxy.FunctionProxy
+InstanceCreator = instance_proxy.InstanceCreator
+InstanceProxy = instance_proxy.InstanceProxy
+
+get_tensor_client = importlib.import_module("yr.ds_tensor_client_manager").get_tensor_client
+Executor = importlib.import_module("yr.executor.executor").Executor
+_fnruntime = importlib.import_module("yr.fnruntime")
+Consumer = _fnruntime.Consumer
+Producer = _fnruntime.Producer
+auto_get_cluster_access_info = _fnruntime.auto_get_cluster_access_info
+NpuObject = importlib.import_module("yr.npu_object").NpuObject
+ObjectRef = importlib.import_module("yr.object_ref").ObjectRef
+ResourceGroup = importlib.import_module("yr.resource_group").ResourceGroup
+RgObjectRef = importlib.import_module("yr.resource_group_ref").RgObjectRef
+Serialization = importlib.import_module("yr.serialization").Serialization
+_stream = importlib.import_module("yr.stream")
+ProducerConfig = _stream.ProducerConfig
+SubscriptionConfig = _stream.SubscriptionConfig
 
 # Gradual migration: StatelessFunction is the new preferred name
 # FunctionProxy is kept for backward compatibility
@@ -1074,9 +1094,6 @@ def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
 @check_initialized
 def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam = MSetParam()) -> None:
     """
-    Deprecated. Retained only for compatibility with legacy batch write APIs.
-    Do not use it in new code.
-
     Provide a Redis-like set storage interface that supports persisting
     a collection of binary data into the data system.
 
@@ -1095,6 +1112,16 @@ def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam =
         RuntimeError: If `kv_m_write_tx` is not initialized and called, an exception will be thrown.
             If data writing to the data system fails.
 
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> mset_param = yr.MSetParam()
+        >>> mset_param.existence = yr.ExistenceOpt.NX
+        >>> mset_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
+        >>> mset_param.ttl_second = 100
+        >>> yr.kv_m_write_tx(["key1", "key2"], [b"value1", b"value2"], mset_param)
+        >>>
+        >>> yr.finalize()
     """
     if len(keys) != len(values):
         raise ValueError(

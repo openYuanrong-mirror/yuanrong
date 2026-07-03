@@ -116,7 +116,7 @@ Kubeconfig contexts: `external` (default, `<external-host>:5443` no TLS verify),
 ```
 URL:  https://<grafana-host>:8888/grafana/
 User: admin
-Pass: <grafana-password>
+Pass: admin (or credentials in LastPass "Grafana Admin")
 ```
 
 Datasource UIDs: `prometheus`, `loki`, `tempo`
@@ -395,7 +395,7 @@ eval "$K exec akernel-master-0 -n akernel -- sh -c \
 ### 3.2 Trace the Call Chain
 
 1. Extract the exact error line from Loki (`service_name`, `component_name`, `code_filepath` label)
-2. Grep for file/function in source: `grep -r "error string" /path/to/yuanrong/`
+2. Grep for file/function in source: `grep -r "error string" /home/wyc/code/ant/yuanrong/`
 3. Trace backwards: what conditions trigger that error
 4. Cross-check with trace span that corresponds to the same operation
 
@@ -439,10 +439,10 @@ eval "$K exec akernel-master-0 -n akernel -- sh -c \
 
 ```bash
 # Build the changed component
-docker exec compile bash -lc 'cd /path/to/yuanrong && bazel build //src/libruntime:libruntime'
+docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong && bazel build //src/libruntime:libruntime'
 
 # Run unit tests
-docker exec compile bash -lc 'cd /path/to/yuanrong && bash build.sh -t'
+docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong && bash build.sh -t'
 
 # After deploy: confirm via Grafana
 # - Error rate drops to 0

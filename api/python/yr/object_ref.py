@@ -17,6 +17,7 @@
 """ObjectRef"""
 import asyncio
 import functools
+import importlib
 import json
 from concurrent.futures import Future
 import logging
@@ -27,11 +28,14 @@ from yr.err_type import ErrorInfo, ErrorCode
 from yr.libruntime_pb2 import FunctionMeta
 
 import yr
-from yr import runtime_holder
 from yr.common import constants
 from yr.ds_tensor_client_manager import get_tensor_client
 
 _logger = logging.getLogger(__name__)
+
+
+def _get_runtime_holder():
+    return importlib.import_module("yr.runtime_holder")
 
 
 def _set_future_helper(
@@ -75,16 +79,16 @@ class ObjectRef:
         self._enable_tensor_transport = enable_tensor_transport
         self.npu_obj_ids = []
         self.instance_id = ""
+        runtime_holder = _get_runtime_holder()
         global_runtime = runtime_holder.global_runtime.get_runtime()
         if need_incre and global_runtime and exception is None:
             global_runtime.increase_global_reference([self._id])
 
     def __del__(self):
         try:
-            if runtime_holder is None:
-                return
+            runtime_holder = _get_runtime_holder()
             global_runtime = runtime_holder.global_runtime.get_runtime()
-        except RuntimeError:
+        except (AttributeError, ImportError, RuntimeError):
             return
         try:
             if self._need_decre and global_runtime:
@@ -235,6 +239,7 @@ class ObjectRef:
         Args:
             callback (Callable): User callback.
         """
+        runtime_holder = _get_runtime_holder()
         runtime_holder.global_runtime.get_runtime().set_get_callback(self.id, callback)
 
     def get(self, timeout: int = constants.DEFAULT_GET_TIMEOUT) -> Any:
@@ -255,6 +260,7 @@ class ObjectRef:
         if timeout <= constants.MIN_TIMEOUT_LIMIT and timeout != constants.NO_LIMIT:
             raise ValueError("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
 
+        runtime_holder = _get_runtime_holder()
         objects = runtime_holder.global_runtime.get_runtime().get([self.id], timeout, False)
         result_str = objects[0]
 

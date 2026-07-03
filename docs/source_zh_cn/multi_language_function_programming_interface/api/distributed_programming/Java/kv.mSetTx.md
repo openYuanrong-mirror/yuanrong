@@ -4,12 +4,6 @@
 
 :::{Warning}
 
-`YR.kv().mSetTx()` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
-
-:::
-
-:::{Warning}
-
 调用本章节的接口会触发数据系统客户端初始化，runtime 进程将会额外占用 50MB 内存，在 K8S 上部署时有潜在 OOM 风险。
 因此，当使用本章节的接口时，请为使用接口的函数声明一个更大的内存资源规格。
 
@@ -27,7 +21,19 @@
 
 #### public void mSetTx(List<String> keys, List<byte[]> vals, MSetParam mSetParam) Throws YRException
 
-该接口已废弃，仅为兼容历史版本保留。
+提供 mSetTx 同步存储接口，支持保存一组二进制数据到数据系统。
+
+```java
+
+MSetParam msetParam = new MSetParam();
+List<String> keys = new ArrayList<String>(){{
+    add("synchronous-key1");
+}};
+List<byte[]> vals = new ArrayList<byte[]>(){{
+    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
+}};
+YR.kv().mSetTx(keys, vals, msetParam);
+```
 
 - 参数：
 
@@ -41,7 +47,22 @@
 
 #### public void mSetTx(List<String> keys, List<byte[]> vals, List<Integer> lengths, MSetParam mSetParam) Throws YRException
 
-该接口已废弃，仅为兼容历史版本保留。
+提供 set 同步存储接口，支持保存二进制数据到数据系统。
+
+```java
+
+MSetParam msetParam = new MSetParam();
+List<String> keys = new ArrayList<String>(){{
+    add("synchronous-key1");
+}};
+List<byte[]> vals = new ArrayList<byte[]>(){{
+    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
+}};
+List<Integer> lengths = new ArrayList<Integer>(){{
+    add(18);
+}};
+YR.kv().mSetTx(keys, vals, lengths, msetParam);
+```
 
 - 参数：
 

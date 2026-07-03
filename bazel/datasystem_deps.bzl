@@ -94,3 +94,47 @@ def datasystem_deps():
         ],
         patch_args = ["-p1"],
     )
+
+    # gflags and leveldb are brpc dependencies used by recent datasystem master.
+    http_archive(
+        name = "com_github_gflags_gflags",
+        sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
+        strip_prefix = "gflags-2.2.2",
+        urls = [
+            "https://gh-proxy.com/https://github.com/gflags/gflags/archive/refs/tags/v2.2.2.tar.gz",
+            "https://github.com/gflags/gflags/archive/refs/tags/v2.2.2.tar.gz",
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/gflags/gflags/v2.2.2.tar.gz",
+        ],
+    )
+
+    http_archive(
+        name = "com_github_google_leveldb",
+        sha256 = "9a37f8a6174f09bd622bc723b55881dc541cd50747cbd08831c2a82d620f6d76",
+        strip_prefix = "leveldb-1.23",
+        urls = [
+            "https://gh-proxy.com/https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz",
+            "https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz",
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/google/leveldb/1.23.tar.gz",
+        ],
+        build_file = "@datasystem_sdk//:third_party/leveldb.BUILD",
+    )
+
+    http_archive(
+        name = "com_github_apache_brpc",
+        sha256 = "f674b753af71dc313d9d2dcf34f574f0a3438c9f9bb9e7e6ca500a3b0ca7ddfb",
+        strip_prefix = "brpc-1.15.0",
+        urls = [
+            "https://gh-proxy.com/https://github.com/apache/brpc/archive/refs/tags/1.15.0.tar.gz",
+            "https://github.com/apache/brpc/archive/refs/tags/1.15.0.tar.gz",
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/apache/brpc/1.15.0.tar.gz",
+        ],
+        repo_mapping = {
+            "@com_github_madler_zlib": "@zlib",
+            "@openssl": "@boringssl",
+        },
+        patches = [
+            "@datasystem_sdk//:third_party/patches/brpc/fix-boringssl-compat.patch",
+            "@datasystem_sdk//:third_party/patches/brpc/avoid-glog-flag-conflicts.patch",
+        ],
+        patch_args = ["-p1"],
+    )

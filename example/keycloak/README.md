@@ -32,7 +32,7 @@ cd example/traefik
 docker compose up -d
 
 # frontend 开发容器（如还未启动）
-cd /path/to/dev
+cd /home/wyc/code/dev
 docker compose up -d
 ```
 

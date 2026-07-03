@@ -43,10 +43,10 @@ except ModuleNotFoundError as err:  # pragma: no cover
         from wheel.vendored.packaging import tags
         from wheel.vendored.packaging.version import Version
     except ImportError:  # pragma: no cover
-        raise ImportError(
-            "Neither 'packaging' nor 'wheel.vendored.packaging' is available. "
-            "Please install the 'packaging' package."
-        ) from err
+        tags = None
+
+        class Version(str):
+            """Small fallback used when packaging is unavailable."""
 
 ROOT_DIR = os.path.dirname(__file__)
 
@@ -525,6 +525,17 @@ def strip_nonmatching_fnruntime(target_dir):
             os.remove(filename)
 
 
+def prune_openyuanrong_native_libraries(build_lib):
+    """Keep the main openyuanrong wheel free of native runtime libraries."""
+    yr_dir = os.path.join(build_lib, "yr")
+    if not os.path.isdir(yr_dir):
+        return
+    for name in os.listdir(yr_dir):
+        path = os.path.join(yr_dir, name)
+        if os.path.isfile(path) and is_shared_library(name):
+            os.remove(path)
+
+
 def copy_openyuanrong(build_lib):
     """copy the lightweight openyuanrong package metadata and deploy helpers"""
     python_runtime_version = os.getenv("PYTHON_RUNTIME_VERSION", "python3.11")
@@ -555,24 +566,18 @@ def copy_openyuanrong(build_lib):
                     deploy_dir,
                 )
 
-    services_paths = [
-        os.path.join(build_lib, "yr", "cli", "services.yaml"),
-        os.path.join(build_lib, "yr", "deploy", "process", "services.yaml"),
-    ]
     cli_services_src = os.path.join(ROOT_DIR, "yr", "cli", "services.yaml")
-    cli_services_dst = services_paths[0]
+    cli_services_dst = os.path.join(build_lib, "yr", "cli", "services.yaml")
     if os.path.exists(cli_services_src):
         os.makedirs(os.path.dirname(cli_services_dst), exist_ok=True)
         shutil.copy(cli_services_src, cli_services_dst)
 
-    for services_path in services_paths:
-        if not os.path.exists(services_path):
-            continue
-        with open(services_path, "r", encoding="utf-8") as file_obj:
+    if os.path.exists(cli_services_dst):
+        with open(cli_services_dst, "r", encoding="utf-8") as file_obj:
             content = file_obj.read()
         content = re.sub(r"runtime: python3\.\d+", f"runtime: {python_runtime_version}", content)
         content = re.sub(r"^(\s*)py:", f"\\1{python_tag}:", content, flags=re.MULTILINE)
-        with open(services_path, "w", encoding="utf-8") as file_obj:
+        with open(cli_services_dst, "w", encoding="utf-8") as file_obj:
             file_obj.write(content)
 
 
@@ -615,6 +620,16 @@ def copy_openyuanrong_runtime(build_lib):
             files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
         copy_file(os.path.join(build_lib, "yr/runtime"), filename, runtime_dir)
+
+    runtime_python_yr_dir = os.path.join(runtime_dir, "service", "python", "yr")
+    if not os.path.isdir(runtime_python_yr_dir):
+        return
+    fnruntime_candidates = []
+    for filename in os.listdir(runtime_python_yr_dir):
+        if filename.startswith("fnruntime") and is_shared_library(filename):
+            fnruntime_candidates.append(os.path.join(runtime_python_yr_dir, filename))
+    for filename in select_fnruntime_binaries(fnruntime_candidates):
+        copy_file(os.path.join(build_lib, "yr"), filename, runtime_python_yr_dir)
 
 
 def copy_openyuanrong_faas(build_lib):
@@ -735,6 +750,8 @@ class BuildExtImpl(build_ext):
 
     def run(self):
         run_ext(self.build_lib)
+        if setup_spec.setup_type == SetupType.OPENYUANRONG:
+            prune_openyuanrong_native_libraries(self.build_lib)
         if setup_spec.setup_type == SetupType.OPENYUANRONG_FULL:
             for filename in ("yr/libdatasystem_worker.so",):
                 path = os.path.join(self.build_lib, filename)
@@ -750,6 +767,8 @@ class BuildPyImpl(build_py):
     def run(self):
         super().run()
         strip_nonmatching_fnruntime(self.build_lib)
+        if setup_spec.setup_type == SetupType.OPENYUANRONG:
+            prune_openyuanrong_native_libraries(self.build_lib)
         shutil.rmtree(os.path.join(self.build_lib, "yr", "tests"), ignore_errors=True)
 
 

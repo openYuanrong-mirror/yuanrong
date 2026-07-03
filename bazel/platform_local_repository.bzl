@@ -20,16 +20,6 @@ def _impl(repository_ctx):
             return
         fail("Repository path does not exist: %s" % path)
 
-    source_patch = str(path) + "/third_party/patches/spdlog/change-namespace.patch"
-    prebuilt_lib = str(path) + "/output/sdk/cpp/lib/libdatasystem.so"
-    prebuilt_headers = str(path) + "/output/sdk/cpp/include"
-    has_source = repository_ctx.execute(["test", "-f", source_patch]).return_code == 0
-    has_prebuilt = (
-        repository_ctx.execute(["test", "-f", prebuilt_lib]).return_code == 0 and
-        repository_ctx.execute(["test", "-d", prebuilt_headers]).return_code == 0
-    )
-    use_prebuilt = repository_ctx.attr.prebuilt_build_file and has_prebuilt and not has_source
-
     result = repository_ctx.execute([
         "rsync",
         "-a",
@@ -39,7 +29,7 @@ def _impl(repository_ctx):
         "--exclude=BUILD",
         "--exclude=BUILD.bazel",
         "--exclude=/build/",
-    ] + ([] if use_prebuilt else ["--exclude=/output/"]) + [
+        "--exclude=/output/",
         "--exclude=/.git/",
         str(path) + "/",
         ".",
@@ -58,15 +48,13 @@ def _impl(repository_ctx):
                 result.stdout,
             ))
 
-    build_file = repository_ctx.attr.prebuilt_build_file if use_prebuilt else repository_ctx.attr.build_file
-    repository_ctx.symlink(build_file, repository_ctx.path("BUILD"))
+    repository_ctx.symlink(repository_ctx.attr.build_file, repository_ctx.path("BUILD"))
 
 platform_local_repository = repository_rule(
     implementation = _impl,
     attrs = {
         "path": attr.string(mandatory = True),
         "build_file": attr.label(mandatory = True, allow_single_file = True),
-        "prebuilt_build_file": attr.label(allow_single_file = True),
         "stub_build_file": attr.label(allow_single_file = True),
     },
     local = True,

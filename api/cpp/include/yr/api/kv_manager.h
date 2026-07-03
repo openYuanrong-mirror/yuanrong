@@ -327,7 +327,6 @@ public:
 
     /**
      * @brief A transactional interface for setting multiple binary data entries in a batch.
-     * @deprecated MSetTx is deprecated and retained only for compatibility. Do not use it in new code.
      *
      * This function provides a Redis-like `MSET` interface for storing multiple binary data entries in a single
      * transaction. It allows you to store binary data into the system using keys, ensuring that all operations are
@@ -377,11 +376,27 @@ public:
 
     /**
      * @brief A transactional interface for setting multiple key-value pairs in a batch.
-     * @deprecated MSetTx is deprecated and retained only for compatibility. Do not use it in new code.
      *
      * This function provides a Redis-like `MSET` interface for storing multiple key-value pairs in a single
      * transaction. It allows you to store binary data into the system using keys, ensuring that all operations are
      * atomic.
+     *
+     * @code
+     * int main() {
+     *     YR::Config conf;
+     *     conf.mode = Config::Mode::CLUSTER_MODE;
+     *     YR::Init(conf);
+     *     std::vector<std::string> keys = { "key1", "key2" };
+     *     std::vector<std::string> vals = { "val1", "val2" };
+     *     try {
+     *         YR::KV().MSetTx(keys, vals, YR::ExistenceOpt::NX);
+     *         std::cout << "Data stored successfully." << std::endl;
+     *     } catch (const YR::Exception& e) {
+     *         std::cerr << "Error: " << e.what() << std::endl;
+     *     }
+     *     return 0;
+     * }
+     * @endcode
      *
      * @param keys A list of keys used to identify the data entries. These keys are used to query the data later.
      * The list cannot be empty, and its maximum length is 8.
@@ -418,7 +433,6 @@ public:
 
     /**
      * @brief A transactional interface for setting multiple key-value pairs with binary data in a batch.
-     * @deprecated MSetTx is deprecated and retained only for compatibility. Do not use it in new code.
      *
      * This function provides a Redis-like `MSET` interface for storing multiple key-value pairs in a single
      * transaction. It allows you to store binary data into the system using keys, ensuring that all operations are
@@ -471,12 +485,32 @@ public:
 
     /**
      * @brief A transactional interface for setting multiple key-value pairs with binary data in a batch.
-     * @deprecated MSetTx is deprecated and retained only for compatibility. Do not use it in new code.
      *
      * This function provides a Redis-like `MSET` interface for storing multiple key-value pairs in a single
      * transaction. It allows you to store binary data into the system using keys, ensuring that all operations are
      * atomic. The function also allows configuration of properties such as reliability through the `MSetParam`
      * parameter.
+     *
+     * @code
+     * int main() {
+     *     YR::Config conf;
+     *     conf.mode = Config::Mode::CLUSTER_MODE;
+     *     YR::Init(conf);
+     *     std::vector<std::string> keys = { "key1", "key2" };
+     *     std::vector<std::string> vals = { "val1", "val2" };
+     *     YR::MSetParam param;
+     *     param.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT;
+     *     param.ttlSecond = 10;
+     *     param.cacheType = YR::CacheType::MEMORY;
+     *     try {
+     *         YR::KV().MSetTx(keys, vals, param);
+     *         std::cout << "Data stored successfully." << std::endl;
+     *     } catch (const YR::Exception& e) {
+     *         std::cerr << "Error: " << e.what() << std::endl;
+     *     }
+     *     return 0;
+     * }
+     * @endcode
      *
      * @param keys A list of keys used to identify the data entries. These keys are used to query the data later. The
      * list cannot be empty, and its maximum length is 8.

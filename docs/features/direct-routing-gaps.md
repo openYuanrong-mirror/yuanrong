@@ -79,7 +79,7 @@ Run the project's proto generation command for both Go and C++ bindings. Verify 
 
 - [ ] **Step 4: Verify build compiles cleanly with new proto fields**
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong-functionsystem && bash run.sh build -j 4"`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"`
 Expected: Build succeeds (new fields are added, no existing code references them yet)
 
 - [ ] **Step 5: Commit**
@@ -142,7 +142,7 @@ TEST_F(ObserverTest, DRModeLocalOnlySyncFiltersNonLocalInstances) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeLocalOnlySyncFiltersNonLocalInstances"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeLocalOnlySyncFiltersNonLocalInstances"`
 Expected: FAIL (all instances are currently loaded)
 
 - [ ] **Step 3: Implement local-filtered sync in DR mode**
@@ -187,12 +187,12 @@ if (!DirectRoutingConfig::IsEnabled()) {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeLocalOnlySyncFiltersNonLocalInstances"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeLocalOnlySyncFiltersNonLocalInstances"`
 Expected: PASS
 
 - [ ] **Step 5: Run full observer test suite**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T ObserverTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T ObserverTest*"`
 Expected: All existing tests still pass
 
 - [ ] **Step 6: Commit**
@@ -270,7 +270,7 @@ Note: `GetPersistenceType()` is a private static function. If it's not testable 
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T GetPersistenceTypeTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T GetPersistenceTypeTest*"`
 Expected: FAIL (DR fast-path not yet implemented)
 
 - [ ] **Step 3: Add DR fast-path in `GetPersistenceType()`**
@@ -303,12 +303,12 @@ In `instance_state_machine.cpp` lines 73–85, add at the top of the function bo
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T GetPersistenceTypeTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T GetPersistenceTypeTest*"`
 Expected: All 5 tests PASS
 
 - [ ] **Step 5: Run full state machine test suite**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T StateMachineTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T StateMachineTest*"`
 Expected: All existing tests pass
 
 - [ ] **Step 6: Commit**
@@ -355,7 +355,7 @@ TEST_F(InstanceCtrlActorTest, DRModeNotifyResultSetsProxyID) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeNotifyResultSetsProxyID"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeNotifyResultSetsProxyID"`
 Expected: FAIL (`proxyid()` is empty)
 
 - [ ] **Step 3: Add `set_proxyid` in notifyresult path**
@@ -383,7 +383,7 @@ Note: `nodeID` is the lambda capture of `nodeID_` at line 6008: `nodeID(nodeID_)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeNotifyResultSetsProxyID"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeNotifyResultSetsProxyID"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -469,7 +469,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeKillFallsBackToStateMachinePath) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeKill*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeKill*"`
 Expected: FAIL (no DR fast-path in SignalRoute)
 
 - [ ] **Step 3: Add DR fast-path in `SignalRoute()`**
@@ -549,12 +549,12 @@ auto &instanceInfo = killCtx->instanceContext->GetInstanceInfo();
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeKill*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeKill*"`
 Expected: All 3 tests PASS
 
 - [ ] **Step 5: Run full kill-related test suite**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T InstanceCtrlActorTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T InstanceCtrlActorTest*"`
 Expected: All existing tests pass
 
 - [ ] **Step 6: Commit**
@@ -605,7 +605,7 @@ func TestGenerateInstanceResponsePopulatesRouteFields(t *testing.T) {
 
 ```
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && go test ./pkg/functionscaler/... -run TestGenerateInstanceResponsePopulatesRouteFields -v"`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && go test ./pkg/functionscaler/... -run TestGenerateInstanceResponsePopulatesRouteFields -v"`
 Expected: FAIL (compile error: `types.Instance` has no `RouteAddress` field)
 
 - [ ] **Step 2: Add `RouteAddress` to `Instance` struct in `types.go`**
@@ -670,12 +670,12 @@ return &commonTypes.InstanceResponse{
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && go test ./pkg/functionscaler/... -run TestGenerateInstanceResponsePopulatesRouteFields -v"`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && go test ./pkg/functionscaler/... -run TestGenerateInstanceResponsePopulatesRouteFields -v"`
 Expected: PASS
 
 - [ ] **Step 6: Run full Go tests in the affected packages**
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/go && go test ./pkg/functionscaler/... ./pkg/common/... -v"`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && go test ./pkg/functionscaler/... ./pkg/common/... -v"`
 Expected: All tests pass
 
 - [ ] **Step 7: Commit**
@@ -746,7 +746,7 @@ func TestKillSignatureAcceptsRouteParams(t *testing.T) {
 
 ```
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/api/go && go build ./libruntime/..."`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go build ./libruntime/..."`
 Expected: FAIL (Kill() doesn't accept 5 params yet)
 
 - [ ] **Step 2: Update `CInstanceAllocation` and `CKill` in clibruntime.h**
@@ -927,12 +927,12 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress,
 
 - [ ] **Step 6: Verify build compiles cleanly**
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/api/go && go build ./libruntime/..."`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go build ./libruntime/..."`
 Expected: Build succeeds (CGo ABI matches both Go header and C++ impl)
 
 - [ ] **Step 7: Run Go libruntime tests**
 
-Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /path/to/yuanrong/api/go && go test ./libruntime/... -v"`
+Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go test ./libruntime/... -v"`
 Expected: All tests pass
 
 - [ ] **Step 8: Commit**
@@ -1003,7 +1003,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeDeleteRequestFutureOnFailureReleasesOwner
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeDeleteRequestFuture*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeDeleteRequestFuture*"`
 Expected: FAIL
 
 - [ ] **Step 3: Modify `DeleteRequestFuture()` for Sub-scenario B**
@@ -1046,7 +1046,7 @@ litebus::Future<ScheduleResponse> InstanceCtrlActor::DeleteRequestFuture(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeDeleteRequestFuture*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeDeleteRequestFuture*"`
 Expected: Both tests PASS
 
 - [ ] **Step 5: Commit**
@@ -1136,7 +1136,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeGCOrphanStateMachineIsNoOp) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeSubScenarioA* NonDRModeGCOrphan*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeSubScenarioA* NonDRModeGCOrphan*"`
 Expected: FAIL (`GCOrphanStateMachine` doesn't exist yet)
 
 - [ ] **Step 3: Add constant, new method declaration, and timer registration**
@@ -1191,17 +1191,17 @@ Note: `litebus::AsyncAfter(delayMs, aid, methodPtr, args...)` is the correct API
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeSubScenarioA* NonDRModeGCOrphan*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T DRModeSubScenarioA* NonDRModeGCOrphan*"`
 Expected: All 3 tests PASS
 
 - [ ] **Step 5: Run full test suite for instance_ctrl_actor**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4 -T InstanceCtrlActorTest*"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4 -T InstanceCtrlActorTest*"`
 Expected: All tests pass
 
 - [ ] **Step 6: Run full unit test suite**
 
-Run: `docker exec compile bash -c "cd /path/to/yuanrong-functionsystem && bash run.sh test -j 4"`
+Run: `docker exec compile bash -c "cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4"`
 Expected: Full suite passes (pre-existing failures excluded)
 
 - [ ] **Step 7: Commit**

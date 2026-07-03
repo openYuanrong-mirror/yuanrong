@@ -46,7 +46,7 @@ When user reports a service issue, gather:
 
 ## Key Access
 
-- Grafana: `https://<grafana-host>:8888/grafana/` — obtain credentials from the team secret manager
+- Grafana: `https://<grafana-host>:8888/grafana/` — credentials in LastPass "Grafana Admin"
 - kubectl: `KUBECONFIG=~/.kube/yr.yaml /tmp/kubectl -n akernel exec <pod> -- <cmd>`
   - Binary: `/tmp/kubectl` (install if missing: `curl -sk https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl -o /tmp/kubectl && chmod +x /tmp/kubectl`)
   - Kubeconfig: `~/.kube/yr.yaml` (contexts: `external` default, `internal`, `externalTLSVerify`)

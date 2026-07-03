@@ -1,13 +1,9 @@
 yr.kv_m_write_tx
 ==================
 
-.. warning::
-
-    ``yr.kv_m_write_tx`` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
-
 .. py:function:: yr.kv_m_write_tx(keys: ~typing.List[str], values: typing.List[bytes], m_set_param: yr.runtime.MSetParam = MSetParam(existence=<ExistenceOpt.NX: 1>, write_mode=<WriteMode.NONE_L2_CACHE: 0>, ttl_second=0, cache_type=<CacheType.MEMORY: 0>)) -> None
 
-    已废弃，仅为兼容历史版本保留。新代码请勿继续使用该接口。
+    提供一个类似 Redis 的集合存储接口，支持将一组二进制数据保存到数据系统。
 
     参数:
         - **key** (List[str]) - 为保存的数据设置一组键来标识数据。使用此键查询数据时，不能为空。
@@ -19,3 +15,14 @@ yr.kv_m_write_tx
 
     异常:
         - **RuntimeError** - 如果 `kv_m_write_tx` 没有初始化和调用，将抛出异常。向数据系统写入数据失败。
+
+    样例：
+        >>> import yr
+        >>> yr.init()
+        >>> mset_param = yr.MSetParam()
+        >>> mset_param.existence = yr.ExistenceOpt.NX
+        >>> mset_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
+        >>> mset_param.ttl_second = 100
+        >>> yr.kv_m_write_tx(["key1", "key2"], [b"value1", b"value2"], mset_param)
+        >>>
+        >>> yr.finalize()
