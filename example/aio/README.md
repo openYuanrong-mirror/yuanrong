@@ -4,13 +4,13 @@
 
 ### 1.1 元戎沙箱试用环境
 ```
-https://1.95.144.130:8888/terminal
+https://<sandbox-host>:8888/terminal
 ```
 
 ### 1.2 试用Token
 
 ```
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIxNzAyNTcsInJvbGUiOiJkZXZlbG9wZXIiLCJzdWIiOiJkZWZhdWx0In0.YmNmM2M3NDYxZTUyMjdmYmMwMTZlMTEzM2RjZTc1YTJlMDUzYjNiZmRmNjUyMjgxNTEyYmE0MmEyODkyZDcyMg
+<jwt-token>
 ```
 ---
 ## 二、Claude Code 使用方法
@@ -19,7 +19,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIxNzAyNTcsInJvbGUiOiJkZXZlbG9
 
 ```bash
 # 设置 智谱 认证 Token
-export ANTHROPIC_AUTH_TOKEN=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
+export ANTHROPIC_AUTH_TOKEN=<your-token>
 
 # 设置 智谱 API 基础地址
 export ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic
@@ -43,7 +43,7 @@ claude [项目目录]
 
 ```bash
 # 设置 智谱 API Key
-export ZAI_API_KEY=1ff46be15f4d447ba5c03a3e97b06fc5.kAkTe5mHTsQIAFa2
+export ZAI_API_KEY=<your-api-key>
 ```
 
 ### 3.2 初始化配置

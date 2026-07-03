@@ -133,6 +133,11 @@ Group API
 KV Cache API
 -------------------
 
+.. warning::
+
+   ``yr.kv_m_write_tx`` and ``yr.MSetParam`` are deprecated and retained only for compatibility.
+   Do not use them in new code.
+
 .. autosummary::
    :nosignatures:
    :toctree: ./

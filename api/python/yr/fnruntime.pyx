@@ -1678,6 +1678,9 @@ cdef class Fnruntime:
 
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam) -> None:
         """
+        Deprecated. Retained only for compatibility with legacy batch write APIs.
+        Do not use it in new code.
+
         store multiple key-value pairs to ds
         :param keys: the keys to set
         :param values: the values to set. Size of values should equal to size of keys.

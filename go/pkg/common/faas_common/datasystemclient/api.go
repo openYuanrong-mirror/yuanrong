@@ -640,7 +640,7 @@ func kvSet(req *data.KvSetRequest, tenantID string, paramLibruntime api.SetParam
 	return localClientLibruntime.KVSet(req.Key, req.Value, paramLibruntime)
 }
 
-// MSetTx - set multi kvs to datasystem transactionally
+// MSetTx - deprecated. Retained only for compatibility; do not use it in new code.
 func MSetTx(req *data.KvMSetTxRequest, config *Config, traceID string) api.ErrorInfo {
 	if localClientLibruntime == nil {
 		return api.ErrorInfo{Code: errRPCUnavailable, Err: fmt.Errorf("dsclient is nil")}

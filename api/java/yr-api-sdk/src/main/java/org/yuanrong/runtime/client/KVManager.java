@@ -282,11 +282,14 @@ public class KVManager {
      * Set Multiple key-value pairs.
      * Operations on all key-value pairs must either succeed or fail completely.
      *
+     * @deprecated mSetTx is deprecated and retained only for compatibility. Do not use it in new code.
+     *
      * @param keys      The keys to set
      * @param vals      vals The values to set. Size of values should equal to size of keys.
      * @param mSetParam Optional. MSetParams for datasystem stateClient.
      * @throws YRException If an error occurs while writing to the key-value store
      */
+    @Deprecated
     public void mSetTx(List<String> keys, List<byte[]> vals, MSetParam mSetParam) throws YRException {
         if (keys.size() != vals.size()) {
             throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
@@ -301,12 +304,15 @@ public class KVManager {
      * Set Multiple key-value pairs.
      * Operations on all key-value pairs must either succeed or fail completely.
      *
+     * @deprecated mSetTx is deprecated and retained only for compatibility. Do not use it in new code.
+     *
      * @param keys      The keys to set
      * @param vals      vals The values to set. Size of values should equal to size of keys.
      * @param lengths   The length of each values. Size of lens should equal to size of keys.
      * @param mSetParam Optional. MSetParams for datasystem stateClient.
      * @throws YRException If an error occurs while writing to the key-value store
      */
+    @Deprecated
     public void mSetTx(List<String> keys, List<byte[]> vals, List<Integer> lengths,
         MSetParam mSetParam) throws YRException {
         if (keys.size() != vals.size() || keys.size() != lengths.size()) {

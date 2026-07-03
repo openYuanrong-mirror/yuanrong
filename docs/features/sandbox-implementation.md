@@ -30,11 +30,11 @@
 关键入口：
 
 - `create()`:
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L252)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L252)
 - `SandBox.__init__()`:
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L304)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L304)
 - `SandboxInstance.execute()`:
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L128)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L128)
 
 ### functionsystem: 控制面职责
 
@@ -49,16 +49,16 @@
 关键实现：
 
 - detached lifecycle 下沉：
-  [struct_transfer.h](/home/wyc/code/sandbox/functionsystem/functionsystem/src/common/utils/struct_transfer.h#L880)
+  [struct_transfer.h](/path/to/yuanrong-functionsystem/functionsystem/src/common/utils/struct_transfer.h#L880)
 - runtime 环境变量注入：
-  [build.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/runtime_manager/config/build.cpp#L181)
+  [build.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/runtime_manager/config/build.cpp#L181)
 - runtime launcher 端口字段：
-  [runtime_launcher.proto](/home/wyc/code/sandbox/functionsystem/runtime-launcher/api/proto/runtime/v1/runtime_launcher.proto#L88)
+  [runtime_launcher.proto](/path/to/yuanrong-functionsystem/runtime-launcher/api/proto/runtime/v1/runtime_launcher.proto#L88)
 - host port 分配与 `protocol:hostPort:containerPort` 编码：
-  [container_executor.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/runtime_manager/executor/container_executor.cpp#L770)
+  [container_executor.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/runtime_manager/executor/container_executor.cpp#L770)
 - Traefik 注册：
-  [instance_ctrl_actor.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp#L6609)
-  [traefik_registry.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L70)
+  [instance_ctrl_actor.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp#L6609)
+  [traefik_registry.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L70)
 
 ### frontend: 浏览器入口职责
 
@@ -68,7 +68,7 @@
 关键实现：
 
 - Web 页面构造 sandbox 创建请求：
-  [webterm.go](/home/wyc/code/sandbox/frontend/pkg/frontend/webui/webterm.go#L1246)
+  [webterm.go](/path/to/yuanrong-frontend/pkg/frontend/webui/webterm.go#L1246)
 - 其中显式注入：
   `YR_JWT_TOKEN`、`YR_SERVER_ADDRESS`、`YR_DS_ADDRESS`
 
@@ -94,7 +94,7 @@ Python user
 
 第二，`skip_serialize=True` 意味着 SDK 不再序列化整个类定义上传，而是假设远端环境已经有
 同路径的预部署类。这个逻辑在
-[instance_proxy.py](/home/wyc/code/sandbox/api/python/yr/decorator/instance_proxy.py#L232)
+[instance_proxy.py](/path/to/yuanrong/api/python/yr/decorator/instance_proxy.py#L232)
 里实现。
 
 ## 命令执行模型
@@ -113,7 +113,7 @@ Python user
 - `env` 使用实例环境变量
 
 实现位置：
-[sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L155)
+[sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L155)
 
 ## detached 模式
 
@@ -126,11 +126,11 @@ Python SDK 侧约定：
 相关位置：
 
 - `sandbox.py` CLI 入口：
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L404)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L404)
 - `instance_proxy.py` 参数校验：
-  [instance_proxy.py](/home/wyc/code/sandbox/api/python/yr/decorator/instance_proxy.py#L317)
+  [instance_proxy.py](/path/to/yuanrong/api/python/yr/decorator/instance_proxy.py#L317)
 - `InvokeOptions` 文档：
-  [config.py](/home/wyc/code/sandbox/api/python/yr/config.py#L411)
+  [config.py](/path/to/yuanrong/api/python/yr/config.py#L411)
 
 后端接收后，会在 `InstanceInfo` 上标记 `detached`，从而使实例生命周期脱离创建它的父调用链。
 
@@ -146,7 +146,7 @@ SDK 侧流程：
 3. libruntime 把 `createOptions` 发到 functionsystem
 
 编码实现：
-[port_forwarding.py](/home/wyc/code/sandbox/api/python/yr/port_forwarding.py#L43)
+[port_forwarding.py](/path/to/yuanrong/api/python/yr/port_forwarding.py#L43)
 
 后端流程：
 
@@ -159,15 +159,15 @@ SDK 侧流程：
 因此，Python 侧自己也必须严格复用同样的实例 ID 清洗逻辑和 URL 格式：
 
 - `_sanitize_instance_id()`:
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L32)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L32)
 - `_build_gateway_url()`:
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L62)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L62)
 
 这套实现与 `functionsystem` 的
 `TraefikRegistry::SanitizeID` 和 `RegisterInstance` 保持一致：
 
-- [traefik_registry.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L85)
-- [traefik_registry.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L192)
+- [traefik_registry.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L85)
+- [traefik_registry.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp#L192)
 
 ## reverse tunnel 实现
 
@@ -201,11 +201,11 @@ Host SDK
 关键实现：
 
 - 启动远端 tunnel server：
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L327)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L327)
 - 启动本地 tunnel client：
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L335)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L335)
 - 返回 sandbox 内部代理 URL：
-  [sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L358)
+  [sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L358)
 
 ### gateway host 来源
 
@@ -216,7 +216,7 @@ Host SDK
 3. `ConfigManager().server_address`
 
 实现位置：
-[sandbox.py](/home/wyc/code/sandbox/api/python/yr/sandbox/sandbox.py#L51)
+[sandbox.py](/path/to/yuanrong/api/python/yr/sandbox/sandbox.py#L51)
 
 这保证了宿主 SDK 在 `in_cluster=False` 场景下，也能用初始化时的 server address
 正确拼出 gateway URL。
@@ -234,10 +234,10 @@ frontend WebTerminal 页面里的 sandbox 创建，本质上是“让远端 runt
 - 都依赖 runtime 注入 `INSTANCE_ID`、proxy 地址、datasystem 地址
 
 其中 `frontend` 在
-[webterm.go](/home/wyc/code/sandbox/frontend/pkg/frontend/webui/webterm.go#L1262)
+[webterm.go](/path/to/yuanrong-frontend/pkg/frontend/webui/webterm.go#L1262)
 里构造 payload，把这些环境变量显式注入到远端运行环境；
 而 `yr` SDK 在
-[apis.py](/home/wyc/code/sandbox/api/python/yr/apis.py#L106)
+[apis.py](/path/to/yuanrong/api/python/yr/apis.py#L106)
 里会从环境变量读取默认配置。
 
 因此可以把 frontend 理解为 sandbox/yr CLI 的浏览器入口，而不是另一套独立 sandbox 实现。
@@ -254,7 +254,7 @@ frontend WebTerminal 页面里的 sandbox 创建，本质上是“让远端 runt
 | `YR_JWT_TOKEN` | frontend 注入 | 前端提交链路的用户认证 |
 
 runtime 注入位置：
-[build.cpp](/home/wyc/code/sandbox/functionsystem/functionsystem/src/runtime_manager/config/build.cpp#L181)
+[build.cpp](/path/to/yuanrong-functionsystem/functionsystem/src/runtime_manager/config/build.cpp#L181)
 
 ## 文档结论
 

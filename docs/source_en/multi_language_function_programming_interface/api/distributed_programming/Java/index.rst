@@ -264,7 +264,7 @@ KV Cache API
    * - :doc:`kv.set`
      - Sets the value of a key.
    * - :doc:`kv.mSetTx`
-     - A transactional interface for setting multiple binary data entries in a batch.
+     - Deprecated and retained only for compatibility.
    * - :doc:`kv.write`
      - Writes the value of a key.
    * - :doc:`kv.mWriteTx`
@@ -298,4 +298,3 @@ Affinity Scheduling
 
    * - :doc:`Affinity`
      - Affinity Scheduling Configuration Parameters.
-

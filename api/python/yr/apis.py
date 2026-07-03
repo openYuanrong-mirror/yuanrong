@@ -1094,6 +1094,9 @@ def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
 @check_initialized
 def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam = MSetParam()) -> None:
     """
+    Deprecated. Retained only for compatibility with legacy batch write APIs.
+    Do not use it in new code.
+
     Provide a Redis-like set storage interface that supports persisting
     a collection of binary data into the data system.
 
@@ -1112,16 +1115,6 @@ def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam =
         RuntimeError: If `kv_m_write_tx` is not initialized and called, an exception will be thrown.
             If data writing to the data system fails.
 
-    Example:
-        >>> import yr
-        >>> yr.init()
-        >>> mset_param = yr.MSetParam()
-        >>> mset_param.existence = yr.ExistenceOpt.NX
-        >>> mset_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
-        >>> mset_param.ttl_second = 100
-        >>> yr.kv_m_write_tx(["key1", "key2"], [b"value1", b"value2"], mset_param)
-        >>>
-        >>> yr.finalize()
     """
     if len(keys) != len(values):
         raise ValueError(
