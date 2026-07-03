@@ -16,8 +16,10 @@
 
 #include "agent_session_manager.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <json.hpp>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
@@ -38,6 +40,62 @@ namespace {
 constexpr size_t MAX_SESSION_KEY_LENGTH = 64;
 constexpr size_t SHA256_BASE64_LENGTH = 44;
 constexpr char BASE64_PADDING = '=';
+
+const char *WriteModeToString(WriteMode mode)
+{
+    switch (mode) {
+        case WriteMode::NONE_L2_CACHE:
+            return "NONE_L2_CACHE";
+        case WriteMode::WRITE_THROUGH_L2_CACHE:
+            return "WRITE_THROUGH_L2_CACHE";
+        case WriteMode::WRITE_BACK_L2_CACHE:
+            return "WRITE_BACK_L2_CACHE";
+        case WriteMode::NONE_L2_CACHE_EVICT:
+            return "NONE_L2_CACHE_EVICT";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+WriteMode ParseDefaultWriteModeValue()
+{
+    auto mode = Config::Instance().YR_DATASYSTEM_DEFAULT_WRITE_MODE();
+    (void)std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::toupper(ch));
+    });
+    if (mode == "NONE_L2_CACHE" || mode == "0") {
+        return WriteMode::NONE_L2_CACHE;
+    }
+    if (mode == "WRITE_THROUGH_L2_CACHE" || mode == "1") {
+        return WriteMode::WRITE_THROUGH_L2_CACHE;
+    }
+    if (mode == "WRITE_BACK_L2_CACHE" || mode == "2") {
+        return WriteMode::WRITE_BACK_L2_CACHE;
+    }
+    if (mode == "NONE_L2_CACHE_EVICT" || mode == "3") {
+        return WriteMode::NONE_L2_CACHE_EVICT;
+    }
+    YRLOG_WARN("invalid YR_DATASYSTEM_DEFAULT_WRITE_MODE: {}, use NONE_L2_CACHE", mode);
+    return WriteMode::NONE_L2_CACHE;
+}
+
+WriteMode GetDefaultWriteMode()
+{
+    static const WriteMode defaultWriteMode = []() {
+        auto mode = ParseDefaultWriteModeValue();
+        YRLOG_INFO("agent session datasystem default write mode: {}", WriteModeToString(mode));
+        return mode;
+    }();
+    return defaultWriteMode;
+}
+
+SetParam BuildDefaultSetParam()
+{
+    SetParam setParam;
+    setParam.writeMode = GetDefaultWriteMode();
+    setParam.ttlSecond = 0;
+    return setParam;
+}
 
 std::shared_ptr<Libruntime> GetLibRuntime()
 {
@@ -302,8 +360,7 @@ ErrorInfo AgentSessionManager::EnsureLoaded(const std::shared_ptr<AgentSessionCo
         sessionCtx->loaded = false;
         return err;
     }
-    SetParam setParam;
-    setParam.ttlSecond = 0;
+    auto setParam = BuildDefaultSetParam();
     err = libRuntime->KVWrite(sessionCtx->value.sessionKey, nativeBuffer, setParam);
     if (!err.OK()) {
         std::lock_guard<std::mutex> lock(sessionCtx->dataMutex);
@@ -367,8 +424,7 @@ ErrorInfo AgentSessionManager::Persist(const std::shared_ptr<AgentSessionContext
     if (!err.OK()) {
         return err;
     }
-    SetParam setParam;
-    setParam.ttlSecond = 0;
+    auto setParam = BuildDefaultSetParam();
     return libRuntime->KVWrite(sessionKey, nativeBuffer, setParam);
 }
 
