@@ -311,6 +311,7 @@ data:
     ENABLE_METRICS={{ quote .Values.global.observer.metrics.enable }}
     RUNTIME_METRICS_CONFIG={{ quote .Values.global.observer.metrics.runtimeMetricsConfig }}
     RUNTIME_METRICS_CONFIG_FILE={{ quote .Values.global.observer.metrics.runtimeMetricsConfigFile }}
+    YR_DATASYSTEM_DEFAULT_WRITE_MODE={{ quote .Values.global.runtime.defaultWriteMode }}
     ENABLE_TRACE={{ quote .Values.global.observer.trace.enable }}
     TRACE_CONFIG={{ quote .Values.global.observer.trace.traceConfig }}
     RUNTIME_TRACE_CONFIG={{ quote .Values.global.observer.trace.runtimeTraceConfig }}
@@ -485,6 +486,7 @@ data:
     HOST_IP="{RUNTIME_HOST_IP}"
     POD_NAME="{RUNTIME_POD_NAME}"
     DATASYSTEM_ADDR="{RUNTIME_HOST_IP}:31501"
+    YR_DATASYSTEM_DEFAULT_WRITE_MODE={{ quote .Values.global.runtime.defaultWriteMode }}
     ENABLE_SERVER_MODE={{ quote .Values.global.runtime.serverModeEnable }} # ${ENABLE_SERVER_MODE:-"true"} 原取值逻辑
     YR_FUNCTION_LIB_PATH="/home/sn/frontend/bin" # ${YR_FUNCTION_LIB_PATH:-"./"} 原取值逻辑
     LD_LIBRARY_PATH = "/home/sn/bin:/home/sn/lib:/home/sn/snlib:/home/sn/frontend/bin"
@@ -871,6 +873,7 @@ data:
     HOST_IP="{RUNTIME_HOST_IP}"
     POD_NAME="{RUNTIME_POD_NAME}"
     ENABLE_SERVER_MODE={{ quote .Values.global.runtime.serverModeEnable }}
+    YR_DATASYSTEM_DEFAULT_WRITE_MODE={{ quote .Values.global.runtime.defaultWriteMode }}
     YR_FUNCTION_LIB_PATH="/home/sn/scheduler/bin"
     LD_LIBRARY_PATH="/home/sn/bin:/home/sn/lib:/home/sn/snlib:/home/sn/scheduler/bin"
     INSTANCE_ID="scheduler-{RUNTIME_POD_NAME}"
