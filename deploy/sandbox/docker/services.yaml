@@ -1,15 +1,15 @@
-- service: defaultservice # 服务名（必填）
-  kind: yrlib # 函数类型（必填） 进程部署只支持 yrlib
-  description: this is the default service # 函数描述（非必填）
-  functions: # 函数（必填）
-    default: # 函数名（必填）
-      cpu: 0 # 函数 CPU 大小，单位：1/1000 核（必填）
-      memory: 0 # 函数 MEM 大小，单位：MB（必填）
-      runtime: python3.11 # 函数 runtime 类型（必填）
-        # environment: # 函数环境变量，内置环境变量定义
+- service: defaultservice # Service name (required)
+  kind: yrlib # Function kind (required); process deployment only supports yrlib
+  description: this is the default service # Function description (optional)
+  functions: # Functions (required)
+    default: # Function name (required)
+      cpu: 0 # Function CPU size in millicores (required)
+      memory: 0 # Function memory size in MB (required)
+      runtime: python3.11 # Function runtime type (required)
+        # environment: # Function environment variables and built-in env definitions
       # "key1" : "value1"
-      # storageType: "local" # 代码包存储类型，默认值为 local, 进程部署只支持 local: 代码包存储在磁盘中
-      # codePath: "/home/sn/function-packages" # 代码包本地路径，默认值为空（除了 python，此项必填）
+      # storageType: "local" # Code package storage type; process deployment only supports local storage on disk
+      # codePath: "/home/sn/function-packages" # Local code package path; default is empty and required except for Python
     py311:
       cpu: 0
       memory: 0
@@ -28,6 +28,11 @@
         type: path
         root: "/opt/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/site-packages/yr/inner/runtime/service"
         entrypoint: "set -e; if [ -f /__yuanrong/python/yr/main/yr_runtime_main.py ]; then export PYTHONPATH=/__yuanrong/python:${PYTHONPATH}; export LD_LIBRARY_PATH=/__yuanrong/python/yr/cpp/lib:/__yuanrong/python/yr/datasystem/lib:${LD_LIBRARY_PATH}; YR_RUNTIME_MAIN=/__yuanrong/python/yr/main/yr_runtime_main.py; else YR_RUNTIME_MAIN='-m yr.cli.scripts runtime_main'; fi; python ${YR_RUNTIME_MAIN}"
+    # py310 = sandbox slot. The SDK routes here by driver Python version. The entrypoint selects the backend:
+    #   Rust backend: exec /__yuanrong/rust/bin/rrt-runtime, shipped into bootstrap.root with the openyuanrong wheel
+    #   Python backend: switch to the py39-style `python ${YR_RUNTIME_MAIN}` for A/B comparison
+    # py310 is now a real python3.10 backend (clean separation): the rust
+    # backend moved to the dedicated `rrt` slot below. python entrypoint mirrors py39.
     py310:
       cpu: 0
       memory: 0
@@ -42,6 +47,24 @@
         type: path
         root: "/opt/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/site-packages/yr/inner/runtime/service"
         entrypoint: "set -e; if [ -f /__yuanrong/python/yr/main/yr_runtime_main.py ]; then export PYTHONPATH=/__yuanrong/python:${PYTHONPATH}; export LD_LIBRARY_PATH=/__yuanrong/python/yr/cpp/lib:/__yuanrong/python/yr/datasystem/lib:${LD_LIBRARY_PATH}; YR_RUNTIME_MAIN=/__yuanrong/python/yr/main/yr_runtime_main.py; else YR_RUNTIME_MAIN='-m yr.cli.scripts runtime_main'; fi; python ${YR_RUNTIME_MAIN}"
+    # rrt = dedicated Rust sandbox backend (native rrt-runtime). The frontend
+    # sandbox-create API selects the rrt slot directly; rootfs + bootstrap make
+    # this slot self-contained, so Functionsystem executes the bootstrap entrypoint
+    # directly without appending language wrapper arguments.
+    # RRT_HTTP_PORT / RRT_TUNNEL_* are injected by frontend create when needed.
+    rrt:
+      cpu: 0
+      memory: 0
+      rootfs:
+        runtime: runc
+        type: image
+        imageurl: "aio-yr-runtime:latest"
+        readonly: true
+        mountpoint: /mnt
+      bootstrap:
+        type: path
+        root: "/opt/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/site-packages/yr/inner/runtime/service"
+        entrypoint: "set -e; export LD_LIBRARY_PATH=/__yuanrong/python/yr/cpp/lib:/__yuanrong/python/yr/datasystem/lib:${LD_LIBRARY_PATH}; exec \"$(python -c 'import openyuanrong_rrt;print(openyuanrong_rrt.runtime_path())')\""
     java:
       cpu: 500
       memory: 500

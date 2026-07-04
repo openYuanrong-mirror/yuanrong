@@ -18,9 +18,9 @@ spec:
       port: {{ .Values.traefik.service.port }}
       targetPort: web
       protocol: TCP
-    - name: frontend-direct
-      port: {{ .Values.traefik.service.frontendDirectPort }}
-      targetPort: frontend-direct
+    - name: router
+      port: {{ .Values.traefik.service.routerPort }}
+      targetPort: router
       protocol: TCP
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}

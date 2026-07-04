@@ -223,6 +223,8 @@ type InstanceSessionConfig struct {
 type InvokeOptions struct {
 	Cpu                  int
 	Memory               int
+	CpuLimit             int // cgroup CPU limit (milli-core); 0 = unset (use Cpu)
+	MemoryLimit          int // cgroup memory limit (MB); 0 = unset (use Memory)
 	InvokeLabels         map[string]string
 	CustomResources      map[string]float64
 	CustomExtensions     map[string]string

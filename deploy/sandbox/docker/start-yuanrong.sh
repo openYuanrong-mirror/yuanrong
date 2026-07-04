@@ -16,6 +16,11 @@ exec /usr/local/bin/yr start \
   --enable_function_scheduler true \
   --function_scheduler_lease_port 8890 \
   --enable_meta_service true \
+  --enable_sandbox_router true \
+  --sandbox_router_listen_port 8080 \
+  --sandbox_router_rrt_port 50090 \
+  --sandbox_router_enable_jwt false \
+  --sandbox_router_validate_iam false \
   --frontend_ssl_enable false \
   --enable_iam_server "${ENABLE_TOKEN:-false}" \
   --frontend_client_auth_type NoClientCert \
