@@ -60,6 +60,26 @@ while getopts 'y:d:t:a:S:n:fws' opt; do
     esac
 done
 
+function dump_startup_diagnostics() {
+    echo "[gate-st] deploy path: ${DEPLOY_PATH}"
+    if [ -d "${DEPLOY_PATH}" ]; then
+        echo "[gate-st] deploy path files:"
+        find "${DEPLOY_PATH}" -maxdepth 3 -type f | sort | tail -100
+        echo "[gate-st] recent log tails:"
+        find "${DEPLOY_PATH}" -maxdepth 4 -type f \
+            \( -name "*.log" -o -name "*.out" -o -name "*.err" -o -name "*stdout*" -o -name "*stderr*" \) \
+            | sort | tail -20 | while read -r log_file; do
+                echo "[gate-st] tail ${log_file}"
+                tail -80 "${log_file}" || true
+            done
+    else
+        echo "[gate-st] deploy path does not exist"
+    fi
+    echo "[gate-st] related process snapshot:"
+    ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|runtime_manager|ds_worker|ds_master|etcd' \
+        | grep -v grep || true
+}
+
 function wait_cluster_readiness() {
     echo "start check yuanrong cluster readiness..."
     mkdir -p ${DEPLOY_PATH}/yr_master/
@@ -81,6 +101,7 @@ function wait_cluster_readiness() {
         retry_time=$(($retry_time+1))
         if [ $retry_time -gt 20 ]; then
             echo "retry wait cluster readiness for 100 times, has reached max retry time and stop retry"
+            dump_startup_diagnostics
             exit 1
         fi
     done
@@ -138,22 +159,6 @@ function resolve_metrics_config_file() {
     done
 }
 
-function dump_process_deploy_diagnostics() {
-    echo "[st-diagnose] YUANRONG_DIR=${YUANRONG_DIR}"
-    echo "[st-diagnose] DEPLOY_PATH=${DEPLOY_PATH}"
-    echo "[st-diagnose] list deploy path"
-    find "${DEPLOY_PATH}" -maxdepth 3 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort | tail -80 || true
-    echo "[st-diagnose] tail key logs"
-    find "${DEPLOY_PATH}" -maxdepth 4 -type f \
-        \( -name '*std.log' -o -name '*.log' -o -name 'master.info' -o -name 'master_pid_port.txt' \) \
-        -print 2>/dev/null | sort | while read -r log_file; do
-            echo "[st-diagnose] ===== ${log_file} ====="
-            tail -80 "${log_file}" || true
-        done
-    echo "[st-diagnose] related process snapshot"
-    ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|ds_worker|ds_master|etcd' | grep -v grep || true
-}
-
 function start_yr() {
     cd "${YUANRONG_DIR}/"
     local services_file="${BASE_DIR}/services.yaml"
@@ -199,7 +204,6 @@ function start_yr() {
         --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
         --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
         "${metrics_config_args[@]}"; then
-        dump_process_deploy_diagnostics
         return 1
     fi
     for((k=0;k<"${AGENT_NUM}";k++))

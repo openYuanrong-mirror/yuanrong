@@ -331,7 +331,7 @@ fi
 
 dashboard_filename=$(ls *dashboard*.tar.gz)
 if [ -n "${dashboard_filename}" ]; then
-    copy_dashboard_stage_or_extract_tar "${DASHBOARD_STAGE_DIR}" "${dashboard_filename}" "${OUTPUT_DIR}/openyuanrong/functionsystem/" "dashboard"
+    copy_dashboard_stage_or_extract_tar "${DASHBOARD_STAGE_DIR}" "${dashboard_filename}" "${OUTPUT_DIR}/openyuanrong/dashboard/" "dashboard"
 fi
 
 find . -type d -exec chmod 750 {} \;

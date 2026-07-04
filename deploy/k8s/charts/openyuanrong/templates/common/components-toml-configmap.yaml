@@ -166,6 +166,7 @@ data:
     max_ds_health_check_times=""
     election_mode={{ quote .Values.global.common.electionMode }}
     system_timeout={{ quote .Values.global.common.systemTimeout }}
+    checkpoint_dir="/home/sn/checkpoints"
     runtime_shutdown_timeout_seconds={{ quote .Values.global.runtime.runtimeShutdownTimeoutSeconds }}
     ssl_enable=""
     metrics_ssl_enable=""
@@ -251,6 +252,8 @@ data:
     ENABLE_IPV4_TENANT_ISOLATION={{ quote .Values.global.tenantIsolation.ipv4.enable }}
     DEPLOY_DIR={{ quote .Values.global.common.deployDir }}
     DELEGATE_ENV_VAR='{"DISABLE_APIG_FORMAT":"true"}'
+    GOOGLE_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
+    DATASYSTEM_CLIENT_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
 
     [function_agent.args]
     ip="{POD_IP}"
@@ -267,6 +270,7 @@ data:
     s3_endpoint={{ quote .Values.global.obsManagement.s3Endpoint | default "{HOST_IP}:30110" }}
     decrypt_algorithm={{ quote .Values.global.common.decryptAlgorithm }}
     system_timeout={{ quote .Values.global.common.systemTimeout }}
+    checkpoint_dir="/home/sn/checkpoints"
     ssl_enable={{ quote .Values.global.mutualSSLConfig.sslEnable }}
     metrics_ssl_enable=""
     ssl_base_path={{ quote .Values.global.mutualSSLConfig.sslBasePath }}
@@ -321,6 +325,7 @@ data:
     [runtime_manager.args]
     runtime_dir="/home/snuser/runtime"
     runtime_logs_dir={{ quote .Values.global.log.runtime.path }}
+    checkpoint_dir="/home/sn/checkpoints"
     runtime_ld_library_path="/opt/buildtools/python3.11/lib::/usr/lib:/usr/lib64"
     snuser_lib_dir={{ quote .Values.global.runtime.snuserLibPath }}
     virtual_env_idle_time_limit={{ quote .Values.global.runtime.virtualEnvIdleTimeLimit }}
@@ -534,6 +539,8 @@ data:
     SIGNAL_HANDLER="faasfrontend.SignalHandler"
     INIT_ARGS_FILE_PATH="/home/sn/config/config.json"
     GLOG_log_dir={{ quote .Values.global.log.functionSystem.path}}
+    GOOGLE_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
+    DATASYSTEM_CLIENT_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
     LOG_PATTERN='{"separator": " | ","placeholders": [{"flags": "%Y-%m-%dT%H:%M:%S.%f"},{"flags": "%l"},{"flags": "%s:%#"},{"env": "POD_NAME"},{"env": "CLUSTER_ID"},{"flags": ""}]}'
     IS_PROTOMSG_TO_RUNTIME={{ quote .Values.global.runtime.isProtoMsgToRuntime }}
     MAX_PRIORITY={{ quote .Values.global.common.prioritySchedule.maxPriority }}
@@ -727,6 +734,8 @@ data:
     SIGNAL_HANDLER="faasmanager.SignalHandler"
     INIT_ARGS_FILE_PATH="/home/sn/config/config.json"
     GLOG_log_dir={{ quote .Values.global.log.functionSystem.path}}
+    GOOGLE_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
+    DATASYSTEM_CLIENT_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
     LOG_PATTERN='{"separator": " | ","placeholders": [{"flags": "%Y-%m-%dT%H:%M:%S.%f"},{"flags": "%l"},{"flags": "%s:%#"},{"env": "POD_NAME"},{"env": "CLUSTER_ID"},{"flags": ""}]}'
     IS_PROTOMSG_TO_RUNTIME={{ quote .Values.global.runtime.isProtoMsgToRuntime }}
     MAX_PRIORITY={{ quote .Values.global.common.prioritySchedule.maxPriority }}
@@ -919,6 +928,8 @@ data:
     SIGNAL_HANDLER="faasscheduler.SignalHandler"
     INIT_ARGS_FILE_PATH="/home/sn/config/config.json"
     GLOG_log_dir={{ quote .Values.global.log.functionSystem.path}}
+    GOOGLE_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
+    DATASYSTEM_CLIENT_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}
     ERN='{"separator": " | ","placeholders": [{"flags": "%Y-%m-%dT%H:%M:%S.%f"},{"flags": "%l"},{"flags": "%s:%#"},{"env": "POD_NAME"},{"env": "CLUSTER_ID"},{"flags": ""}]}'
     IS_PROTOMSG_TO_RUNTIME={{ quote .Values.global.runtime.isProtoMsgToRuntime }}
     MAX_PRIORITY={{ quote .Values.global.common.prioritySchedule.maxPriority }}

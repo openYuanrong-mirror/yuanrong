@@ -24,6 +24,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 import unittest
 
+from click.testing import CliRunner
+
 
 class TestCliMain(unittest.TestCase):
     def load_cli_main_with_stubbed_deps(self):
@@ -35,6 +37,8 @@ class TestCliMain(unittest.TestCase):
         fake_yr_cli = types.ModuleType("yr.cli")
         fake_config = types.ModuleType("yr.cli.config")
         fake_config.ConfigResolver = object
+        fake_discovery = types.ModuleType("yr.cli.discovery")
+        fake_discovery.resolve_overrides_from_function_master = mock.Mock(return_value=("x=y",))
 
         fake_const = types.ModuleType("yr.cli.const")
         fake_const.DEFAULT_CONFIG_PATH = "/tmp/config.toml"
@@ -47,7 +51,23 @@ class TestCliMain(unittest.TestCase):
         )
 
         fake_launcher = types.ModuleType("yr.cli.system_launcher")
-        fake_launcher.SystemLauncher = object
+
+        class FakeSystemLauncher:
+            calls = []
+
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                FakeSystemLauncher.calls.append((args, kwargs))
+
+            @staticmethod
+            def start_all():
+                return True
+
+            def load_components(self):
+                pass
+
+        fake_launcher.SystemLauncher = FakeSystemLauncher
 
         fake_checkpoint = types.ModuleType("yr.cli.checkpoint")
         fake_checkpoint.CheckpointClient = object
@@ -68,13 +88,47 @@ class TestCliMain(unittest.TestCase):
                 "yr": fake_yr,
                 "yr.cli": fake_yr_cli,
                 "yr.cli.config": fake_config,
+                "yr.cli.discovery": fake_discovery,
                 "yr.cli.const": fake_const,
                 "yr.cli.system_launcher": fake_launcher,
                 "yr.cli.checkpoint": fake_checkpoint,
             },
         ):
             spec.loader.exec_module(module)
+        module.fake_discovery = fake_discovery
+        module.FakeSystemLauncher = FakeSystemLauncher
         return module
+
+    def test_logging_configuration_replaces_existing_handlers(self):
+        with mock.patch.object(logging, "basicConfig") as basic_config:
+            module = self.load_cli_main_with_stubbed_deps()
+
+        self.assertIsNotNone(module.cli)
+        self.assertTrue(basic_config.call_args.kwargs["force"])
+
+    def test_main_uses_yr_program_name(self):
+        main = self.load_cli_main_with_stubbed_deps()
+
+        with mock.patch.object(main.cli, "main") as click_main:
+            main.main(["-h"])
+
+        click_main.assert_called_once_with(args=["-h"], prog_name="yr", standalone_mode=True)
+
+    def test_start_master_address_uses_service_discovery(self):
+        main = self.load_cli_main_with_stubbed_deps()
+        runner = CliRunner()
+
+        result = runner.invoke(
+            main.cli,
+            ["start", "--master_address", "http://127.0.0.1:8080"],
+            obj={},
+        )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        main.fake_discovery.resolve_overrides_from_function_master.assert_called_once()
+        call_kwargs = main.fake_discovery.resolve_overrides_from_function_master.call_args.kwargs
+        self.assertEqual(call_kwargs["function_master_addr"], "http://127.0.0.1:8080")
+        self.assertEqual(main.FakeSystemLauncher.calls[-1][1]["overrides"], ("x=y",))
 
     def test_user_visible_print_logger_writes_to_stdout(self):
         stdout = io.StringIO()

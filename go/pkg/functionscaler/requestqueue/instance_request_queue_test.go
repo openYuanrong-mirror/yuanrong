@@ -78,6 +78,30 @@ func TestLen(t *testing.T) {
 func TestScheduleRequest(t *testing.T) {
 	q := NewInsAcqReqQueue("testFuncKey", 10*time.Second)
 	ch := make(chan string, 1)
+	waitScheduleFunc := func() string {
+		select {
+		case out := <-ch:
+			return out
+		case <-time.After(time.Second):
+			t.Fatal("schedule function was not called")
+			return ""
+		}
+	}
+	waitQueueLen := func(want int) {
+		deadline := time.After(time.Second)
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if q.Len() == want {
+				return
+			}
+			select {
+			case <-deadline:
+				t.Fatalf("request queue length = %d, want %d", q.Len(), want)
+			case <-ticker.C:
+			}
+		}
+	}
 	q.RegisterSchFunc("scheFuncFail", func(insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
 		ch <- "scheFuncFail"
 		return nil, errors.New("some error")
@@ -89,11 +113,23 @@ func TestScheduleRequest(t *testing.T) {
 	req := &PendingInsAcqReq{CreatedTime: time.Now(), ResultChan: make(chan *PendingInsAcqRsp, 1)}
 	q.AddRequest(req)
 	q.ScheduleRequest("scheFuncFail")
-	failOut := <-ch
+	failOut := waitScheduleFunc()
 	assert.Equal(t, "scheFuncFail", failOut)
+	waitQueueLen(1)
 	q.ScheduleRequest("scheFuncSucc")
-	succOut := <-ch
+	succOut := waitScheduleFunc()
 	assert.Equal(t, "scheFuncSucc", succOut)
+	q.Stop()
+}
+
+func TestCancelRequest(t *testing.T) {
+	q := NewInsAcqReqQueue("testFuncKey", 10*time.Second)
+	req := &PendingInsAcqReq{CreatedTime: time.Now(), ResultChan: make(chan *PendingInsAcqRsp, 1)}
+	assert.NoError(t, q.AddRequest(req))
+
+	assert.True(t, q.CancelRequest(req))
+	assert.Equal(t, 0, q.Len())
+	assert.False(t, q.CancelRequest(req))
 	q.Stop()
 }
 
