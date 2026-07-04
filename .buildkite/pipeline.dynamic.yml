@@ -1,5 +1,5 @@
 #!/bin/bash
-# Buildkite 动态 Pipeline - 标准 SSH 版
+# Buildkite dynamic pipeline - standard SSH variant
 set -e
 BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
 SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260506_kubectl}"
@@ -10,12 +10,20 @@ ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"
 ENABLE_RUNTIME_ARM="${ENABLE_RUNTIME_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
 ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
-ENABLE_COMPONENT_IMAGE_BUILD="${ENABLE_COMPONENT_IMAGE_BUILD:-true}"
 ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
 RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
 FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
 FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
 BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
+SDK_BUILDER_IMAGE="${BUILDER_IMAGE}"
+# rrt-runtime (Rust) is built in its own parallel "Build RRT <arch>" step (key
+# build-rrt-<arch>) using BUILD_ALL_IMAGE, so that image must stay Rust-capable.
+# The amd64 full build sets BUILD_SKIP_RUST=1 (rrt is no longer on its critical
+# path). Decoupled from ENABLE_RUST_FUNCTIONSYSTEM_ST (a functionsystem concern).
+ENABLE_RUST_BUILD="${ENABLE_RUST_BUILD:-true}"
+# arm64 rrt-runtime requires a Rust-capable arm64 builder image. Keep it off by
+# default until that image is available; amd64 sandbox packaging/tests still run.
+ENABLE_RRT_ARM="${ENABLE_RRT_ARM:-false}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
 SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"
 SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"
@@ -56,6 +64,12 @@ if is_enabled "${ENABLE_RUST_FUNCTIONSYSTEM_ST}"; then
   BUILD_ALL_IMAGE="${RUST_BUILDER_IMAGE}"
 fi
 
+if is_enabled "${ENABLE_RUST_BUILD}"; then
+  validate_ci_value "RUST_BUILDER_IMAGE" "$RUST_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
+  BUILD_ALL_IMAGE="${RUST_BUILDER_IMAGE}"
+  SDK_BUILDER_IMAGE="${RUST_BUILDER_IMAGE}"
+fi
+
 sdk_python_suffix() {
   case "$1" in
     python3.9) printf 'cp39' ;;
@@ -75,9 +89,26 @@ SANDBOX_AMD64_SDK_SUFFIX="cp311"
 SANDBOX_ARM64_SDK_STEP="build-sdk-arm64-cp39"
 SANDBOX_MANIFEST_SDK_DEPENDS=""
 SANDBOX_MANIFEST_RUNTIME_DEPENDS=""
+SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=""
+SANDBOX_MANIFEST_EXTRA_DEPENDS=""
 SANDBOX_RUNTIME_IMAGE_STEPS=""
-SANDBOX_COMPONENT_IMAGE_ARCHES=""
+SANDBOX_RRT_ARTIFACT_STEPS="build-rrt-amd64"
+SANDBOX_MANIFEST_ARCHES="amd64"
+SANDBOX_MANIFEST_RELEASE_DEPENDS=$'\n'"      - \"publish-sandbox-release-amd64\""
+SANDBOX_ARM_RRT_DEPENDS=""
+SANDBOX_ARM_RRT_OPTIONAL="1"
+if is_enabled "${ENABLE_LINUX_ARM}"; then
+  SANDBOX_MANIFEST_ARCHES="amd64 arm64"
+  SANDBOX_MANIFEST_RELEASE_DEPENDS=$'\n'"      - \"publish-sandbox-release-amd64\""$'\n'"      - \"publish-sandbox-release-arm64\""
+fi
+if is_enabled "${ENABLE_LINUX_ARM}" && is_enabled "${ENABLE_RRT_ARM}"; then
+  SANDBOX_RRT_ARTIFACT_STEPS="build-rrt-amd64 build-rrt-arm64"
+  SANDBOX_ARM_RRT_DEPENDS=$'\n'"      - \"build-rrt-arm64\""
+  SANDBOX_ARM_RRT_OPTIONAL="0"
+fi
+SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=""
 SANDBOX_TEST_PYPI_DEPENDS=""
+SANDBOX_SANDBOX_SDK_STEPS="test-sandbox-sdk"
 SANDBOX_SDK_STEPS=""
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
@@ -104,13 +135,8 @@ for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
     SANDBOX_MANIFEST_RUNTIME_DEPENDS="${SANDBOX_MANIFEST_RUNTIME_DEPENDS}"$'\n'"      - \"publish-runtime-arm64-${SDK_SUFFIX}\""
   fi
 done
-
-if is_enabled "${ENABLE_COMPONENT_IMAGE_BUILD}"; then
-  SANDBOX_COMPONENT_IMAGE_ARCHES="amd64"
-  if is_enabled "${ENABLE_LINUX_ARM}" && is_enabled "${ENABLE_RUNTIME_ARM}"; then
-    SANDBOX_COMPONENT_IMAGE_ARCHES="${SANDBOX_COMPONENT_IMAGE_ARCHES} arm64"
-  fi
-fi
+SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
+SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
 
 SANDBOX_FINAL_PACKAGE_STEP="publish-sandbox-release-amd64"
 if is_enabled "${ENABLE_SANDBOX_PACKAGE}" && is_enabled "${ENABLE_LINUX_ARM}" && is_enabled "${ENABLE_SANDBOX_MANIFEST}"; then
@@ -121,7 +147,16 @@ emit_sandbox_k8s_test() {
 cat << YAML
   - label: ":rocket: Test K8S"
     key: "test-k8s"
-    depends_on: "${SANDBOX_FINAL_PACKAGE_STEP}"
+    # Serialize K8S deploys across all branches/builds. The chart pins
+    # fullnameOverride=yr + a shared namespace, and the node DaemonSet is
+    # host-level (fixed hostPorts/hostPaths), so two concurrent Test K8S runs
+    # overwrite each other's frontend Deployment and clash on the host ->
+    # "deployment yr-frontend exceeded its progress deadline". One at a time.
+    concurrency_group: "yuanrong/sandbox-test-k8s"
+    concurrency: 1
+    depends_on:
+      - "${SANDBOX_FINAL_PACKAGE_STEP}"
+${SANDBOX_MANIFEST_RUNTIME_DEPENDS}
     command: |
       set -e
       export PATH="/workspace:\$\$PATH"
@@ -130,6 +165,7 @@ cat << YAML
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_PACKAGE_STEP_KEY: "${SANDBOX_FINAL_PACKAGE_STEP}"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_AMD64_SDK_STEP}"
+      YR_K8S_RUNTIME_IMAGE_ARCH: "amd64"
     agents:
       queue: "default"
       os: "linux"
@@ -167,26 +203,117 @@ cat << YAML
 YAML
 }
 
+# sandbox-sdk (sandbox-sdk submodule): build the pure-Python wheel and run the
+# sandbox-sdk -> rrt direct-routing verification. The test (offline, MockTransport)
+# asserts the SDK takes the frontend /direct/{id}/invoke alias to the rrt port,
+# falls back to frontend invoke on route failure,
+# and sticky-disables — i.e. the
+# build's test suite includes sandbox-sdk -> rrt direct verification. Building + installing the
+# wheel also validates sandbox-sdk packaging end to end.
+emit_sandbox_sdk_test() {
+cat << YAML
+  - label: ":snake: Build SDK Sandbox"
+    key: "test-sandbox-sdk"
+    command: |
+      set -e
+      export PIP_BREAK_SYSTEM_PACKAGES=1
+      export PATH=/opt/buildtools/python3.11/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      PY=\$\$(command -v python3.11 || command -v python3)
+      git submodule sync --recursive
+      git submodule update --init --recursive --force --jobs=4 sandbox-sdk
+      # sandbox-sdk pip wheel build isolation must use the internal mirror; otherwise it fetches
+      # build dependencies (setuptools/setuptools-scm) from public PyPI and often times out. pip subprocesses inherit these env vars.
+      export PIP_INDEX_URL="\$\${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}"
+      export PIP_TRUSTED_HOST="\$\${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}"
+      export PIP_DEFAULT_TIMEOUT="\$\${PIP_DEFAULT_TIMEOUT:-180}"
+      bash sandbox-sdk/build.sh "\$\$(pwd)/output"
+      ls -lh output/openyuanrong_sandbox-*.whl
+      \$\$PY -m pip install --index-url "\$\${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}" --trusted-host "\$\${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}" output/openyuanrong_sandbox-*.whl
+      echo "== sandbox-sdk -> rrt direct contract test =="
+      \$\$PY sandbox-sdk/python/tests/test_transport_direct.py
+      mkdir -p artifacts/sandbox-sdk
+      cp output/openyuanrong_sandbox-*.whl artifacts/sandbox-sdk/
+      ls -lh artifacts/sandbox-sdk/
+      bash .buildkite/upload_buildkite_packages.sh artifacts/sandbox-sdk/*.whl || true
+      echo "== upload sandbox-sdk wheel to OBS =="
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
+      fi
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/sandbox-sdk/obs-urls.txt \
+        --platform linux \
+        --arch noarch \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/sandbox-sdk/openyuanrong_sandbox-*.whl
+      cat artifacts/sandbox-sdk/obs-urls.txt 2>/dev/null || true
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$BUILDER_IMAGE"
+                resources:
+                  requests: { cpu: "1", memory: "1Gi" }
+                  limits: { cpu: "2", memory: "2Gi" }
+                env:
+                  - name: BUILDKITE_PACKAGE_UPLOAD_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: buildkite-package-credentials
+                        key: api-token
+                        optional: true
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
+    timeout_in_minutes: 20
+YAML
+}
+
 emit_test_pypi_publish() {
 cat << YAML
   - label: ":snake: Publish Wheels PyPI"
     key: "publish-wheels-testpypi"
     depends_on:
 ${SANDBOX_TEST_PYPI_DEPENDS}
+${SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS}
     command: |
       set -e
       rm -rf artifacts/test-pypi-wheels artifacts/test-pypi-urls
       mkdir -p artifacts/test-pypi-wheels artifacts/test-pypi-urls
-      for step_key in ${SANDBOX_SDK_STEPS}; do
+      for step_key in ${SANDBOX_SDK_STEPS} ${SANDBOX_SANDBOX_SDK_STEPS}; do
         mkdir -p "artifacts/test-pypi-urls/\$\$step_key"
         buildkite-agent meta-data get "obs-urls.\$\$step_key" > "artifacts/test-pypi-urls/\$\$step_key/obs-urls.txt" || true
       done
-      python3 .buildkite/download_obs_artifacts.py --urls-root artifacts/test-pypi-urls --output-dir artifacts/test-pypi-wheels --pattern 'openyuanrong_sdk*.whl' --all
-      find artifacts/test-pypi-wheels -type f -name 'openyuanrong_sdk*.whl' -print | sort
+      python3 .buildkite/download_obs_artifacts.py \
+        --urls-root artifacts/test-pypi-urls \
+        --output-dir artifacts/test-pypi-wheels \
+        --pattern 'openyuanrong_sdk*.whl' \
+        --pattern 'openyuanrong_sandbox*.whl' \
+        --all
+      find artifacts/test-pypi-wheels -type f \
+        \( -name 'openyuanrong_sdk*.whl' -o -name 'openyuanrong_sandbox*.whl' \) \
+        -print | sort
       bash .buildkite/upload_test_pypi_wheels.sh artifacts/test-pypi-wheels
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_SDK_STEPS: "${SANDBOX_SDK_STEPS}"
+      SANDBOX_SANDBOX_SDK_STEPS: "${SANDBOX_SANDBOX_SDK_STEPS}"
     agents:
       queue: "default"
       os: "linux"
@@ -227,17 +354,24 @@ emit_sandbox_runtime_image() {
   local node_selector=""
   local agent_arch_attr="arch"
 
+  local rrt_depends=$'\n'"      - \"build-rrt-${image_arch}\""
+  local rrt_optional="0"
+
   if [ "${agent_arch}" = "arm64" ]; then
     agent_arch_attr="linux_arch"
     node_selector="            nodeSelector:
               kubernetes.io/arch: arm64"
+  fi
+  if [ "${image_arch}" = "arm64" ] && ! is_enabled "${ENABLE_RRT_ARM}"; then
+    rrt_depends=""
+    rrt_optional="1"
   fi
 
 cat << YAML
   - label: ":package: Build Runtime ${image_arch} ${sdk_suffix}"
     key: "${key}"
     depends_on:
-      - "build-all-amd64"
+      - "build-all-amd64"${rrt_depends}
       - "${sdk_step}"
     command: |
       set -e
@@ -254,6 +388,7 @@ cat << YAML
       YR_K8S_IMAGE_CACHE: "1"
       YR_K8S_IMAGE_CACHE_TAG: "build-cache-runtime-${image_arch}-${sdk_suffix}"
       YR_K8S_DOCKER_BUILDKIT: "${buildkit_mode}"
+      YR_K8S_RRT_OPTIONAL: "${rrt_optional}"
     agents:
       queue: "default"
       os: "linux"
@@ -313,8 +448,11 @@ cat << YAML
       export CC=gcc-10
       export CXX=g++-10
       export PIP_BREAK_SYSTEM_PACKAGES=1
+      # rrt-runtime (Rust) is built once per arch in the dedicated parallel
+      # "Build RRT amd64" step (key build-rrt-amd64), NOT here -- skip it so this
+      # build's critical path no longer serializes the ~48min cold cargo build.
+      export BUILD_SKIP_RUST=1
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS}"
-      export DATASYSTEM_PYTHON=/opt/buildtools/python3.11
       JOBS="\$\${JOBS:-16}"
       FUNCTIONSYSTEM_JOBS="\$\${FUNCTIONSYSTEM_JOBS:-8}"
       export FUNCTIONSYSTEM_JOBS
@@ -337,6 +475,16 @@ cat << YAML
       export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
       # Keep Go's content-addressed build cache warm across Buildkite jobs; cache-aging handles old entries.
       export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILD_ARCH:-amd64}
+      # cargo cache on the persistent volume so the //api/rust genrule does an
+      # INCREMENTAL cargo build (deps cached) instead of a ~48min from-scratch
+      # release build every checkout. genrule honors CARGO_TARGET_DIR.
+      export CARGO_HOME=\$\$CACHE_BASE/cargo-home
+      export CARGO_TARGET_DIR=\$\$CACHE_BASE/cargo-target/\$\${BUILD_ARCH:-amd64}
+      mkdir -p \$\$CARGO_HOME \$\$CARGO_TARGET_DIR
+      # sccache: content-addressed rustc cache on the hostPath volume. Survives
+      # bazel's per-build exec-root path churn (which busts cargo target-dir
+      # fingerprints), so the //api/rust build reuses crates across builds.
+      . .buildkite/setup_sccache.sh
       mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
       export FS_VENDOR_CACHE_DIR=\$\$CACHE_BASE/functionsystem-vendor-cache
@@ -365,11 +513,15 @@ cat << YAML
       # Use bash /dev/tcp (built-in, no nc required) to test connectivity
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
-      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
+        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
+      esac
+      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
       else
-        echo "WARNING: bazel-remote not reachable, building without remote cache"
+        echo "WARNING: bazel-remote disabled or not reachable, building without remote cache"
       fi
       
       echo "=== [2/3] Submodule Update ==="
@@ -399,7 +551,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -414,29 +566,13 @@ cat << YAML
 
       echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
+      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
       bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
       cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
       cd ../..
-      cp datasystem/output/*.whl output/ 2>/dev/null || true
-      cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
-      cp functionsystem/output/*.whl output/ 2>/dev/null || true
-      ls -lh output/*.whl
-      for required_wheel in \
-        'openyuanrong-*.whl' \
-        'openyuanrong_runtime-*.whl' \
-        'openyuanrong_faas-*.whl' \
-        'openyuanrong_dashboard-*.whl' \
-        'openyuanrong_cpp_sdk-*.whl' \
-        'openyuanrong_functionsystem-*.whl' \
-        'openyuanrong_datasystem-*.whl'; do
-        find output -maxdepth 1 -name "\$\$required_wheel" -print -quit | grep -q .
-      done
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
@@ -516,7 +652,7 @@ cat << YAML
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp output/*.whl artifacts/release/ 2>/dev/null || true
+      cp output/openyuanrong-*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
@@ -596,6 +732,103 @@ cat << YAML
 YAML
 fi
 
+if is_enabled "${ENABLE_RUNTIME_X86}"; then
+cat << YAML
+  - label: ":crab: Build RRT amd64"
+    key: "build-rrt-amd64"
+    command: |
+      set -e
+      export PATH=/opt/buildtools/python3.11/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      export CC=gcc-10
+      export CXX=g++-10
+      export PIP_BREAK_SYSTEM_PACKAGES=1
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      echo "Package version: \$\$BUILD_VERSION"
+
+      CACHE_BASE="/mnt/paas/build-cache"
+      # Reuse build-all's cargo dirs so deps stay warm; sccache (content-addressed
+      # on the persistent volume) keeps rustc warm even on a fresh node.
+      export CARGO_HOME=\$\$CACHE_BASE/cargo-home
+      export CARGO_TARGET_DIR=\$\$CACHE_BASE/cargo-target/amd64
+      mkdir -p \$\$CARGO_HOME \$\$CARGO_TARGET_DIR
+      . .buildkite/setup_sccache.sh
+
+      echo "=== [rrt] cargo build rrt-runtime (release) ==="
+      ( cd api/rust/rrt-daemon && cargo build --release --bin rrt-runtime )
+      RRT_BIN="\$\$CARGO_TARGET_DIR/release/rrt-runtime"
+      test -x "\$\$RRT_BIN" || { echo "rrt-runtime missing at \$\$RRT_BIN" >&2; exit 1; }
+
+      echo "=== [rrt] package standalone openyuanrong-rrt wheel ==="
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
+      fi
+      rm -rf artifacts/openyuanrong-rrt
+      mkdir -p artifacts/openyuanrong-rrt
+      ( cd api/python-rrt && RRT_RUNTIME_SRC="\$\$RRT_BIN" BUILD_VERSION="\$\$YR_BUILD_VERSION" python3 setup.py bdist_wheel -d "\$\$OLDPWD/artifacts/openyuanrong-rrt" )
+      cp "\$\$RRT_BIN" "artifacts/openyuanrong-rrt/rrt-runtime-\$\${BUILD_ARCH:-x86_64}"
+      ( cd artifacts/openyuanrong-rrt && sha256sum openyuanrong_rrt-*.whl rrt-runtime-* > SHA256SUMS )
+      ls -lh artifacts/openyuanrong-rrt/
+      ( cd artifacts/openyuanrong-rrt && buildkite-agent artifact upload "openyuanrong_rrt-*.whl" )
+      bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-rrt/openyuanrong_rrt-*.whl || true
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/openyuanrong-rrt/obs-urls-rrt.txt \
+        --platform linux \
+        --arch "\$\${BUILD_ARCH:-x86_64}" \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/openyuanrong-rrt/openyuanrong_rrt-*.whl artifacts/openyuanrong-rrt/rrt-runtime-* artifacts/openyuanrong-rrt/SHA256SUMS
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$BUILD_ALL_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "16", memory: "16Gi" }
+                  limits: { cpu: "16", memory: "16Gi" }
+                env:
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
+                  - name: BUILDKITE_PACKAGE_UPLOAD_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: buildkite-package-credentials
+                        key: api-token
+                        optional: true
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 90
+YAML
+fi
+
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
 cat << YAML
@@ -629,7 +862,11 @@ cat << YAML
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
+        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
+      esac
+      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
       fi
 
@@ -664,7 +901,7 @@ cat << YAML
       - kubernetes:
           podSpec:
             containers:
-              - image: "$BUILDER_IMAGE"
+              - image: "$SDK_BUILDER_IMAGE"
                 volumeMounts:
                   - name: build-cache
                     mountPath: /mnt/paas
@@ -712,6 +949,7 @@ cat << YAML
     key: "publish-sandbox-release-amd64"
     depends_on:
       - "build-all-amd64"
+      - "build-rrt-amd64"
       - "${SANDBOX_AMD64_SDK_STEP}"
     command: |
       set -e
@@ -730,7 +968,6 @@ cat << YAML
       YR_K8S_IMAGE_SDK_WHEEL_PATTERN: "openyuanrong_sdk*-${SANDBOX_AMD64_SDK_SUFFIX}-*.whl"
       YR_K8S_IMAGE_CACHE: "1"
       ENABLE_SANDBOX_MANIFEST: "${ENABLE_SANDBOX_MANIFEST}"
-      ENABLE_COMPONENT_IMAGE_BUILD: "${ENABLE_COMPONENT_IMAGE_BUILD}"
     agents:
       queue: "default"
       os: "linux"
@@ -808,8 +1045,11 @@ cat << YAML
       export CXX=g++-10
       export PIP_BREAK_SYSTEM_PACKAGES=1
       export BUILD_ARCH=arm64
+      # arm64 rrt-runtime is optional and built only when ENABLE_RRT_ARM=1.
+      # Keep Rust skipped here so non-RRT arm64 artifacts are not blocked by
+      # the temporary lack of a Rust-capable arm64 builder image.
+      export BUILD_SKIP_RUST=1
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS}"
-      export DATASYSTEM_PYTHON=/opt/buildtools/python3.9
       JOBS="\$\${JOBS:-16}"
       FUNCTIONSYSTEM_JOBS="\$\${FUNCTIONSYSTEM_JOBS:-8}"
       export FUNCTIONSYSTEM_JOBS
@@ -832,6 +1072,12 @@ cat << YAML
       export PIP_CACHE_DIR=\$\$CACHE_BASE/pip
       # Keep Go's content-addressed build cache warm across Buildkite jobs; cache-aging handles old entries.
       export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILD_ARCH:-arm64}
+      # cargo cache on the persistent volume so the //api/rust genrule does an
+      # INCREMENTAL cargo build (deps cached) instead of a ~48min from-scratch
+      # release build every checkout. genrule honors CARGO_TARGET_DIR.
+      export CARGO_HOME=\$\$CACHE_BASE/cargo-home
+      export CARGO_TARGET_DIR=\$\$CACHE_BASE/cargo-target/\$\${BUILD_ARCH:-arm64}
+      mkdir -p \$\$CARGO_HOME \$\$CARGO_TARGET_DIR
       mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
       export FS_VENDOR_CACHE_DIR=\$\$CACHE_BASE/functionsystem-vendor-cache
@@ -858,11 +1104,15 @@ cat << YAML
       }
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
-      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
+        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
+      esac
+      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
       else
-        echo "WARNING: bazel-remote not reachable, building without remote cache"
+        echo "WARNING: bazel-remote disabled or not reachable, building without remote cache"
       fi
 
       echo "=== [2/3] Submodule Update ==="
@@ -879,7 +1129,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -894,29 +1144,13 @@ cat << YAML
 
       echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
+      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
       bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
       cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
+      rm -rf build/ dist/ *.egg-info
+      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+      cp -R dist/*whl ../../output/
       cd ../..
-      cp datasystem/output/*.whl output/ 2>/dev/null || true
-      cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
-      cp functionsystem/output/*.whl output/ 2>/dev/null || true
-      ls -lh output/*.whl
-      for required_wheel in \
-        'openyuanrong-*.whl' \
-        'openyuanrong_runtime-*.whl' \
-        'openyuanrong_faas-*.whl' \
-        'openyuanrong_dashboard-*.whl' \
-        'openyuanrong_cpp_sdk-*.whl' \
-        'openyuanrong_functionsystem-*.whl' \
-        'openyuanrong_datasystem-*.whl'; do
-        find output -maxdepth 1 -name "\$\$required_wheel" -print -quit | grep -q .
-      done
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
@@ -988,7 +1222,7 @@ cat << YAML
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp output/*.whl artifacts/release/ 2>/dev/null || true
+      cp output/openyuanrong-*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
@@ -1006,6 +1240,7 @@ cat << YAML
         --channel "\$\$OBS_UPLOAD_CHANNEL" \
         \$\$OBS_UPLOAD_VERSION_ARGS \
         -- artifacts/release/openyuanrong-*.tar.gz artifacts/release/*.whl
+
     agents:
       queue: "default"
       os: "linux"
@@ -1070,6 +1305,105 @@ cat << YAML
     timeout_in_minutes: 180
 YAML
 fi
+
+if is_enabled "${ENABLE_RUNTIME_ARM}" && is_enabled "${ENABLE_RRT_ARM}"; then
+cat << YAML
+  - label: ":crab: Build RRT arm64"
+    key: "build-rrt-arm64"
+    command: |
+      set -e
+      export PATH=/opt/buildtools/python3.11/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      export CC=gcc-10
+      export CXX=g++-10
+      export PIP_BREAK_SYSTEM_PACKAGES=1
+      export BUILD_ARCH=arm64
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      echo "Package version: \$\$BUILD_VERSION"
+
+      CACHE_BASE="/mnt/paas/build-cache"
+      export CARGO_HOME=\$\$CACHE_BASE/cargo-home
+      export CARGO_TARGET_DIR=\$\$CACHE_BASE/cargo-target/arm64
+      mkdir -p \$\$CARGO_HOME \$\$CARGO_TARGET_DIR
+      . .buildkite/setup_sccache.sh
+
+      echo "=== [rrt] cargo build rrt-runtime (release) ==="
+      ( cd api/rust/rrt-daemon && cargo build --release --bin rrt-runtime )
+      RRT_BIN="\$\$CARGO_TARGET_DIR/release/rrt-runtime"
+      test -x "\$\$RRT_BIN" || { echo "rrt-runtime missing at \$\$RRT_BIN" >&2; exit 1; }
+
+      echo "=== [rrt] package standalone openyuanrong-rrt wheel ==="
+      OBS_UPLOAD_CHANNEL="daily"
+      OBS_UPLOAD_VERSION_ARGS=""
+      if [ -n "\$\$TAG_BUILD_VERSION" ]; then
+        OBS_UPLOAD_CHANNEL="release"
+        OBS_UPLOAD_VERSION_ARGS="--version \$\$YR_BUILD_VERSION"
+      fi
+      rm -rf artifacts/openyuanrong-rrt
+      mkdir -p artifacts/openyuanrong-rrt
+      ( cd api/python-rrt && RRT_RUNTIME_SRC="\$\$RRT_BIN" BUILD_VERSION="\$\$YR_BUILD_VERSION" python3 setup.py bdist_wheel -d "\$\$OLDPWD/artifacts/openyuanrong-rrt" )
+      cp "\$\$RRT_BIN" "artifacts/openyuanrong-rrt/rrt-runtime-\$\${BUILD_ARCH:-x86_64}"
+      ( cd artifacts/openyuanrong-rrt && sha256sum openyuanrong_rrt-*.whl rrt-runtime-* > SHA256SUMS )
+      ls -lh artifacts/openyuanrong-rrt/
+      ( cd artifacts/openyuanrong-rrt && buildkite-agent artifact upload "openyuanrong_rrt-*.whl" )
+      bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-rrt/openyuanrong_rrt-*.whl || true
+      bash .buildkite/upload_obs_artifacts.sh \
+        --output artifacts/openyuanrong-rrt/obs-urls-rrt.txt \
+        --platform linux \
+        --arch "\$\${BUILD_ARCH:-x86_64}" \
+        --channel "\$\$OBS_UPLOAD_CHANNEL" \
+        \$\$OBS_UPLOAD_VERSION_ARGS \
+        -- artifacts/openyuanrong-rrt/openyuanrong_rrt-*.whl artifacts/openyuanrong-rrt/rrt-runtime-* artifacts/openyuanrong-rrt/SHA256SUMS
+    agents:
+      queue: "default"
+      os: "linux"
+      linux_arch: "arm64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            nodeSelector:
+              kubernetes.io/arch: arm64
+            containers:
+              - image: "$BUILD_ALL_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "16", memory: "16Gi" }
+                  limits: { cpu: "16", memory: "16Gi" }
+                env:
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
+                  - name: BUILDKITE_PACKAGE_UPLOAD_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: buildkite-package-credentials
+                        key: api-token
+                        optional: true
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 90
+YAML
+fi
+
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
 cat << YAML
@@ -1103,7 +1437,11 @@ cat << YAML
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
+        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
+      esac
+      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
       fi
 
@@ -1187,7 +1525,7 @@ cat << YAML
   - label: ":package: Build Image arm"
     key: "publish-sandbox-release-arm64"
     depends_on:
-      - "build-all-arm64"
+      - "build-all-arm64"${SANDBOX_ARM_RRT_DEPENDS}
       - "${SANDBOX_ARM64_SDK_STEP}"
     command: |
       set -e
@@ -1202,7 +1540,7 @@ cat << YAML
       YR_K8S_IMAGE_CACHE: "1"
       YR_K8S_IMAGE_CACHE_TAG: "build-cache-arm64"
       YR_K8S_DOCKER_BUILDKIT: "0"
-      ENABLE_COMPONENT_IMAGE_BUILD: "${ENABLE_COMPONENT_IMAGE_BUILD}"
+      YR_K8S_RRT_OPTIONAL: "${SANDBOX_ARM_RRT_OPTIONAL}"
     agents:
       queue: "default"
       os: "linux"
@@ -1264,15 +1602,18 @@ for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
   emit_sandbox_runtime_image "arm64" "arm64" "${SDK_SUFFIX}" "build-sdk-arm64-${SDK_SUFFIX}" "$BUILDER_IMAGE" "0"
 done
+fi
+if is_enabled "${ENABLE_SANDBOX_PACKAGE}" && is_enabled "${ENABLE_SANDBOX_MANIFEST}"; then
 cat << YAML
 
   - label: ":package: Build Manifest"
     key: "publish-sandbox-manifest"
     depends_on:
-      - "publish-sandbox-release-amd64"
-      - "publish-sandbox-release-arm64"
+${SANDBOX_MANIFEST_RELEASE_DEPENDS}
 ${SANDBOX_MANIFEST_SDK_DEPENDS}
 ${SANDBOX_MANIFEST_RUNTIME_DEPENDS}
+${SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS}
+${SANDBOX_MANIFEST_EXTRA_DEPENDS}
     command: |
       set -e
       export PATH="/workspace:\$\$PATH"
@@ -1280,7 +1621,10 @@ ${SANDBOX_MANIFEST_RUNTIME_DEPENDS}
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_RUNTIME_IMAGE_STEPS: "${SANDBOX_RUNTIME_IMAGE_STEPS}"
-      SANDBOX_COMPONENT_IMAGE_ARCHES: "${SANDBOX_COMPONENT_IMAGE_ARCHES}"
+      SANDBOX_RRT_ARTIFACT_STEPS: "${SANDBOX_RRT_ARTIFACT_STEPS}"
+      YR_K8S_MANIFEST_ARCHES: "${SANDBOX_MANIFEST_ARCHES}"
+      SANDBOX_SANDBOX_SDK_STEPS: "${SANDBOX_SANDBOX_SDK_STEPS}"
+      SANDBOX_EXTRA_ARTIFACT_STEPS: ""
     agents:
       queue: "default"
       os: "linux"
@@ -1336,6 +1680,10 @@ if is_enabled "${ENABLE_SANDBOX_PACKAGE}" && is_enabled "${ENABLE_SANDBOX_K8S_TE
   emit_sandbox_k8s_test
 fi
 
+if is_enabled "${ENABLE_SANDBOX_PACKAGE}"; then
+  emit_sandbox_sdk_test
+fi
+
 case "${ENABLE_MACOS_SDK}" in
   1|true|TRUE|yes|YES|on|ON)
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
@@ -1386,6 +1734,11 @@ cat << YAML
         --channel "\$\$OBS_UPLOAD_CHANNEL" \
         \$\$OBS_UPLOAD_VERSION_ARGS \
         -- artifacts/openyuanrong-sdk/*.whl
+    env:
+      # Submodule renamed agentruntime->sandbox-sdk; macOS Mac-mini agents reuse a
+      # persistent checkout whose stale .git/modules/agentruntime breaks the submodule
+      # checkout. Force a clean re-clone to clear it.
+      BUILDKITE_CLEAN_CHECKOUT: "true"
     agents:
       queue: "default"
       os: "macos"

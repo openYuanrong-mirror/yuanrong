@@ -124,6 +124,12 @@ set_python_build_args() {
   mapfile -t python_build_args < <(python_build_args_from_wheel "${sdk_wheel}")
 }
 
+stage_runtime_wheels() {
+  rm -rf "${OUTPUT_DIR}/rrt-wheels"
+  mkdir -p "${OUTPUT_DIR}/rrt-wheels"
+  find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'openyuanrong_rrt*.whl' -exec cp -af {} "${OUTPUT_DIR}/rrt-wheels/" \;
+}
+
 stage_deploy_context() {
   rm -rf "${DEPLOY_CONTEXT_DIR}"
   mkdir -p "${DEPLOY_CONTEXT_DIR}/bin" "${DEPLOY_CONTEXT_DIR}/images"
@@ -176,6 +182,7 @@ main() {
   build_candidate_dirs
   validate_required_artifacts
   set_python_build_args
+  stage_runtime_wheels
   stage_deploy_context
 
   build_image "${BASE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.base"

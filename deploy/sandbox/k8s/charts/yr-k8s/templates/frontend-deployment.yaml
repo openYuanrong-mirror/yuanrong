@@ -29,6 +29,11 @@ spec:
           imagePullPolicy: {{ .Values.global.images.controlplane.pullPolicy }}
           command:
             - /usr/local/bin/start-frontend.sh
+          # Keep args explicitly empty so Helm clears stale/manual args from older
+          # deployments. A previous live patch left a shell snippet here; when the
+          # chart omitted args, Helm preserved it and frontend crashed because the
+          # snippet was passed as an invalid `yr start` parameter.
+          args: []
           env:
             - name: RUNTIME_POD_NAME
               valueFrom:
@@ -60,9 +65,22 @@ spec:
               value: {{ .Values.frontend.envPorts.dsWorkerPort | quote }}
             - name: IAM_SERVER_ADDRESS
               value: {{ default (printf "%s:%v" (include "yr-k8s.componentName" (dict "root" . "component" "master-access")) .Values.master.service.ports.iamServer) .Values.frontend.iamServerAddress | quote }}
+            - name: ENABLE_SANDBOX_ROUTER
+              value: {{ .Values.frontend.sandboxRouter.enabled | quote }}
+            - name: SANDBOX_ROUTER_LISTEN_PORT
+              value: {{ .Values.frontend.service.routerPort | quote }}
+            - name: SANDBOX_ROUTER_RRT_PORT
+              value: {{ .Values.frontend.sandboxRouter.rrtPort | quote }}
+            - name: SANDBOX_ROUTER_ENABLE_JWT
+              value: {{ .Values.frontend.sandboxRouter.enableJwt | quote }}
+            - name: SANDBOX_ROUTER_VALIDATE_IAM
+              value: {{ .Values.frontend.sandboxRouter.validateIam | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.frontend.service.targetPort }}
+              protocol: TCP
+            - name: router
+              containerPort: {{ .Values.frontend.service.routerPort }}
               protocol: TCP
 {{- with .Values.frontend.probes.readiness }}
           readinessProbe:

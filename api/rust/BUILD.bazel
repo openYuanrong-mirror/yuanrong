@@ -1,0 +1,64 @@
+# rrt = Rust sandbox runtime daemon, the openYuanrong sandbox runtime peer.
+#
+# Follow the api/go yr_go_pkg pattern: wrap native `cargo build` with a genrule
+# instead of pulling in heavyweight rules_rust, and place rrt-runtime under build/output/runtime/service/rust/bin/.
+# It is packaged into the image with runtime/service, equivalent to go/runtime/service/go/bin/goruntime.
+#
+# rrt is pure Rust and does not link libruntime or datasystem, so srcs only include Rust sources plus a local proto copy.
+# Reusing libruntime protos can happen after SSOT alignment; keep a local copy for now.
+
+filegroup(
+    name = "rust_sources",
+    srcs = glob([
+        "rrt-daemon/src/**/*.rs",
+        "rrt-daemon/proto/**/*.proto",
+        "rrt-daemon/build.rs",
+        "rrt-daemon/Cargo.toml",
+    ]) + [
+        "Cargo.toml",
+        "Cargo.lock",
+    ],
+)
+
+genrule(
+    name = "yr_rust_pkg",
+    srcs = [":rust_sources"],
+    outs = ["yr_rust_pkg.out"],
+    cmd = """
+        BASE_DIR="$$(pwd)" &&
+        export HOME="$${HOME:-/root}" &&
+        export CARGO_HOME="$${CARGO_HOME:-$$HOME/.cargo}" &&
+        export PROTOC="$${PROTOC:-$$(command -v protoc)}" &&
+        RUST_SRC_DIR="$$(realpath $$BASE_DIR/api/rust)" &&
+        WORKSPACE_DIR="$$(dirname "$$(dirname "$$RUST_SRC_DIR")")" &&
+        TARGET_DIR="$${CARGO_TARGET_DIR:-$$RUST_SRC_DIR/target}" &&
+        RUST_OUT_DIR="$$WORKSPACE_DIR/build/output/runtime/service/rust/bin" &&
+        mkdir -p "$$RUST_OUT_DIR" &&
+        RRT_TARGET="$${RRT_TARGET:-x86_64-unknown-linux-musl}" &&
+        RRT_STATIC="$${RRT_STATIC:-true}" &&
+        cd "$$RUST_SRC_DIR" &&
+        if [ "$$RRT_STATIC" = "true" ]; then
+            if ! rustup target list --installed 2>/dev/null | grep -qx "$$RRT_TARGET"; then
+                echo "Rust target $$RRT_TARGET missing; attempting 'rustup target add $$RRT_TARGET'..." >&2
+                rustup target add "$$RRT_TARGET" 2>/dev/null || true
+            fi
+            if rustup target list --installed 2>/dev/null | grep -qx "$$RRT_TARGET" \
+                && cargo build --release --target "$$RRT_TARGET" --bin rrt-runtime; then
+                RRT_BIN="$$TARGET_DIR/$$RRT_TARGET/release/rrt-runtime"
+            else
+                echo "WARNING: static target $$RRT_TARGET unavailable; falling back to dynamic (gnu) rrt-runtime — binary is NOT portable across libc versions." >&2
+                cargo build --release --bin rrt-runtime &&
+                RRT_BIN="$$TARGET_DIR/release/rrt-runtime"
+            fi
+        else
+            cargo build --release --bin rrt-runtime &&
+            RRT_BIN="$$TARGET_DIR/release/rrt-runtime"
+        fi &&
+        cd "$$BASE_DIR" &&
+        cp "$$RRT_BIN" "$$RUST_OUT_DIR/rrt-runtime" &&
+        chmod 750 "$$RUST_OUT_DIR/rrt-runtime" &&
+        echo "$$RUST_OUT_DIR/rrt-runtime" > "$@"
+    """,
+    local = True,
+    visibility = ["//visibility:public"],
+)

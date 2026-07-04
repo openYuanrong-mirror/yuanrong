@@ -79,7 +79,11 @@ build_sdk_wheel() {
 
     ensure_sdk_python_packages "${python_bin}"
 
-    BAZEL_OUTPUT_USER_ROOT="${output_root}" \
+    # rrt-runtime ships as the standalone openyuanrong-rrt wheel (built once per
+    # arch), so the per-cp SDK build skips the Rust target instead of recompiling
+    # it once per Python version.
+    BUILD_SKIP_RUST=1 \
+        BAZEL_OUTPUT_USER_ROOT="${output_root}" \
         BAZEL_OUTPUT_BASE="${output_root}/output" \
         bash "${ROOT_DIR}/build.sh" -p "${python_bin}" -v "${BUILD_VERSION}" -j "${SDK_BAZEL_JOBS}"
     if [ "${OUTPUT_DIR}" != "${ROOT_DIR}/output" ]; then

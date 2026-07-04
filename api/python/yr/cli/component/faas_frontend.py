@@ -26,7 +26,9 @@ class FaaSFrontendLauncher(ComponentLauncher):
     def prestart_hook(self) -> None:
         logger.info(f"{self.name}: prestart hook executing")
         src = self.resolver.rendered_config["values"][self.name]["config_path"]
-        dest = Path(self.resolver.rendered_config[self.name]["env"]["INIT_ARGS_FILE_PATH"]).resolve()
+        dest = Path(
+            self.resolver.rendered_config[self.name]["env"]["INIT_ARGS_FILE_PATH"]
+        ).resolve()
         self.patch_init_frontend_args(src, dest)
 
     def patch_init_frontend_args(self, src: Path, dest: Path) -> None:
@@ -47,51 +49,77 @@ class FaaSFrontendLauncher(ComponentLauncher):
         etcd_table_prefix = values["etcd"].get("table_prefix", "")
 
         ssl_enable = str(values["fs"]["tls"].get("enable", "false")).lower()
-        frontend_lease_bypass = str(faas_values.get("lease_bypass", False)).lower()
         scc_enable = str(faas_values.get("scc_enable", "false")).lower()
         ssl_base_path = values["fs"]["tls"].get("base_path", "")
         scc_base_path = faas_args.get("scc_base_path", "")
         etcd_ssl_base_path = values["etcd"]["auth"].get("base_path", "")
 
         if etcd_auth_type == "TLS":
-            # Validate file names to prevent path traversal attacks
-            def safe_file_join(base_path, filename):
-                """Safely join paths and prevent path traversal."""
-                if not filename:
-                    return ""
-                # Check for path traversal attempts
-                if ".." in filename or filename.startswith("/"):
-                    logger.warning(f"Potentially unsafe file name detected: {filename}")
-                    return ""
-                # Normalize and ensure the result is within base_path
-                import os
-                full_path = os.path.normpath(os.path.join(base_path, filename))
-                if not full_path.startswith(os.path.normpath(base_path)):
-                    logger.warning(f"Path traversal attempt detected: {filename}")
-                    return ""
-                return full_path
-
-            ca_file = values['etcd']['auth'].get('ca_file', '')
-            cert_file = values['etcd']['auth'].get('client_cert_file', '')
-            key_file = values['etcd']['auth'].get('client_key_file', '')
+            etcd_ca = (
+                f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('ca_file', '')}"
+            )
+            etcd_cert = f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_cert_file', '')}"
+            etcd_key = f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_key_file', '')}"
             user_pass_phrase = values["etcd"]["auth"].get("pass_phrase", "")
-
-            etcd_ca = safe_file_join(etcd_ssl_base_path, ca_file)
-            etcd_cert = safe_file_join(etcd_ssl_base_path, cert_file)
-            etcd_key = safe_file_join(etcd_ssl_base_path, key_file)
-            pass_phrase = safe_file_join(etcd_ssl_base_path, user_pass_phrase) if user_pass_phrase else ""
+            pass_phrase = (
+                f"{etcd_ssl_base_path}/{user_pass_phrase}" if user_pass_phrase else ""
+            )
         else:
             etcd_ca = ""
             etcd_cert = ""
             etcd_key = ""
             pass_phrase = ""
 
+        # sandboxRouter (rrt direct L7 reverse proxy); off by default, opt in via values
+        sandbox_router_enable = str(
+            faas_values.get("sandbox_router_enable", False)
+        ).lower()
+        sandbox_router_listen_port = str(
+            faas_values.get("sandbox_router_listen_port", 8080)
+        )
+        sandbox_router_rrt_port = str(faas_values.get("sandbox_router_rrt_port", 50090))
+        sandbox_router_enable_jwt = str(
+            faas_values.get("sandbox_router_enable_jwt", False)
+        ).lower()
+        sandbox_router_validate_iam = str(
+            faas_values.get("sandbox_router_validate_iam", False)
+        ).lower()
+
+        # frontend auth/meta placeholders. The template carries these (added by the
+        # Keycloak/Casdoor/metaservice frontend features); process deploy fills them
+        # via functionsystem install.sh. The k8s path must fill them too, otherwise
+        # they stay literal and the rendered init_frontend_args.json is invalid JSON
+        # and the frontend fails to start. k8s default: auth off, IAM/meta address
+        # taken from config when present, else empty (still valid JSON).
+        frontend_https_enable = ssl_enable
+        enable_func_token_auth = str(
+            faas_values.get("enable_func_token_auth", False)
+        ).lower()
+        frontend_lease_bypass = str(
+            faas_values.get("frontend_lease_bypass", False)
+        ).lower()
+        auth_enabled = str(faas_values.get("auth_enabled", False)).lower()
+        meta_service_address = str(
+            faas_args.get("meta_service_address", "")
+            or faas_values.get("meta_service_address", "")
+        )
+        iam_server_address = str(faas_values.get("iam_server_address", ""))
+        auth_public_url = str(faas_values.get("auth_public_url", ""))
+        auth_internal_url = str(faas_values.get("auth_internal_url", ""))
+        auth_realm = str(faas_values.get("auth_realm", ""))
+        auth_client_id = str(faas_values.get("auth_client_id", ""))
+        auth_client_secret = str(faas_values.get("auth_client_secret", ""))
+
         replacements = {
+            "{sandboxRouterEnable}": sandbox_router_enable,
+            "{sandboxRouterListenPort}": sandbox_router_listen_port,
+            "{sandboxRouterRrtPort}": sandbox_router_rrt_port,
+            "{sandboxRouterEnableJwt}": sandbox_router_enable_jwt,
+            "{sandboxRouterValidateIam}": sandbox_router_validate_iam,
             "{etcdAddr}": etcd_addrs,
             "{faas_frontend_http_ip}": ip_address,
             "{faas_frontend_http_port}": str(port),
             "{sslEnable}": ssl_enable,
-            "{frontend_lease_bypass}": frontend_lease_bypass,
             "{sccEnable}": scc_enable,
             "{etcdAuthType}": etcd_auth_type,
             "{azPrefix}": etcd_table_prefix,
@@ -101,6 +129,17 @@ class FaaSFrontendLauncher(ComponentLauncher):
             "{etcdCertFile}": etcd_cert,
             "{etcdKeyFile}": etcd_key,
             "{passphraseFile}": pass_phrase,
+            "{iam_server_address}": iam_server_address,
+            "{enable_func_token_auth}": enable_func_token_auth,
+            "{auth_public_url}": auth_public_url,
+            "{auth_internal_url}": auth_internal_url,
+            "{auth_realm}": auth_realm,
+            "{auth_client_id}": auth_client_id,
+            "{auth_client_secret}": auth_client_secret,
+            "{auth_enabled}": auth_enabled,
+            "{meta_service_address}": meta_service_address,
+            "{frontend_lease_bypass}": frontend_lease_bypass,
+            "{frontendSslEnable}": frontend_https_enable,
         }
 
         for placeholder, value in replacements.items():

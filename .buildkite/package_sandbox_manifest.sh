@@ -28,13 +28,12 @@ RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}-${DEFAULT_RUNTIME_SD
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-COMPONENT_IMAGE_REGISTRY_REPO="${SANDBOX_COMPONENT_IMAGE_REGISTRY_REPO:-${CI_PIPELINE_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev}}"
-COMPONENT_IMAGE_TAG="${SANDBOX_COMPONENT_IMAGE_TAG:-daily.${CI_PIPELINE_IMAGE_TIMESTAMP:-${BUILDKITE_BUILD_NUMBER:-local}}}"
-COMPONENT_IMAGE_ARCHES="${SANDBOX_COMPONENT_IMAGE_ARCHES:-}"
-COMPONENT_IMAGE_NAMES="${SANDBOX_COMPONENT_IMAGE_NAMES:-datasystem functionsystem function-agent function-agent-init runtime-manager}"
 LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313}"
 LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313}"
 MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313}"
+RRT_ARTIFACT_STEPS="${SANDBOX_RRT_ARTIFACT_STEPS:-build-rrt-amd64 build-rrt-arm64}"
+SANDBOX_SDK_ARTIFACT_STEPS="${SANDBOX_SANDBOX_SDK_STEPS:-test-sandbox-sdk}"
+EXTRA_ARTIFACT_STEPS="${SANDBOX_EXTRA_ARTIFACT_STEPS:-}"
 RUNTIME_IMAGE_STEPS="${SANDBOX_RUNTIME_IMAGE_STEPS:-}"
 
 local_images=(yr-base yr-compile yr-runtime yr-controlplane yr-node)
@@ -97,54 +96,6 @@ create_manifest() {
     "${DOCKER_BIN}" manifest push --purge "${target}"
 }
 
-component_images_enabled() {
-    [ -n "${COMPONENT_IMAGE_ARCHES}" ]
-}
-
-component_manifest_source_args() {
-    local image_name="$1"
-    local arch
-    for arch in ${COMPONENT_IMAGE_ARCHES}; do
-        printf '%s/%s:%s-%s\n' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}" "${arch}"
-    done
-}
-
-create_component_manifest() {
-    local image_name="$1"
-    local target="${COMPONENT_IMAGE_REGISTRY_REPO}/${image_name}:${COMPONENT_IMAGE_TAG}"
-    local arch
-    local source
-    local sources=()
-
-    mapfile -t sources < <(component_manifest_source_args "${image_name}")
-    printf 'Creating component image manifest %s from:\n' "${target}" >&2
-    printf '  %s\n' "${sources[@]}" >&2
-
-    "${DOCKER_BIN}" manifest rm "${target}" >/dev/null 2>&1 || true
-    "${DOCKER_BIN}" manifest create "${target}" "${sources[@]}"
-    for arch in ${COMPONENT_IMAGE_ARCHES}; do
-        source="${COMPONENT_IMAGE_REGISTRY_REPO}/${image_name}:${COMPONENT_IMAGE_TAG}-${arch}"
-        "${DOCKER_BIN}" manifest annotate "${target}" "${source}" --os linux --arch "${arch}"
-    done
-    "${DOCKER_BIN}" manifest push --purge "${target}"
-}
-
-package_component_helm_if_enabled() {
-    if ! component_images_enabled; then
-        return 0
-    fi
-
-    printf 'Packaging OpenYuanRong component Helm chart with tag %s.\n' "${COMPONENT_IMAGE_TAG}" >&2
-    CI_PIPELINE_BUILD_STEP_KEY="${SANDBOX_COMPONENT_HELM_BUILD_STEP_KEY:-build-all-amd64}" \
-    CI_PIPELINE_IMAGE_TIMESTAMP="${CI_PIPELINE_IMAGE_TIMESTAMP:-${BUILDKITE_BUILD_NUMBER:-local}}" \
-    SANDBOX_COMPONENT_IMAGE_REGISTRY_REPO="${COMPONENT_IMAGE_REGISTRY_REPO}" \
-    SANDBOX_COMPONENT_IMAGE_TAG="${COMPONENT_IMAGE_TAG}" \
-    COMPONENT_HELM_PACKAGE_DIR="${HELM_DIR}" \
-    COMPONENT_HELM_MANIFEST_DIR="${MANIFEST_DIR}" \
-    COMPONENT_HELM_METADATA_DIR="${METADATA_DIR}" \
-        bash .buildkite/package_ci_component_helm.sh
-}
-
 runtime_sdk_suffixes() {
     local step_key
     local sdk_suffix
@@ -189,8 +140,7 @@ EOF
 }
 
 write_metadata() {
-    {
-    cat <<EOF
+    cat >"${METADATA_DIR}/sandbox-release.json" <<EOF
 {
   "commit": "${COMMIT_SHA}",
   "branch": "${BRANCH_NAME}",
@@ -208,30 +158,9 @@ write_metadata() {
   ],
   "static_images": [
     "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"
-  ],
-  "component_image_registry": "${COMPONENT_IMAGE_REGISTRY_REPO}",
-  "component_image_tag": "${COMPONENT_IMAGE_TAG}",
-  "component_image_arches": "$(printf '%s' "${COMPONENT_IMAGE_ARCHES}")",
-  "component_images": [
-EOF
-    local first=1
-    local image_name
-    for image_name in ${COMPONENT_IMAGE_NAMES}; do
-        if component_images_enabled; then
-            if [ "${first}" -eq 1 ]; then
-                first=0
-            else
-                printf ',\n'
-            fi
-            printf '    "%s/%s:%s"' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}"
-        fi
-    done
-    printf '\n'
-    cat <<EOF
   ]
 }
 EOF
-    } >"${METADATA_DIR}/sandbox-release.json"
 }
 
 collect_artifact_archive() {
@@ -242,8 +171,10 @@ collect_artifact_archive() {
         "${ARCHIVE_DIR}/linux-arm64" \
         "${ARCHIVE_DIR}/linux-arm64-sdk" \
         "${ARCHIVE_DIR}/macos-arm64-sdk" \
-        "${ARCHIVE_DIR}/runtime-images" \
-        "${ARCHIVE_DIR}/component-images"
+        "${ARCHIVE_DIR}/sandbox-sdk" \
+        "${ARCHIVE_DIR}/rrt" \
+        "${ARCHIVE_DIR}/extra" \
+        "${ARCHIVE_DIR}/runtime-images"
 
     if ! command -v buildkite-agent >/dev/null 2>&1; then
         return 0
@@ -268,6 +199,21 @@ collect_artifact_archive() {
         buildkite-agent meta-data get "obs-urls.${step_key}" \
             >"${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}/obs-urls.txt" || true
     done
+    for step_key in ${SANDBOX_SDK_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/sandbox-sdk/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/sandbox-sdk/${step_key}/obs-urls.txt" || true
+    done
+    for step_key in ${RRT_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/rrt/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/rrt/${step_key}/obs-urls.txt" || true
+    done
+    for step_key in ${EXTRA_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/extra/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/extra/${step_key}/obs-urls.txt" || true
+    done
     for step_key in ${RUNTIME_IMAGE_STEPS}; do
         case "${step_key}" in
             publish-runtime-amd64-*)
@@ -280,13 +226,55 @@ collect_artifact_archive() {
                 ;;
         esac
     done
-    if component_images_enabled; then
-        local image_name
-        for image_name in ${COMPONENT_IMAGE_NAMES}; do
-            printf '%s/%s:%s\n' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}" \
-                >"${ARCHIVE_DIR}/component-images/${image_name}.txt"
-        done
-    fi
+}
+
+write_artifact_summary_json() {
+    python3 - "${ARCHIVE_DIR}" "${METADATA_DIR}/build-artifacts.json" "${BUILD_NUMBER}" "${BRANCH_NAME}" "${COMMIT_SHA}" "${REGISTRY_REPO}" "${IMAGE_TAG}" <<'PY'
+import json
+import pathlib
+import sys
+
+archive_dir = pathlib.Path(sys.argv[1]).resolve()
+output_path = pathlib.Path(sys.argv[2])
+build_number, branch_name, commit_sha, registry, image_tag = sys.argv[3:8]
+
+artifact_groups = {}
+for obs_file in sorted(archive_dir.rglob("obs-urls.txt")):
+    rel = obs_file.relative_to(archive_dir)
+    group = rel.parts[0] if rel.parts else "unknown"
+    step = rel.parts[1] if len(rel.parts) > 2 else group
+    for line in obs_file.read_text(errors="replace").splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("\t", 1)
+        if len(fields) != 2:
+            continue
+        name, url = fields
+        artifact_groups.setdefault(group, []).append({
+            "step": step,
+            "name": name,
+            "url": url,
+        })
+
+runtime_images = []
+for tag_file in sorted((archive_dir / "runtime-images").glob("*.txt")):
+    for line in tag_file.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if line:
+            runtime_images.append(line)
+
+summary = {
+    "build_number": build_number,
+    "branch": branch_name,
+    "commit": commit_sha,
+    "registry": registry,
+    "image_tag": image_tag,
+    "artifact_groups": artifact_groups,
+    "runtime_images": sorted(set(runtime_images)),
+}
+output_path.parent.mkdir(parents=True, exist_ok=True)
+output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 }
 
 upload_manifest_artifacts_to_obs_if_configured() {
@@ -321,7 +309,8 @@ upload_manifest_artifacts_to_obs_if_configured() {
         "${HELM_DIR}"/*.tgz \
         "${MANIFEST_DIR}"/*.yaml \
         "${METADATA_DIR}"/*.json \
-        "${METADATA_DIR}"/*.yaml
+        "${METADATA_DIR}"/*.yaml \
+        "${ARCHIVE_DIR}/index.html"
 }
 
 write_artifact_archive_html() {
@@ -374,15 +363,6 @@ if runtime_tags:
     items = [f"<li><code>{html.escape(tag)}</code></li>" for tag in sorted(set(runtime_tags))]
     rows.append(f"<section><h2>Runtime image tags</h2><ul>{''.join(items)}</ul></section>")
 
-component_tags = []
-for tag_file in sorted((archive_dir / "component-images").glob("*.txt")):
-    for line in tag_file.read_text(errors="replace").splitlines():
-        if line.strip():
-            component_tags.append(line.strip())
-if component_tags:
-    items = [f"<li><code>{html.escape(tag)}</code></li>" for tag in sorted(set(component_tags))]
-    rows.append(f"<section><h2>Component image tags</h2><ul>{''.join(items)}</ul></section>")
-
 index_path.write_text(
     "<!doctype html>\n"
     "<html lang=\"en\">\n"
@@ -432,14 +412,6 @@ main() {
         create_manifest "yr-runtime" "${IMAGE_TAG}-${sdk_suffix}" "-${sdk_suffix}"
     done < <(runtime_sdk_suffixes)
 
-    if component_images_enabled; then
-        local component_image_name
-        for component_image_name in ${COMPONENT_IMAGE_NAMES}; do
-            create_component_manifest "${component_image_name}"
-        done
-        package_component_helm_if_enabled
-    fi
-
     write_values_override
     write_metadata
 
@@ -454,14 +426,16 @@ main() {
         --destination "${HELM_DIR}"
 
     collect_artifact_archive
-    upload_manifest_artifacts_to_obs_if_configured
+    write_artifact_summary_json
     write_artifact_archive_html
+    upload_manifest_artifacts_to_obs_if_configured
 
     if command -v buildkite-agent >/dev/null 2>&1; then
         buildkite-agent meta-data set "sandbox-release.${BUILDKITE_STEP_KEY}" "$(cat "${METADATA_DIR}/sandbox-release.json")"
         buildkite-agent artifact upload "${ARCHIVE_DIR}/index.html" || true
+        buildkite-agent artifact upload "${METADATA_DIR}/build-artifacts.json" || true
         buildkite-agent annotate --style "success" --context "sandbox-manifest" \
-            "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; artifact archive: artifacts/sandbox/archive/index.html."
+            "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; build artifacts are summarized in artifacts/sandbox/archive/index.html and build-artifacts.json."
     fi
 }
 

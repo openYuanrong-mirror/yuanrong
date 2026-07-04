@@ -89,6 +89,30 @@ global:
               type: path
               root: "/"
               entrypoint: "python -m yr.cli.scripts runtime_main"
+          # rrt = dedicated Rust sandbox backend (native rrt-runtime), the k8s
+          # analog of the docker AIO rrt slot. The frontend create API selects
+          # the rrt slot directly; the runtime field is still propagated as
+          # YR_LANGUAGE for runtime-side language dispatch.
+          # rrt-runtime now ships in the openyuanrong_sdk wheel (at
+          # yr/sandbox/rrt-runtime), which Dockerfile.runtime installs — so the
+          # k8s runtime image carries it without extra baking.
+          # RRT_HTTP_PORT / RRT_TUNNEL_* are injected by frontend create when needed.
+          rrt:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: rust
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp310") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "set -e; exec \"$(python -c 'import openyuanrong_rrt;print(openyuanrong_rrt.runtime_path())')\""
           py313:
             timeout: 900
             cpu: 500
@@ -198,8 +222,18 @@ frontend:
     type: ClusterIP
     port: 8888
     targetPort: 8888
+    # sandboxRouter listen port (init_frontend_args.json sandboxRouter.listenPort);
+    # frontend forwards /direct traffic from its 8888 handler to this local port.
+    routerPort: 8080
     annotations: {}
   iamServerAddress: ""
+  # sandboxRouter (akernel-sdk -> /direct RRT L7 proxy behind frontend). Enabled
+  # here so Test K8S exercises the rrt direct path; flip enabled=false to ship off-by-default.
+  sandboxRouter:
+    enabled: true
+    rrtPort: 50090
+    enableJwt: true
+    validateIam: true
   faasFrontend:
     httpPort: 8888
   envPorts:
@@ -276,15 +310,16 @@ traefik:
   entryPoints:
     web:
       address: ":8888"
-    frontendDirect:
-      address: ":18888"
+    router:
+      address: ":28888"
   etcd:
     rootKey: traefik
   service:
     type: LoadBalancer
     port: 8888
     targetPort: 8888
-    frontendDirectPort: 18888
+    # Legacy LoadBalancer port for direct sandboxRouter access; CI uses /direct on web port 8888.
+    routerPort: 28888
     annotations: {}
   tls:
     entryPoint:

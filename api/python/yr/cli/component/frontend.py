@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 class FrontendLauncher(ComponentLauncher):
     def prestart_hook(self) -> None:
         logger.info(f"{self.name}: prestart hook executing")
-        src = self.resolver.rendered_config[self.name]["src_init_config_path"]
-        dest = Path(self.resolver.rendered_config[self.name]["env"]["INIT_ARGS_FILE_PATH"]).resolve()
+        src = self.resolver.rendered_config["values"][self.name]["config_path"]
+        dest = Path(
+            self.resolver.rendered_config[self.name]["env"]["INIT_ARGS_FILE_PATH"]
+        ).resolve()
         self.patch_init_frontend_args(src, dest)
 
     def patch_init_frontend_args(self, src: Path, dest: Path) -> None:
@@ -36,92 +38,88 @@ class FrontendLauncher(ComponentLauncher):
         config = self.resolver.rendered_config
         values = config["values"]
         faas_args = config[self.component_config.name]["args"]
-        faas_config = config[self.name]
+        faas_values = config["values"]["frontend"]
         # attention: etcd address getting from function_proxy component
         etcd_addrs = config["function_proxy"]["args"]["etcd_address"]
         etcd_addr = etcd_addrs.split(",")
         etcd_addrs = '","'.join(etcd_addr)
-        ip_address = faas_config["ip"]
-        port = faas_config["port"]
+        ip_address = faas_values["ip"]
+        port = faas_values["port"]
         etcd_auth_type = values["etcd"].get("auth_type", "Noauth")
         etcd_table_prefix = values["etcd"].get("table_prefix", "")
 
         ssl_enable = str(values["fs"]["tls"].get("enable", "false")).lower()
-        frontend_ssl_enable = str(faas_config.get("ssl_enable", "false")).lower()
-        client_auth_type = faas_config.get("client_auth_type", "RequireAndVerifyClientCert")
-        enable_func_token_auth = str(faas_config.get("enable_function_token_auth", "false")).lower()
-        frontend_lease_bypass = str(values.get("frontend", {}).get("lease_bypass", False)).lower()
-        scc_enable = str(faas_config.get("scc_enable", "false")).lower()
+        scc_enable = str(faas_values.get("scc_enable", "false")).lower()
         ssl_base_path = values["fs"]["tls"].get("base_path", "")
         scc_base_path = faas_args.get("scc_base_path", "")
         etcd_ssl_base_path = values["etcd"]["auth"].get("base_path", "")
 
-        meta_service_config = config.get("meta_service", {})
-        meta_service_address = (
-            f"{meta_service_config['ip']}:{meta_service_config['port']}"
-            if meta_service_config.get("ip")
-            else ""
-        )
-        iam_server_vals = values.get("iam_server", {})
-        iam_server_address = (
-            f"{iam_server_vals['ip']}:{iam_server_vals['port']}"
-            if iam_server_vals.get("ip")
-            else ""
-        )
-
-        auth_config = values.get("auth", {})
-        auth_provider = auth_config.get("provider", "casdoor")
-        if auth_provider == "casdoor":
-            casdoor = auth_config.get("casdoor", {})
-            auth_enabled = str(casdoor.get("enabled", False)).lower()
-            auth_public_url = casdoor.get("public_endpoint") or casdoor.get("endpoint", "")
-            auth_internal_url = casdoor.get("endpoint", "")
-            auth_realm = casdoor.get("organization", "openyuanrong.org")
-            auth_client_id = casdoor.get("client_id", "")
-            auth_client_secret = casdoor.get("client_secret", "")
+        if etcd_auth_type == "TLS":
+            etcd_ca = (
+                f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('ca_file', '')}"
+            )
+            etcd_cert = f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_cert_file', '')}"
+            etcd_key = f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_key_file', '')}"
+            user_pass_phrase = values["etcd"]["auth"].get("pass_phrase", "")
+            pass_phrase = (
+                f"{etcd_ssl_base_path}/{user_pass_phrase}" if user_pass_phrase else ""
+            )
         else:
-            keycloak = auth_config.get("keycloak", {})
-            auth_enabled = str(keycloak.get("enabled", False)).lower()
-            auth_public_url = keycloak.get("url", "")
-            auth_internal_url = keycloak.get("internal_url") or keycloak.get("url", "")
-            auth_realm = keycloak.get("realm", "yuanrong")
-            auth_client_id = keycloak.get("client_id", "frontend")
-            auth_client_secret = keycloak.get("client_secret", "")
+            etcd_ca = ""
+            etcd_cert = ""
+            etcd_key = ""
+            pass_phrase = ""
 
-        etcd_ca = (
-            f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('ca_file', '')}"
-            if values["etcd"]["auth"].get("ca_file") and etcd_auth_type == "TLS" and etcd_ssl_base_path
-            else ""
+        # sandboxRouter (rrt direct L7 reverse proxy); off by default, opt in via values
+        sandbox_router_enable = str(
+            faas_values.get("sandbox_router_enable", False)
+        ).lower()
+        sandbox_router_listen_port = str(
+            faas_values.get("sandbox_router_listen_port", 8080)
         )
-        etcd_cert = (
-            f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_cert_file', '')}"
-            if values["etcd"]["auth"].get("client_cert_file") and etcd_auth_type == "TLS" and etcd_ssl_base_path
-            else ""
-        )
-        etcd_key = (
-            f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('client_key_file', '')}"
-            if values["etcd"]["auth"].get("client_key_file") and etcd_auth_type == "TLS" and etcd_ssl_base_path
-            else ""
-        )
-        pass_phrase = (
-            f"{etcd_ssl_base_path}/{values['etcd']['auth'].get('pass_phrase', '')}"
-            if values["etcd"]["auth"].get("pass_phrase") and etcd_auth_type == "TLS" and etcd_ssl_base_path
-            else ""
-        )
+        sandbox_router_rrt_port = str(faas_values.get("sandbox_router_rrt_port", 50090))
+        sandbox_router_enable_jwt = str(
+            faas_values.get("sandbox_router_enable_jwt", False)
+        ).lower()
+        sandbox_router_validate_iam = str(
+            faas_values.get("sandbox_router_validate_iam", False)
+        ).lower()
 
-        # Replace literal string before dict-based substitutions so it applies unconditionally
-        text = text.replace("RequireAndVerifyClientCert", client_auth_type)
+        # frontend auth/meta placeholders. The template carries these (added by the
+        # Keycloak/Casdoor/metaservice frontend features); process deploy fills them
+        # via functionsystem install.sh. The k8s path must fill them too, otherwise
+        # they stay literal and the rendered init_frontend_args.json is invalid JSON
+        # and the frontend fails to start. k8s default: auth off, IAM/meta address
+        # taken from config when present, else empty (still valid JSON).
+        frontend_https_enable = ssl_enable
+        enable_func_token_auth = str(
+            faas_values.get("enable_func_token_auth", False)
+        ).lower()
+        frontend_lease_bypass = str(
+            faas_values.get("frontend_lease_bypass", False)
+        ).lower()
+        auth_enabled = str(faas_values.get("auth_enabled", False)).lower()
+        meta_service_address = str(
+            faas_args.get("meta_service_address", "")
+            or faas_values.get("meta_service_address", "")
+        )
+        iam_server_address = str(faas_values.get("iam_server_address", ""))
+        auth_public_url = str(faas_values.get("auth_public_url", ""))
+        auth_internal_url = str(faas_values.get("auth_internal_url", ""))
+        auth_realm = str(faas_values.get("auth_realm", ""))
+        auth_client_id = str(faas_values.get("auth_client_id", ""))
+        auth_client_secret = str(faas_values.get("auth_client_secret", ""))
 
         replacements = {
+            "{sandboxRouterEnable}": sandbox_router_enable,
+            "{sandboxRouterListenPort}": sandbox_router_listen_port,
+            "{sandboxRouterRrtPort}": sandbox_router_rrt_port,
+            "{sandboxRouterEnableJwt}": sandbox_router_enable_jwt,
+            "{sandboxRouterValidateIam}": sandbox_router_validate_iam,
             "{etcdAddr}": etcd_addrs,
             "{faas_frontend_http_ip}": ip_address,
             "{faas_frontend_http_port}": str(port),
             "{sslEnable}": ssl_enable,
-            "{frontendSslEnable}": frontend_ssl_enable,
-            "{enable_func_token_auth}": enable_func_token_auth,
-            "{frontend_lease_bypass}": frontend_lease_bypass,
-            "{iam_server_address}": iam_server_address,
-            "{meta_service_address}": meta_service_address,
             "{sccEnable}": scc_enable,
             "{etcdAuthType}": etcd_auth_type,
             "{azPrefix}": etcd_table_prefix,
@@ -131,20 +129,17 @@ class FrontendLauncher(ComponentLauncher):
             "{etcdCertFile}": etcd_cert,
             "{etcdKeyFile}": etcd_key,
             "{passphraseFile}": pass_phrase,
-            # Generic auth placeholders (casdoor or keycloak depending on provider)
-            "{auth_enabled}": auth_enabled,
+            "{iam_server_address}": iam_server_address,
+            "{enable_func_token_auth}": enable_func_token_auth,
             "{auth_public_url}": auth_public_url,
             "{auth_internal_url}": auth_internal_url,
             "{auth_realm}": auth_realm,
             "{auth_client_id}": auth_client_id,
             "{auth_client_secret}": auth_client_secret,
-            # Legacy keycloak placeholders — same values as generic auth
-            "{keycloak_enabled}": auth_enabled,
-            "{keycloak_url}": auth_public_url,
-            "{keycloak_internal_url}": auth_internal_url,
-            "{keycloak_realm}": auth_realm,
-            "{keycloak_client_id}": auth_client_id,
-            "{keycloak_client_secret}": auth_client_secret,
+            "{auth_enabled}": auth_enabled,
+            "{meta_service_address}": meta_service_address,
+            "{frontend_lease_bypass}": frontend_lease_bypass,
+            "{frontendSslEnable}": frontend_https_enable,
         }
 
         for placeholder, value in replacements.items():

@@ -80,6 +80,9 @@ class AioLayoutTests(unittest.TestCase):
     def test_services_use_runtime_image(self):
         services_text = read_text("services.yaml")
         self.assertIn('imageurl: "aio-yr-runtime:latest"', services_text)
+        self.assertNotIn("runtime: rust", services_text)
+        self.assertNotIn("export RRT_HTTP_PORT=", services_text)
+        self.assertNotIn("export RRT_TUNNEL_WS_PORT=", services_text)
 
     def test_traefik_routes_http_to_frontend(self):
         dynamic_text = read_text("traefik/dynamic.yml")
