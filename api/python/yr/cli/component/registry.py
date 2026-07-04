@@ -60,7 +60,7 @@ PREPEND_CHAR_OVERRIDES: dict[str, str] = {
 DEPENDS_ON_OVERRIDES_BY_MODE: dict[StartMode, dict[str, list[str]]] = {
     StartMode.MASTER: {
         "function_master": ["etcd"],
-        "function_proxy": ["ds_worker", "runtime_launcher"],
+        "function_proxy": ["ds_worker"],
         "function_agent": ["ds_worker", "function_proxy"],
         "frontend": ["function_proxy"],
         "function_scheduler": ["function_proxy"],
@@ -73,7 +73,7 @@ DEPENDS_ON_OVERRIDES_BY_MODE: dict[StartMode, dict[str, list[str]]] = {
     },
     StartMode.AGENT: {
         "function_agent": ["ds_worker", "function_proxy"],
-        "function_proxy": ["ds_worker", "runtime_launcher"],
+        "function_proxy": ["ds_worker"],
         "frontend": ["function_proxy"],
         "runtime_launcher": [],
     },
