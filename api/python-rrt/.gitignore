@@ -1,0 +1,7 @@
+# rrt-runtime is staged from the build output at wheel-build time, never committed
+/openyuanrong_rrt/rrt-runtime
+/build/
+/dist/
+*.egg-info/
+__pycache__/
+.ruff_cache/

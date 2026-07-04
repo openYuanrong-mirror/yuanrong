@@ -29,8 +29,8 @@ spec:
             - name: web
               containerPort: {{ .Values.traefik.service.targetPort }}
               protocol: TCP
-            - name: frontend-direct
-              containerPort: {{ .Values.traefik.service.frontendDirectPort }}
+            - name: router
+              containerPort: {{ .Values.traefik.service.routerPort }}
               protocol: TCP
 {{- with .Values.traefik.probes.readiness }}
           readinessProbe:

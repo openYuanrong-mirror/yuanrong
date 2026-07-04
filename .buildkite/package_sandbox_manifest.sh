@@ -31,6 +31,9 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313}"
 LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313}"
 MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313}"
+RRT_ARTIFACT_STEPS="${SANDBOX_RRT_ARTIFACT_STEPS:-build-rrt-amd64 build-rrt-arm64}"
+SANDBOX_SDK_ARTIFACT_STEPS="${SANDBOX_SANDBOX_SDK_STEPS:-test-sandbox-sdk}"
+EXTRA_ARTIFACT_STEPS="${SANDBOX_EXTRA_ARTIFACT_STEPS:-}"
 RUNTIME_IMAGE_STEPS="${SANDBOX_RUNTIME_IMAGE_STEPS:-}"
 
 local_images=(yr-base yr-compile yr-runtime yr-controlplane yr-node)
@@ -168,6 +171,9 @@ collect_artifact_archive() {
         "${ARCHIVE_DIR}/linux-arm64" \
         "${ARCHIVE_DIR}/linux-arm64-sdk" \
         "${ARCHIVE_DIR}/macos-arm64-sdk" \
+        "${ARCHIVE_DIR}/sandbox-sdk" \
+        "${ARCHIVE_DIR}/rrt" \
+        "${ARCHIVE_DIR}/extra" \
         "${ARCHIVE_DIR}/runtime-images"
 
     if ! command -v buildkite-agent >/dev/null 2>&1; then
@@ -193,6 +199,21 @@ collect_artifact_archive() {
         buildkite-agent meta-data get "obs-urls.${step_key}" \
             >"${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}/obs-urls.txt" || true
     done
+    for step_key in ${SANDBOX_SDK_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/sandbox-sdk/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/sandbox-sdk/${step_key}/obs-urls.txt" || true
+    done
+    for step_key in ${RRT_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/rrt/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/rrt/${step_key}/obs-urls.txt" || true
+    done
+    for step_key in ${EXTRA_ARTIFACT_STEPS}; do
+        mkdir -p "${ARCHIVE_DIR}/extra/${step_key}"
+        buildkite-agent meta-data get "obs-urls.${step_key}" \
+            >"${ARCHIVE_DIR}/extra/${step_key}/obs-urls.txt" || true
+    done
     for step_key in ${RUNTIME_IMAGE_STEPS}; do
         case "${step_key}" in
             publish-runtime-amd64-*)
@@ -205,6 +226,55 @@ collect_artifact_archive() {
                 ;;
         esac
     done
+}
+
+write_artifact_summary_json() {
+    python3 - "${ARCHIVE_DIR}" "${METADATA_DIR}/build-artifacts.json" "${BUILD_NUMBER}" "${BRANCH_NAME}" "${COMMIT_SHA}" "${REGISTRY_REPO}" "${IMAGE_TAG}" <<'PY'
+import json
+import pathlib
+import sys
+
+archive_dir = pathlib.Path(sys.argv[1]).resolve()
+output_path = pathlib.Path(sys.argv[2])
+build_number, branch_name, commit_sha, registry, image_tag = sys.argv[3:8]
+
+artifact_groups = {}
+for obs_file in sorted(archive_dir.rglob("obs-urls.txt")):
+    rel = obs_file.relative_to(archive_dir)
+    group = rel.parts[0] if rel.parts else "unknown"
+    step = rel.parts[1] if len(rel.parts) > 2 else group
+    for line in obs_file.read_text(errors="replace").splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("\t", 1)
+        if len(fields) != 2:
+            continue
+        name, url = fields
+        artifact_groups.setdefault(group, []).append({
+            "step": step,
+            "name": name,
+            "url": url,
+        })
+
+runtime_images = []
+for tag_file in sorted((archive_dir / "runtime-images").glob("*.txt")):
+    for line in tag_file.read_text(errors="replace").splitlines():
+        line = line.strip()
+        if line:
+            runtime_images.append(line)
+
+summary = {
+    "build_number": build_number,
+    "branch": branch_name,
+    "commit": commit_sha,
+    "registry": registry,
+    "image_tag": image_tag,
+    "artifact_groups": artifact_groups,
+    "runtime_images": sorted(set(runtime_images)),
+}
+output_path.parent.mkdir(parents=True, exist_ok=True)
+output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 }
 
 upload_manifest_artifacts_to_obs_if_configured() {
@@ -239,7 +309,8 @@ upload_manifest_artifacts_to_obs_if_configured() {
         "${HELM_DIR}"/*.tgz \
         "${MANIFEST_DIR}"/*.yaml \
         "${METADATA_DIR}"/*.json \
-        "${METADATA_DIR}"/*.yaml
+        "${METADATA_DIR}"/*.yaml \
+        "${ARCHIVE_DIR}/index.html"
 }
 
 write_artifact_archive_html() {
@@ -355,14 +426,16 @@ main() {
         --destination "${HELM_DIR}"
 
     collect_artifact_archive
-    upload_manifest_artifacts_to_obs_if_configured
+    write_artifact_summary_json
     write_artifact_archive_html
+    upload_manifest_artifacts_to_obs_if_configured
 
     if command -v buildkite-agent >/dev/null 2>&1; then
         buildkite-agent meta-data set "sandbox-release.${BUILDKITE_STEP_KEY}" "$(cat "${METADATA_DIR}/sandbox-release.json")"
         buildkite-agent artifact upload "${ARCHIVE_DIR}/index.html" || true
+        buildkite-agent artifact upload "${METADATA_DIR}/build-artifacts.json" || true
         buildkite-agent annotate --style "success" --context "sandbox-manifest" \
-            "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; artifact archive: artifacts/sandbox/archive/index.html."
+            "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; build artifacts are summarized in artifacts/sandbox/archive/index.html and build-artifacts.json."
     fi
 }
 

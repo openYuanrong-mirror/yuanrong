@@ -1,4 +1,4 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard image all clean
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard sandbox-sdk image all clean
 
 # Bazel remote cache server (optional, can be set via environment variable)
 # Example: REMOTE_CACHE=https://192.0.2.1:9090 make yuanrong
@@ -18,6 +18,7 @@ help:
 	@echo "  make runtime_launcher - Build runtime-launcher"
 	@echo "  make yuanrong       - Build runtime"
 	@echo "  make dashboard      - Build dashboard"
+	@echo "  make sandbox-sdk   - Build openyuanrong-sandbox wheel (http SDK, sandbox-sdk submodule)"
 	@echo "  make image         - Build aio images after make all"
 	@echo "  make all           - Build all targets"
 	@echo ""
@@ -104,6 +105,17 @@ runtime_launcher:
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher output/runtime-launcher
 	@echo "Runtime-launcher built successfully!"
 
+# rrt = Rust sandbox runtime daemon. Builds rrt-runtime, which is started by the py310/sandbox slot
+# entrypoint `exec /__yuanrong/rrt-runtime` in services.yaml and packed into the AIO image bootstrap.root.
+# Requires the Rust toolchain (cargo); build inside the compile image, not directly on the host.
+rust:
+	@echo "Building rrt-runtime (Rust sandbox runtime)..."
+	@command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Build inside the rust compile image."; exit 1; }
+	cd api/rust/rrt-daemon && cargo build --release --bin rrt-runtime
+	@mkdir -p output
+	@cp api/rust/rrt-daemon/target/release/rrt-runtime output/rrt-runtime
+	@echo "rrt-runtime built successfully!"
+
 functionsystem:
 	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
 	mkdir -p output
@@ -126,11 +138,22 @@ yuanrong:
 	@echo "Building yuanrong..."
 	bash build.sh -P -j $(JOBS) $(BUILD_VERSION_ARG)
 
+# openyuanrong-sandbox = the HTTP/WS sandbox SDK (sandbox-sdk submodule). Pure-Python,
+# no toolchain; build.sh emits the wheel (+sdist) into output/ for the pipeline.
+sandbox-sdk:
+	@echo "Building openyuanrong-sandbox (sandbox-sdk) wheel..."
+	@if [ ! -f sandbox-sdk/build.sh ]; then \
+		echo "sandbox-sdk submodule not initialized; run: git submodule update --init sandbox-sdk"; \
+		exit 1; \
+	fi
+	@mkdir -p output
+	@bash sandbox-sdk/build.sh "$(CURDIR)/output"
+
 image:
 	@echo "Building aio images via deploy/sandbox/docker/build-images.sh..."
 	@./deploy/sandbox/docker/build-images.sh
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
+all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong sandbox-sdk
 	@echo "Build completed!"
 	@echo "Artifacts are ready under output/."
 

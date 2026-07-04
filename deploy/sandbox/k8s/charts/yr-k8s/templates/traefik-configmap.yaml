@@ -12,8 +12,8 @@ data:
     entryPoints:
       web:
         address: {{ .Values.traefik.entryPoints.web.address | quote }}
-      frontendDirect:
-        address: {{ .Values.traefik.entryPoints.frontendDirect.address | quote }}
+      router:
+        address: {{ .Values.traefik.entryPoints.router.address | quote }}
 {{- with .Values.traefik.tls.entryPoint }}
 {{- if .enabled }}
         http:

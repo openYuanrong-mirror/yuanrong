@@ -18,6 +18,10 @@ spec:
       port: {{ .Values.frontend.service.port }}
       targetPort: http
       protocol: TCP
+    - name: router
+      port: {{ .Values.frontend.service.routerPort }}
+      targetPort: router
+      protocol: TCP
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: frontend
