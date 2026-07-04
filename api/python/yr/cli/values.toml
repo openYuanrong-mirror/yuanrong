@@ -97,6 +97,14 @@ bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
 ip = "{{ values.host_ip }}"
 port = "{{ 8888|check_port() }}"
 config_path = "{{ values.yr_package_path }}/faas/init_frontend_args.json"
+# sandboxRouter (rrt direct L7 reverse proxy). Enabled here so the full-feature
+# package's Test K8S exercises the akernel-sdk -> rrt direct path end to end.
+# (Production default is off; flip back to false to ship off-by-default.)
+sandbox_router_enable = true
+sandbox_router_listen_port = 8080
+sandbox_router_rrt_port = 50090
+sandbox_router_enable_jwt = true
+sandbox_router_validate_iam = true
 
 [values.function_scheduler]
 bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"

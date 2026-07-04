@@ -178,6 +178,7 @@ helm_deploy() {
     --namespace "${NAMESPACE}" \
     --create-namespace \
     -f "${VALUES_FILE}" \
+    --set frontend.sandboxRouter.validateIam="${YR_K8S_VALIDATE_IAM:-true}" \
     --set global.namespace.create=false \
     --set global.namespace.name="${NAMESPACE}" \
     --set global.imageRegistry="${REGISTRY_REPO}" \
@@ -261,14 +262,22 @@ prepull_runtime_image() {
     return 0
   fi
 
-  local pods pod username password runtime_image
-  local -a runtime_images=(
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP39}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP310}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP311}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP312}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP313}"
-  )
+  local pods pod username password runtime_image suffix tag
+  local -a runtime_images=()
+  for suffix in ${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp39 cp310 cp311 cp312 cp313}; do
+    case "${suffix}" in
+    cp39) tag="${RUNTIME_IMAGE_TAG_CP39}" ;;
+    cp310) tag="${RUNTIME_IMAGE_TAG_CP310}" ;;
+    cp311) tag="${RUNTIME_IMAGE_TAG_CP311}" ;;
+    cp312) tag="${RUNTIME_IMAGE_TAG_CP312}" ;;
+    cp313) tag="${RUNTIME_IMAGE_TAG_CP313}" ;;
+    *)
+      printf 'Unknown runtime pre-pull suffix: %s\n' "${suffix}" >&2
+      exit 1
+      ;;
+    esac
+    runtime_images+=("${REGISTRY_REPO}/yr-runtime:${tag}")
+  done
   pods="$(node_pods)"
   if [ -z "${pods}" ]; then
     printf 'No node pods found for release %s in namespace %s.\n' "${RELEASE_NAME}" "${NAMESPACE}" >&2

@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["rrt-daemon"]
+
+# Release hardening matches the Go runtime build flags: strip symbols and reduce binary size.
+[profile.release]
+strip = true

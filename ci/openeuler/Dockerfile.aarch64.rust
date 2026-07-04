@@ -1,0 +1,78 @@
+# Dockerfile.aarch64.rust - compile image for aarch64 with Rust.
+# ARM64 variant of the x86_64 image. Base image, protoc architecture, and rustup behavior are the same native multi-arch flow.
+#
+# Build:
+#   docker build -f ci/openeuler/Dockerfile.aarch64.rust \
+#     -t compile_aarch64_rust:latest .
+
+# =============================================================================
+# Stage 1: install protoc plus the Rust toolchain.
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_aarch64:2.1 AS builder
+
+ARG PROTOC_VERSION=25.1
+ARG PROTOC_DOWNLOAD_BASE=https://mirrors.huaweicloud.com/protocolbuffers/protoc/v${PROTOC_VERSION}
+
+RUN mkdir -p /tmp/protoc_install && \
+    cd /tmp/protoc_install && \
+    curl -fsSL "${PROTOC_DOWNLOAD_BASE}/protoc-${PROTOC_VERSION}-linux-aarch_64.zip" -o protoc.zip && \
+    unzip -q protoc.zip -d /opt/buildtools/protoc && \
+    chmod +x /opt/buildtools/protoc/bin/protoc && \
+    rm -rf /tmp/protoc_install
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    env RUSTUP_DIST_SERVER=https://rsproxy.cn \
+        RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup \
+        sh -s -- -y --default-toolchain stable --profile minimal && \
+    /root/.cargo/bin/rustup component add clippy rustfmt
+
+RUN mkdir -p /root/.cargo && \
+    printf '%s\n' \
+      '[source.crates-io]' \
+      'replace-with = "rsproxy-sparse"' \
+      '' \
+      '[source.rsproxy-sparse]' \
+      'registry = "sparse+https://rsproxy.cn/index/"' \
+      '' \
+      '[registries.rsproxy]' \
+      'index = "https://rsproxy.cn/crates.io-index"' \
+      '' \
+      '[net]' \
+      'git-fetch-with-cli = true' \
+      > /root/.cargo/config.toml
+
+RUN /root/.cargo/bin/cargo init --lib /tmp/cargo_warmup && \
+    cd /tmp/cargo_warmup && \
+    printf '%s\n' \
+      '[dependencies]' \
+      'tonic = "0.12"' \
+      'prost = "0.13"' \
+      'tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "net", "time", "fs"] }' \
+      'serde = { version = "1", features = ["derive"] }' \
+      'serde_json = "1"' \
+      'rmp-serde = "1"' \
+      'rmpv = "1"' \
+      'portable-pty = "0.8"' \
+      'libc = "0.2"' \
+      >> Cargo.toml && \
+    /root/.cargo/bin/cargo fetch && \
+    rm -rf /tmp/cargo_warmup
+
+# =============================================================================
+# Stage 2: slim runtime.
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_aarch64:2.1
+
+COPY --from=builder /root/.cargo      /root/.cargo
+COPY --from=builder /root/.rustup     /root/.rustup
+COPY --from=builder /opt/buildtools/protoc /opt/buildtools/protoc
+
+ENV CARGO_HOME=/root/.cargo \
+    RUSTUP_HOME=/root/.rustup \
+    RUSTUP_DIST_SERVER=https://rsproxy.cn \
+    RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup \
+    PROTOC=/opt/buildtools/protoc/bin/protoc
+
+ENV PATH=/root/.cargo/bin:/opt/buildtools/protoc/bin:$PATH
+
+CMD ["/bin/bash"]

@@ -103,8 +103,8 @@ if setup_type_env == "sdk":
         "click>=8.0.0,<9",
         "requests==2.32.5",
         "websockets>=13.0",
-        "aiohttp>=3.9.0",   # tunnel_server Port B HTTP/WS server
-        "httpx>=0.27.0",    # tunnel_client async HTTP forwarding
+        "aiohttp>=3.9.0",  # tunnel_server Port B HTTP/WS server
+        "httpx>=0.27.0",  # tunnel_client async HTTP forwarding
     ]
     setup_spec.entry_points = {
         "console_scripts": [
@@ -128,7 +128,6 @@ else:
     }
 
 
-
 def copy_file(target, filename, root):
     """copy file"""
     if not os.path.exists(filename):
@@ -148,18 +147,20 @@ def contains_keyword(text, keywords):
 
 def is_shared_library(filename):
     return (
-        filename.endswith((
-            ".so",
-            ".so.1",
-            ".so.2",
-            ".so.3",
-            ".so.4",
-            ".so.5",
-            ".so.6",
-            ".so.7",
-            ".so.8",
-            ".dylib",
-        ))
+        filename.endswith(
+            (
+                ".so",
+                ".so.1",
+                ".so.2",
+                ".so.3",
+                ".so.4",
+                ".so.5",
+                ".so.6",
+                ".so.7",
+                ".so.8",
+                ".dylib",
+            )
+        )
         or ".so." in filename
         or ".dylib." in filename
     )
@@ -169,7 +170,9 @@ def select_fnruntime_binaries(candidates):
     ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
     if ext_suffix:
         expected_name = f"fnruntime{ext_suffix}"
-        matched = [path for path in candidates if os.path.basename(path) == expected_name]
+        matched = [
+            path for path in candidates if os.path.basename(path) == expected_name
+        ]
         if matched:
             return matched
     fallback_names = {"fnruntime.so", "fnruntime.dylib"}
@@ -210,6 +213,9 @@ def copy_openyuanrong(build_lib):
         "functionsystem/sym",
         "pattern_faas/faasmanager",
         "runtime/sdk",
+        # rrt-runtime is shipped in the openyuanrong_sdk wheel instead (so the
+        # sandbox runtime image, which installs only the SDK wheel, gets it).
+        "runtime/service/rust",
     ]
     file_to_exclude = [
         "faasfrontend",
@@ -232,7 +238,9 @@ def copy_openyuanrong(build_lib):
 
 def copy_openyuanrong_sdk(build_lib):
     """copy C++ SDK .so files"""
-    cpp_sdk_root = os.path.abspath(os.path.join(ROOT_DIR, "../../build/output/runtime/sdk/cpp"))
+    cpp_sdk_root = os.path.abspath(
+        os.path.join(ROOT_DIR, "../../build/output/runtime/sdk/cpp")
+    )
     files_to_include = []
     for root, _, fs in os.walk(cpp_sdk_root):
         for i in fs:
@@ -255,6 +263,13 @@ def copy_openyuanrong_sdk(build_lib):
     files_to_include.extend(select_fnruntime_binaries(fnruntime_candidates))
     for filename in files_to_include:
         copy_file(build_lib, filename, ROOT_DIR)
+
+    # NOTE: rrt-runtime (the Rust sandbox runtime) is NO LONGER bundled here.
+    # It is Python-version-agnostic, so shipping it inside every cpXX SDK wheel
+    # built+packaged it redundantly per Python version. It now ships once per
+    # platform as the standalone `openyuanrong-rrt` (py3-none-<platform>) wheel
+    # (api/python-rrt); the runtime image installs it alongside the SDK and the
+    # sandbox resolves it via `import openyuanrong_rrt` / `RRT_RUNTIME_BIN`.
 
 
 def run_ext(build_lib):
@@ -324,10 +339,15 @@ class BinaryDistribution(setuptools.Distribution):
 
 def strip_wheel_tests(wheel_path):
     """remove yr/tests from built wheel"""
-    temp_fd, temp_path = tempfile.mkstemp(suffix=".whl", dir=os.path.dirname(wheel_path))
+    temp_fd, temp_path = tempfile.mkstemp(
+        suffix=".whl", dir=os.path.dirname(wheel_path)
+    )
     os.close(temp_fd)
     try:
-        with zipfile.ZipFile(wheel_path, "r") as src, zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+        with (
+            zipfile.ZipFile(wheel_path, "r") as src,
+            zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst,
+        ):
             for member in src.infolist():
                 if member.filename.startswith("yr/tests/"):
                     continue
@@ -340,10 +360,10 @@ def strip_wheel_tests(wheel_path):
 
 warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
 
-# 添加一个虚拟扩展模块来触发 build_ext
+# Add a virtual extension module to trigger build_ext.
 ext_modules = []
 if setup_spec.setup_type == SetupType.OPENYUANRONG:
-    # 虚拟扩展模块，不实际编译，仅用于触发 build_ext
+    # Virtual extension module; it is not compiled and only triggers build_ext.
     ext_modules = [Extension("yr._dummy", sources=[])]
 
 setuptools.setup(
@@ -370,7 +390,14 @@ setuptools.setup(
     install_requires=setup_spec.install_requires,
     include_package_data=False,
     package_data={
-        "yr": ["includes/*.pxd", "includes/*.pxi", "*.so.*", "*.so", "*.dylib.*", "*.dylib"],
+        "yr": [
+            "includes/*.pxd",
+            "includes/*.pxi",
+            "*.so.*",
+            "*.so",
+            "*.dylib.*",
+            "*.dylib",
+        ],
     },
     exclude_package_data={
         "": ["BUILD", "BUILD.bazel"],

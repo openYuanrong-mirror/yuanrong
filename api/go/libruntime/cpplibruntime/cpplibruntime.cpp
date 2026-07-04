@@ -656,6 +656,8 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     InvokeOptions invokeOpts;
     invokeOpts.cpu = cInvokeOpts->cpu;
     invokeOpts.memory = cInvokeOpts->memory;
+    invokeOpts.cpuLimit = cInvokeOpts->cpuLimit;
+    invokeOpts.memoryLimit = cInvokeOpts->memoryLimit;
     invokeOpts.retryTimes = cInvokeOpts->RetryTimes;
     invokeOpts.recoverRetryTimes = cInvokeOpts->RecoverRetryTimes;
     invokeOpts.timeout = cInvokeOpts->timeout;
@@ -849,7 +851,7 @@ void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->CreateInstanceRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
                            std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
@@ -860,7 +862,7 @@ void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->InvokeByInstanceIdRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
                                std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
@@ -871,7 +873,7 @@ void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->KillRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
                  std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
@@ -929,7 +931,7 @@ void CUpdateSchdulerInfo(char *scheduleName, char *schedulerId, char *option)
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->UpdateSchdulerInfo(scheduleName, schedulerId, option);
 }
@@ -938,7 +940,7 @@ void CGetAsync(char *objectId, void *userData)
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->GetAsync(
         objectId,
@@ -958,7 +960,7 @@ void CWaitAsync(char *objectId, void *userData)
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->WaitAsync(
         objectId,
@@ -974,7 +976,7 @@ void CGetEvent(char *objectId, void *userData)
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->GetEvent(
         objectId,
@@ -1024,7 +1026,7 @@ void CExit(int code, char *message)
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     lrt->Exit(code, message);
 }
@@ -1120,7 +1122,7 @@ void CWait(char **objIds, int size_objIds, int waitNum, int timeoutSec, CWaitRes
 
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return;  // 以后把报错抛出去
+        return;  // Propagate the error later.
     }
     auto waitResults = lrt->Wait(objectIds, waitNum, timeoutSec);
     if (!waitResults->readyIds.empty()) {
@@ -1816,7 +1818,7 @@ int CIsDsHealth()
     return 0;
 }
 
-char* CGetActiveMasterAddr()
+char *CGetActiveMasterAddr()
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {

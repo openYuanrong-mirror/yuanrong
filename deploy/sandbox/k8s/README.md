@@ -71,7 +71,7 @@ bash deploy/sandbox/k8s/deploy.sh
 8. Run the off-cluster smoke checks:
 
 ```bash
-YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:18888 -- -m smoke
+YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 -- -m smoke
 ```
 
 ## Values overlays

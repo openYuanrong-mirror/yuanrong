@@ -224,6 +224,8 @@ typedef struct TagCCredential {
 typedef struct tagCInvokeOptions {
     int cpu;
     int memory;
+    int cpuLimit;
+    int memoryLimit;
     CCustomResource *customResources;
     int size_customResources;
     CCustomExtension *customExtensions;
@@ -494,7 +496,7 @@ extern CErrorInfo CDelArrayByStateStore(CStateStorePtr stateStorePtr, char **cKe
 extern CCredential CGetCredential();
 extern int CIsHealth();
 extern int CIsDsHealth();
-char* CGetActiveMasterAddr();
+char *CGetActiveMasterAddr();
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,94 @@
+# Dockerfile.x86_64.rust - compile image for x86_64 with Rust.
+# Layer the Rust toolchain (rustup) and newer protoc on top of the existing compile_x86 image,
+# for building rrt, the Rust sandbox runtime daemon.
+#
+# Build from the repository root:
+#   docker build -f ci/openeuler/Dockerfile.x86_64.rust \
+#     -t compile_x86_rust:latest .
+#
+# If the CI registry already has the compile_x86 base image, FROM it directly to avoid rebuilding other toolchains:
+#   FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_x86:2.1 AS base
+
+# =============================================================================
+# Stage 1: download protoc from upstream and install the Rust toolchain through rustup.
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_x86:2.1 AS builder
+
+ARG PROTOC_VERSION=25.1
+ARG PROTOC_DOWNLOAD_BASE=https://mirrors.huaweicloud.com/protocolbuffers/protoc/v${PROTOC_VERSION}
+
+# ---------------------------------------------------------------------------
+# 1. protoc (libprotoc 25.x): openEuler yum protobuf is too old (3.14),
+#    while tonic-build needs a newer protoc.
+# ---------------------------------------------------------------------------
+RUN mkdir -p /tmp/protoc_install && \
+    cd /tmp/protoc_install && \
+    curl -fsSL "${PROTOC_DOWNLOAD_BASE}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" -o protoc.zip && \
+    unzip -q protoc.zip -d /opt/buildtools/protoc && \
+    chmod +x /opt/buildtools/protoc/bin/protoc && \
+    rm -rf /tmp/protoc_install
+
+# ---------------------------------------------------------------------------
+# 2. Rust toolchain: install the stable toolchain through rustup (official installer).
+#    Use rsproxy for faster downloads; skip nightly and extra targets to minimize size.
+# ---------------------------------------------------------------------------
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    env RUSTUP_DIST_SERVER=https://rsproxy.cn \
+        RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup \
+        sh -s -- -y --default-toolchain stable --profile minimal && \
+    /root/.cargo/bin/rustup component add clippy rustfmt
+
+# Configure cargo to use rsproxy, matching the current compile-ubuntu2004-rust image.
+RUN mkdir -p /root/.cargo && \
+    printf '%s\n' \
+      '[source.crates-io]' \
+      'replace-with = "rsproxy-sparse"' \
+      '' \
+      '[source.rsproxy-sparse]' \
+      'registry = "sparse+https://rsproxy.cn/index/"' \
+      '' \
+      '[registries.rsproxy]' \
+      'index = "https://rsproxy.cn/crates.io-index"' \
+      '' \
+      '[net]' \
+      'git-fetch-with-cli = true' \
+      > /root/.cargo/config.toml
+
+# Pre-fetch common crates so later cargo builds are faster.
+RUN /root/.cargo/bin/cargo init --lib /tmp/cargo_warmup && \
+    cd /tmp/cargo_warmup && \
+    printf '%s\n' \
+      '[dependencies]' \
+      'tonic = "0.12"' \
+      'prost = "0.13"' \
+      'tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "net", "time", "fs"] }' \
+      'serde = { version = "1", features = ["derive"] }' \
+      'serde_json = "1"' \
+      'rmp-serde = "1"' \
+      'rmpv = "1"' \
+      'portable-pty = "0.8"' \
+      'libc = "0.2"' \
+      >> Cargo.toml && \
+    /root/.cargo/bin/cargo fetch && \
+    rm -rf /tmp/cargo_warmup
+
+# =============================================================================
+# Stage 2: slim runtime without the cargo registry git index bloat.
+# =============================================================================
+FROM swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile_x86:2.1
+
+# Copy the Rust toolchain plus protoc from stage 1.
+COPY --from=builder /root/.cargo      /root/.cargo
+COPY --from=builder /root/.rustup     /root/.rustup
+COPY --from=builder /opt/buildtools/protoc /opt/buildtools/protoc
+
+# Add cargo plus protoc to PATH.
+ENV CARGO_HOME=/root/.cargo \
+    RUSTUP_HOME=/root/.rustup \
+    RUSTUP_DIST_SERVER=https://rsproxy.cn \
+    RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup \
+    PROTOC=/opt/buildtools/protoc/bin/protoc
+
+ENV PATH=/root/.cargo/bin:/opt/buildtools/protoc/bin:$PATH
+
+CMD ["/bin/bash"]
