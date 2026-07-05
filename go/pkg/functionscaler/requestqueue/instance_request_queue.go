@@ -140,6 +140,31 @@ func (iq *InsAcqReqQueue) AddRequest(insThdReq *PendingInsAcqReq) error {
 	return nil
 }
 
+// CancelRequest removes a pending acquire request if it is still waiting in queue.
+func (iq *InsAcqReqQueue) CancelRequest(insThdReq *PendingInsAcqReq) bool {
+	if insThdReq == nil {
+		return false
+	}
+
+	iq.Lock()
+	defer iq.Unlock()
+	removed := false
+	remaining := make([]interface{}, 0, iq.queue.Len())
+	for iq.queue.Len() != 0 {
+		obj := iq.queue.PopFront()
+		if !removed && obj == insThdReq {
+			metrics.OnPendingRequestRelease(insThdReq.InsAcqReq)
+			removed = true
+			continue
+		}
+		remaining = append(remaining, obj)
+	}
+	for _, obj := range remaining {
+		_ = iq.queue.PushBack(obj)
+	}
+	return removed
+}
+
 // RegisterSchFunc register schFunc for schedule instance
 func (iq *InsAcqReqQueue) RegisterSchFunc(schFuncKey string, schFunc ScheduleFunction) {
 	scheCh := make(chan struct{}, defaultTriggerChSize)

@@ -94,6 +94,7 @@ func TestAcquireInstanceReservedNew(t *testing.T) {
 	assert.Equal(t, "instance1", insAlloc1.Instance.InstanceID)
 	_, err = rcs.AcquireInstance(&types.InstanceAcquireRequest{DesignateInstanceID: "instance1"})
 	assert.Equal(t, false, err == nil)
+	assert.Equal(t, 0, InsThdReqQueue.Len())
 }
 
 func TestAcquireInstanceReserved(t *testing.T) {

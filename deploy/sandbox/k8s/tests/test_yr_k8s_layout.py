@@ -480,6 +480,37 @@ class YrK8sLayoutTests(unittest.TestCase):
         frontend_component = (ROOT.parents[2] / "api/python/yr/cli/component/frontend.py").read_text()
         self.assertIn('"{frontend_lease_bypass}": frontend_lease_bypass', frontend_component)
 
+    def test_runtime_manager_checkpoint_dir_is_explicitly_configured(self):
+        config_template = (ROOT.parents[2] / "api/python/yr/cli/config.toml.jinja").read_text()
+
+        self.assertIn('checkpoint_dir = "{{ values.deploy_path }}/checkpoints"', config_template)
+        self.assertGreaterEqual(config_template.count('checkpoint_dir = "{{ values.deploy_path }}/checkpoints"'), 2)
+
+        chart_config_template = (
+            ROOT.parents[1] / "k8s/charts/openyuanrong/templates/common/components-toml-configmap.yaml"
+        ).read_text()
+        self.assertIn('checkpoint_dir="/home/sn/checkpoints"', chart_config_template)
+        self.assertGreaterEqual(chart_config_template.count('checkpoint_dir="/home/sn/checkpoints"'), 3)
+
+    def test_datasystem_client_log_dir_is_explicitly_configured(self):
+        process_config = (ROOT.parents[2] / "deploy/process/config.sh").read_text()
+        process_log_env = 'DATASYSTEM_CLIENT_LOG_DIR="${FS_LOG_PATH}"'
+        self.assertIn(process_log_env, process_config)
+
+        config_template = (ROOT.parents[2] / "api/python/yr/cli/config.toml.jinja").read_text()
+        process_template_log_env = 'DATASYSTEM_CLIENT_LOG_DIR="{{ values.fs.log.path }}"'
+        function_agent_log_env = 'DATASYSTEM_CLIENT_LOG_DIR = "{{ values.fs.log.path }}"'
+        expected_process_entries = 2
+        self.assertGreaterEqual(config_template.count(process_template_log_env), expected_process_entries)
+        self.assertIn(function_agent_log_env, config_template)
+
+        chart_config_template = (
+            ROOT.parents[1] / "k8s/charts/openyuanrong/templates/common/components-toml-configmap.yaml"
+        ).read_text()
+        chart_log_env = "DATASYSTEM_CLIENT_LOG_DIR={{ quote .Values.global.log.functionSystem.path}}"
+        expected_chart_entries = 4
+        self.assertGreaterEqual(chart_config_template.count(chart_log_env), expected_chart_entries)
+
     def test_values_surface_matches_embedded_etcd_model(self):
         values = load_yaml_file(ROOT / "charts/yr-k8s/values.yaml")
 
