@@ -500,6 +500,7 @@ PY
 		local core_examples="basic_usage command_stdin persistent_shell tunnel_large_response port_forwarding"
 		local extra_examples="reverse_tunnel named_sandbox bench_cp"
 		local ex rc core_fail=0
+		printf '[examples] env YR_SERVER_ADDRESS=%s YR_GATEWAY_ADDRESS=%s YR_TLS=0 YR_GATEWAY_TLS=0 TUNNEL_SSL_VERIFY=0\n' "${frontend_addr}" "${router_addr}" >&2
 		for ex in ${core_examples} ${extra_examples}; do
 			local f="sandbox-sdk/python/examples/${ex}.py"
 			[ -f "${f}" ] || {
@@ -507,13 +508,14 @@ PY
 				continue
 			}
 			printf '[examples] RUN %s\n' "${ex}" >&2
-			if YR_SERVER_ADDRESS="${frontend_addr}" YR_GATEWAY_ADDRESS="${router_addr}" YR_TLS=0 YR_GATEWAY_TLS=0 YR_TOKEN="${yr_token}" TUNNEL_SSL_VERIFY=0 timeout 180 "${py}" "${f}" >"${SMOKE_LOG_DIR}/example_${ex}.log" 2>&1; then
+			printf '[examples] ---- %s log ----\n' "${ex}" >&2
+			if YR_SERVER_ADDRESS="${frontend_addr}" YR_GATEWAY_ADDRESS="${router_addr}" YR_TLS=0 YR_GATEWAY_TLS=0 YR_TOKEN="${yr_token}" TUNNEL_SSL_VERIFY=0 timeout 180 "${py}" "${f}" 2>&1 | tee "${SMOKE_LOG_DIR}/example_${ex}.log"; then
 				printf '[examples] PASS %s\n' "${ex}" >&2
 			else
 				rc=$?
-				# Always echo the failing example's log inline (core AND
-				# best-effort) so failures are diagnosable from the build output
-				# without a re-run; classification only decides whether it gates.
+				# Example stdout/stderr is streamed inline for both pass and fail so
+				# CI keeps the runnable demonstration output instead of silently
+				# passing. Classification only decides whether a failure gates.
 				case " ${core_examples} " in
 				*" ${ex} "*)
 					printf '[examples] FAIL %s (core, rc=%s)\n' "${ex}" "${rc}" >&2
@@ -521,10 +523,8 @@ PY
 					;;
 				*) printf '[examples] WARN %s (best-effort, rc=%s)\n' "${ex}" "${rc}" >&2 ;;
 				esac
-				printf '[examples] ---- %s log (tail) ----\n' "${ex}" >&2
-				tail -n 80 "${SMOKE_LOG_DIR}/example_${ex}.log" >&2 || true
-				printf '[examples] ---- end %s log ----\n' "${ex}" >&2
 			fi
+			printf '[examples] ---- end %s log ----\n' "${ex}" >&2
 		done
 		if [ "${core_fail}" = "1" ]; then
 			printf 'core SDK examples failed; see %s/example_*.log\n' "${SMOKE_LOG_DIR}" >&2
