@@ -50,6 +50,12 @@ except ModuleNotFoundError as err:  # pragma: no cover
 
 ROOT_DIR = os.path.dirname(__file__)
 
+PYTHON_RUNTIME_METRICS_EXPORTERS = (
+    "libobservability-metrics-file-exporter.so",
+    "libobservability-prometheus-push-exporter.so",
+    "libobservability-prometheus-pull-exporter.so",
+)
+
 
 def get_version():
     """get version"""
@@ -472,6 +478,20 @@ def contains_keyword(text, keywords):
     return any(kw in text for kw in keywords)
 
 
+def copy_python_runtime_metrics_exporters(build_lib, runtime_dir):
+    """copy metrics exporter plugins needed by the Python runtime service"""
+    runtime_python_yr_dir = os.path.join(runtime_dir, "service", "python", "yr")
+    if not os.path.isdir(runtime_python_yr_dir):
+        return
+
+    target_dir = os.path.join(build_lib, "yr/runtime/service/python/yr")
+    for exporter in PYTHON_RUNTIME_METRICS_EXPORTERS:
+        source = os.path.join(runtime_python_yr_dir, exporter)
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"required Python runtime metrics exporter is missing: {source}")
+        copy_file(target_dir, source, runtime_python_yr_dir)
+
+
 def is_shared_library(filename):
     return (
         filename.endswith((
@@ -624,6 +644,8 @@ def copy_openyuanrong_runtime(build_lib):
     runtime_python_yr_dir = os.path.join(runtime_dir, "service", "python", "yr")
     if not os.path.isdir(runtime_python_yr_dir):
         return
+    copy_python_runtime_metrics_exporters(build_lib, runtime_dir)
+
     fnruntime_candidates = []
     for filename in os.listdir(runtime_python_yr_dir):
         if filename.startswith("fnruntime") and is_shared_library(filename):
