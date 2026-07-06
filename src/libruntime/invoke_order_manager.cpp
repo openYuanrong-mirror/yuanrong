@@ -110,9 +110,20 @@ void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &insta
     if (instances.find(instanceId) == instances.end()) {
         instances.insert({instanceId, ConstuctInstOrder()});
         if (!restored) {
+            // The instance is created by another runtime (e.g. detached/named actor created by
+            // its parent runtime), so the driver has never dispatched any earlier ordered invoke
+            // against it and will never receive NotifyInvokeSuccess for seqNo < orderingCounter.
+            // Align unfinishedSeqNo with orderingCounter so that the first Invoke (seqNo ==
+            // orderingCounter) is accompanied by a matching minUnfinishedSequenceNo, letting the
+            // remote OrderedExecutionManager execute it immediately instead of waiting forever
+            // for a seqNo that will never arrive. Restored (snapstart) path is left untouched:
+            // remote orderingCounter is reset to 0 there and the existing semantics apply.
             instances[instanceId]->orderingCounter++;
+            instances[instanceId]->unfinishedSeqNo = instances[instanceId]->orderingCounter.load();
         }
-        YRLOG_DEBUG("current order of instance {} is : {}", instanceId, instances[instanceId]->orderingCounter.load());
+        YRLOG_INFO("register instance and update order, instance id: {}, orderingCounter: {}, unfinishedSeqNo: {}",
+                   instanceId, instances[instanceId]->orderingCounter.load(),
+                   instances[instanceId]->unfinishedSeqNo);
     } else {
         YRLOG_DEBUG("register instance for ordering, instance already exists, instance id: {}", instanceId);
     }
