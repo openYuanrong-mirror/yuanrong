@@ -1,6 +1,7 @@
 # Getting Started
 
-openYuanrong is a Serverless distributed computing engine dedicated to supporting various distributed applications such as AI, big data, and microservices with a unified Serverless architecture. It provides multi-language function programming interfaces to simplify distributed application development with a single-machine programming experience, and offers distributed dynamic scheduling and data sharing capabilities to achieve high-performance execution of distributed applications and efficient cluster resource utilization.
+openYuanrong Serverless Distributed Computing Engine, 
+It features a unified distributed kernel that powers a full spectrum of distributed workloads including Agents, reinforcement learning (RL), and model inference, laying an enterprise-grade distributed infrastructure foundation for the Agent era. It provides multi-language function programming interfaces to simplify distributed application development with a single-machine programming experience, and offers distributed dynamic scheduling and data sharing capabilities to achieve high-performance execution of distributed applications and efficient cluster resource utilization.
 
 <img src="../images/introduction_en.png" width="50%">
 
