@@ -91,28 +91,12 @@ datasystem:
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	if ! command -v go >/dev/null 2>&1; then \
-		echo "Error: Go not found. Please install Go and add to PATH."; \
-		exit 1; \
-	fi
-	@mkdir -p functionsystem/runtime-launcher/bin
-	@echo "Generating protobuf files..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	cd functionsystem/runtime-launcher && \
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		api/proto/runtime/v1/runtime_launcher.proto
-	@echo "Compiling runtime-launcher..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	cd functionsystem/runtime-launcher && \
-	go build -buildvcs=false -o bin/runtime/runtime-launcher ./cmd/runtime-launcher/ && \
-	go build -buildvcs=false -o bin/rl-client ./cmd/rl-client/
+	cd functionsystem && bash run.sh build --component runtime_launcher $(BUILD_VERSION_ARG) && cd -
 	@mkdir -p output
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher output/runtime-launcher
 	@echo "Runtime-launcher built successfully!"
 
-functionsystem: runtime_launcher
+functionsystem:
 	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
 	mkdir -p output
 	cp -ar functionsystem/output/metrics ./
@@ -161,7 +145,7 @@ aio: pkg
 	@echo "Building Docker image openyuanrongaio:latest..."
 	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
+all: frontend datasystem functionsystem dashboard yuanrong
 	@echo "Build completed!"
 	@echo "Artifacts are ready under output/."
 
