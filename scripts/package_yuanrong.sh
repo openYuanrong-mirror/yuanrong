@@ -198,6 +198,118 @@ function copy_datasystem_k8s_assets() {
     fi
 }
 
+function ensure_openssl_linker_symlinks() {
+    local lib_dir=$1
+    local source_dir=${2:-$1}
+
+    ensure_openssl_linker_symlinks_from_sources "${lib_dir}" "${source_dir}"
+}
+
+function relative_path_between_dirs() {
+    local from_dir=$1
+    local to_dir=$2
+    local from_abs
+    local to_abs
+    local from_parts
+    local to_parts
+    local i=0
+    local j
+    local rel_path=""
+
+    from_abs=$(cd "${from_dir}" && pwd -P) || return
+    to_abs=$(cd "${to_dir}" && pwd -P) || return
+    IFS='/' read -r -a from_parts <<< "${from_abs#/}"
+    IFS='/' read -r -a to_parts <<< "${to_abs#/}"
+
+    while [ ${i} -lt ${#from_parts[@]} ] && [ ${i} -lt ${#to_parts[@]} ] && \
+        [ "${from_parts[$i]}" = "${to_parts[$i]}" ]; do
+        i=$((i + 1))
+    done
+
+    for ((j = i; j < ${#from_parts[@]}; j++)); do
+        rel_path="${rel_path}../"
+    done
+    for ((j = i; j < ${#to_parts[@]}; j++)); do
+        rel_path="${rel_path}${to_parts[$j]}/"
+    done
+    rel_path="${rel_path%/}"
+    [ -n "${rel_path}" ] || rel_path="."
+    printf '%s\n' "${rel_path}"
+}
+
+function ensure_openssl_linker_symlinks_from_sources() {
+    local lib_dir=$1
+    shift
+    local source_dirs=("$@")
+    local lib_name
+    local link_path
+    local target_path
+    local target_name
+    local source_dir
+    local source_prefix
+    local created
+
+    if [ ! -d "${lib_dir}" ]; then
+        echo "Warning: skip OpenSSL linker symlink creation, lib dir not found: ${lib_dir}" >&2
+        return
+    fi
+    if [ ${#source_dirs[@]} -eq 0 ]; then
+        echo "Warning: skip OpenSSL linker symlink creation, no source dirs provided for ${lib_dir}" >&2
+        return
+    fi
+
+    for lib_name in ssl crypto; do
+        link_path="${lib_dir}/lib${lib_name}.so"
+        if [ -e "${link_path}" ] || [ -L "${link_path}" ]; then
+            continue
+        fi
+
+        created=false
+        for source_dir in "${source_dirs[@]}"; do
+            [ -d "${source_dir}" ] || continue
+            target_path="${source_dir}/lib${lib_name}.so.1.1"
+            if [ ! -e "${target_path}" ]; then
+                target_path=$(resolve_first_match "${source_dir}/lib${lib_name}.so.*") || continue
+            fi
+            target_name="$(basename "${target_path}")"
+            if [ "${source_dir}" != "${lib_dir}" ]; then
+                source_prefix=$(relative_path_between_dirs "${lib_dir}" "${source_dir}") || continue
+                target_name="${source_prefix}/${target_name}"
+            fi
+            ln -s "${target_name}" "${link_path}"
+            created=true
+            break
+        done
+        if [ "${created}" != true ]; then
+            echo "Warning: skip ${link_path}, no lib${lib_name}.so.* found in candidate dirs: ${source_dirs[*]}" >&2
+        fi
+    done
+}
+
+function ensure_package_openssl_linker_symlinks() {
+    local package_root=$1
+    local openssl_source_dirs=(
+        "${package_root}/runtime/sdk/cpp/lib"
+        "${package_root}/functionsystem/lib"
+        "${package_root}/datasystem/sdk/cpp/lib"
+        "${package_root}/datasystem/sdk/go/lib"
+        "${package_root}/datasystem/service/lib"
+        "${package_root}/runtime/service/python/yr/datasystem/lib"
+    )
+    local openssl_target_dirs=(
+        "${package_root}/runtime/sdk/cpp/lib"
+        "${package_root}/datasystem/sdk/cpp/lib"
+        "${package_root}/datasystem/sdk/go/lib"
+        "${package_root}/runtime/service/python/yr/datasystem/lib"
+    )
+    local target_dir
+
+    for target_dir in "${openssl_target_dirs[@]}"; do
+        [ -d "${target_dir}" ] || continue
+        ensure_openssl_linker_symlinks_from_sources "${target_dir}" "${openssl_source_dirs[@]}"
+    done
+}
+
 function require_release_file() {
     local pattern=$1
     local label=$2
@@ -306,6 +418,7 @@ copy_datasystem_sdk_python_stage_or_unzip_wheel \
     "${OUTPUT_DIR}/openyuanrong/datasystem/sdk/openyuanrong_datasystem_sdk*.whl" \
     "${OUTPUT_DIR}/openyuanrong/runtime/service/python/" \
     "Expand datasystem sdk python payload into runtime python service"
+ensure_package_openssl_linker_symlinks "${OUTPUT_DIR}/openyuanrong"
 echo "[TIMER] Populate runtime python service datasystem sdk payload: $(($(date +%s)-baseTime_s)) seconds"
 
 mkdir -p "${OUTPUT_DIR}/openyuanrong/runtime/service/python"
