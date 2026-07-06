@@ -73,6 +73,21 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
         self.assertLess(driver_install_pos, runtime_install_pos)
         self.assertLess(runtime_install_pos, deploy_pos)
 
+    def test_runtime_wheel_keeps_python_metrics_exporters(self):
+        """Runtime split wheel must include Python runtime metrics exporter plugins."""
+        python_setup = PYTHON_SETUP.read_text(encoding="utf-8")
+
+        self.assertIn("PYTHON_RUNTIME_METRICS_EXPORTERS", python_setup)
+        self.assertIn('"libobservability-metrics-file-exporter.so"', python_setup)
+        self.assertIn('"libobservability-prometheus-push-exporter.so"', python_setup)
+        self.assertIn('"libobservability-prometheus-pull-exporter.so"', python_setup)
+        self.assertNotIn('"libobservability-aom-alarm-exporter.so"', python_setup)
+        self.assertIn("copy_python_runtime_metrics_exporters(build_lib, runtime_dir)", python_setup)
+        self.assertIn(
+            'os.path.join(build_lib, "yr/runtime/service/python/yr")',
+            python_setup,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
