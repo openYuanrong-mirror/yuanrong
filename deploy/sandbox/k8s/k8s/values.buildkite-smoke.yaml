@@ -1,3 +1,6 @@
 # Buildkite Test K8S overlay only. Do not use as the default deploy values file.
 frontend:
   enableEvent: true
+  service:
+    type: ClusterIP
+    annotations: {}

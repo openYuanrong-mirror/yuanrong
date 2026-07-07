@@ -440,15 +440,17 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("--type json", deploy_script)
         self.assertIn("remove_legacy_cli_patch_overrides", deploy_script.split("helm_deploy", 1)[1])
 
-    def test_deploy_migrates_legacy_traefik_load_balancer_service(self):
+    def test_deploy_migrates_legacy_load_balancer_services(self):
         deploy_script = (ROOT / "deploy.sh").read_text()
 
-        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script)
-        self.assertIn("app.kubernetes.io/component=traefik", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_services", deploy_script)
+        self.assertIn('app.kubernetes.io/component="${component}"', deploy_script)
+        self.assertIn("delete_legacy_load_balancer_service traefik Traefik", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_service frontend Frontend", deploy_script)
         self.assertIn("jsonpath={.spec.type}", deploy_script)
         self.assertIn("LoadBalancer", deploy_script)
-        self.assertIn("Deleting legacy Traefik LoadBalancer service", deploy_script)
-        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script.split("reset_etcd_state", 1)[1])
+        self.assertIn("Deleting legacy %s LoadBalancer service", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_services", deploy_script.split("reset_etcd_state", 1)[1])
 
     def test_current_yr_start_model_supports_frontend_driver_startup(self):
         registry_text = (ROOT.parents[2] / "api/python/yr/cli/component/registry.py").read_text()
@@ -725,6 +727,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertTrue(overlay.is_file())
         overlay_values = load_yaml_file(overlay)
         self.assertTrue(overlay_values["frontend"]["enableEvent"])
+        frontend_service = overlay_values["frontend"]["service"]
+        self.assertEqual(frontend_service["type"], "ClusterIP")
+        self.assertNotIn("kubernetes.io/elb.autocreate", frontend_service.get("annotations", {}))
 
         manifests = render_chart("-f", str(overlay))
         components_cm = find_manifest(manifests, "ConfigMap", "yr-components")
@@ -809,7 +814,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("frontend_deployment()", deploy_script_k8s)
         self.assertIn("helm_deploy_without_frontend", deploy_script_k8s)
         self.assertIn("helm_deploy_with_frontend", deploy_script_k8s)
-        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script_k8s)
+        self.assertIn("delete_legacy_load_balancer_services", deploy_script_k8s)
         self.assertIn('global.imagePullSecrets[0].name=${PULL_SECRET_NAME}', deploy_script_k8s)
         self.assertNotIn("restart_frontend_after_master_ready", deploy_script_k8s)
         self.assertIn("refresh_master_statefulset_pods_after_template_update", deploy_script_k8s)
@@ -826,7 +831,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertRegex(
             deploy_script_k8s,
             r"delete_runtime_workloads_before_reset\s+reset_etcd_state\s+"
-            r"delete_legacy_traefik_load_balancer_service\s+helm_deploy_without_frontend\s+"
+            r"delete_legacy_load_balancer_services\s+helm_deploy_without_frontend\s+"
             r"remove_legacy_cli_patch_overrides\s+"
             r"refresh_master_statefulset_pods_after_template_update\s+"
             r"wait_for_rollout\s+"

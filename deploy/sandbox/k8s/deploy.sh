@@ -333,41 +333,45 @@ reset_etcd_state() {
   exit 1
 }
 
-target_traefik_service_type() {
-  python3 - "${VALUES_FILE}" <<'PY'
+target_service_type() {
+  local component="$1"
+  python3 - "${component}" "${VALUES_FILE}" "${EXTRA_VALUES_FILE}" <<'PY'
 import re
 import sys
 
-path = sys.argv[1]
-section = []
-with open(path, encoding="utf-8") as handle:
-    for raw_line in handle:
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip():
-            continue
-        indent = len(raw_line) - len(raw_line.lstrip(" "))
-        key = line.strip().split(":", 1)[0].strip()
-        value = line.strip().split(":", 1)[1].strip() if ":" in line else ""
-        while section and section[-1][0] >= indent:
-            section.pop()
-        section.append((indent, key))
-        if [item[1] for item in section] == ["traefik", "service", "type"]:
-            print(re.sub(r'^["\']|["\']$', "", value) or "ClusterIP")
-            raise SystemExit(0)
-print("LoadBalancer")
+component = sys.argv[1]
+target_type = ""
+for path in [item for item in sys.argv[2:] if item]:
+    section = []
+    with open(path, encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.split("#", 1)[0].rstrip()
+            if not line.strip():
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip(" "))
+            key = line.strip().split(":", 1)[0].strip()
+            value = line.strip().split(":", 1)[1].strip() if ":" in line else ""
+            while section and section[-1][0] >= indent:
+                section.pop()
+            section.append((indent, key))
+            if [item[1] for item in section] == [component, "service", "type"]:
+                target_type = re.sub(r'^["\']|["\']$', "", value) or "ClusterIP"
+print(target_type or "LoadBalancer")
 PY
 }
 
-delete_legacy_traefik_load_balancer_service() {
+delete_legacy_load_balancer_service() {
+  local component="$1"
+  local display_name="$2"
   local target_type services service current_type
-  target_type="$(target_traefik_service_type)"
+  target_type="$(target_service_type "${component}")"
   if [ "${target_type}" = "LoadBalancer" ]; then
     return 0
   fi
 
   services="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get svc \
     --namespace "${NAMESPACE}" \
-    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=traefik \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component="${component}" \
     -o name 2>/dev/null || true)"
   while IFS= read -r service; do
     [ -n "${service}" ] || continue
@@ -377,12 +381,17 @@ delete_legacy_traefik_load_balancer_service() {
     if [ "${current_type}" != "LoadBalancer" ]; then
       continue
     fi
-    printf 'Deleting legacy Traefik LoadBalancer service %s before recreating it as %s.\n' \
-      "${service}" "${target_type}" >&2
+    printf 'Deleting legacy %s LoadBalancer service %s before recreating it as %s.\n' \
+      "${display_name}" "${service}" "${target_type}" >&2
     "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" delete "${service}" \
       --namespace "${NAMESPACE}" \
       --wait=true
   done <<<"${services}"
+}
+
+delete_legacy_load_balancer_services() {
+  delete_legacy_load_balancer_service traefik Traefik
+  delete_legacy_load_balancer_service frontend Frontend
 }
 
 seed_traefik_etcd_state() {
@@ -682,7 +691,7 @@ main() {
   create_or_update_pull_secret
   delete_runtime_workloads_before_reset
   reset_etcd_state
-  delete_legacy_traefik_load_balancer_service
+  delete_legacy_load_balancer_services
   helm_deploy_without_frontend
   remove_legacy_cli_patch_overrides
   refresh_master_statefulset_pods_after_template_update
