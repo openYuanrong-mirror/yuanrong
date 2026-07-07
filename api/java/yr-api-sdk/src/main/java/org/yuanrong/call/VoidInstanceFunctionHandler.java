@@ -16,13 +16,17 @@
 
 package org.yuanrong.call;
 
+import org.yuanrong.FunctionWrapper;
 import org.yuanrong.InvokeOptions;
 import org.yuanrong.api.InvokeArg;
 import org.yuanrong.api.YR;
+import org.yuanrong.errorcode.ErrorCode;
+import org.yuanrong.errorcode.ModuleCode;
 import org.yuanrong.exception.YRException;
 import org.yuanrong.function.YRFuncVoid;
 import org.yuanrong.libruntime.generated.Libruntime.ApiType;
 import org.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
+import org.yuanrong.runtime.Runtime;
 import org.yuanrong.utils.SdkUtils;
 
 import lombok.Getter;
@@ -77,8 +81,16 @@ public class VoidInstanceFunctionHandler extends Handler {
      */
     public void invoke(Object... args) throws YRException {
         FunctionMeta functionMeta = getFunctionMeta(func, this.apiType);
-        List<InvokeArg> packedArgs = SdkUtils.packInvokeArgs(args);
-        YR.getRuntime().invokeInstance(functionMeta, this.instanceId, packedArgs, options);
+        Runtime runtime = YR.getRuntime();
+        FunctionWrapper function = runtime.getJavaFunction(functionMeta);
+        if (function == null) {
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME_INVOKE,
+                    "Function not found: " + functionMeta.getFunctionName());
+        }
+        SdkUtils.checkJavaParameterTypes(function, args);
+        Class<?>[] paramTypes = function.getMethod().getParameterTypes();
+        List<InvokeArg> packedArgs = SdkUtils.packInvokeArgs(paramTypes, args);
+        runtime.invokeInstance(functionMeta, this.instanceId, packedArgs, options);
         LOGGER.debug("Succeeded to invoke instance({}) function:{}", this.instanceId, functionMeta.getFunctionName());
     }
 

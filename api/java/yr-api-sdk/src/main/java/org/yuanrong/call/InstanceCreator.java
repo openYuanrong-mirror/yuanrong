@@ -16,6 +16,7 @@
 
 package org.yuanrong.call;
 
+import org.yuanrong.FunctionWrapper;
 import org.yuanrong.InvokeOptions;
 import org.yuanrong.api.YR;
 import org.yuanrong.exception.YRException;
@@ -122,7 +123,9 @@ public class InstanceCreator<A> extends Handler {
             options.setNeedOrder(true);
         }
         Runtime runtime = YR.getRuntime();
-        String instanceId = runtime.createInstance(functionMeta, SdkUtils.packInvokeArgs(args), options);
+        FunctionWrapper function = runtime.getJavaFunction(functionMeta);
+        Class<?>[] paramTypes = function.executable.getParameterTypes();
+        String instanceId = runtime.createInstance(functionMeta, SdkUtils.packInvokeArgs(paramTypes, args), options);
         InstanceHandler handler = new InstanceHandler(instanceId, apiType);
         handler.setName(this.name);
         handler.setNs(this.nameSpace);
