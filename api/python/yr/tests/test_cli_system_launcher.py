@@ -22,12 +22,20 @@ from yr.cli.const import StartMode
 from yr.cli.system_launcher import SystemLauncher
 
 
+class TestableSystemLauncher(SystemLauncher):
+    def apply_component_overrides_for_test(self, comp_name, launcher):
+        self._apply_component_overrides(comp_name, launcher)
+
+    def get_start_order_for_test(self):
+        return self._get_start_order()
+
+
 class TestCliSystemLauncher(unittest.TestCase):
     def make_launcher(self, name: str):
         return SimpleNamespace(component_config=ComponentConfig(name=name))
 
     def test_disabled_ds_worker_dependency_is_not_silently_removed(self):
-        system_launcher = SystemLauncher.__new__(SystemLauncher)
+        system_launcher = TestableSystemLauncher.__new__(TestableSystemLauncher)
         system_launcher.mode = StartMode.MASTER
         system_launcher.prepend_char_overrides = {}
         system_launcher.depends_on_overrides = {
@@ -47,17 +55,17 @@ class TestCliSystemLauncher(unittest.TestCase):
 
         function_proxy = self.make_launcher("function_proxy")
         runtime_launcher = self.make_launcher("runtime_launcher")
-        system_launcher._apply_component_overrides("function_proxy", function_proxy)
+        system_launcher.apply_component_overrides_for_test("function_proxy", function_proxy)
         system_launcher.components = {
             "function_proxy": function_proxy,
             "runtime_launcher": runtime_launcher,
         }
 
         with self.assertRaisesRegex(ValueError, "depends on unknown component 'ds_worker'"):
-            system_launcher._get_start_order()
+            system_launcher.get_start_order_for_test()
 
     def test_disabled_etcd_dependency_can_be_provided_externally(self):
-        system_launcher = SystemLauncher.__new__(SystemLauncher)
+        system_launcher = TestableSystemLauncher.__new__(TestableSystemLauncher)
         system_launcher.mode = StartMode.MASTER
         system_launcher.prepend_char_overrides = {}
         system_launcher.depends_on_overrides = {
@@ -75,12 +83,12 @@ class TestCliSystemLauncher(unittest.TestCase):
         )
 
         function_master = self.make_launcher("function_master")
-        system_launcher._apply_component_overrides("function_master", function_master)
+        system_launcher.apply_component_overrides_for_test("function_master", function_master)
         system_launcher.components = {
             "function_master": function_master,
         }
 
-        self.assertEqual(system_launcher._get_start_order(), ["function_master"])
+        self.assertEqual(system_launcher.get_start_order_for_test(), ["function_master"])
 
 
 if __name__ == "__main__":
