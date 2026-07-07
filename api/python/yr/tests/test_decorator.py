@@ -60,7 +60,7 @@ class TestDecorator(TestCase):
 
         options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor)
         options_creator.options(InvokeOptions(need_order=False))
-        self.assertFalse(options_creator.__invoke_options__.need_order)
+        self.assertTrue(options_creator.__invoke_options__.need_order)
 
         with self.assertRaises(ValueError):
             options_creator.options(InvokeOptions(need_order=True, concurrency=100))

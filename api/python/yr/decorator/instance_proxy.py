@@ -510,7 +510,6 @@ class InstanceCreator:
         instance_cls = self
         invoke_options.check_options_valid()
         invoke_options.need_order = _resolve_need_order(invoke_options, self.__is_async__)
-        self.__invoke_options__ = invoke_options
 
         class InstanceOptionWrapper:
             """instance option wrapper"""
