@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import zipfile
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -32,9 +33,16 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
 
         self.assertIn("for lib_name in ssl crypto; do", cpp_build)
         self.assertIn('link_path="$$CPP_SDK_DIR/lib/lib$${lib_name}.so"', cpp_build)
-        self.assertIn('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.3"', cpp_build)
         self.assertIn('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.1.1"', cpp_build)
+        self.assertIn('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.3"', cpp_build)
+        self.assertIn('rm -f "$$link_path"', cpp_build)
         self.assertIn('ln -s "$$target_name" "$$link_path"', cpp_build)
+        self.assertIn('libcurl.so*|libssl.so|libcrypto.so', cpp_build)
+        self.assertNotIn("cp -rf $$DATASYSTEM_DIR/lib/* $$CPP_SDK_DIR/lib/", cpp_build)
+        self.assertLess(
+            cpp_build.index('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.3"'),
+            cpp_build.index('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.1.1"'),
+        )
         self.assertNotIn("external/boringssl/*.so*", cpp_build)
         self.assertNotIn("external/boringssl/*.dylib*", cpp_build)
 
@@ -138,16 +146,24 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
 
             subprocess.run(["bash", str(test_script)], check=True)
 
-    def test_runtime_cpp_sdk_openssl_links_point_to_functionsystem_lib(self):
-        """The package-level helper should make runtime C++ SDK libs linkable."""
+    def test_cpp_sdk_package_rebuilds_openssl_links_with_openssl3_first(self):
+        """C++ SDK generation should undo stale linker names and prefer OpenSSL 3."""
+        cpp_build = CPP_BUILD.read_text(encoding="utf-8")
+
+        self.assertIn('rm -f "$$link_path"', cpp_build)
+        self.assertLess(
+            cpp_build.index('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.3"'),
+            cpp_build.index('"$$CPP_SDK_DIR/lib/lib$${lib_name}.so.1.1"'),
+        )
+
+    def test_package_openssl_links_fall_back_to_openssl11_when_only_11_exists(self):
+        """Package-level helper should not require OpenSSL 3 in 1.1-only builds."""
         with tempfile.TemporaryDirectory() as temp_dir:
             package_root = pathlib.Path(temp_dir) / "openyuanrong"
             runtime_lib_dir = package_root / "runtime" / "sdk" / "cpp" / "lib"
-            functionsystem_lib_dir = package_root / "functionsystem" / "lib"
             runtime_lib_dir.mkdir(parents=True)
-            functionsystem_lib_dir.mkdir(parents=True)
-            (functionsystem_lib_dir / "libssl.so.1.1").write_text("ssl", encoding="utf-8")
-            (functionsystem_lib_dir / "libcrypto.so.1.1").write_text("crypto", encoding="utf-8")
+            (runtime_lib_dir / "libssl.so.1.1").write_text("runtime-ssl11", encoding="utf-8")
+            (runtime_lib_dir / "libcrypto.so.1.1").write_text("runtime-crypto11", encoding="utf-8")
 
             functions_file = pathlib.Path(temp_dir) / "package_functions.sh"
             functions_file.write_text(load_package_function_definitions(), encoding="utf-8")
@@ -159,14 +175,237 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
                     set -euo pipefail
                     source "{functions_file}"
                     ensure_package_openssl_linker_symlinks "{package_root}"
-                    test "$(readlink "{runtime_lib_dir / "libssl.so"}")" = "../../../../functionsystem/lib/libssl.so.1.1"
-                    test "$(readlink "{runtime_lib_dir / "libcrypto.so"}")" = "../../../../functionsystem/lib/libcrypto.so.1.1"
+                    test "$(readlink "{runtime_lib_dir / "libssl.so"}")" = "libssl.so.1.1"
+                    test "$(readlink "{runtime_lib_dir / "libcrypto.so"}")" = "libcrypto.so.1.1"
                     """
                 ),
                 encoding="utf-8",
             )
 
             subprocess.run(["bash", str(test_script)], check=True)
+
+    def test_runtime_cpp_sdk_native_dependency_closure_is_restored(self):
+        """Runtime C++ SDK must carry native libs needed by libyr-api.so."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_root = pathlib.Path(temp_dir) / "openyuanrong"
+            runtime_lib_dir = package_root / "runtime" / "sdk" / "cpp" / "lib"
+            functionsystem_lib_dir = package_root / "functionsystem" / "lib"
+            datasystem_lib_dir = package_root / "datasystem" / "sdk" / "cpp" / "lib"
+            runtime_lib_dir.mkdir(parents=True)
+            functionsystem_lib_dir.mkdir(parents=True)
+            datasystem_lib_dir.mkdir(parents=True)
+
+            (runtime_lib_dir / "libyr-api.so").write_text("yr", encoding="utf-8")
+            (runtime_lib_dir / "libyr-api.so.1").write_text("yr-versioned", encoding="utf-8")
+            (runtime_lib_dir / "libfunctionsdk.so").write_text("functionsdk", encoding="utf-8")
+            (runtime_lib_dir / "libfunctionsdk.so.1.0.0").write_text("functionsdk-versioned", encoding="utf-8")
+            (runtime_lib_dir / "libcurl.so").symlink_to("datasystem-libcurl.so")
+            (runtime_lib_dir / "datasystem-libcurl.so").write_text("ds-curl", encoding="utf-8")
+            (runtime_lib_dir / "libssl.so").symlink_to("libssl.so.1.1")
+            (runtime_lib_dir / "libssl.so.1.1").write_text("ssl11", encoding="utf-8")
+            (functionsystem_lib_dir / "libcurl.so.4.8.0").write_text("curl", encoding="utf-8")
+            (functionsystem_lib_dir / "libcurl.so.4").symlink_to("libcurl.so.4.8.0")
+            (functionsystem_lib_dir / "libcurl.so").symlink_to("libcurl.so.4")
+            (functionsystem_lib_dir / "libssl.so.1.1").write_text("ssl11-from-fs", encoding="utf-8")
+            (functionsystem_lib_dir / "libssl.so").symlink_to("libssl.so.1.1")
+            (functionsystem_lib_dir / "libfunctionsdk.so").write_text("wrong", encoding="utf-8")
+            (functionsystem_lib_dir / "libfunctionsdk.so.1.0.0").write_text("wrong-versioned", encoding="utf-8")
+            (functionsystem_lib_dir / "libnot_needed.so").write_text("unused", encoding="utf-8")
+            (datasystem_lib_dir / "libdatasystem.so").write_text("ds", encoding="utf-8")
+            (datasystem_lib_dir / "libgrpc.so.42.0.0").write_text("grpc", encoding="utf-8")
+            (datasystem_lib_dir / "libgrpc.so.42").symlink_to("libgrpc.so.42.0.0")
+            (datasystem_lib_dir / "libgrpc.so").symlink_to("libgrpc.so.42")
+            (datasystem_lib_dir / "libyr-api.so.1").write_text("wrong-yr-versioned", encoding="utf-8")
+            datasystem_cmake_dir = datasystem_lib_dir / "cmake" / "Datasystem"
+            datasystem_cmake_dir.mkdir(parents=True)
+            (datasystem_cmake_dir / "DatasystemConfig.cmake").write_text(
+                "datasystem-cmake", encoding="utf-8"
+            )
+            functions_file = pathlib.Path(temp_dir) / "package_functions.sh"
+            functions_file.write_text(load_package_function_definitions(), encoding="utf-8")
+            test_script = pathlib.Path(temp_dir) / "run.sh"
+            test_script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/bash
+                    set -euo pipefail
+                    source "{functions_file}"
+                    restore_runtime_cpp_sdk_native_libs "{package_root}"
+                    test -e "{runtime_lib_dir / "libcurl.so.4.8.0"}"
+                    test "$(readlink "{runtime_lib_dir / "libcurl.so"}")" = "libcurl.so.4"
+                    test "$(readlink "{runtime_lib_dir / "libcurl.so.4"}")" = "libcurl.so.4.8.0"
+                    test "$(readlink "{runtime_lib_dir / "libssl.so"}")" = "libssl.so.1.1"
+                    test "$(cat "{runtime_lib_dir / "libssl.so.1.1"}")" = "ssl11-from-fs"
+                    test -e "{runtime_lib_dir / "libdatasystem.so"}"
+                    test -e "{runtime_lib_dir / "libgrpc.so.42.0.0"}"
+                    test "$(readlink "{runtime_lib_dir / "libgrpc.so"}")" = "libgrpc.so.42"
+                    test "$(cat "{runtime_lib_dir / "cmake" / "Datasystem" / "DatasystemConfig.cmake"}")" = "datasystem-cmake"
+                    test "$(cat "{runtime_lib_dir / "libnot_needed.so"}")" = "unused"
+                    test "$(cat "{runtime_lib_dir / "libyr-api.so"}")" = "yr"
+                    test "$(cat "{runtime_lib_dir / "libyr-api.so.1"}")" = "yr-versioned"
+                    test "$(cat "{runtime_lib_dir / "libfunctionsdk.so"}")" = "functionsdk"
+                    test "$(cat "{runtime_lib_dir / "libfunctionsdk.so.1.0.0"}")" = "functionsdk-versioned"
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(["bash", str(test_script)], check=True)
+
+    def test_runtime_java_native_dependency_closure_is_restored(self):
+        """Runtime Java service and SDK jar must carry JNI native deps."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_root = pathlib.Path(temp_dir) / "openyuanrong"
+            java_lib_dir = package_root / "runtime" / "service" / "java" / "lib"
+            java_sdk_dir = package_root / "runtime" / "sdk" / "java"
+            functionsystem_lib_dir = package_root / "functionsystem" / "lib"
+            datasystem_lib_dir = package_root / "datasystem" / "sdk" / "cpp" / "lib"
+            native_dir_in_jar = "native/aarch64"
+            java_lib_dir.mkdir(parents=True)
+            java_sdk_dir.mkdir(parents=True)
+            functionsystem_lib_dir.mkdir(parents=True)
+            datasystem_lib_dir.mkdir(parents=True)
+
+            (java_lib_dir / "libruntime_lib_jni.so").write_text("jni", encoding="utf-8")
+            (java_lib_dir / "libcurl.so").symlink_to("system-libcurl.so")
+            (java_lib_dir / "system-libcurl.so").write_text("system-curl", encoding="utf-8")
+            (functionsystem_lib_dir / "libcurl.so.4.8.0").write_text("curl", encoding="utf-8")
+            (functionsystem_lib_dir / "libcurl.so.4").symlink_to("libcurl.so.4.8.0")
+            (functionsystem_lib_dir / "libcurl.so").symlink_to("libcurl.so.4")
+            (functionsystem_lib_dir / "libssl.so.1.1").write_text("ssl", encoding="utf-8")
+            (functionsystem_lib_dir / "libcrypto.so.1.1").write_text("crypto", encoding="utf-8")
+            (datasystem_lib_dir / "libdatasystem.so").write_text("ds", encoding="utf-8")
+            (datasystem_lib_dir / "libbrpc.so").write_text("brpc", encoding="utf-8")
+            (datasystem_lib_dir / "libaddress_sorting.so.42.0.0").write_text(
+                "address", encoding="utf-8"
+            )
+            (datasystem_lib_dir / "libaddress_sorting.so.42").symlink_to(
+                "libaddress_sorting.so.42.0.0"
+            )
+            (datasystem_lib_dir / "libnot_needed.so").write_text("unused", encoding="utf-8")
+            datasystem_cmake_dir = datasystem_lib_dir / "cmake" / "Datasystem"
+            datasystem_cmake_dir.mkdir(parents=True)
+            (datasystem_cmake_dir / "DatasystemConfig.cmake").write_text(
+                "datasystem-cmake", encoding="utf-8"
+            )
+            jar_path = java_sdk_dir / "yr-api-sdk-9.9.9.jar"
+            with zipfile.ZipFile(jar_path, "w") as jar:
+                jar.writestr(f"{native_dir_in_jar}/libruntime_lib_jni.so", "jni")
+                jar.writestr(f"{native_dir_in_jar}/so.properties", "libruntime_lib_jni.so=old\n")
+
+            functions_file = pathlib.Path(temp_dir) / "package_functions.sh"
+            functions_file.write_text(load_package_function_definitions(), encoding="utf-8")
+            test_script = pathlib.Path(temp_dir) / "run.sh"
+            test_script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/bash
+                    set -euo pipefail
+                    source "{functions_file}"
+                    BASE_DIR="{REPO_ROOT / "scripts"}"
+                    restore_runtime_java_service_native_libs "{package_root}"
+                    ensure_package_openssl_linker_symlinks "{package_root}"
+                    update_runtime_java_sdk_native_jar "{package_root}" 2>"{pathlib.Path(temp_dir) / "java_sdk_warnings.log"}"
+                    test "$(readlink "{java_lib_dir / "libcurl.so"}")" = "libcurl.so.4"
+                    test "$(readlink "{java_lib_dir / "libcurl.so.4"}")" = "libcurl.so.4.8.0"
+                    test "$(cat "{java_lib_dir / "libcurl.so.4.8.0"}")" = "curl"
+                    [[ "$(readlink "{java_lib_dir / "libssl.so"}")" == *"libssl.so.1.1" ]]
+                    [[ "$(readlink "{java_lib_dir / "libcrypto.so"}")" == *"libcrypto.so.1.1" ]]
+                    test "$(cat "{java_lib_dir / "libdatasystem.so"}")" = "ds"
+                    test "$(cat "{java_lib_dir / "cmake" / "Datasystem" / "DatasystemConfig.cmake"}")" = "datasystem-cmake"
+                    test "$(cat "{java_lib_dir / "libnot_needed.so"}")" = "unused"
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(["bash", str(test_script)], check=True)
+
+            with zipfile.ZipFile(jar_path) as jar:
+                names = set(jar.namelist())
+                self.assertIn(f"{native_dir_in_jar}/libruntime_lib_jni.so", names)
+                self.assertIn(f"{native_dir_in_jar}/libcurl.so.4.8.0", names)
+                self.assertIn(f"{native_dir_in_jar}/libcurl.so.4", names)
+                self.assertIn(f"{native_dir_in_jar}/libssl.so.1.1", names)
+                self.assertIn(f"{native_dir_in_jar}/libcrypto.so.1.1", names)
+                self.assertIn(f"{native_dir_in_jar}/libdatasystem.so", names)
+                self.assertIn(f"{native_dir_in_jar}/libbrpc.so", names)
+                self.assertIn(f"{native_dir_in_jar}/libaddress_sorting.so.42.0.0", names)
+                self.assertNotIn(f"{native_dir_in_jar}/libaddress_sorting.so.42", names)
+                self.assertNotIn(f"{native_dir_in_jar}/libnot_needed.so", names)
+                self.assertEqual(jar.read(f"{native_dir_in_jar}/libcurl.so.4.8.0"), b"curl")
+                self.assertEqual(jar.read(f"{native_dir_in_jar}/libcurl.so.4"), b"curl")
+                self.assertEqual(jar.read(f"{native_dir_in_jar}/libaddress_sorting.so.42.0.0"), b"address")
+                properties = jar.read(f"{native_dir_in_jar}/so.properties").decode()
+                self.assertIn("libruntime_lib_jni.so=", properties)
+                self.assertIn("libcurl.so.4.8.0=", properties)
+                self.assertIn("libssl.so.1.1=", properties)
+                self.assertNotIn("old", properties)
+
+    def test_runtime_service_language_native_dirs_share_native_restore(self):
+        """All runtime service native dirs should use the same native source restore."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_root = pathlib.Path(temp_dir) / "openyuanrong"
+            cpp_lib_dir = package_root / "runtime" / "service" / "cpp" / "lib"
+            go_bin_dir = package_root / "runtime" / "service" / "go" / "bin"
+            python_ds_lib_dir = package_root / "runtime" / "service" / "python" / "yr" / "datasystem" / "lib"
+            functionsystem_lib_dir = package_root / "functionsystem" / "lib"
+            datasystem_lib_dir = package_root / "datasystem" / "sdk" / "cpp" / "lib"
+            for target_dir in (cpp_lib_dir, go_bin_dir, python_ds_lib_dir):
+                target_dir.mkdir(parents=True)
+            functionsystem_lib_dir.mkdir(parents=True)
+            datasystem_lib_dir.mkdir(parents=True)
+
+            (cpp_lib_dir / "libcpp_runtime.so").write_text("cpp", encoding="utf-8")
+            (go_bin_dir / "libgo_runtime.so").write_text("go", encoding="utf-8")
+            (python_ds_lib_dir / "libpython_runtime.so").write_text("python", encoding="utf-8")
+            (functionsystem_lib_dir / "libshared_dep.so.1.0.0").write_text("shared", encoding="utf-8")
+            (functionsystem_lib_dir / "libshared_dep.so.1").symlink_to("libshared_dep.so.1.0.0")
+            (functionsystem_lib_dir / "libshared_dep.so").symlink_to("libshared_dep.so.1")
+            (datasystem_lib_dir / "libnested_dep.so").write_text("nested", encoding="utf-8")
+            (datasystem_lib_dir / "libnot_needed.so").write_text("unused", encoding="utf-8")
+
+            functions_file = pathlib.Path(temp_dir) / "package_functions.sh"
+            functions_file.write_text(load_package_function_definitions(), encoding="utf-8")
+            test_script = pathlib.Path(temp_dir) / "run.sh"
+            test_script.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!/bin/bash
+                    set -euo pipefail
+                    source "{functions_file}"
+                    restore_runtime_service_native_libs "{package_root}"
+                    for target_dir in "{cpp_lib_dir}" "{go_bin_dir}" "{python_ds_lib_dir}"; do
+                        test "$(readlink "$target_dir/libshared_dep.so")" = "libshared_dep.so.1"
+                        test "$(readlink "$target_dir/libshared_dep.so.1")" = "libshared_dep.so.1.0.0"
+                        test "$(cat "$target_dir/libshared_dep.so.1.0.0")" = "shared"
+                        test "$(cat "$target_dir/libnested_dep.so")" = "nested"
+                        test "$(cat "$target_dir/libnot_needed.so")" = "unused"
+                    done
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            subprocess.run(["bash", str(test_script)], check=True)
+
+    def test_java_native_loader_knows_packaged_libcurl(self):
+        """Java JNI loader must load packaged libcurl before libruntime_lib_jni."""
+        load_util = (
+            REPO_ROOT / "api/java/function-common/src/main/java/org/yuanrong/jni/LoadUtil.java"
+        ).read_text(encoding="utf-8")
+        package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('{"libcurl.so.4.8.0", "libcurl.so.4"}', load_util)
+        self.assertLess(
+            load_util.index('{"libcurl.so.4.8.0", "libcurl.so.4"}'),
+            load_util.index('{"libruntime_lib_jni.so", "libruntime_lib_jni.dylib"}'),
+        )
+        self.assertIn(
+            'copy_java_sdk_loader_libs_to_native_dir "${native_dir}"',
+            package_script,
+        )
+        self.assertNotIn("java_sdk_native_libs=(", package_script)
 
     def test_openssl_linker_symlinks_warn_when_source_libs_are_missing(self):
         """Missing OpenSSL sources should be visible in package logs."""

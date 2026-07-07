@@ -464,6 +464,9 @@ YR_DATASYSTEM_DEFAULT_WRITE_MODE = "{{ values.runtime.default_write_mode }}"
 INIT_LABELS = ""
 HOST_IP = "{{ values.function_agent.ip }}"
 NODE_ID = "{{ values.node_id }}"
+{% if values.runtime_launcher.enable %}
+CONTAINER_EP = "unix://{{ values.runtime_launcher.socket }}"
+{% endif %}
 
 [function_agent.health_check]
 enable = true

@@ -94,6 +94,7 @@ public class LoadUtil {
         {"libtbb.so.2", "libtbb.2.dylib"},
         {"libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.dylib"},
         {"libssl.so.3", "libssl.so.1.1", "libssl.dylib"},
+        {"libcurl.so.4.8.0", "libcurl.so.4"},
         {"libds-spdlog.so.1.12.0", "libds-spdlog.1.12.0.dylib"},
         {"libzmq.so.5.2.5", "libzmq.5.2.5.dylib"},
         {"libabseil_dll.so.2407.0.0"},

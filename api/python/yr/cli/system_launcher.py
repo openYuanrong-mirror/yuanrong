@@ -690,9 +690,9 @@ class SystemLauncher:
             launcher.component_config.depends_on = [
                 dep
                 for dep in depends_on_override
-                # Some dependencies can be provided externally or disabled by
-                # command-line overrides while their rendered config remains in use.
-                if enabled_components.get(dep, False)
+                # In K8S deployments etcd can be provided externally. Components
+                # still need the rendered etcd address, but not a local etcd process.
+                if dep != "etcd" or enabled_components.get("etcd", False)
             ]
 
     def _start_component(self, component_name: str) -> Optional[subprocess.Popen]:

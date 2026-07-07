@@ -56,6 +56,15 @@ PYTHON_RUNTIME_METRICS_EXPORTERS = (
     "libobservability-prometheus-pull-exporter.so",
 )
 
+PYTHON_TOP_LEVEL_NATIVE_EXCLUDE_PREFIXES = (
+    "libyr-api.so",
+    "libfunctionsdk.so",
+)
+
+
+def is_python_top_level_native_excluded(filename):
+    return filename.startswith(PYTHON_TOP_LEVEL_NATIVE_EXCLUDE_PREFIXES)
+
 
 def get_version():
     """get version"""
@@ -474,6 +483,18 @@ def copy_file(target, filename, root):
         print(f"Warning: Failed to copy {filename}: {e}")
 
 
+def copy_file_flat(target, filename):
+    """copy a file into target without preserving its source directory"""
+    if not os.path.exists(filename):
+        return
+    os.makedirs(target, exist_ok=True)
+    dst = os.path.join(target, os.path.basename(filename))
+    try:
+        shutil.copy(filename, dst, follow_symlinks=True)
+    except Exception as e:
+        print(f"Warning: Failed to copy {filename}: {e}")
+
+
 def contains_keyword(text, keywords):
     return any(kw in text for kw in keywords)
 
@@ -509,6 +530,37 @@ def is_shared_library(filename):
         or ".so." in filename
         or ".dylib." in filename
     )
+
+
+def python_native_dependency_roots():
+    """native source dirs used to rebuild the Python wheel top-level closure"""
+    return [
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/runtime/service/python/yr"),
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/runtime/sdk/cpp/lib"),
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/functionsystem/lib"),
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/datasystem/sdk/cpp/lib"),
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/datasystem/sdk/go/lib"),
+        os.path.join(ROOT_DIR, "../../output/openyuanrong/datasystem/service/lib"),
+        os.path.join(ROOT_DIR, "../../build/output/runtime/sdk/cpp/lib"),
+        os.path.join(ROOT_DIR, "../../build/output/runtime/service/python/yr"),
+    ]
+
+
+def copy_python_native_dependencies_to_top_level_yr(build_lib):
+    """copy fnruntime dependencies to yr/ so preload can avoid system libs"""
+    target_dir = os.path.join(build_lib, "yr")
+    for source_root in python_native_dependency_roots():
+        if not os.path.isdir(source_root):
+            continue
+        for root, _, filenames in os.walk(source_root):
+            for filename in filenames:
+                if filename.startswith("fnruntime"):
+                    continue
+                if is_python_top_level_native_excluded(filename):
+                    continue
+                if not is_shared_library(filename):
+                    continue
+                copy_file_flat(target_dir, os.path.join(root, filename))
 
 
 def select_fnruntime_binaries(candidates):
@@ -626,6 +678,7 @@ def copy_openyuanrong_sdk(build_lib):
     files_to_include.extend(select_fnruntime_binaries(fnruntime_candidates))
     for filename in files_to_include:
         copy_file(build_lib, filename, ROOT_DIR)
+    copy_python_native_dependencies_to_top_level_yr(build_lib)
 
 
 def copy_openyuanrong_runtime(build_lib):
@@ -652,6 +705,7 @@ def copy_openyuanrong_runtime(build_lib):
             fnruntime_candidates.append(os.path.join(runtime_python_yr_dir, filename))
     for filename in select_fnruntime_binaries(fnruntime_candidates):
         copy_file(os.path.join(build_lib, "yr"), filename, runtime_python_yr_dir)
+    copy_python_native_dependencies_to_top_level_yr(build_lib)
 
 
 def copy_openyuanrong_faas(build_lib):
