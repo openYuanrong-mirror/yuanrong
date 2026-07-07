@@ -578,12 +578,12 @@
     新建一个工作目录 `java-stateful-function`，包含文件结构如下。其中，pom.xml 为 maven 配置文件，Object.java 和 Main.java 为应用代码。
 
     ```bash
-    java-stateless-function
+    java-stateful-function
     ├── pom.xml
     └── src
         └── main
             └── java
-                └── com
+                └── org
                     └── yuanrong
                         └── example
                             ├── Object.java
