@@ -8,6 +8,7 @@ Welcome to openYuanrong team's technical blog! Here we gather in-depth technical
 - [Core Architecture](blog-architecture)
 - [Function System](blog-functionsystem)
 - [Data System](blog-datasystem)
+- [Agent](blog-agent)
 - [Paper](blog-paper)
 
 (blog-quickstart)=
@@ -141,6 +142,54 @@ Learn in depth how openYuanrong serves as the KV backend for TransferQueue, rely
 <span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">📅 2026-04-07</span>
 <span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">⏱️ 14 minutes</span>
 <span style="background: var(--color-success-subtle, #e1f4e1); color: var(--color-success-fg, #22863a); padding: 4px 8px; border-radius: 12px;">🏷️ Data System</span>
+</div>
+</div>
+
+---
+
+(blog-agent)=
+
+## Agent
+
+<div class="blog-card" style="background: var(--color-canvas-default, white); border: 1px solid var(--color-border-default, #e1e4e8); border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.2s, box-shadow 0.2s; margin: 20px 0;" data-theme-light-bg="white" data-theme-dark-bg="#1e1e1e" data-theme-light-border="#e1e4e8" data-theme-dark-border="#404040">
+<div style="font-size: 1.3em; font-weight: bold; margin-bottom: 10px; color: var(--color-accent-fg, #0366d6);">
+📖 <a href="https://www.openeuler.openatom.cn/en/blog/20260525-openYuanrong_09/20260525-openYuanrong_09.html" style="color: inherit; text-decoration: none;">Enterprise-grade JiuwenSwarm Practice Exploration Based on openYuanrong</a>
+</div>
+<p style="color: var(--color-fg-muted, #586069); margin: 10px 0; line-height: 1.6;">
+As AI Agent applications move from personal assistants to enterprise-grade production deployment, how to enable JiuwenSwarm to break through single-machine limitations and achieve enterprise-grade elasticity and reliability while maintaining the existing programming experience is the core engineering problem that openYuanrong aims to solve. This article explores how to perform distributed transformation of JiuwenSwarm based on openYuanrong, achieving a smooth evolution from single-machine deployment to cluster-based operation for AI Agents.
+</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; font-size: 0.85em;">
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">📅 2026-05-25</span>
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">⏱️ 12 minutes</span>
+<span style="background: var(--color-success-subtle, #e1f4e1); color: var(--color-success-fg, #22863a); padding: 4px 8px; border-radius: 12px;">🏷️ Agent</span>
+</div>
+</div>
+
+<div class="blog-card" style="background: var(--color-canvas-default, white); border: 1px solid var(--color-border-default, #e1e4e8); border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.2s, box-shadow 0.2s; margin: 20px 0;" data-theme-light-bg="white" data-theme-dark-bg="#1e1e1e" data-theme-light-border="#e1e4e8" data-theme-dark-border="#404040">
+<div style="font-size: 1.3em; font-weight: bold; margin-bottom: 10px; color: var(--color-accent-fg, #0366d6);">
+📖 <a href="https://www.infoq.cn/article/qYQfpT8BaIPEkbeSXwzu" style="color: inherit; text-decoration: none;">What Distributed Infrastructure Does the Agent Era Need</a>
+</div>
+<p style="color: var(--color-fg-muted, #586069); margin: 10px 0; line-height: 1.6;">
+The non-determinism of Agent applications brings unique operational characteristics and challenges such as high dynamism, insecurity, and long sessions, which traditional K8s container microservice technology systems struggle to meet. openYuanrong, with its distributed kernel philosophy similar to a standalone OS, naturally supports Agent instance auto-elasticity, secure sandbox isolation, session-affinity scheduling, and distributed fault tolerance, providing matching distributed infrastructure for enterprise-grade large-scale Agent applications.
+</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; font-size: 0.85em;">
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">📅 2026-05-08</span>
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">⏱️ 18 minutes</span>
+<span style="background: var(--color-success-subtle, #e1f4e1); color: var(--color-success-fg, #22863a); padding: 4px 8px; border-radius: 12px;">🏷️ Agent</span>
+</div>
+</div>
+
+<div class="blog-card" style="background: var(--color-canvas-default, white); border: 1px solid var(--color-border-default, #e1e4e8); border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.2s, box-shadow 0.2s; margin: 20px 0;" data-theme-light-bg="white" data-theme-dark-bg="#1e1e1e" data-theme-light-border="#e1e4e8" data-theme-dark-border="#404040">
+<div style="font-size: 1.3em; font-weight: bold; margin-bottom: 10px; color: var(--color-accent-fg, #0366d6);">
+📖 <a href="https://openjiuwen.com/blogs/blog-artical?id=61" style="color: inherit; text-decoration: none;">openJiuwen × openYuanrong: Bridging the Complete Loop from Agent Runtime to RL Training</a>
+</div>
+<p style="color: var(--color-fg-muted, #586069); margin: 10px 0; line-height: 1.6;">
+openJiuwen and openYuanrong have bridged the full chain between Agent Runtime, openYuanrong, RL training framework (verl), and Ascend computing power. Each real execution trajectory produced by an Agent is structured as learnable samples, directly entering the GRPO training loop, completing inference and training on Ascend environments, achieving an automated closed-loop path from "execution trajectory" to "policy update".
+</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; font-size: 0.85em;">
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">📅 2026-04-08</span>
+<span style="background: var(--color-accent-subtle, #f1f8ff); color: var(--color-accent-fg, #0366d6); padding: 4px 8px; border-radius: 12px;">⏱️ 15 minutes</span>
+<span style="background: var(--color-success-subtle, #e1f4e1); color: var(--color-success-fg, #22863a); padding: 4px 8px; border-radius: 12px;">🏷️ Agent</span>
 </div>
 </div>
 

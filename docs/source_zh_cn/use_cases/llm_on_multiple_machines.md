@@ -113,7 +113,7 @@ docker run \
 
    ```bash
    # 替换 MASTER_IP 为您当前主机 IP，选择任意空闲端口配置 etcd port 和 peer_port
-   yr start --master -v \
+   yr -v start --master \
      -s 'values.etcd.address=[{ip="'${MASTER_IP}'",port=22440,peer_port=22441}]' \
      -s 'function_agent.args.runtime_direct_connection_enable=true' \
      -s 'function_agent.args.enable_separated_redirect_runtime_std=true'
@@ -123,7 +123,7 @@ docker run \
 
    ```bash
    # 替换 MASTER_IP 为主节点 IP，FUNCTION_MASTER_PORT 为主节点启动输出中的 function_master 端口
-   yr start -v \
+   yr -v start \
      --master_address http://${MASTER_IP}:${FUNCTION_MASTER_PORT} \
      -s 'function_agent.args.runtime_direct_connection_enable=true' \
      -s 'function_agent.args.enable_separated_redirect_runtime_std=true'

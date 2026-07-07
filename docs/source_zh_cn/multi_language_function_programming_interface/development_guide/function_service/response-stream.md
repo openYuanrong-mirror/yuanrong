@@ -59,3 +59,9 @@ public class Demo {
 :::::
 
 调用函数服务时，需要在请求头中添加 `Accept: text/event-stream` 字段。
+
+:::{Note}
+
+使用流式返回需要在部署 openYuanrong 时支持函数服务并配置 `frontend.args.enableEvent=true`。
+
+:::
