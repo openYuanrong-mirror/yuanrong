@@ -269,6 +269,9 @@ function ensure_openssl_linker_symlinks_from_sources() {
             [ -d "${source_dir}" ] || continue
             target_path="${source_dir}/lib${lib_name}.so.1.1"
             if [ ! -e "${target_path}" ]; then
+                target_path="${source_dir}/lib${lib_name}.so.3"
+            fi
+            if [ ! -e "${target_path}" ]; then
                 target_path=$(resolve_first_match "${source_dir}/lib${lib_name}.so.*") || continue
             fi
             target_name="$(basename "${target_path}")"
@@ -286,18 +289,276 @@ function ensure_openssl_linker_symlinks_from_sources() {
     done
 }
 
+function copy_native_shared_libs_to_dir() {
+    local source_dir=$1
+    local target_dir=$2
+    local overwrite_existing=${3:-false}
+    local dereference_symlinks=${4:-false}
+    local source_path
+    local lib_file
+
+    [ -d "${source_dir}" ] || return 0
+    [ -d "${target_dir}" ] || return 0
+
+    for source_path in "${source_dir}"/lib*.so "${source_dir}"/lib*.so.*; do
+        [ -e "${source_path}" ] || [ -L "${source_path}" ] || continue
+        lib_file="$(basename "${source_path}")"
+        case "${lib_file}" in
+            libyr-api.so*|libfunctionsdk.so*)
+                continue
+                ;;
+        esac
+        if [ -e "${target_dir}/${lib_file}" ] || [ -L "${target_dir}/${lib_file}" ]; then
+            if [ "${overwrite_existing}" != true ]; then
+                continue
+            fi
+            rm -rf "${target_dir:?}/${lib_file}"
+        fi
+        if [ "${dereference_symlinks}" = true ]; then
+            cp -L "${source_path}" "${target_dir}/${lib_file}"
+        else
+            cp -a "${source_path}" "${target_dir}/"
+        fi
+    done
+}
+
+function find_native_dependency_path() {
+    local lib_name=$1
+    shift
+    local source_dir
+
+    for source_dir in "$@"; do
+        [ -e "${source_dir}/${lib_name}" ] || [ -L "${source_dir}/${lib_name}" ] || continue
+        echo "${source_dir}/${lib_name}"
+        return 0
+    done
+    return 1
+}
+
+function copy_datasystem_cmake_files_to_native_dir() {
+    local source_lib_dir=$1
+    local target_lib_dir=$2
+    local source_cmake_dir="${source_lib_dir}/cmake"
+    local target_cmake_dir="${target_lib_dir}/cmake"
+
+    [ -d "${source_cmake_dir}" ] || return 0
+    [ -d "${target_lib_dir}" ] || return 0
+
+    mkdir -p "${target_cmake_dir}"
+    cp -a "${source_cmake_dir}/." "${target_cmake_dir}/"
+}
+
+function runtime_native_source_dirs() {
+    local package_root=$1
+
+    printf '%s\n' \
+        "${package_root}/functionsystem/lib" \
+        "${package_root}/datasystem/sdk/cpp/lib" \
+        "${package_root}/datasystem/sdk/go/lib" \
+        "${package_root}/datasystem/service/lib" \
+        "${package_root}/runtime/service/python/yr/datasystem/lib"
+}
+
+function restore_runtime_native_dir() {
+    local package_root=$1
+    local target_dir=$2
+    local label=$3
+    local native_source_dirs=()
+    local source_dir
+
+    if [ ! -d "${target_dir}" ]; then
+        echo "Warning: skip ${label} native lib restore, lib dir not found: ${target_dir}" >&2
+        return
+    fi
+
+    while IFS= read -r source_dir; do
+        native_source_dirs+=("${source_dir}")
+    done < <(runtime_native_source_dirs "${package_root}")
+
+    for source_dir in "${native_source_dirs[@]}"; do
+        if [ "${source_dir}" = "${package_root}/functionsystem/lib" ]; then
+            copy_native_shared_libs_to_dir "${source_dir}" "${target_dir}" true
+        else
+            copy_native_shared_libs_to_dir "${source_dir}" "${target_dir}"
+        fi
+    done
+    copy_datasystem_cmake_files_to_native_dir \
+        "${package_root}/datasystem/sdk/cpp/lib" \
+        "${target_dir}"
+}
+
+function sha256_file() {
+    local file_path=$1
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${file_path}" | awk '{print $1}'
+    else
+        openssl dgst -sha256 "${file_path}" | awk '{print $2}'
+    fi
+}
+
+function restore_runtime_cpp_sdk_native_libs() {
+    local package_root=$1
+    local runtime_lib_dir="${package_root}/runtime/sdk/cpp/lib"
+    restore_runtime_native_dir "${package_root}" "${runtime_lib_dir}" "runtime C++ SDK"
+}
+
+function restore_runtime_java_service_native_libs() {
+    local package_root=$1
+    local java_lib_dir="${package_root}/runtime/service/java/lib"
+    restore_runtime_native_dir "${package_root}" "${java_lib_dir}" "runtime Java service"
+}
+
+function restore_runtime_service_native_libs() {
+    local package_root=$1
+
+    restore_runtime_native_dir \
+        "${package_root}" \
+        "${package_root}/runtime/service/cpp/lib" \
+        "runtime C++ service"
+    restore_runtime_native_dir \
+        "${package_root}" \
+        "${package_root}/runtime/service/go/bin" \
+        "runtime Go service"
+    restore_runtime_native_dir \
+        "${package_root}" \
+        "${package_root}/runtime/service/python/yr/datasystem/lib" \
+        "runtime Python datasystem SDK"
+}
+
+function refresh_java_sdk_so_properties() {
+    local native_dir=$1
+    local properties_file="${native_dir}/so.properties"
+    local native_file
+
+    : > "${properties_file}"
+    while IFS= read -r native_file; do
+        echo "$(basename "${native_file}")=$(sha256_file "${native_file}")" >> "${properties_file}"
+    done < <(find "${native_dir}" -maxdepth 1 -type f \( -name "lib*.so*" -o -name "lib*.dylib*" \) | sort)
+}
+
+function set_origin_runpath_for_native_dir() {
+    local native_dir=$1
+    local native_file
+
+    while IFS= read -r native_file; do
+        if command -v patchelf >/dev/null 2>&1; then
+            patchelf --set-rpath '$ORIGIN' "${native_file}" 2>/dev/null || true
+        elif command -v chrpath >/dev/null 2>&1; then
+            chrpath -r '$ORIGIN' "${native_file}" 2>/dev/null || true
+        fi
+    done < <(find "${native_dir}" -maxdepth 1 -type f \( -name "lib*.so*" -o -name "lib*.dylib*" \) | sort)
+}
+
+function java_native_loader_library_names() {
+    local load_util_path="${BASE_DIR:-}/../api/java/function-common/src/main/java/org/yuanrong/jni/LoadUtil.java"
+
+    [ -f "${load_util_path}" ] || return 1
+    awk '
+        /private static final String\[\]\[\] EXTRACT_ONLY_LIBS/ {capture=1}
+        /private static final String\[\]\[\] LOADING_SEQUENCE/ {capture=1}
+        capture {
+            line=$0
+            while (match(line, /"[^"]+"/)) {
+                print substr(line, RSTART + 1, RLENGTH - 2)
+                line=substr(line, RSTART + RLENGTH)
+            }
+        }
+        capture && /^[[:space:]]*};/ {capture=0}
+    ' "${load_util_path}" | awk '!seen[$0]++'
+}
+
+function copy_java_sdk_loader_libs_to_native_dir() {
+    local native_dir=$1
+    shift
+    local source_dirs=("$@")
+    local required_libs_file
+    local required_lib
+    local source_path
+    local source_dir
+
+    required_libs_file=$(mktemp)
+    if ! java_native_loader_library_names > "${required_libs_file}"; then
+        echo "Warning: Java native loader source not found, fallback to copying Java service native libs into SDK jar" >&2
+        for source_dir in "${source_dirs[@]}"; do
+            copy_native_shared_libs_to_dir "${source_dir}" "${native_dir}" false true
+        done
+        rm -f "${required_libs_file}"
+        return
+    fi
+
+    while IFS= read -r required_lib; do
+        [ -n "${required_lib}" ] || continue
+        source_path=$(find_native_dependency_path "${required_lib}" "${source_dirs[@]}") || {
+            if [[ "$(uname)" != "Darwin" && "${required_lib}" == *.dylib ]]; then
+                continue
+            fi
+            echo "Warning: skip Java SDK native lib ${required_lib}, source not found" >&2
+            continue
+        }
+        rm -f "${native_dir:?}/${required_lib}"
+        cp -L "${source_path}" "${native_dir}/${required_lib}"
+    done < "${required_libs_file}"
+    rm -f "${required_libs_file}"
+}
+
+function update_runtime_java_sdk_native_jar() {
+    local package_root=$1
+    local java_lib_dir="${package_root}/runtime/service/java/lib"
+    local jar_path
+    local temp_dir
+    local native_dir
+    local native_source_dirs=()
+    local source_dir
+
+    [ -d "${java_lib_dir}" ] || return 0
+    jar_path=$(resolve_first_match "${package_root}/runtime/sdk/java/yr-api-sdk-*.jar") || {
+        echo "Warning: skip runtime Java SDK native jar update, jar not found under ${package_root}/runtime/sdk/java" >&2
+        return
+    }
+
+    temp_dir=$(mktemp -d)
+    unzip -q "${jar_path}" -d "${temp_dir}"
+    native_dir=$(resolve_first_match "${temp_dir}/native/"*) || {
+        echo "Warning: skip runtime Java SDK native jar update, native dir not found in ${jar_path}" >&2
+        rm -rf "${temp_dir}"
+        return
+    }
+    if [ ! -d "${native_dir}" ]; then
+        echo "Warning: skip runtime Java SDK native jar update, native path is not a dir in ${jar_path}: ${native_dir}" >&2
+        rm -rf "${temp_dir}"
+        return
+    fi
+
+    while IFS= read -r source_dir; do
+        native_source_dirs+=("${source_dir}")
+    done < <(runtime_native_source_dirs "${package_root}")
+    native_source_dirs=("${java_lib_dir}" "${native_source_dirs[@]}")
+
+    find "${native_dir}" -maxdepth 1 \( -name "lib*.so*" -o -name "lib*.dylib*" \) -exec rm -f {} \;
+    rm -f "${native_dir}/so.properties"
+    copy_java_sdk_loader_libs_to_native_dir "${native_dir}" "${native_source_dirs[@]}"
+    set_origin_runpath_for_native_dir "${native_dir}"
+    refresh_java_sdk_so_properties "${native_dir}"
+
+    rm -f "${jar_path}"
+    (cd "${temp_dir}" && zip -rqy "${jar_path}" .)
+    rm -rf "${temp_dir}"
+}
+
 function ensure_package_openssl_linker_symlinks() {
     local package_root=$1
     local openssl_source_dirs=(
-        "${package_root}/runtime/sdk/cpp/lib"
-        "${package_root}/functionsystem/lib"
         "${package_root}/datasystem/sdk/cpp/lib"
         "${package_root}/datasystem/sdk/go/lib"
         "${package_root}/datasystem/service/lib"
         "${package_root}/runtime/service/python/yr/datasystem/lib"
+        "${package_root}/functionsystem/lib"
+        "${package_root}/runtime/sdk/cpp/lib"
     )
     local openssl_target_dirs=(
         "${package_root}/runtime/sdk/cpp/lib"
+        "${package_root}/runtime/service/java/lib"
         "${package_root}/datasystem/sdk/cpp/lib"
         "${package_root}/datasystem/sdk/go/lib"
         "${package_root}/runtime/service/python/yr/datasystem/lib"
@@ -306,7 +567,7 @@ function ensure_package_openssl_linker_symlinks() {
 
     for target_dir in "${openssl_target_dirs[@]}"; do
         [ -d "${target_dir}" ] || continue
-        ensure_openssl_linker_symlinks_from_sources "${target_dir}" "${openssl_source_dirs[@]}"
+        ensure_openssl_linker_symlinks_from_sources "${target_dir}" "${target_dir}" "${openssl_source_dirs[@]}"
     done
 }
 
@@ -418,7 +679,11 @@ copy_datasystem_sdk_python_stage_or_unzip_wheel \
     "${OUTPUT_DIR}/openyuanrong/datasystem/sdk/openyuanrong_datasystem_sdk*.whl" \
     "${OUTPUT_DIR}/openyuanrong/runtime/service/python/" \
     "Expand datasystem sdk python payload into runtime python service"
+restore_runtime_cpp_sdk_native_libs "${OUTPUT_DIR}/openyuanrong"
+restore_runtime_java_service_native_libs "${OUTPUT_DIR}/openyuanrong"
+restore_runtime_service_native_libs "${OUTPUT_DIR}/openyuanrong"
 ensure_package_openssl_linker_symlinks "${OUTPUT_DIR}/openyuanrong"
+update_runtime_java_sdk_native_jar "${OUTPUT_DIR}/openyuanrong"
 echo "[TIMER] Populate runtime python service datasystem sdk payload: $(($(date +%s)-baseTime_s)) seconds"
 
 mkdir -p "${OUTPUT_DIR}/openyuanrong/runtime/service/python"

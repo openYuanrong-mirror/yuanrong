@@ -77,6 +77,7 @@ assert calls == [], calls
 yr._preload_native_libraries()
 assert calls, "native preload should still be available when explicitly requested"
 assert all(mode == getattr(ctypes, "RTLD_GLOBAL", 0) for _, mode in calls)
+assert any(path.endswith("/yr/libcurl.so.4") for path, _ in calls), calls
 libcrypto_calls = [path for path, _ in calls if path.endswith("libcrypto.so.1.1")]
 system_crypto = next(path for path in libcrypto_calls if path == "/usr/lib64/libcrypto.so.1.1")
 assert system_crypto
@@ -228,6 +229,12 @@ print("ok")
             (service_python_yr_dir / "fnruntime.cpython-39-x86_64-linux-gnu.so").write_bytes(
                 b"other-native"
             )
+            for exporter in (
+                "libobservability-metrics-file-exporter.so",
+                "libobservability-prometheus-push-exporter.so",
+                "libobservability-prometheus-pull-exporter.so",
+            ):
+                (service_python_yr_dir / exporter).write_bytes(b"metrics")
 
             old_root_dir = setup_mod.ROOT_DIR
             setup_mod.ROOT_DIR = str(api_python_dir)
@@ -242,6 +249,101 @@ print("ok")
             self.assertFalse(
                 (build_lib / "yr" / "fnruntime.cpython-39-x86_64-linux-gnu.so").exists()
             )
+
+    def test_runtime_package_flattens_python_native_dependencies_to_top_level_yr(self):
+        setup_mod = load_setup_module("runtime")
+        ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            api_python_dir = root / "api" / "python"
+            runtime_dir = root / "output" / "openyuanrong" / "runtime"
+            service_bin_dir = runtime_dir / "service" / "go" / "bin"
+            service_python_yr_dir = runtime_dir / "service" / "python" / "yr"
+            datasystem_lib_dir = service_python_yr_dir / "datasystem" / "lib"
+            build_lib = root / "build_lib"
+
+            api_python_dir.mkdir(parents=True)
+            service_bin_dir.mkdir(parents=True)
+            datasystem_lib_dir.mkdir(parents=True)
+            (service_bin_dir / "goruntime").write_text("runtime")
+            (service_python_yr_dir / f"fnruntime{ext_suffix}").write_bytes(b"native")
+            (datasystem_lib_dir / "libcurl.so.4").write_bytes(b"curl")
+            (datasystem_lib_dir / "libssl.so.1.1").write_bytes(b"ssl")
+            (datasystem_lib_dir / "libdatasystem.so").write_bytes(b"datasystem")
+            (datasystem_lib_dir / "libyr-api.so.1").write_bytes(b"yr-api-versioned")
+            (datasystem_lib_dir / "libfunctionsdk.so.1.0.0").write_bytes(
+                b"functionsdk-versioned"
+            )
+            for exporter in (
+                "libobservability-metrics-file-exporter.so",
+                "libobservability-prometheus-push-exporter.so",
+                "libobservability-prometheus-pull-exporter.so",
+            ):
+                (service_python_yr_dir / exporter).write_bytes(b"metrics")
+
+            old_root_dir = setup_mod.ROOT_DIR
+            setup_mod.ROOT_DIR = str(api_python_dir)
+            try:
+                setup_mod.copy_openyuanrong_runtime(str(build_lib))
+            finally:
+                setup_mod.ROOT_DIR = old_root_dir
+
+            self.assertEqual((build_lib / "yr" / "libcurl.so.4").read_bytes(), b"curl")
+            self.assertEqual((build_lib / "yr" / "libssl.so.1.1").read_bytes(), b"ssl")
+            self.assertEqual((build_lib / "yr" / "libdatasystem.so").read_bytes(), b"datasystem")
+            self.assertFalse((build_lib / "yr" / "libyr-api.so.1").exists())
+            self.assertFalse((build_lib / "yr" / "libfunctionsdk.so.1.0.0").exists())
+            self.assertFalse((build_lib / "yr" / "datasystem" / "lib" / "libcurl.so.4").exists())
+
+    def test_sdk_package_flattens_native_dependencies_to_top_level_yr(self):
+        setup_mod = load_setup_module("sdk")
+        ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            api_python_dir = root / "api" / "python"
+            source_yr_dir = api_python_dir / "yr"
+            cpp_sdk_lib_dir = root / "build" / "output" / "runtime" / "sdk" / "cpp" / "lib"
+            output_python_ds_lib_dir = (
+                root
+                / "output"
+                / "openyuanrong"
+                / "runtime"
+                / "service"
+                / "python"
+                / "yr"
+                / "datasystem"
+                / "lib"
+            )
+            build_lib = root / "build_lib"
+
+            source_yr_dir.mkdir(parents=True)
+            cpp_sdk_lib_dir.mkdir(parents=True)
+            output_python_ds_lib_dir.mkdir(parents=True)
+            (source_yr_dir / f"fnruntime{ext_suffix}").write_bytes(b"native")
+            (cpp_sdk_lib_dir / "libcurl.so.4").write_bytes(b"curl")
+            (cpp_sdk_lib_dir / "libyr-api.so").write_bytes(b"yr-api")
+            (cpp_sdk_lib_dir / "libyr-api.so.1").write_bytes(b"yr-api-versioned")
+            (output_python_ds_lib_dir / "libdatasystem.so").write_bytes(b"datasystem")
+            (output_python_ds_lib_dir / "libcrypto.so.1.1").write_bytes(b"crypto")
+            (output_python_ds_lib_dir / "libfunctionsdk.so.1.0.0").write_bytes(
+                b"functionsdk-versioned"
+            )
+
+            old_root_dir = setup_mod.ROOT_DIR
+            setup_mod.ROOT_DIR = str(api_python_dir)
+            try:
+                setup_mod.copy_openyuanrong_sdk(str(build_lib))
+            finally:
+                setup_mod.ROOT_DIR = old_root_dir
+
+            self.assertEqual((build_lib / "yr" / f"fnruntime{ext_suffix}").read_bytes(), b"native")
+            self.assertEqual((build_lib / "yr" / "libcurl.so.4").read_bytes(), b"curl")
+            self.assertEqual((build_lib / "yr" / "libdatasystem.so").read_bytes(), b"datasystem")
+            self.assertEqual((build_lib / "yr" / "libcrypto.so.1.1").read_bytes(), b"crypto")
+            self.assertFalse((build_lib / "yr" / "libyr-api.so").exists())
+            self.assertFalse((build_lib / "yr" / "libyr-api.so.1").exists())
+            self.assertFalse((build_lib / "yr" / "libfunctionsdk.so.1.0.0").exists())
+            self.assertTrue((build_lib / "yr" / "cpp" / "lib" / "libyr-api.so").exists())
 
 
 if __name__ == "__main__":

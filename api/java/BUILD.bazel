@@ -350,8 +350,10 @@ genrule(
         "libtbb.so.2"
         "libtbb.2.dylib"
         "libds-spdlog.so.1.12.0"
+        "libds-spdlog.so.1.12"
         "libds-spdlog.1.12.0.dylib"
         "libzmq.so.5.2.5"
+        "libzmq.so.5"
         "libzmq.5.2.5.dylib"
         "libsecurec.so"
         "libsecurec.dylib"
@@ -361,7 +363,10 @@ genrule(
         "libcrypto.so.1.1"
         "libcrypto.so.3"
         "libcrypto.dylib"
+        "libcurl.so.4.8.0"
+        "libcurl.so.4"
         "libaddress_sorting.so.42.0.0"
+        "libaddress_sorting.so.42"
         "libaddress_sorting.42.0.0.dylib"
         "libabseil_dll.so.2407.0.0"
         "libprotobuf.so.25.5.0"
@@ -369,15 +374,25 @@ genrule(
         "librpc_option_protos.so"
         "libcommon_flags.so"
         "libupb_json_lib.so.42.0.0"
+        "libupb_json_lib.so.42"
         "libupb_textformat_lib.so.42.0.0"
+        "libupb_textformat_lib.so.42"
         "libutf8_range_lib.so.42.0.0"
+        "libutf8_range_lib.so.42"
         "libupb_message_lib.so.42.0.0"
+        "libupb_message_lib.so.42"
         "libupb_base_lib.so.42.0.0"
+        "libupb_base_lib.so.42"
         "libupb_mem_lib.so.42.0.0"
+        "libupb_mem_lib.so.42"
         "libgpr.so.42.0.0"
+        "libgpr.so.42"
         "libgrpc.so.42.0.0"
+        "libgrpc.so.42"
         "libgrpc++.so.1.65.4"
+        "libgrpc++.so.1.65"
         "libgflags.so.2.2.2"
+        "libgflags.so.2.2"
         "libbrpc.so"
         "libetcdapi_proto.so"
         "libdatasystem.so"
@@ -402,12 +417,18 @@ genrule(
             echo "$$f already existed."
             continue
         fi
-        if [[ -L $$f || ! "$${LIB_REQUIRED[@]}" =~ "$$filename" ]];then
+        if [[ ! "$${LIB_REQUIRED[@]}" =~ "$$filename" ]];then
             continue
         fi
-        cp -a $$f $$NATIVE_DIR
+        cp -L $$f $$NATIVE_DIR
+        copied_file="$$NATIVE_DIR/$$filename"
+        if command -v patchelf >/dev/null 2>&1; then
+            patchelf --set-rpath '$$ORIGIN' "$$copied_file" 2>/dev/null || true
+        elif command -v chrpath >/dev/null 2>&1; then
+            chrpath -r '$$ORIGIN' "$$copied_file" 2>/dev/null || true
+        fi
         echo $$f $$filename
-        sha256value=$$(openssl dgst -sha256 $$f | awk '{print $$2}')
+        sha256value=$$(openssl dgst -sha256 "$$copied_file" | awk '{print $$2}')
         echo "$$filename=$$sha256value" >> $$NATIVE_DIR/so.properties
     done
 
