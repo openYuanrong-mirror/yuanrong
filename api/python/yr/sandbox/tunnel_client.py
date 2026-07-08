@@ -19,12 +19,14 @@ forwards them to the local upstream service, and sends response frames back.
 """
 import asyncio
 import base64
+import dataclasses
 import logging
 import os
 import random
 import ssl
 import threading
 import time
+import urllib.parse
 from typing import Optional
 
 import httpx
@@ -45,6 +47,10 @@ _PENDING_RESPONSE_TTL = 120.0  # seconds
 _CONNECT_FAILURE_WARNING_THRESHOLD = 5
 
 
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
 def _ssl_verify_enabled() -> bool:
     """Check whether SSL verification is enabled (default: True).
 
@@ -59,6 +65,46 @@ def _http_timeout() -> float:
         return float(os.environ.get("YR_TUNNEL_HTTP_TIMEOUT", "600"))
     except ValueError:
         return 600.0
+
+
+def _patch_websockets_proxy_auth_unquote() -> None:
+    """Decode URL-escaped proxy credentials before websockets builds Basic auth.
+
+    websockets 15.x parses proxy.username / proxy.password from the URL but
+    doesn't unquote them before building the Proxy-Authorization header. That
+    breaks enterprise proxies when a password contains escaped characters such
+    as %40 for '@'.
+    """
+    try:
+        import websockets.asyncio.client as ws_client
+    except (AttributeError, ImportError):
+        return
+
+    prepare_connect_request = getattr(ws_client, "prepare_connect_request", None)
+    if prepare_connect_request is None:
+        return
+    if getattr(prepare_connect_request, "_yr_proxy_auth_unquote", False):
+        return
+
+    def prepare_connect_request_unquote(proxy, ws_uri, user_agent_header=None):
+        if proxy.username is not None or proxy.password is not None:
+            proxy = dataclasses.replace(
+                proxy,
+                username=(
+                    urllib.parse.unquote(proxy.username)
+                    if proxy.username is not None
+                    else None
+                ),
+                password=(
+                    urllib.parse.unquote(proxy.password)
+                    if proxy.password is not None
+                    else None
+                ),
+            )
+        return prepare_connect_request(proxy, ws_uri, user_agent_header)
+
+    prepare_connect_request_unquote._yr_proxy_auth_unquote = True
+    ws_client.prepare_connect_request = prepare_connect_request_unquote
 
 
 class TunnelClient:
@@ -154,14 +200,8 @@ class TunnelClient:
         attempt = 0
         while not self._stop_event.is_set():
             try:
-                ssl_ctx = self._make_ssl_context()
-                async with websockets.connect(
-                    self._tunnel_url,
-                    ssl=ssl_ctx,
-                    ping_interval=None,
-                    ping_timeout=None,
-                    max_size=MAX_TUNNEL_FRAME_SIZE,
-                ) as ws:
+                ws_kwargs = self._build_ws_kwargs()
+                async with websockets.connect(self._tunnel_url, **ws_kwargs) as ws:
                     logger.info("Connected to tunnel: %s", self._tunnel_url)
                     self._connected_event.set()  # Signal connected
                     attempt = 0  # reset on successful connect
@@ -230,6 +270,24 @@ class TunnelClient:
             )
             return ctx
         return None
+
+    def _build_ws_kwargs(self) -> dict:
+        ws_kwargs = {
+            "ping_interval": None,
+            "ping_timeout": None,
+            "max_size": MAX_TUNNEL_FRAME_SIZE,
+        }
+        ssl_ctx = self._make_ssl_context()
+        if ssl_ctx is not None:
+            ws_kwargs["ssl"] = ssl_ctx
+        # Same switch as yr.init; websockets>=15 auto-detects proxy env vars
+        # unless proxy is set to None explicitly.
+        if _env_truthy("YR_ENABLE_HTTP_PROXY"):
+            _patch_websockets_proxy_auth_unquote()
+            ws_kwargs["proxy"] = True
+        else:
+            ws_kwargs["proxy"] = None
+        return ws_kwargs
 
     async def _recv_loop(self, ws, http: httpx.AsyncClient) -> None:
         """Orchestrate recv and heartbeat tasks. First to exit triggers cancel of the other."""
