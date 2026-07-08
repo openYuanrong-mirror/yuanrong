@@ -59,3 +59,9 @@ public class Demo {
 :::::
 
 When invoking a function service, you need to add the `Accept: text/event-stream` field to the request header.
+
+:::{Note}
+
+Streaming response requires deploying openYuanrong with function service support and configuring `frontend.args.enableEvent=true`.
+
+:::

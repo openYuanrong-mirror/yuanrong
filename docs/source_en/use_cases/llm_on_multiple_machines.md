@@ -113,7 +113,7 @@ The following operations are all performed in the container.
 
    ```bash
    # Replace MASTER_IP with your current host IP, choose any idle port to configure etcd port and peer_port
-   yr start --master -v \
+   yr -v start --master \
      -s 'values.etcd.address=[{ip="'${MASTER_IP}'",port=22440,peer_port=22441}]' \
      -s 'function_agent.args.runtime_direct_connection_enable=true' \
      -s 'function_agent.args.enable_separated_redirect_runtime_std=true'
@@ -123,7 +123,7 @@ The following operations are all performed in the container.
 
    ```bash
    # Replace MASTER_IP with master node IP, FUNCTION_MASTER_PORT with the function_master port in the master node startup output
-   yr start -v \
+   yr -v start \
      --master_address http://${MASTER_IP}:${FUNCTION_MASTER_PORT} \
      -s 'function_agent.args.runtime_direct_connection_enable=true' \
      -s 'function_agent.args.enable_separated_redirect_runtime_std=true'
