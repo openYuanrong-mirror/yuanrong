@@ -637,6 +637,38 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        set gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        increase gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        decrease gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        get value of gauge metrics
+        :param data: GaugeData
+        :return: value
+        """
+
+    @abstractmethod
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metrics

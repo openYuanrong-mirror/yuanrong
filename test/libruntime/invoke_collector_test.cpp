@@ -110,6 +110,13 @@ class InvokeCollectorTest : public testing::Test {
 public:
     void SetUp() override
     {
+        const char *enableMetrics = getenv("ENABLE_METRICS");
+        hadEnableMetrics_ = enableMetrics != nullptr;
+        if (hadEnableMetrics_) {
+            originalEnableMetrics_ = enableMetrics;
+        }
+        originalConfig_ = Config::c;
+
         setenv("ENABLE_METRICS", "true", 1);
         Config::c = Config();
         Mkdir("/tmp/log");
@@ -131,9 +138,18 @@ public:
 
     void TearDown() override
     {
-        unsetenv("ENABLE_METRICS");
-        Config::c = Config();
+        if (hadEnableMetrics_) {
+            setenv("ENABLE_METRICS", originalEnableMetrics_.c_str(), 1);
+        } else {
+            unsetenv("ENABLE_METRICS");
+        }
+        Config::c = originalConfig_;
     }
+
+private:
+    bool hadEnableMetrics_ = false;
+    std::string originalEnableMetrics_;
+    Config originalConfig_;
 };
 
 TEST_F(InvokeCollectorTest, DefaultMetricsReportTest)
@@ -157,6 +173,37 @@ TEST_F(InvokeCollectorTest, DefaultMetricsReportTest)
     auto counterValue = metricsAdaptor->GetValueUInt64Counter(counter);
     ASSERT_TRUE(counterValue.first.OK());
     ASSERT_EQ(counterValue.second, 1);
+}
+
+TEST_F(InvokeCollectorTest, DefaultMetricsRequireGlobalAndInstanceConfig)
+{
+    auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
+    InvokeCollector collector(metricsAdaptor);
+    auto metaData = BuildInvokeMetaData();
+    auto config = BuildInvokeConfig();
+
+    unsetenv("ENABLE_METRICS");
+    Config::c = Config();
+    collector.BeforeInvoke(metaData, config);
+    collector.AfterInvoke(metaData, config);
+
+    GaugeData gauge;
+    gauge.name = "yr_custom_concurrent_num";
+    auto gaugeValue = metricsAdaptor->GetValueGauge(gauge);
+    ASSERT_TRUE(gaugeValue.first.OK());
+    ASSERT_EQ(gaugeValue.second, 0);
+
+    setenv("ENABLE_METRICS", "true", 1);
+    Config::c = Config();
+    config.enableMetrics = false;
+    collector.BeforeInvoke(metaData, config);
+    collector.AfterInvoke(metaData, config);
+
+    UInt64CounterData counter;
+    counter.name = "yr_custom_invoke_num";
+    auto counterValue = metricsAdaptor->GetValueUInt64Counter(counter);
+    ASSERT_TRUE(counterValue.first.OK());
+    ASSERT_EQ(counterValue.second, 0);
 }
 
 TEST_F(InvokeCollectorTest, BusinessOverrideStopsDefaultMetricsTest)
