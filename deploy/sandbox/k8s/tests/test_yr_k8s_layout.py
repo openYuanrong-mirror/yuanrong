@@ -1,3 +1,18 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
 import pathlib
 import re
 import stat
@@ -9,7 +24,9 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HELM_BIN = pathlib.Path("/home/wyc/.local/bin/helm")
+HELM_BIN = pathlib.Path(os.environ.get("HELM_BIN", "/home/wyc/.local/bin/helm"))
+PYTHON_BIN = pathlib.Path(os.environ.get("PYTHON_BIN", "/usr/bin/python3"))
+BASH_BIN = pathlib.Path(os.environ.get("BASH_BIN", "/bin/bash"))
 RELEASE = "yr-k8s"
 NAMESPACE = "yr-k8s"
 
@@ -171,6 +188,7 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "charts/yr-k8s/Chart.yaml",
                 "charts/yr-k8s/values.yaml",
                 "k8s/values.local.yaml",
+                "k8s/values.buildkite-smoke.yaml",
                 "k8s/values.prod.yaml",
                 *ACTIVE_SCRIPTS,
                 *ACTIVE_TEMPLATES,
@@ -524,6 +542,78 @@ class YrK8sLayoutTests(unittest.TestCase):
         override_frontend_container = find_container(override_frontend, "frontend")
         self.assertEqual(find_env(override_frontend_container, "IAM_SERVER_ADDRESS"), "iam.example.com:31112")
 
+    def test_buildkite_smoke_overlay_uses_cluster_ip_services(self):
+        overlay = ROOT / "k8s/values.buildkite-smoke.yaml"
+        self.assertTrue(overlay.is_file())
+        overlay_values = load_yaml_file(overlay)
+        self.assertTrue(overlay_values["frontend"]["enableEvent"])
+
+        for component in ["traefik", "frontend"]:
+            with self.subTest(component=component):
+                service = overlay_values[component]["service"]
+                self.assertEqual(service["type"], "ClusterIP")
+                self.assertIsNone(service["annotations"])
+
+        manifests = render_chart("-f", str(ROOT / "k8s/values.local.yaml"), "-f", str(overlay))
+        for service_name in ["yr-traefik", "yr-frontend"]:
+            with self.subTest(service=service_name):
+                service = find_manifest(manifests, "Service", service_name)
+                self.assertEqual(service["spec"]["type"], "ClusterIP")
+                self.assertNotIn("annotations", service["metadata"])
+
+    def test_deploy_migrates_legacy_load_balancer_services(self):
+        deploy_script = (ROOT / "deploy.sh").read_text()
+
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_services", deploy_script)
+        self.assertIn('app.kubernetes.io/component="${component}"', deploy_script)
+        self.assertIn("delete_legacy_load_balancer_service traefik Traefik", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_service frontend Frontend", deploy_script)
+        self.assertIn("jsonpath={.spec.type}", deploy_script)
+        self.assertIn("Deleting legacy %s LoadBalancer service", deploy_script)
+        self.assertIn("delete_legacy_load_balancer_services", deploy_script.split("create_or_update_pull_secret", 1)[1])
+
+    def test_buildkite_smoke_uses_port_forward(self):
+        deploy_script = (ROOT.parents[2] / ".buildkite/test_sandbox_k8s.sh").read_text()
+
+        self.assertIn("values.buildkite-smoke.yaml", deploy_script)
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script)
+        self.assertIn("start_traefik_port_forward", deploy_script)
+        port_forward_cmd = '"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward'
+        self.assertIn(port_forward_cmd, deploy_script)
+        self.assertIn("TRAEFIK_WEB_ADDRESS", deploy_script)
+        self.assertIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
+        self.assertIn('TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"', deploy_script)
+        self.assertIn('probe_sandbox_ready "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_idle_timeout_e2e "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_rrt_direct_e2e "${smoke_server_address}" "${router_address}"', deploy_script)
+        self.assertNotIn('$(wait_for_traefik_address', deploy_script.split("bash deploy/sandbox/k8s/deploy.sh", 1)[1])
+        token_command = re.search(r'yr_token="\$\("\$\{py\}" -c \'([^\']+)\'\)"', deploy_script)
+        self.assertIsNotNone(token_command)
+        token = subprocess.check_output([str(PYTHON_BIN), "-c", token_command.group(1)], text=True).strip()
+        self.assertEqual(3, len(token.split(".")))
+
+    def test_buildkite_can_emit_k8s_test_only_pipeline(self):
+        env = dict(os.environ)
+        env["ENABLE_SANDBOX_K8S_TEST_ONLY"] = "true"
+        result = subprocess.run(
+            [str(BASH_BIN), ".buildkite/pipeline.dynamic.yml"],
+            cwd=ROOT.parents[2],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        pipeline = result.stdout
+
+        self.assertIn('key: "test-k8s"', pipeline)
+        self.assertIn("test_sandbox_k8s.sh", pipeline)
+        self.assertNotIn("Build X86", pipeline)
+        self.assertNotIn("Build Image", pipeline)
+        self.assertNotIn("publish-sandbox-release", pipeline)
+        self.assertNotIn('depends_on:', pipeline)
+
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
         bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
         pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()
@@ -577,6 +667,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("rollout restart", deploy_script_k8s)
         self.assertRegex(
             deploy_script_k8s,
+            r"delete_legacy_load_balancer_services\s+helm_deploy\s+patch_workloads_with_pull_secret\s+"
             r"wait_for_rollout\s+restart_frontend_after_master_ready\s+prepull_runtime_image",
         )
         self.assertIn("prepull_runtime_image", deploy_script_k8s)

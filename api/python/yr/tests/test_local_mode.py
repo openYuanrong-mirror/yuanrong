@@ -28,6 +28,10 @@ from yr.local_mode.local_object_store import LocalObjectStore
 from yr.runtime import SetParam
 
 
+# Keep this test on the codeID path that local mode currently exercises.
+LOCAL_MODE_CODEID_PADDING = "x" * 102401
+
+
 class Mock(object):
     pass
 
@@ -38,7 +42,7 @@ class TestApi(TestCase):
 
     def test_local_mode_base(self):
         @yr.invoke
-        def func(x):
+        def func(x, _padding=LOCAL_MODE_CODEID_PADDING):
             return x
 
         yr.init(yr.Config(local_mode=True, log_level="DEBUG"))
@@ -47,6 +51,7 @@ class TestApi(TestCase):
 
         @yr.instance
         class Counter:
+            _padding = LOCAL_MODE_CODEID_PADDING
             cnt = 0
 
             def add(self):

@@ -118,6 +118,32 @@ void freeCErrorIds(CErrorObject **errorIds, int size_errorIds)
     free(errorIds);
 }
 
+CInvokeOptions MakeTestInvokeOptions(CCustomResource *res, CCustomExtension *extension, CCreateOpt *opt,
+                                     char **fake, CAffinity *affinity, char *schedulerId, char *traceId)
+{
+    CInvokeOptions option{};
+    option.cpu = 500;
+    option.memory = 500;
+    option.customResources = res;
+    option.size_customResources = 1;
+    option.customExtensions = extension;
+    option.size_customExtensions = 1;
+    option.createOpt = opt;
+    option.size_createOpt = 1;
+    option.labels = fake;
+    option.size_labels = 2;
+    option.schedAffinities = affinity;
+    option.size_schedAffinities = 0;
+    option.codePaths = fake;
+    option.size_codePaths = 2;
+    option.schedulerFunctionId = schedulerId;
+    option.schedulerInstanceIds = fake;
+    option.size_schedulerInstanceIds = 2;
+    option.traceId = traceId;
+    option.timeout = 1;
+    return option;
+}
+
 class CLibruntimeTest : public testing::Test {
 public:
     CLibruntimeTest() {};
@@ -573,27 +599,8 @@ TEST_F(CLibruntimeTest, CCreateInstanceTest)
     CCreateOpt opt{GetStr("key"), GetStr("value")};
     CLabelOperator labelOperator{CLabelOpType::EXISTS, GetStr("label_key"), fake, 2};
     CAffinity affinity{CAffinityKind::INSTANCE, CAffinityType::PREFERRED, '1', '1', &labelOperator, 1};
-    CInvokeOptions option{500,
-                          500,
-                          &res,
-                          1,
-                          &extension,
-                          1,
-                          &opt,
-                          1,
-                          fake,
-                          2,
-                          &affinity,
-                          0,
-                          0,
-                          1,
-                          fake,
-                          2,
-                          GetStr("scheduler_id"),
-                          fake,
-                          2,
-                          GetStr("trace_id"),
-                          1};
+    CInvokeOptions option =
+        MakeTestInvokeOptions(&res, &extension, &opt, fake, &affinity, GetStr("scheduler_id"), GetStr("trace_id"));
     char *instanceId;
     int invokeArgsSize = 1;
     auto cErr = CCreateInstance(&meta, &arg, invokeArgsSize, &option, &instanceId);
@@ -628,27 +635,8 @@ TEST_F(CLibruntimeTest, CInvokeByInstanceIdTest)
     CCreateOpt opt{GetStr("key"), GetStr("value")};
     CLabelOperator labelOperator{CLabelOpType::EXISTS, GetStr("label_key"), fake, 2};
     CAffinity affinity{CAffinityKind::INSTANCE, CAffinityType::PREFERRED, '1', '1', &labelOperator, 1};
-    CInvokeOptions option{500,
-                          500,
-                          &res,
-                          1,
-                          &extension,
-                          1,
-                          &opt,
-                          1,
-                          fake,
-                          2,
-                          &affinity,
-                          0,
-                          0,
-                          1,
-                          fake,
-                          2,
-                          GetStr("scheduler_id"),
-                          fake,
-                          2,
-                          GetStr("trace_id"),
-                          1};
+    CInvokeOptions option =
+        MakeTestInvokeOptions(&res, &extension, &opt, fake, &affinity, GetStr("scheduler_id"), GetStr("trace_id"));
     char *returnObjId;
     auto cErr = CInvokeByInstanceId(&meta, GetStr("instance_id"), &arg, 1, &option, &returnObjId);
     ASSERT_EQ(0, cErr.code);
@@ -682,27 +670,8 @@ TEST_F(CLibruntimeTest, CInvokeByFunctionNameTest)
     CCreateOpt opt{GetStr("key"), GetStr("value")};
     CLabelOperator labelOperator{CLabelOpType::EXISTS, GetStr("label_key"), fake, 2};
     CAffinity affinity{CAffinityKind::INSTANCE, CAffinityType::PREFERRED, '1', '1', &labelOperator, 1};
-    CInvokeOptions option{500,
-                          500,
-                          &res,
-                          1,
-                          &extension,
-                          1,
-                          &opt,
-                          1,
-                          fake,
-                          2,
-                          &affinity,
-                          0,
-                          0,
-                          1,
-                          fake,
-                          2,
-                          GetStr("scheduler_id"),
-                          fake,
-                          2,
-                          GetStr("trace_id"),
-                          1};
+    CInvokeOptions option =
+        MakeTestInvokeOptions(&res, &extension, &opt, fake, &affinity, GetStr("scheduler_id"), GetStr("trace_id"));
     char *returnObjId;
     auto cErr = CInvokeByFunctionName(&meta, &arg, 1, &option, &returnObjId);
     ASSERT_EQ(0, cErr.code);
@@ -1021,8 +990,7 @@ TEST_F(CLibruntimeTest, CAcquireInstanceTest)
     CAffinity affinity{CAffinityKind::INSTANCE, CAffinityType::PREFERRED, '1', '1', &labelOperator, 1};
     char *schdulerId = GetStr("scheduler_id");
     char *traceId = GetStr("trace_id");
-    CInvokeOptions option{500, 500, &res, 1,    &extension, 1,          &opt, 1, fake,    2, &affinity,
-                          0,   0,   1,    fake, 2,          schdulerId, fake, 2, traceId, 1};
+    CInvokeOptions option = MakeTestInvokeOptions(&res, &extension, &opt, fake, &affinity, schdulerId, traceId);
     std::cout << option.customExtensions[0].value << std::endl;
     CInstanceAllocation cInsAlloc;
     auto cErr = CAcquireInstance(stateId, &meta, &option, &cInsAlloc);

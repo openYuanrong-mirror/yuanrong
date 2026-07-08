@@ -19,6 +19,12 @@ NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
 TRAEFIK_SERVICE="${YR_K8S_TRAEFIK_SERVICE:-yr-traefik}"
 SMOKE_LOG_DIR="${ROOT_DIR}/artifacts/sandbox-smoke"
 TOOL_DIR="${ROOT_DIR}/.buildkite/tools/bin"
+TRAEFIK_PORT_FORWARD_ADDRESS="${YR_K8S_TRAEFIK_PORT_FORWARD_ADDRESS:-127.0.0.1}"
+TRAEFIK_WEB_PORT="${YR_K8S_TRAEFIK_WEB_PORT:-8888}"
+TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"
+TRAEFIK_WEB_ADDRESS="${YR_K8S_TRAEFIK_WEB_ADDRESS:-${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_WEB_PORT}}"
+TRAEFIK_ROUTER_ADDRESS="${YR_K8S_TRAEFIK_ROUTER_ADDRESS:-${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_ROUTER_PORT}}"
+PORT_FORWARD_PID=""
 
 host_arch() {
 	case "$(uname -m)" in
@@ -248,6 +254,66 @@ if host and port:
 	exit 1
 }
 
+cleanup_port_forward() {
+	if [ -n "${PORT_FORWARD_PID}" ] && kill -0 "${PORT_FORWARD_PID}" >/dev/null 2>&1; then
+		kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
+		wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
+	fi
+}
+
+wait_for_local_port() {
+	local host="$1"
+	local port="$2"
+	local timeout="${3:-60}"
+	python3 - "${host}" "${port}" "${timeout}" <<'PY'
+import socket
+import sys
+import time
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+deadline = time.time() + int(sys.argv[3])
+last_error = None
+while time.time() <= deadline:
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            sys.exit(0)
+    except OSError as exc:
+        last_error = exc
+        time.sleep(1)
+print(f"Timed out waiting for {host}:{port}: {last_error}", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
+start_traefik_port_forward() {
+	local log_file="${SMOKE_LOG_DIR}/traefik-port-forward.log"
+	mkdir -p "${SMOKE_LOG_DIR}"
+
+	printf 'Starting port-forward %s/%s --address %s %s:%s %s:%s\n' \
+		"${NAMESPACE}" "${TRAEFIK_SERVICE}" "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
+		"${TRAEFIK_ROUTER_PORT}" "${TRAEFIK_ROUTER_PORT}" \
+		"${TRAEFIK_WEB_PORT}" "${TRAEFIK_WEB_PORT}" >&2
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward \
+		--address "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
+		"svc/${TRAEFIK_SERVICE}" \
+		"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_ROUTER_PORT}" \
+		"${TRAEFIK_WEB_PORT}:${TRAEFIK_WEB_PORT}" \
+		>"${log_file}" 2>&1 &
+	PORT_FORWARD_PID="$!"
+
+	if ! wait_for_local_port "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${TRAEFIK_ROUTER_PORT}" \
+		"${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
+		tail -n 120 "${log_file}" >&2 || true
+		return 1
+	fi
+	if ! wait_for_local_port "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${TRAEFIK_WEB_PORT}" \
+		"${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
+		tail -n 120 "${log_file}" >&2 || true
+		return 1
+	fi
+}
+
 
 dump_k8s_diagnostics() {
 	local reason="${1:-unknown}"
@@ -468,22 +534,7 @@ run_rrt_direct_e2e() {
 	# token) still takes precedence.
 	local yr_token="${YR_TOKEN:-}"
 	if [ -z "${yr_token}" ]; then
-		yr_token="$(
-			"${py}" - <<'PY'
-import base64, json
-def b64(d):
-    return base64.urlsafe_b64encode(
-        json.dumps(d, separators=(",", ":")).encode()
-    ).rstrip(b"=").decode()
-hdr = b64({"alg": "none", "typ": "JWT"})
-# sub MUST equal the sandbox's owning tenant: the router authorizes control-port
-# access by comparing the JWT sub against the tenant stamped on the /sn/instance
-# key (route.authorize). The SDK sends no tenant on create, so the sandbox lands
-# under the platform default tenant "default" -- match it here or authorize 403s.
-pld = b64({"sub": "default", "role": "user", "exp": 4102444800})
-print(f"{hdr}.{pld}.sig")
-PY
-		)"
+		yr_token="$("${py}" -c 'import base64,json; b=lambda d: base64.urlsafe_b64encode(json.dumps(d,separators=(",",":")).encode()).rstrip(b"=").decode(); print("{}.{}.sig".format(b({"alg":"none","typ":"JWT"}), b({"sub":"default","role":"user","exp":4102444800})))')"
 	fi
 	printf 'Running sandbox-sdk -> rrt direct e2e (frontend=%s path=/direct)\n' "${frontend_addr}" >&2
 	YR_SERVER_ADDRESS="${frontend_addr}" \
@@ -534,6 +585,8 @@ PY
 }
 
 main() {
+	local smoke_server_address
+	local router_address
 	ensure_kubectl
 	ensure_helm
 	export PATH="${TOOL_DIR}:${PATH}"
@@ -575,10 +628,19 @@ main() {
 	# matrix is validated by dedicated Buildkite steps; pre-pulling every runtime
 	# image on every test node can exhaust the CI pod before tests start.
 	export YR_K8S_PREPULL_RUNTIME_SUFFIXES="${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp311}"
+	export YR_K8S_EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.buildkite-smoke.yaml}"
+	trap cleanup_port_forward EXIT
 
 	bash deploy/sandbox/k8s/deploy.sh
 	trap 'dump_k8s_diagnostics "error"' ERR
 	trap on_k8s_test_term TERM INT
+	smoke_server_address="${YR_K8S_SMOKE_SERVER_ADDRESS:-}"
+	router_address="${YR_K8S_ROUTER_ADDRESS:-}"
+	if [ -z "${smoke_server_address}" ] || [ -z "${router_address}" ]; then
+		start_traefik_port_forward
+		smoke_server_address="${smoke_server_address:-${TRAEFIK_WEB_ADDRESS}}"
+		router_address="${router_address:-${TRAEFIK_ROUTER_ADDRESS}}"
+	fi
 
 	# Smoke-probe: actually create a sandbox to verify the cluster has capacity.
 	# deploy.sh only waits for the control-plane workloads (frontend/etcd/master)
@@ -587,7 +649,7 @@ main() {
 	# churn when the cluster is simply full. If the probe fails, surface the
 	# exact error and exit immediately (no test = skip, not failure — infra issue).
 	probe_sandbox_ready() {
-		local frontend="${1:-$(wait_for_traefik_address web)}"
+		local frontend="$1"
 		local resp
 		local sid
 		resp="$(curl -sS --connect-timeout 10 --max-time 60 \
@@ -598,36 +660,7 @@ main() {
 			printf 'Infrastructure issue — skipping smoke + examples.\n' >&2
 			return 1
 		}
-		sid="$(printf '%s' "${resp}" | python3 -c '
-import base64
-import json
-import sys
-
-
-def decode_data(value):
-    if isinstance(value, dict):
-        return value
-    if not isinstance(value, str) or not value:
-        return {}
-    padded = value + "=" * (-len(value) % 4)
-    for decoder in (base64.urlsafe_b64decode, base64.b64decode):
-        try:
-            decoded = decoder(padded).decode()
-            obj = json.loads(decoded)
-            if isinstance(obj, dict):
-                return obj
-        except Exception:
-            pass
-    return {}
-
-obj = json.load(sys.stdin)
-data = decode_data(obj.get("data"))
-for key in ("id", "sandboxId", "sandbox_id", "instanceId", "instance_id"):
-    value = obj.get(key) or data.get(key)
-    if value:
-        print(value)
-        break
-' 2>/dev/null)" || true
+		sid="$(printf '%s' "${resp}" | extract_sandbox_id 2>/dev/null)" || true
 		if [ -z "${sid}" ]; then
 			printf 'Cluster sandbox probe: CREATE returned no sandbox ID.\n' >&2
 			printf 'Response body: %s\n' "${resp}" >&2
@@ -639,7 +672,7 @@ for key in ("id", "sandboxId", "sandbox_id", "instanceId", "instance_id"):
 			-X DELETE "http://${frontend}/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
 		return 0
 	}
-	if ! probe_sandbox_ready; then
+	if ! probe_sandbox_ready "${smoke_server_address}"; then
 		if command -v buildkite-agent >/dev/null 2>&1; then
 			buildkite-agent annotate --style "warning" --context "sandbox-k8s-no-capacity" \
 				"Cluster sandbox probe failed — the node likely has no available Docker slots. No tests were run. This is an infrastructure capacity issue, not a code regression."
@@ -649,17 +682,15 @@ for key in ("id", "sandboxId", "sandbox_id", "instanceId", "instance_id"):
 	fi
 
 	if [[ "${YR_K8S_RUN_IDLE_TIMEOUT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-		run_idle_timeout_e2e "${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address web)}"
+		run_idle_timeout_e2e "${smoke_server_address}"
 	fi
 
 	if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-		run_smoke "${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address)}"
+		run_smoke "${smoke_server_address}"
 	fi
 
 	if [[ "${YR_K8S_RUN_RRT_DIRECT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-		run_rrt_direct_e2e \
-			"${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address web)}" \
-			"${YR_K8S_ROUTER_ADDRESS:-$(wait_for_traefik_address router)}"
+		run_rrt_direct_e2e "${smoke_server_address}" "${router_address}"
 	fi
 
 	if command -v buildkite-agent >/dev/null 2>&1; then
