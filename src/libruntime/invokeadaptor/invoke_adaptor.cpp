@@ -259,6 +259,11 @@ void InvokeAdaptor::CheckAndSetDebugBreakpoint(const std::shared_ptr<CallMessage
 void InvokeAdaptor::SetRGroupManager(std::shared_ptr<ResourceGroupManager> rGroupManager)
 {
     this->rGroupManager_ = rGroupManager;
+    // Propagate to task submitter so it can short-circuit retries whose placement group
+    // has been removed (see TaskSubmitter::IsDependentResourceGroupRemoved).
+    if (this->taskSubmitter) {
+        this->taskSubmitter->SetRGroupManager(rGroupManager);
+    }
 }
 
 void InvokeAdaptor::SetCallbackOfSetTenantId(SetTenantIdCallback cb)

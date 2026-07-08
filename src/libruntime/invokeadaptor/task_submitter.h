@@ -26,6 +26,7 @@
 #include "src/libruntime/invokeadaptor/task_scheduler.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
+#include "src/libruntime/rgroupmanager/resource_group_manager.h"
 #include "src/libruntime/utils/utils.h"
 #include "src/scene/downgrade.h"
 #include "src/utility/time_measurement.h"
@@ -73,9 +74,27 @@ public:
     YR::Libruntime::GaugeData ConvertToGaugeData(const std::shared_ptr<FaasInvokeData> data, const std::string &reqId);
     void UpdateFaasInvokeSendTime(const std::string &reqId);
     void UpdateFaasInvokeLog(const std::string &reqId, const ErrorInfo &err);
+    void SetRGroupManager(std::shared_ptr<ResourceGroupManager> rGroupManager)
+    {
+        rGroupManager_ = std::move(rGroupManager);
+    }
 
 private:
     void EraseInsResourceMap();
+    // Return true only when this spec depends on a placement group that has been removed
+    // (its local RG detail was cleared by RemoveResourceGroup). Used to short-circuit the
+    // otherwise-infinite retry loop so the failure is propagated to ray.get instead.
+    bool IsDependentResourceGroupRemoved(const std::shared_ptr<InvokeSpec> spec);
+    // Short-circuit HandleFailInvokeNotify when the spec's placement group is gone:
+    // unbind obj refs, surface the error to ray.get and notify the scheduler. Returns
+    // true when the caller should return immediately (i.e. the failure was handled).
+    bool PropagateFailForRemovedResourceGroup(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> spec,
+                                              const RequestResource &resource, const ErrorInfo &errInfo);
+    // Short-circuit ScheduleIns when the head of the resource's queue depends on a removed
+    // placement group: drain the queue, surface errors to waiting ray.get callers and notify
+    // the scheduler. Returns true when the caller should return immediately.
+    bool ShortCircuitScheduleForRemovedResourceGroup(const RequestResource &resource, const ErrorInfo &errInfo,
+                                                     bool isRemainIns);
     std::vector<RequestResource> GetScheduleResources();
     void AddFaasCancelTimer(std::shared_ptr<InvokeSpec> spec);
     void EraseTaskSchedulerMap(const RequestResource &resource);
@@ -113,6 +132,7 @@ private:
     bool enablePriority_ = false;
     std::shared_ptr<YR::scene::DowngradeController> downgrade_;
     std::shared_ptr<YR::utility::Timer> eraseTimer_;
+    std::shared_ptr<ResourceGroupManager> rGroupManager_;
 };
 
 }  // namespace Libruntime
