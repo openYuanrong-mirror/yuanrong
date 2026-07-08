@@ -83,7 +83,7 @@ void InvokeCollector::OnUInt64CounterMutation(const std::string &metricName)
 
 bool InvokeCollector::ShouldCollect(const libruntime::MetaData &metaData, const LibruntimeConfig &config) const
 {
-    if (!metricsAdaptor_ || !(Config::Instance().ENABLE_METRICS() || config.enableMetrics) ||
+    if (!metricsAdaptor_ || !(Config::Instance().ENABLE_METRICS() && config.enableMetrics) ||
         config.selfApiType == libruntime::ApiType::Posix) {
         return false;
     }

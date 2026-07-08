@@ -576,6 +576,38 @@ class LocalModeRuntime(Runtime, ABC):
         """
         raise RuntimeError("not support in local mode")
 
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        set gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        increase gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        decrease gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        get value of gauge metrics
+        :param data: GaugeData
+        :return: value
+        """
+        raise RuntimeError("not support in local mode")
+
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metrics

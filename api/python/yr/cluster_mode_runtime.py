@@ -608,6 +608,46 @@ class ClusterModeRuntime(Runtime):
         """
         return self.libruntime.get_value_double_counter(data)
 
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        Set gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.set_gauge(data)
+
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        Increase gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.increase_gauge(data)
+
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        Decrease gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.decrease_gauge(data)
+
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        Get value of gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            value
+        """
+        return self.libruntime.get_value_gauge(data)
+
     def report_gauge(self, data: GaugeData) -> None:
         """
         Report gauge metric.

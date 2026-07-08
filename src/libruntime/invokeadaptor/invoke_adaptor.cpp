@@ -305,10 +305,11 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
                    concurrency, metaData.functionmeta().isasync(), req->Immutable().requestid());
         this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE, concurrency);
     }
-    YRLOG_DEBUG("enable metrics is {}, api type is {}", IsMetricsEnabled(metaData),
+    YRLOG_DEBUG("enable metrics is {}, user enable metrics is {}, api type is {}", Config::Instance().ENABLE_METRICS(),
+                metaData.config().enablemetrics(),
                 fmt::underlying(this->librtConfig->selfApiType));
-    if (IsMetricsEnabled(metaData) && !isPosix) {
-        InitMetricsAdaptor(true);
+    if (Config::Instance().ENABLE_METRICS() && !isPosix) {
+        InitMetricsAdaptor(metaData.config().enablemetrics());
     }
     if (this->librtConfig->selfApiType != libruntime::ApiType::Posix) {
         auto res = InitCall(req->Immutable(), metaData);
@@ -538,8 +539,8 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
         resp.set_message(outErrMsg);
         return resp;
     }
-    if (IsMetricsEnabled()) {
-        InitMetricsAdaptor(true);
+    if (Config::Instance().ENABLE_METRICS()) {
+        InitMetricsAdaptor(librtConfig->enableMetrics);
     }
     common::FunctionGroupRunningInfo runningInfo;
     bool isPosix = this->librtConfig->selfApiType == libruntime::ApiType::Posix;
@@ -2249,13 +2250,12 @@ void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::strin
 
 bool InvokeAdaptor::IsMetricsEnabled() const
 {
-    return Config::Instance().ENABLE_METRICS() || librtConfig->enableMetrics;
+    return Config::Instance().ENABLE_METRICS() && librtConfig->enableMetrics;
 }
 
 bool InvokeAdaptor::IsMetricsEnabled(const libruntime::MetaData &metaData) const
 {
-    // Invoke requests may omit enableMetrics in proto3, so preserve the instance-level value after create/recover.
-    return Config::Instance().ENABLE_METRICS() || metaData.config().enablemetrics() || librtConfig->enableMetrics;
+    return Config::Instance().ENABLE_METRICS() && metaData.config().enablemetrics();
 }
 
 std::shared_ptr<InvokeSpec> InvokeAdaptor::BuildCreateSpec(std::shared_ptr<InvokeSpec> spec)
