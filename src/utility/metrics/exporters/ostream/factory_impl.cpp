@@ -23,9 +23,9 @@
 
 namespace observability::exporters::metrics {
 
-class ExporterHandle final : public observability::plugin::metrics::ExporterHandle {
+class OStreamExporterHandle final : public observability::plugin::metrics::ExporterHandle {
 public:
-    explicit ExporterHandle(std::shared_ptr<OStreamExporter> &&exporter) noexcept : exporter_(exporter)
+    explicit OStreamExporterHandle(std::shared_ptr<OStreamExporter> &&exporter) noexcept : exporter_(exporter)
     {
     }
 
@@ -38,7 +38,7 @@ private:
     std::shared_ptr<OStreamExporter> exporter_;
 };
 
-class FactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
+class OStreamFactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
 public:
     std::unique_ptr<observability::plugin::metrics::ExporterHandle> MakeExporterHandle(
         std::string exporterConfig, std::unique_ptr<char[]> &) const noexcept override
@@ -48,14 +48,18 @@ public:
         if (exporter == nullptr) {
             return nullptr;
         }
-        return std::unique_ptr<ExporterHandle>{ new (std::nothrow) ExporterHandle(std::move(exporter)) };
+        return std::unique_ptr<OStreamExporterHandle>{
+            new (std::nothrow) OStreamExporterHandle(std::move(exporter))
+        };
     }
 };
 
 static std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl> MakeFactoryImpl(
     std::unique_ptr<char[]>& /* error */) noexcept
 {
-    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{ new (std::nothrow) FactoryImpl{} };
+    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{
+        new (std::nothrow) OStreamFactoryImpl{}
+    };
 }
 
 OBSERVABILITY_DEFINE_PLUGIN_HOOK(MakeFactoryImpl);

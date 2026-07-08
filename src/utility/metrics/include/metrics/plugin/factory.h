@@ -24,7 +24,6 @@
 #include "metrics/plugin/utils.h"
 
 namespace observability::plugin::metrics {
-
 class Factory final {
 public:
     class FactoryImpl {

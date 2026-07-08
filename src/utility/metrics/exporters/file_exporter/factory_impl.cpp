@@ -23,9 +23,9 @@
 
 namespace observability::exporters::metrics {
 
-class ExporterHandle final : public observability::plugin::metrics::ExporterHandle {
+class FileExporterHandle final : public observability::plugin::metrics::ExporterHandle {
 public:
-    explicit ExporterHandle(std::shared_ptr<FileExporter> &&exporter) noexcept : exporter_(exporter)
+    explicit FileExporterHandle(std::shared_ptr<FileExporter> &&exporter) noexcept : exporter_(exporter)
     {
     }
 
@@ -38,7 +38,7 @@ private:
     std::shared_ptr<FileExporter> exporter_;
 };
 
-class FactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
+class FileFactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
 public:
     std::unique_ptr<observability::plugin::metrics::ExporterHandle> MakeExporterHandle(
         std::string exporterConfig, std::unique_ptr<char[]> &) const noexcept override
@@ -47,14 +47,16 @@ public:
         if (exporter == nullptr) {
             return nullptr;
         }
-        return std::unique_ptr<ExporterHandle>{ new (std::nothrow) ExporterHandle(std::move(exporter)) };
+        return std::unique_ptr<FileExporterHandle>{ new (std::nothrow) FileExporterHandle(std::move(exporter)) };
     }
 };
 
 static std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl> MakeFactoryImpl(
     std::unique_ptr<char[]>& /* error */) noexcept
 {
-    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{ new (std::nothrow) FactoryImpl{} };
+    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{
+        new (std::nothrow) FileFactoryImpl{}
+    };
 }
 
 OBSERVABILITY_DEFINE_PLUGIN_HOOK(MakeFactoryImpl);

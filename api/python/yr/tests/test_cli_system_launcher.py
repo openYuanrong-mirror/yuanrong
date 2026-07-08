@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import unittest
 
 from yr.cli.component.base import ComponentConfig
+from yr.cli.component.registry import get_depends_on_overrides
 from yr.cli.const import StartMode
 from yr.cli.system_launcher import SystemLauncher
 
@@ -89,6 +90,16 @@ class TestCliSystemLauncher(unittest.TestCase):
         }
 
         self.assertEqual(system_launcher.get_start_order_for_test(), ["function_master"])
+
+    def test_function_proxy_does_not_require_runtime_launcher(self):
+        self.assertNotIn(
+            "runtime_launcher",
+            get_depends_on_overrides(StartMode.MASTER)["function_proxy"],
+        )
+        self.assertNotIn(
+            "runtime_launcher",
+            get_depends_on_overrides(StartMode.AGENT)["function_proxy"],
+        )
 
 
 if __name__ == "__main__":
