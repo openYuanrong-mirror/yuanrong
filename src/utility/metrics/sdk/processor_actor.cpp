@@ -15,6 +15,7 @@
  */
 
 #include <fstream>
+#include <sstream>
 #include <spdlog/common.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -28,6 +29,18 @@
 namespace observability::sdk::metrics {
 using namespace std;
 constexpr int MILLISECONDS_PER_SECOND = 1000;
+
+static std::string BuildMetricNames(const std::vector<MetricData> &metricDataVec)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < metricDataVec.size(); ++i) {
+        if (i != 0) {
+            oss << ",";
+        }
+        oss << metricDataVec[i].instrumentDescriptor.name << ":" << metricDataVec[i].pointData.size();
+    }
+    return oss.str();
+}
 
 static std::string ToString(const PointData &pointData)
 {
@@ -273,8 +286,8 @@ void ProcessorActor::ExportMetricQueueData()
     }
     // failed export, write data into failure queue
     if (res != MetricsExporter::ExportResult::SUCCESS) {
-        METRICS_LOG_ERROR("Failed to export metric queue data {}, exporter status {}", vec.size(),
-                          healthyExporter_.load());
+        METRICS_LOG_ERROR("Failed to export metric queue data {}, exporter {}, exporter status {}, metrics {}",
+                          vec.size(), exportConfigs_.exporterName, healthyExporter_.load(), BuildMetricNames(vec));
         healthyExporter_.store(false);
         WriteIntoFailureQueue(std::move(vec));
         return;

@@ -28,7 +28,6 @@
 #include "metrics/plugin/hook.h"
 
 namespace observability::plugin::metrics {
-
 class DynamicLibraryHandleUnix final : public DynamicLibraryHandle {
 public:
     explicit DynamicLibraryHandleUnix(void *handle) noexcept : handle_{ handle }

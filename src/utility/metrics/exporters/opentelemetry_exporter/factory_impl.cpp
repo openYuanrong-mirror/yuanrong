@@ -38,7 +38,7 @@ private:
     std::shared_ptr<OpenTelemetryExporter> exporter_;
 };
 
-class FactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
+class OtelFactoryImpl final : public observability::plugin::metrics::Factory::FactoryImpl {
 public:
     std::unique_ptr<observability::plugin::metrics::ExporterHandle> MakeExporterHandle(
         std::string exporterConfig, std::unique_ptr<char[]> &) const noexcept override
@@ -55,7 +55,9 @@ public:
 static std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl> MakeFactoryImpl(
     std::unique_ptr<char[]>& /* error */) noexcept
 {
-    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{ new (std::nothrow) FactoryImpl{} };
+    return std::unique_ptr<observability::plugin::metrics::Factory::FactoryImpl>{
+        new (std::nothrow) OtelFactoryImpl{}
+    };
 }
 
 OBSERVABILITY_DEFINE_PLUGIN_HOOK(MakeFactoryImpl);
