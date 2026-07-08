@@ -10,6 +10,7 @@ KUBECONFIG_PATH="${YR_K8S_KUBECONFIG:-${HOME}/.kube/beijing4.yaml}"
 RELEASE_NAME="${YR_K8S_RELEASE:-yr-k8s}"
 NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
 VALUES_FILE="${YR_K8S_VALUES_FILE:-${SCRIPT_DIR}/k8s/values.local.yaml}"
+EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-}"
 
 REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-swr.cn-southwest-2.myhuaweicloud.com}"
 REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/openyuanrong}"
@@ -173,7 +174,8 @@ workload_resources() {
 }
 
 helm_deploy() {
-  "${HELM_BIN}" upgrade --install "${RELEASE_NAME}" "${SCRIPT_DIR}/charts/yr-k8s" \
+  local -a helm_args=(
+    upgrade --install "${RELEASE_NAME}" "${SCRIPT_DIR}/charts/yr-k8s"
     --kubeconfig "${KUBECONFIG_PATH}" \
     --namespace "${NAMESPACE}" \
     --create-namespace \
@@ -196,6 +198,76 @@ helm_deploy() {
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
+  )
+  if [ -n "${EXTRA_VALUES_FILE}" ]; then
+    if [ ! -f "${EXTRA_VALUES_FILE}" ]; then
+      printf 'Missing extra values file: %s\n' "${EXTRA_VALUES_FILE}" >&2
+      exit 1
+    fi
+    helm_args+=(-f "${EXTRA_VALUES_FILE}")
+  fi
+  "${HELM_BIN}" "${helm_args[@]}"
+}
+
+target_service_type() {
+  local component="$1"
+  python3 - "${component}" "${VALUES_FILE}" "${EXTRA_VALUES_FILE}" <<'PY'
+import re
+import sys
+
+component = sys.argv[1]
+target_type = ""
+for path in [item for item in sys.argv[2:] if item]:
+    section = []
+    with open(path, encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.split("#", 1)[0].rstrip()
+            if not line.strip():
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip(" "))
+            key = line.strip().split(":", 1)[0].strip()
+            value = line.strip().split(":", 1)[1].strip() if ":" in line else ""
+            while section and section[-1][0] >= indent:
+                section.pop()
+            section.append((indent, key))
+            if [item[1] for item in section] == [component, "service", "type"]:
+                target_type = re.sub(r'^["\']|["\']$', "", value) or "ClusterIP"
+print(target_type or "LoadBalancer")
+PY
+}
+
+delete_legacy_load_balancer_service() {
+  local component="$1"
+  local display_name="$2"
+  local target_type services service current_type
+  target_type="$(target_service_type "${component}")"
+  if [ "${target_type}" = "LoadBalancer" ]; then
+    return 0
+  fi
+
+  services="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get svc \
+    --namespace "${NAMESPACE}" \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component="${component}" \
+    -o name 2>/dev/null || true)"
+  while IFS= read -r service; do
+    [ -n "${service}" ] || continue
+    current_type="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get "${service}" \
+      --namespace "${NAMESPACE}" \
+      -o "jsonpath={.spec.type}")"
+    if [ "${current_type}" != "LoadBalancer" ]; then
+      continue
+    fi
+    printf 'Deleting legacy %s LoadBalancer service %s before recreating it as %s.\n' \
+      "${display_name}" "${service}" "${target_type}" >&2
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" delete "${service}" \
+      --namespace "${NAMESPACE}" \
+      --wait=true
+  done <<<"${services}"
+}
+
+delete_legacy_load_balancer_services() {
+  delete_legacy_load_balancer_service traefik Traefik
+  delete_legacy_load_balancer_service frontend Frontend
 }
 
 patch_workloads_with_pull_secret() {
@@ -317,6 +389,7 @@ main() {
   validate_k8s_name "${PULL_SECRET_NAME}" "YR_K8S_PULL_SECRET_NAME"
   create_namespace
   create_or_update_pull_secret
+  delete_legacy_load_balancer_services
   helm_deploy
   patch_workloads_with_pull_secret
   wait_for_rollout
