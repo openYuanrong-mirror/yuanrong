@@ -313,7 +313,7 @@ genrule(
         "//api/java:lib_yr_api_sdk",
         "//src/proto:libruntime_java_proto",
         "//src/proto:socket_java_proto",
-        "//api/java/function-common/src/main/cpp:libruntime_lib_jni.so",
+        ":java_strip",
     ] + select({
         "//:disable_datasystem": [],
         "//conditions:default": [
@@ -335,7 +335,6 @@ genrule(
     JAVA_SDK_DIR=$$BASE_DIR/build/output/runtime/sdk/java
     rm -rf $$WORKING_DIR $$JAVA_SDK_DIR
     mkdir -p $$NATIVE_DIR $$JAVA_SDK_DIR
-    chmod +w $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) && if [[ "$$(uname)" != "Darwin" ]]; then chrpath -r '$$ORIGIN' $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so) 2>/dev/null || true; fi &&
     # decompress jars to WORKING_DIR
     cd $$WORKING_DIR
     jar xf $$BASE_DIR/$(locations //api/java:lib_yr_api_sdk)

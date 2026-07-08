@@ -69,6 +69,10 @@ public class LoadUtil {
         SYMLINK_MAP.put("libgpr.so.42.0.0", "libgpr.so.42");
         SYMLINK_MAP.put("libaddress_sorting.so.42.0.0", "libaddress_sorting.so.42");
         SYMLINK_MAP.put("libgflags.so.2.2.2", "libgflags.so.2.2");
+        SYMLINK_MAP.put("libcurl.so.4.8.0", "libcurl.so.4");
+        SYMLINK_MAP.put("libds-spdlog.so.1.12.0", "libds-spdlog.so.1.12");
+        SYMLINK_MAP.put("libzmq.so.5.2.5", "libzmq.so.5");
+        SYMLINK_MAP.put("libspdlog.so.1.12.0", "libspdlog.so.1.12");
     }
 
     // Native libraries that must be present for indirect dependencies, but are not loaded explicitly.
@@ -132,19 +136,15 @@ public class LoadUtil {
                 throw new ExceptionInInitializerError("Failed to create folder: " + jniDir.getAbsolutePath());
             }
             extractAndSymlink(properties, libPath);
-            for (String[] soFileNames : LOADING_SEQUENCE) {
-                Optional<String> soFileName = findPackagedLibrary(properties, soFileNames);
-                if (!soFileName.isPresent()) {
-                    continue;
-                }
-                String libraryName = soFileName.get();
-                String soFileHash = properties.getProperty(libraryName);
-                String soFilePath = Paths.get(libPath, libraryName).toString();
-                loadPackagedLibrary(libraryName, soFilePath, soFileHash);
-            }
-            if (!findPackagedLibrary(properties, LOADING_SEQUENCE[LOADING_SEQUENCE.length - 1]).isPresent()) {
+            extractLibraries(properties, libPath, LOADING_SEQUENCE);
+            Optional<String> runtimeLibrary = findPackagedLibrary(properties, LOADING_SEQUENCE[LOADING_SEQUENCE.length - 1]);
+            if (!runtimeLibrary.isPresent()) {
                 throw new InvalidPropertiesFormatException("runtime JNI library is missing from SDK jar");
             }
+            String libraryName = runtimeLibrary.get();
+            String soFileHash = properties.getProperty(libraryName);
+            String soFilePath = Paths.get(libPath, libraryName).toString();
+            loadPackagedLibrary(libraryName, soFilePath, soFileHash);
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
         }
@@ -152,6 +152,20 @@ public class LoadUtil {
 
     private static void extractAndSymlink(Properties properties, String libPath) throws IOException {
         for (String[] soFileNames : EXTRACT_ONLY_LIBS) {
+            Optional<String> soFileName = findPackagedLibrary(properties, soFileNames);
+            if (!soFileName.isPresent()) {
+                continue;
+            }
+            String libraryName = soFileName.get();
+            String soFileHash = properties.getProperty(libraryName);
+            String soFilePath = Paths.get(libPath, libraryName).toString();
+            extractPackagedLibrary(libraryName, soFilePath, soFileHash);
+            createSymlink(libraryName);
+        }
+    }
+
+    private static void extractLibraries(Properties properties, String libPath, String[][] libraries) throws IOException {
+        for (String[] soFileNames : libraries) {
             Optional<String> soFileName = findPackagedLibrary(properties, soFileNames);
             if (!soFileName.isPresent()) {
                 continue;
