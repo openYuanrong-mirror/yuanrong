@@ -1,0 +1,11 @@
+# Buildkite Test K8S overlay only. Do not use as the default deploy values file.
+traefik:
+  service:
+    type: ClusterIP
+    annotations: null
+
+frontend:
+  enableEvent: true
+  service:
+    type: ClusterIP
+    annotations: null

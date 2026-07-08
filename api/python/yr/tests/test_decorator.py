@@ -57,9 +57,10 @@ class TestDecorator(TestCase):
             Actor, InvokeOptions(need_order=True, concurrency=1))
         self.assertTrue(explicit_true_single_creator.__invoke_options__.need_order)
 
-        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor)
-        options_creator.options(InvokeOptions(need_order=False))
-        self.assertFalse(options_creator.__invoke_options__.need_order)
+        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, InvokeOptions())
+        with patch.object(options_creator, "_invoke") as mock_invoke:
+            options_creator.options(InvokeOptions(need_order=False)).invoke()
+        self.assertFalse(mock_invoke.call_args.kwargs["invoke_options"].need_order)
 
         with self.assertRaises(ValueError):
             options_creator.options(InvokeOptions(need_order=True, concurrency=100))
