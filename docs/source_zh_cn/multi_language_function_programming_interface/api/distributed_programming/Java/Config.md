@@ -4,7 +4,7 @@
 
 ## public class Config
 
-类 Config 是 openYuanrong 的初始化数据结构，用于存放初始化 openYuanrong 系统时需要的 IP，端口，URN 等基础信息。 Config 实例是 init 接口的入参，除 functionURN，serverAddress，dataSystemAddress，cppFunctionURN（表格前四）为必须配置并支持通过构造函数配置外，其余参数皆为缺省并通过 setter 设置，具体接口详见末尾表格。
+类 Config 是 openYuanrong 的初始化数据结构，用于存放初始化 openYuanrong 系统时需要的 IP，端口，URN 等基础信息。 Config 实例是 init 接口的入参，除 functionURN，serverAddress，dataSystemAddress，cppFunctionURN，isInCluster（表格前五）为必须配置并支持通过构造函数配置外，其余参数皆为缺省并通过 setter 设置，具体接口详见末尾表格。
 
 ```java
 
@@ -14,7 +14,7 @@
 
 ### 接口说明
 
-#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isInCluster)
 
 Config 的构造函数。
 
@@ -24,12 +24,13 @@ Config 的构造函数。
    - **serverAddress** - 集群 ip（openYuanrong 集群主节点）。
    - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
    - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
 
 #### public Config()
 
 Config 的构造函数。
 
-#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isDriver)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, String goFunctionURN, boolean isInCluster)
 
 Config 的构造函数。
 
@@ -39,9 +40,37 @@ Config 的构造函数。
    - **serverAddress** - 集群 ip（openYuanrong 集群主节点）。
    - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
    - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **goFunctionURN** - 部署 go 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
+
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isInCluster, boolean isDriver)
+
+Config 的构造函数。
+
+- 参数：
+
+   - **functionURN** - 部署函数返回的 functionURN。
+   - **serverAddress** - 集群 ip（openYuanrong 集群主节点）。
+   - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
+   - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
    - **isDriver** - 云上/云外。
 
-#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, String goFunctionURN, boolean isInCluster, boolean isDriver)
+
+Config 的构造函数。
+
+- 参数：
+
+   - **functionURN** - 部署函数返回的 functionURN。
+   - **serverAddress** - 集群 ip（openYuanrong 集群主节点）。
+   - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
+   - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **goFunctionURN** - 部署 go 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
+   - **isDriver** - 云上/云外。
+
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isInCluster)
 
 Config 的构造函数。
 
@@ -53,8 +82,9 @@ Config 的构造函数。
    - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
    - **dataSystemAddressPort** - 数据系统端口号。
    - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
 
-#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isDriver)
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, String goFunctionUrn, boolean isInCluster)
 
 Config 的构造函数。
 
@@ -66,6 +96,22 @@ Config 的构造函数。
    - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
    - **dataSystemAddressPort** - 数据系统端口号。
    - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **goFunctionURN** - 部署 go 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
+
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isInCluster, boolean isDriver)
+
+Config 的构造函数。
+
+- 参数：
+
+   - **functionURN** - 部署函数返回的 functionURN。
+   - **serverAddr** - 集群 ip（openYuanrong 集群主节点）。
+   - **serverAddressPort** - 集群端口号。
+   - **dataSystemAddress** - 数据系统 ip（openYuanrong 集群主节点）。
+   - **dataSystemAddressPort** - 数据系统端口号。
+   - **cppFunctionURN** - 部署 cpp 函数返回的 functionID。
+   - **isInCluster** - 集群内/集群外。
    - **isDriver** - 云上/云外。
 
 ### 私有成员
