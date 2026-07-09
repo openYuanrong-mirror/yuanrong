@@ -18,6 +18,7 @@
 
 #include <gmock/gmock.h>
 #include "src/libruntime/invokeadaptor/task_submitter.h"
+
 namespace YR {
 namespace test {
 class MockTaskSubmitter : public YR::Libruntime::TaskSubmitter {
@@ -29,8 +30,7 @@ public:
                                             std::shared_ptr<InvokeSpec> spec));
     MOCK_METHOD3(UpdateSchdulerInfo,
                  void(const std::string &scheduleName, const std::string &schedulerId, const std::string &option));
-    MOCK_METHOD2(UpdateFaaSSchedulerInfo, void(std::string schedulerFuncKey,
-                                 const std::vector<SchedulerInstance> &schedulerInstanceList));
+    MOCK_METHOD1(UpdateFaaSSchedulerInfo, void(const SchedulerInfo &schedulerInfo));
     MOCK_METHOD5(CancelStatelessRequest, ErrorInfo(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
                                                 bool isForce, bool isRecursive, const std::string &objId));
 };

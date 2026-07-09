@@ -31,7 +31,6 @@ import (
 
 	"yuanrong.org/kernel/pkg/common/faas_common/tls"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
@@ -98,14 +97,12 @@ func TestCheck(t *testing.T) {
 			convey.So(rr.Code, convey.ShouldEqual, http.StatusOK)
 			convey.So(rr.Body.String(), convey.ShouldEqual, expectedBody)
 		})
-		convey.Convey("rollout case", func() {
+		convey.Convey("not register case", func() {
 			discoveryConfig := config.GlobalConfig.SchedulerDiscovery
 			rolloutConfig := config.GlobalConfig.EnableRollout
-			isRolloutObject := selfregister.IsRolloutObject
 			defer func() {
 				config.GlobalConfig.SchedulerDiscovery = discoveryConfig
 				config.GlobalConfig.EnableRollout = rolloutConfig
-				selfregister.IsRolloutObject = isRolloutObject
 			}()
 			config.GlobalConfig.SchedulerDiscovery = &types.SchedulerDiscovery{
 				RegisterMode: types.RegisterTypeContend,
@@ -114,11 +111,6 @@ func TestCheck(t *testing.T) {
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 			convey.So(rr.Code, convey.ShouldEqual, http.StatusInternalServerError)
-			config.GlobalConfig.EnableRollout = true
-			selfregister.IsRolloutObject = true
-			rr = httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
-			convey.So(rr.Code, convey.ShouldEqual, http.StatusOK)
 		})
 	})
 

@@ -446,7 +446,7 @@ func TestStartPredictRegistry(t *testing.T) {
 		selfregister.GlobalSchedulerProxy.Add(&commontypes.InstanceInfo{
 			FunctionName: "faasscheduler",
 			InstanceName: "abcdefg",
-		}, "")
+		}, "", "", true)
 		selfregister.SelfInstanceID = "abcdefg"
 		os.Setenv(constant.ClusterNameEnvKey, "localAZ")
 		os.Setenv("INSTANCE_ID", "abcdefg")

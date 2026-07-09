@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#include <cstdint>
 #include <string>
 
 #include "src/libruntime/utils/sensitive_value.h"
@@ -23,5 +24,6 @@ namespace YR {
 namespace Libruntime {
 std::string GetHMACSha256(const SensitiveValue &key, const std::string &data);
 void SHA256AndHex(const std::string &input, std::stringstream &output);
+uint32_t hashToPer(const std::string &str);
 }  // namespace Libruntime
 }  // namespace YR

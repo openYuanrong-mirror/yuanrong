@@ -19,7 +19,6 @@ package roundrobinscheduler
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -29,10 +28,8 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	"yuanrong.org/kernel/pkg/common/uuid"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/signalmanager"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
@@ -112,16 +109,6 @@ func (rs *RoundRobinScheduler) AcquireInstance(insAcqReq *types.InstanceAcquireR
 	}
 	rs.Unlock()
 	if rs.instanceScaler.GetExpectInstanceNumber() <= 0 {
-		// 灰度状态下，新的scheduler不应该触发冷启动，应该快速返回失败
-		selfCurVer := os.Getenv(selfregister.CurrentVersionEnvKey)
-		etcdCurVer := rollout.GetGlobalRolloutHandler().CurrentVersion
-		if selfCurVer != etcdCurVer && rollout.GetGlobalRolloutHandler().GetCurrentRatio() != 100 { // 100 mean 100%
-			return nil, scheduler.ErrNoInsAvailable
-		}
-		// 灰度状态到100%时，老的scheduler不应该负责冷启动，应该快速返回失败
-		if selfCurVer == etcdCurVer && rollout.GetGlobalRolloutHandler().GetCurrentRatio() == 100 { // 100 mean 100%
-			return nil, scheduler.ErrNoInsAvailable
-		}
 		// 这里如果是静态函数，则会触发到wisecloudscaler，触发一次nuwa cold start，如果不是静态函数，则会走到replicascaler，没有其他影响
 		rs.recordColdStartTrace(insAcqReq.TraceID, insAcqReq.TraceParent)
 		rs.publishInsThdEvent(scheduler.TriggerScaleTopic, nil)
@@ -541,9 +528,4 @@ func (rs *RoundRobinScheduler) addObservers(topic scheduler.InstanceTopic, callb
 
 // HandleFuncOwnerUpdate -
 func (rs *RoundRobinScheduler) HandleFuncOwnerUpdate(isFuncOwner bool) {
-}
-
-// ReassignInstanceWhenGray -
-func (rs *RoundRobinScheduler) ReassignInstanceWhenGray(ratio int) {
-	return
 }

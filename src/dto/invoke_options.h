@@ -32,6 +32,8 @@ namespace YR {
 namespace Libruntime {
 const size_t FAAS_DEFALUT_INVOKE_TIMEOUT = 900;   // second
 const size_t FAAS_DEFALUT_ACQUIRE_TIMEOUT = 120;  // second
+const std::string GREEN_RING_NAME = "green";
+const std::string BLUE_RING_NAME = "blue";
 
 enum class BundleAffinity : int {
     COMPACT,
@@ -131,6 +133,8 @@ struct InvokeOptions {
     std::string schedulerFunctionId;
 
     std::vector<std::string> schedulerInstanceIds;
+
+    std::string ringName = GREEN_RING_NAME;
 
     std::string traceId;
 

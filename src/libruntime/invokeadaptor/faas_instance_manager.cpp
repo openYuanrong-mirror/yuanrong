@@ -15,7 +15,9 @@
  */
 
 #include "faas_instance_manager.h"
+#include <chrono>
 #include <json.hpp>
+#include <thread>
 #include "src/dto/acquire_options.h"
 
 namespace YR {
@@ -43,7 +45,9 @@ const int ERR_NO_INSTANCE_AVAILABLE = 150431;
 const int INSTANCE_LABEL_NOT_FOUND = 150444;
 const int ERR_USER_FUNC_ENTRY_NOT_FOUND = 4001;
 const int WISECLOUD_NUWA_INVOKE_ERROR = 161915;
+const int OWNER_SCHEDULER_RETYR_DELAYTIME = 200;  // millisecond
 const int64_t BATCH_RENEW_LEASE_NUM = 1000;
+const int FULL_BLUE_RATIO = 100;
 const std::string SPEC_ERR_MSG = "invoke request timeout";
 
 const static std::set<int> userErrSet =
@@ -172,7 +176,8 @@ void FaasInsManager::ProcessInstanceInfo(std::shared_ptr<InvokeSpec> spec, const
     faasInsInfo->available = true;
     faasInsInfo->traceId = spec->traceId;
     faasInsInfo->faasInfo = FaasAllocationInfo{inst.functionId, inst.funcSig, inst.tLeaseInterval,
-                                               spec->GetSchedulerInstanceId(), spec->opts.schedulerFunctionId};
+                                               spec->GetSchedulerInstanceId(), spec->opts.schedulerFunctionId,
+                                               spec->opts.ringName};
     faasInsInfo->reporter = std::make_shared<ReportRecord>();
     this->HandleFaasInsInfo(faasInsInfo, resource);
 }
@@ -344,8 +349,13 @@ void FaasInsManager::AcquireCallback(const std::shared_ptr<InvokeSpec> acquireSp
             (errInfo.Code() == YR::Libruntime::ERR_REQUEST_BETWEEN_RUNTIME_BUS && errInfo.IsAckTimeout()) ||
             errInfo.Code() == YR::Libruntime::ERR_FINALIZED) {
             UpdateSpecSchedulerIds(invokeSpec, acquireSpec->invokeInstanceId);
-            auto schedulerId = csHash->NextRetry(invokeSpec->functionMeta.functionId, invokeSpec->schedulerInfos, true);
-            if (schedulerId == ALL_SCHEDULER_UNAVAILABLE || schedulerId.empty()) {
+            auto needRetryOwner = NeedRetryOwnerScheduler(invokeSpec, acquireSpec->invokeInstanceId);
+            std::string schedulerId = GetNextSchedulerWithRing(invokeSpec->functionMeta.functionId,
+                                                               invokeSpec->opts.ringName,
+                                                               invokeSpec->schedulerInfos);
+            if (!needRetryOwner) {
+                returnErr = ErrorInfo(ErrorCode::ERR_OWNER_SCHEDULER_RETRY_TIMEOUT, "owner scheduler retry timeout");
+            } else if (schedulerId == ALL_SCHEDULER_UNAVAILABLE || schedulerId.empty()) {
                 returnErr =
                     ErrorInfo(ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE, "all scheduler instance is unavailable");
             } else {
@@ -365,18 +375,37 @@ void FaasInsManager::AcquireCallback(const std::shared_ptr<InvokeSpec> acquireSp
             returnErr = ErrorInfo(ErrorCode::ERR_USER_FUNCTION_EXCEPTION, faasMessage);
         } else if (resp.errorCode == ERR_NO_INSTANCE_AVAILABLE) {
             UpdateSpecSchedulerIds(invokeSpec, acquireSpec->invokeInstanceId);
-            auto schedulerId = csHash->Next(invokeSpec->functionMeta.functionId, invokeSpec->schedulerInfos, true);
-            if (schedulerId == ALL_SCHEDULER_UNAVAILABLE || schedulerId.empty()) {
+            auto needRetryOwner = NeedRetryOwnerScheduler(invokeSpec, acquireSpec->invokeInstanceId);
+            std::string schedulerId = GetNextSchedulerWithRing(invokeSpec->functionMeta.functionId,
+                                                               invokeSpec->opts.ringName,
+                                                               invokeSpec->schedulerInfos);
+            if (!needRetryOwner) {
+                returnErr = ErrorInfo(ErrorCode::ERR_OWNER_SCHEDULER_RETRY_TIMEOUT, "owner scheduler retry timeout");
+            } else if (schedulerId == ALL_SCHEDULER_UNAVAILABLE || schedulerId.empty()) {
                 returnErr =
                     ErrorInfo(ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE, "all scheduler instance is unavailable");
             } else {
                 invokeSpec->SetSchedulerInstanceId(schedulerId);
                 returnErr = ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, faasMessage);
             }
+        } else if (resp.errorCode == ERR_NON_CORRECT_SCHEDULER_OWNER) {
+            auto ownerSchedulerId = resp.errorMessage;
+            invokeSpec->SetSchedulerInstanceId(ownerSchedulerId);
+            invokeSpec->ownerScheduler.schedulerInstanceID = ownerSchedulerId;
+            YRLOG_INFO("FaasScheduler select owner schedulerInstance {} for {}", ownerSchedulerId,
+                       invokeSpec->functionMeta.functionId);
+            returnErr = ErrorInfo(ErrorCode::ERR_NON_CORRECT_SCHEDULER_OWNER, faasMessage);
         } else {
             returnErr = ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, faasMessage);
         }
         return scheduleInsCb(resource, returnErr, IsRemainIns(resource));
+    }
+
+    // Set the mapping between functionId and schedulerOwner in the cache of SchedulerManager.
+    if (invokeSpec->opts.ringName == BLUE_RING_NAME) {
+        schedulerManagerBlue->SetRoute(invokeSpec->functionMeta.functionId, acquireSpec->invokeInstanceId);
+    } else {
+        schedulerManagerGreen->SetRoute(invokeSpec->functionMeta.functionId, acquireSpec->invokeInstanceId);
     }
 
     auto faasInsInfo = std::make_shared<InstanceInfo>();
@@ -388,7 +417,8 @@ void FaasInsManager::AcquireCallback(const std::shared_ptr<InvokeSpec> acquireSp
     faasInsInfo->available = true;
     faasInsInfo->traceId = invokeSpec->traceId;
     faasInsInfo->faasInfo = FaasAllocationInfo{resp.info.functionId, resp.info.funcSig, resp.info.tLeaseInterval,
-                                               acquireSpec->invokeInstanceId, acquireSpec->functionMeta.functionId};
+                                               acquireSpec->invokeInstanceId, acquireSpec->functionMeta.functionId,
+                                               invokeSpec->opts.ringName};
     faasInsInfo->reporter = std::make_shared<ReportRecord>();
     this->HandleFaasInsInfo(faasInsInfo, resource);
     if (faasInsInfo->faasInfo.tLeaseInterval > 0) {
@@ -661,17 +691,13 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
         invokeSpec->opts.schedulerFunctionId.empty() ? this->schedulerFuncKey : invokeSpec->opts.schedulerFunctionId;
     acquireSpec->functionMeta.apiType = libruntime::ApiType::Posix;
     std::string schedulerId = invokeSpec->GetSchedulerInstanceId();
-    if (!schedulerId.empty()) {
-        acquireSpec->invokeInstanceId = schedulerId;
-    } else {
-        std::string hashKey = invokeSpec->functionMeta.functionId;
-        if (!invokeSpec->opts.sessionCtxId.empty()) {
-            hashKey = invokeSpec->functionMeta.functionId + "#" + invokeSpec->opts.sessionCtxId;
-            YRLOG_DEBUG("acquire with sessionCtx routing, functionId={}, sessionCtxId={}, hashKey={}",
-                invokeSpec->functionMeta.functionId, invokeSpec->opts.sessionCtxId, hashKey);
-        }
-        schedulerId = csHash->NextRetry(hashKey);
-        acquireSpec->invokeInstanceId = schedulerId;
+    if (schedulerId.empty()) {
+        schedulerId = GetNextSchedulerWithRing(invokeSpec->functionMeta.functionId, invokeSpec->opts.ringName);
+    }
+    acquireSpec->invokeInstanceId = schedulerId;
+
+    if (!invokeSpec->ownerScheduler.schedulerInstanceID.empty()) {
+        acquireSpec->ownerScheduler = invokeSpec->ownerScheduler;
     }
 
     std::string acquireFunction;
@@ -762,6 +788,15 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
     return acquireSpec;
 }
 
+std::string FaasInsManager::GetNextSchedulerWithRing(const std::string &functionId, std::string ringName,
+                                                     const std::shared_ptr<AvailableSchedulerInfos> &schedulerInfos)
+{
+    if (ringName == BLUE_RING_NAME) {
+        return schedulerManagerBlue->Next(functionId, schedulerInfos);
+    }
+    return schedulerManagerGreen->Next(functionId, schedulerInfos);
+}
+
 void FaasInsManager::AddInsInfoBare(std::shared_ptr<RequestResourceInfo> info,
                                     std::shared_ptr<InstanceInfo> &faasInsInfo)
 {
@@ -789,7 +824,7 @@ void FaasInsManager::StartBatchRenewTimer()
     }
 }
 
-void FaasInsManager::ProcessBatchRenewResult(const NotifyRequest &notifyReq, const std::string &functionId,
+void FaasInsManager::ProcessBatchRenewResult(const NotifyRequest &notifyReq, const FaasInfoForBatchRenew &faasInfo,
                                              const ErrorInfo &err, std::vector<std::string> leaseIds)
 {
     bool failedFlag = false;
@@ -801,7 +836,7 @@ void FaasInsManager::ProcessBatchRenewResult(const NotifyRequest &notifyReq, con
         YRLOG_WARN("failed to batch renew instance, req id {}, code {}, msg {}", notifyReq.requestid(),
                    fmt::underlying(notifyReq.code()), notifyReq.message());
         if (notifyReq.code() == common::ERR_INSTANCE_NOT_FOUND || notifyReq.code() == common::ERR_INSTANCE_EXITED) {
-            ChangeInstanceSchedulerId(functionId, leaseIds);
+            ChangeInstanceSchedulerId(faasInfo, leaseIds);
             return;
         }
         failedFlag = true;
@@ -817,45 +852,62 @@ void FaasInsManager::ProcessBatchRenewResult(const NotifyRequest &notifyReq, con
         decreaseLeaseIds.resize(leaseIds.size());
         std::copy(leaseIds.begin(), leaseIds.end(), decreaseLeaseIds.begin());
     } else {
-        for (const auto &[leaseId, allocErrInfo] : instanceResp.instanceAllocFailed) {
-            YRLOG_WARN("failed to renew instance, lease id {}, req id {}, errCode: {}, errMsg: {}", leaseId,
-                       notifyReq.requestid(), allocErrInfo.errorCode, allocErrInfo.errorMessage);
-            if (allocErrInfo.errorCode == ERR_RENEW_INSTANCE_LEASE_NOT_FOUND) {
-                reacquireLeaseIds.push_back(leaseId);
-            } else {
-                decreaseLeaseIds.push_back(leaseId);
-            }
+        CollectBatchRenewFailedLeases(notifyReq, faasInfo, instanceResp, reacquireLeaseIds, decreaseLeaseIds);
+    }
+    UpdateBatchRenewLeaseState(reacquireLeaseIds, decreaseLeaseIds, !failedFlag, instanceResp.tLeaseInterval);
+}
+
+void FaasInsManager::CollectBatchRenewFailedLeases(const NotifyRequest &notifyReq,
+                                                   const FaasInfoForBatchRenew &faasInfo,
+                                                   const BatchInstanceResponse &instanceResp,
+                                                   std::vector<std::string> &reacquireLeaseIds,
+                                                   std::vector<std::string> &decreaseLeaseIds)
+{
+    for (const auto &[leaseId, allocErrInfo] : instanceResp.instanceAllocFailed) {
+        YRLOG_WARN("failed to renew instance, lease id {}, req id {}, errCode: {}, errMsg: {}", leaseId,
+                   notifyReq.requestid(), allocErrInfo.errorCode, allocErrInfo.errorMessage);
+        if (allocErrInfo.errorCode == ERR_RENEW_INSTANCE_LEASE_NOT_FOUND) {
+            reacquireLeaseIds.push_back(leaseId);
+        } else if (allocErrInfo.errorCode == ERR_NON_CORRECT_SCHEDULER_OWNER) {
+            ProcessNonOwnerBatchRenew(faasInfo, allocErrInfo.errorMessage, leaseId);
+        } else {
+            decreaseLeaseIds.push_back(leaseId);
         }
     }
+}
+
+void FaasInsManager::UpdateBatchRenewLeaseState(const std::vector<std::string> &reacquireLeaseIds,
+                                                const std::vector<std::string> &decreaseLeaseIds,
+                                                bool updateLeaseInterval, int64_t tLeaseInterval)
+{
     absl::WriterMutexLock lock(&this->leaseMtx);
-    for (std::string &leaseId : reacquireLeaseIds) {
-        if (this->globalLeases.find(leaseId) != this->globalLeases.end()) {
-            auto info = GetRequestResourceInfo(this->globalLeases.find(leaseId)->second);
-            if (info == nullptr) {
-                continue;
-            }
-            absl::ReaderMutexLock infoLock(&info->mtx);
-            if (info->instanceInfos.find(leaseId) != info->instanceInfos.end()) {
-                auto insInfo = info->instanceInfos[leaseId];
-                absl::WriterMutexLock instanceLock(&insInfo->mtx);
-                insInfo->needReacquire = true;
-            }
+    for (const std::string &leaseId : reacquireLeaseIds) {
+        auto it = this->globalLeases.find(leaseId);
+        if (it == this->globalLeases.end()) {
+            continue;
         }
+        auto insInfo = GetInstanceInfo(it->second, leaseId);
+        if (insInfo == nullptr) {
+            continue;
+        }
+        absl::WriterMutexLock instanceLock(&insInfo->mtx);
+        insInfo->needReacquire = true;
     }
-    for (std::string &leaseId : decreaseLeaseIds) {
+    for (const std::string &leaseId : decreaseLeaseIds) {
         if (this->globalLeases.find(leaseId) != this->globalLeases.end()) {
             DelInsInfo(leaseId, this->globalLeases.find(leaseId)->second);
             this->globalLeases.erase(leaseId);
         }
     }
-    if (!failedFlag) {
-        this->tLeaseInterval = instanceResp.tLeaseInterval;
+    if (updateLeaseInterval) {
+        this->tLeaseInterval = tLeaseInterval;
     }
 }
 
-void FaasInsManager::ChangeInstanceSchedulerId(const std::string &functionId, std::vector<std::string> &leaseIds)
+void FaasInsManager::ChangeInstanceSchedulerId(const FaasInfoForBatchRenew &faasInfo,
+                                               std::vector<std::string> &leaseIds)
 {
-    auto otherSchedulerInstanceId = this->csHash->Next(functionId, true);
+    std::string otherSchedulerInstanceId = GetNextSchedulerWithRing(faasInfo.functionId, faasInfo.ringName);
     for (std::string &leaseId : leaseIds) {
         auto it = this->globalLeases.find(leaseId);
         if (it != this->globalLeases.end()) {
@@ -870,6 +922,49 @@ void FaasInsManager::ChangeInstanceSchedulerId(const std::string &functionId, st
                 absl::WriterMutexLock insInfoLock(&instanceInfo->mtx);
                 instanceInfo->faasInfo.schedulerInstanceID = otherSchedulerInstanceId;
             }
+        }
+    }
+}
+
+bool FaasInsManager::NeedRetryOwnerScheduler(std::shared_ptr<InvokeSpec> invokeSpec, const std::string &schedulerId)
+{
+    if (schedulerId.empty() || schedulerId != invokeSpec->ownerScheduler.schedulerInstanceID) {
+        return true;
+    }
+    if (invokeSpec->ownerScheduler.currentRetryTimeSpent < invokeSpec->ownerScheduler.maxRetryTimeSpent) {
+        YRLOG_WARN("sleep {}ms for retry owner scheduler {}, current has spend {}ms", OWNER_SCHEDULER_RETYR_DELAYTIME,
+                   invokeSpec->ownerScheduler.schedulerInstanceID,
+                   invokeSpec->ownerScheduler.currentRetryTimeSpent);
+        std::this_thread::sleep_for(std::chrono::milliseconds(OWNER_SCHEDULER_RETYR_DELAYTIME));
+        invokeSpec->ownerScheduler.currentRetryTimeSpent += OWNER_SCHEDULER_RETYR_DELAYTIME;
+    } else {
+        YRLOG_WARN("owner scheduler {} has reached the maximum retry time; no further retries are needed.",
+                   invokeSpec->ownerScheduler.schedulerInstanceID);
+        return false;
+    }
+
+    return true;
+}
+
+void FaasInsManager::ProcessNonOwnerBatchRenew(const FaasInfoForBatchRenew &faasInfo,
+                                               const std::string &ownSchedulerId, const std::string &leaseId)
+{
+    auto it = this->globalLeases.find(leaseId);
+    if (it != this->globalLeases.end()) {
+        auto instanceInfo = GetInstanceInfo(it->second, it->first);
+        if (instanceInfo == nullptr) {
+            return;
+        }
+        {
+            YRLOG_WARN("failed to renew instance {}, scheduler {} change to {}", leaseId,
+                       instanceInfo->faasInfo.schedulerInstanceID, ownSchedulerId);
+            absl::WriterMutexLock insInfoLock(&instanceInfo->mtx);
+            instanceInfo->faasInfo.schedulerInstanceID = ownSchedulerId;
+        }
+        if (faasInfo.ringName == BLUE_RING_NAME) {
+            schedulerManagerBlue->SetRoute(faasInfo.functionId, ownSchedulerId);
+        } else {
+            schedulerManagerGreen->SetRoute(faasInfo.functionId, ownSchedulerId);
         }
     }
 }
@@ -950,6 +1045,14 @@ void FaasInsManager::BatchRenewHandler()
                 i++;
                 faasInfo = FaasInfoForBatchRenew(instanceInfo->faasInfo, i);
             }
+            if (blueRatio != 0 && blueRatio != FULL_BLUE_RATIO && it->second.opts.instanceSession) {
+                std::string ringName =
+                    (hashToPer(it->second.opts.instanceSession->sessionID) < blueRatio) ? BLUE_RING_NAME :
+                                                                                          GREEN_RING_NAME;
+                if (faasInfo.ringName != ringName) {
+                    continue;
+                }
+            }
             auto report = instanceInfo->reporter->Report(false);
             nlohmann::json instanceReport;
             instanceReport["procReqNum"] = report.procReqNum;
@@ -999,12 +1102,11 @@ void FaasInsManager::BatchRenewHandler()
         auto messageSpec = std::make_shared<InvokeMessageSpec>(std::move(req));
         auto weak_this = weak_from_this();
         std::vector<std::string> &leaseIds = leaseIdsMap[faasInfo];
-        auto functionId = faasInfo.functionId;
         this->fsClient->InvokeAsync(
             messageSpec,
-            [weak_this, leaseIds, functionId](const NotifyRequest &notifyReq, const ErrorInfo &err) -> void {
+            [weak_this, leaseIds, faasInfo = faasInfo](const NotifyRequest &notifyReq, const ErrorInfo &err) -> void {
                 if (auto this_ptr = weak_this.lock(); this_ptr) {
-                    this_ptr->ProcessBatchRenewResult(notifyReq, functionId, err, leaseIds);
+                    this_ptr->ProcessBatchRenewResult(notifyReq, faasInfo, err, leaseIds);
                 }
             });
     }
@@ -1020,14 +1122,20 @@ std::shared_ptr<YR::utility::Timer> FaasInsManager::CreateBatchRenewTimer()
     });
 }
 
-void FaasInsManager::UpdateSchedulerInfo(const std::string &schedulerFuncKey,
-                                         const std::vector<SchedulerInstance> &schedulerInstanceList)
+void FaasInsManager::UpdateSchedulerInfo(const SchedulerInfo &schedulerInfo)
 {
     YRLOG_INFO("recv update scheduler info");
-    this->csHash->ResetAll(schedulerInstanceList);
+    if (!schedulerInfo.greenSchedulerInstanceList.empty() || !schedulerInfo.blueSchedulerInstanceList.empty()) {
+        this->schedulerManagerGreen->ResetAll(schedulerInfo.greenSchedulerInstanceList);
+        this->schedulerManagerBlue->ResetAll(schedulerInfo.blueSchedulerInstanceList);
+        this->blueRatio = schedulerInfo.blueRatio;
+    } else {
+        this->schedulerManagerGreen->ResetAll(schedulerInfo.schedulerInstanceList);
+        this->blueRatio = 0;
+    }
     absl::WriterMutexLock lock(&this->schedulerFuncKeyMtx);
     if (this->schedulerFuncKey.empty()) {
-        this->schedulerFuncKey = schedulerFuncKey;
+        this->schedulerFuncKey = schedulerInfo.schedulerFuncKey;
     }
 }
 

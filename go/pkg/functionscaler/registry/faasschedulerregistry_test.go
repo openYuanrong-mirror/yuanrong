@@ -117,12 +117,14 @@ func TestFaasSchedulerRegistryWatcherHashHandler(t *testing.T) {
 		schedulerInstanceListDoneCh: make(chan struct{}, 1),
 	}
 	proxyMap := make(map[string]*commonTypes.InstanceInfo)
-	defer gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "Add", func(faaSScheduler *commonTypes.InstanceInfo, exclusivity string) {
-		proxyMap[faaSScheduler.InstanceName] = faaSScheduler
-	}).Reset()
-	defer gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "Remove", func(faasScheduler *commonTypes.InstanceInfo) {
-		delete(proxyMap, faasScheduler.InstanceName)
-	}).Reset()
+	defer gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "Add",
+		func(faaSScheduler *commonTypes.InstanceInfo, exclusivity string, eventTokenType string, versionFlag bool) {
+			proxyMap[faaSScheduler.InstanceName] = faaSScheduler
+		}).Reset()
+	defer gomonkey.ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "Remove",
+		func(instanceName string, tokenType string, versionFlag bool) {
+			delete(proxyMap, instanceName)
+		}).Reset()
 	hash1Event := mockEtcdEvent("schedulerName1", "schedulerInstanceId1", false)
 	lease1Event := mockEtcdEvent("schedulerName1", "schedulerInstanceId1", true)
 	hash2Event := mockEtcdEvent("schedulerName2", "schedulerInstanceId2", false)
@@ -161,17 +163,55 @@ func TestFaasSchedulerRegistryWatcherHashHandler(t *testing.T) {
 		fsr.schedulerHashHandler(mockEvent)
 		convey.So(len(proxyMap), convey.ShouldEqual, 0)
 		fsr.schedulerHashHandler(lease1Event)
-		fsr.schedulerHashHandler(lease2Event)
+		_, okLeaseId1 := fsr.moduleScheduler.leaseIds["green-schedulerName1"]
+		convey.So(okLeaseId1, convey.ShouldBeTrue)
+		_, okInsInfo1 := fsr.moduleScheduler.schedulerInsInfos["green-schedulerName1"]
+		convey.So(okInsInfo1, convey.ShouldBeFalse)
 		convey.So(len(proxyMap), convey.ShouldEqual, 0)
+
+		fsr.schedulerHashHandler(lease2Event)
+		_, okLeaseId2 := fsr.moduleScheduler.leaseIds["green-schedulerName2"]
+		convey.So(okLeaseId2, convey.ShouldBeTrue)
+		_, okInsInfo2 := fsr.moduleScheduler.schedulerInsInfos["green-schedulerName2"]
+		convey.So(okInsInfo2, convey.ShouldBeFalse)
+		convey.So(len(proxyMap), convey.ShouldEqual, 0)
+
 		fsr.schedulerHashHandler(hash1Event)
+		_, okLeaseId11 := fsr.moduleScheduler.leaseIds["green-schedulerName1"]
+		convey.So(okLeaseId11, convey.ShouldBeTrue)
+		_, okInsInfo11 := fsr.moduleScheduler.schedulerInsInfos["green-schedulerName1"]
+		convey.So(okInsInfo11, convey.ShouldBeTrue)
+		convey.So(len(proxyMap), convey.ShouldEqual, 1)
+
 		fsr.schedulerHashHandler(hash2Event)
+		_, okLeaseId22 := fsr.moduleScheduler.leaseIds["green-schedulerName2"]
+		convey.So(okLeaseId22, convey.ShouldBeTrue)
+		_, okInsInfo22 := fsr.moduleScheduler.schedulerInsInfos["green-schedulerName2"]
+		convey.So(okInsInfo22, convey.ShouldBeTrue)
 		convey.So(len(proxyMap), convey.ShouldEqual, 2)
 
 		hash1Event.Type = etcd3.DELETE
 		fsr.schedulerHashHandler(hash1Event)
+		_, okLeaseId11 = fsr.moduleScheduler.leaseIds["green-schedulerName1"]
+		convey.So(okLeaseId11, convey.ShouldBeTrue)
+		_, okInsInfo11 = fsr.moduleScheduler.schedulerInsInfos["green-schedulerName1"]
+		convey.So(okInsInfo11, convey.ShouldBeFalse)
+		_, okLeaseId22 = fsr.moduleScheduler.leaseIds["green-schedulerName2"]
+		convey.So(okLeaseId22, convey.ShouldBeTrue)
+		_, okInsInfo22 = fsr.moduleScheduler.schedulerInsInfos["green-schedulerName2"]
+		convey.So(okInsInfo22, convey.ShouldBeTrue)
 		convey.So(len(proxyMap), convey.ShouldEqual, 1)
+
 		lease2Event.Type = etcd3.DELETE
 		fsr.schedulerHashHandler(lease2Event)
+		_, okLeaseId11 = fsr.moduleScheduler.leaseIds["green-schedulerName1"]
+		convey.So(okLeaseId11, convey.ShouldBeTrue)
+		_, okInsInfo11 = fsr.moduleScheduler.schedulerInsInfos["green-schedulerName1"]
+		convey.So(okInsInfo11, convey.ShouldBeFalse)
+		_, okLeaseId22 = fsr.moduleScheduler.leaseIds["green-schedulerName2"]
+		convey.So(okLeaseId22, convey.ShouldBeFalse)
+		_, okInsInfo22 = fsr.moduleScheduler.schedulerInsInfos["green-schedulerName2"]
+		convey.So(okInsInfo22, convey.ShouldBeTrue)
 		convey.So(len(proxyMap), convey.ShouldEqual, 0)
 
 		hash1Event.Type = etcd3.SYNCED

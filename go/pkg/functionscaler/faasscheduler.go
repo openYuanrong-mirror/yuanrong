@@ -19,7 +19,6 @@ package functionscaler
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
@@ -49,7 +48,6 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
 	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
-	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
@@ -82,8 +80,6 @@ var (
 	insOpBatchRetain InstanceOperation = "batchRetain"
 	// insOpRelease stands for instance release operation
 	insOpRelease InstanceOperation = "release"
-	// insOpRelease stands for instance release operation
-	insOpRollout InstanceOperation = "rollout"
 	// insOpQuerySession stands for query session operation
 	insOpQuerySession InstanceOperation = "querySession"
 	// insOpUnknown stands for unknown instance operation
@@ -166,9 +162,6 @@ func NewFaaSScheduler(stopCh <-chan struct{}) *FaaSScheduler {
 	go healthlog.PrintHealthLog(stopCh, printInputLog, logFileName)
 	if config.GlobalConfig.AlarmConfig.EnableAlarm {
 		faasScheduler.PoolManager.CheckMinInsAndReport(stopCh)
-	}
-	if selfregister.IsRolloutObject {
-		go faasScheduler.syncAllocRecordDuringRollout()
 	}
 	go metrics.InitServerMetric(stopCh)
 
@@ -335,10 +328,6 @@ func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceI
 		logger.Infof("process of instance operation %s target %s cost %dms", insOp, targetName,
 			time.Now().Sub(startTime).Milliseconds())
 	}()
-	result, err, shouldReply := fs.HandleRequestForward(insOp, args, traceID)
-	if shouldReply {
-		return result, err
-	}
 	var response interface{}
 	switch insOp {
 	case insOpCreate:
@@ -353,8 +342,6 @@ func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceI
 		response = fs.handleInstanceRetain(targetName, extraData, traceID)
 	case insOpBatchRetain:
 		response = fs.handleInstanceBatchRetain(targetName, extraData, traceID)
-	case insOpRollout:
-		response = fs.handleRollout(targetName, traceID)
 	case insOpQuerySession:
 		response = fs.handleQuerySession(targetName, extraData, traceID)
 	default:
@@ -368,49 +355,6 @@ func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceI
 		return nil, err
 	}
 	return respData, nil
-}
-
-// HandleRequestForward return forward result and  shouldReply flag
-func (fs *FaaSScheduler) HandleRequestForward(insOp InstanceOperation, args []api.Arg, traceID string) ([]byte, error,
-	bool,
-) {
-	if !rollout.GetGlobalRolloutHandler().IsGaryUpdating {
-		return []byte{}, nil, false
-	}
-	logger := log.GetLogger().With(zap.Any("traceID", traceID))
-	switch insOp {
-	case insOpCreate, insOpAcquire:
-		if rollout.GetGlobalRolloutHandler().ShouldForwardRequest() {
-			logger.Infof("gray updating forward %s request to instance %s", string(insOp),
-				rollout.GetGlobalRolloutHandler().ForwardInstance)
-			result, err := rollout.InvokeByInstanceId(args, rollout.GetGlobalRolloutHandler().ForwardInstance,
-				traceID)
-			if err != nil {
-				// 调用另一个scheduler失败需要兜底
-				return result, err, false
-			}
-			response := &commonTypes.InstanceResponse{}
-			err = json.Unmarshal(result, response)
-			if err != nil {
-				return []byte{}, err, false
-			}
-			if response.ErrorCode == statuscode.NoInstanceAvailableErrCode ||
-				response.ErrorCode == statuscode.InsThdReqTimeoutCode {
-				logger.Infof("gray updating get no instance available error %s from instance %s",
-					response.ErrorCode, rollout.GetGlobalRolloutHandler().ForwardInstance)
-				return []byte{}, nil, false
-			}
-			return result, err, true
-		}
-	case insOpRelease, insOpRetain, insOpBatchRetain, insOpDelete:
-		logger.Infof("gray updating forward %s request to instance %s", string(insOp),
-			rollout.GetGlobalRolloutHandler().ForwardInstance)
-		_, _ = rollout.InvokeByInstanceId(args, rollout.GetGlobalRolloutHandler().ForwardInstance, traceID)
-		return []byte{}, nil, false
-	default:
-		logger.Warnf("unknown instance operation %s", insOp)
-	}
-	return []byte{}, nil, false
 }
 
 func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventData []byte,
@@ -949,6 +893,10 @@ func (fs *FaaSScheduler) reacquireLease(targetName, traceID string, insThdMetric
 		return nil, err
 	}
 	funcSpec := getFuncSpecFunc(registry.GlobalRegistry, insThdMetrics.FunctionKey)
+	if funcSpec == nil {
+		logger.Errorf("failed to get instance, function %s doesn't exist", insThdMetrics.FunctionKey)
+		return nil, snerror.New(statuscode.FuncMetaNotFoundErrCode, statuscode.FuncMetaNotFoundErrMsg)
+	}
 
 	resSpec, err := getResourceSpecification(dataInfo.resourceData, dataInfo.invokeLabel, funcSpec)
 	if err != nil {
@@ -996,55 +944,6 @@ func (fs *FaaSScheduler) retainStateInstance(targetName string, insAlloc *types.
 		return nil, snerror.New(constant.LeaseExpireOrDeletedErrorCode, constant.LeaseExpireOrDeletedErrorMessage)
 	}
 	return insAlloc, nil
-}
-
-func (fs *FaaSScheduler) handleRollout(targetName, traceID string) *commonTypes.RolloutResponse {
-	logger := log.GetLogger().With(zap.Any("traceID", traceID))
-	logger.Infof("received rollout request from %s, start to gray update", targetName)
-	if !config.GlobalConfig.EnableRollout {
-		return generateRolloutErrorResponse("", nil, errors.New("rollout is not enable"))
-	}
-	discoveryConfig := config.GlobalConfig.SchedulerDiscovery
-	if discoveryConfig == nil || discoveryConfig.RegisterMode != types.RegisterTypeContend {
-		return generateRolloutErrorResponse("", nil, errors.New("incompatible register mode"))
-	}
-	if !selfregister.Registered || len(selfregister.RegisterKey) == 0 {
-		return generateRolloutErrorResponse("", nil, errors.New("scheduler not registered"))
-	}
-	rollout.GetGlobalRolloutHandler().IsGaryUpdating = true
-	selfregister.IsRollingOut = true
-	rollout.GetGlobalRolloutHandler().UpdateForwardInstance(targetName)
-	allocRecord := make(map[string][]string)
-	fs.allocRecord.Range(func(key, value any) bool {
-		allocLease, ok := key.(string)
-		if !ok {
-			logger.Warnf("allocRecord key is invalid")
-			return true
-		}
-		insAlloc, ok := value.(*types.InstanceAllocation)
-		if !ok {
-			logger.Warnf("allocRecord value is invalid")
-			return true
-		}
-		funcKey := insAlloc.Instance.FuncKey
-		allocRecord[funcKey] = append(allocRecord[funcKey], allocLease)
-		return true
-	})
-	return generateRolloutErrorResponse(selfregister.RegisterKey, allocRecord, nil)
-}
-
-func (fs *FaaSScheduler) syncAllocRecordDuringRollout() {
-	syncCh := rollout.GetGlobalRolloutHandler().GetAllocRecordSyncChan()
-	for {
-		select {
-		case allocRecord, ok := <-syncCh:
-			if !ok {
-				log.GetLogger().Warnf("stop syncing allocation record")
-				return
-			}
-			fs.syncAllocRecord(allocRecord)
-		}
-	}
 }
 
 func (fs *FaaSScheduler) syncAllocRecord(allocRecord map[string][]string) {
@@ -1266,23 +1165,6 @@ func generateInstanceResponse(insAlloc *types.InstanceAllocation, snErr snerror.
 		ErrorCode:     constant.InsReqSuccessCode,
 		ErrorMessage:  constant.InsReqSuccessMessage,
 		SchedulerTime: time.Now().Sub(startTime).Seconds(),
-	}
-}
-
-func generateRolloutErrorResponse(registerKey string, allocRecord map[string][]string,
-	err error,
-) *commonTypes.RolloutResponse {
-	errorCode := constant.InsReqSuccessCode
-	errorMessage := constant.InsReqSuccessMessage
-	if err != nil {
-		errorCode = statuscode.InternalErrorCode
-		errorMessage = err.Error()
-	}
-	return &commonTypes.RolloutResponse{
-		RegisterKey:  registerKey,
-		AllocRecord:  allocRecord,
-		ErrorCode:    errorCode,
-		ErrorMessage: errorMessage,
 	}
 }
 

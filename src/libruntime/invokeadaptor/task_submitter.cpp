@@ -748,7 +748,8 @@ bool TaskSubmitter::NeedRetryCreate(const ErrorInfo &errInfo)
 {
     auto errCode = errInfo.Code();
     if (errCode == ErrorCode::ERR_RESOURCE_NOT_ENOUGH || errCode == ErrorCode::ERR_INNER_COMMUNICATION ||
-        errCode == ErrorCode::ERR_REQUEST_BETWEEN_RUNTIME_BUS) {
+        errCode == ErrorCode::ERR_REQUEST_BETWEEN_RUNTIME_BUS ||
+        errCode == ErrorCode::ERR_NON_CORRECT_SCHEDULER_OWNER) {
         return true;
     }
     return false;
@@ -983,15 +984,22 @@ ErrorInfo TaskSubmitter::ReleaseInstance(const std::string &leaseId, const std::
         ->ReleaseInstance(leaseId, stateId, abnormal, spec);
 }
 
-void TaskSubmitter::UpdateFaaSSchedulerInfo(std::string schedulerFuncKey,
-                                            const std::vector<SchedulerInstance> &schedulerInfoList)
+void TaskSubmitter::UpdateFaaSSchedulerInfo(const SchedulerInfo &schedulerInfo)
 {
     if (insManagers[libruntime::ApiType::Faas]) {
-        insManagers[libruntime::ApiType::Faas]->UpdateSchedulerInfo(schedulerFuncKey, schedulerInfoList);
+        insManagers[libruntime::ApiType::Faas]->UpdateSchedulerInfo(schedulerInfo);
     }
     if (insManagers[libruntime::ApiType::Serve]) {
-        insManagers[libruntime::ApiType::Serve]->UpdateSchedulerInfo(schedulerFuncKey, schedulerInfoList);
+        insManagers[libruntime::ApiType::Serve]->UpdateSchedulerInfo(schedulerInfo);
     }
+}
+
+uint32_t TaskSubmitter::GetSchedulerBlueRatio()
+{
+    if (insManagers[libruntime::ApiType::Faas]) {
+        return insManagers[libruntime::ApiType::Faas]->GetSchedulerBlueRatio();
+    }
+    return 0;
 }
 
 void TaskSubmitter::DeleteInsCallback(const std::string &instanceId)

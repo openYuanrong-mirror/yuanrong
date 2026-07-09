@@ -36,7 +36,6 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/httpserver"
 	"yuanrong.org/kernel/pkg/functionscaler/instancepool"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
-	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/signalmanager"
 	"yuanrong.org/kernel/pkg/functionscaler/state"
@@ -187,7 +186,6 @@ func HealthCheckHandlerLibruntime() (api.HealthType, error) {
 }
 
 func setupFunctionSchedulerLibruntime(fsClient api.LibruntimeAPI) error {
-	rollout.SetRolloutSdkClient(fsClient)
 	if err := registry.InitRegistry(stopCh); err != nil {
 		return err
 	}

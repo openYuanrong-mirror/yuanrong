@@ -60,7 +60,11 @@ var (
 
 // SchedulerProxy is used to get instances from FaaSScheduler via a grpc stream
 type SchedulerProxy struct {
-	FaaSSchedulers sync.Map
+	// For version compatibility, FaaSSchedulers includes a complete list of schedulers
+	// from the current(blue or green) ring system
+	FaaSSchedulers      sync.Map
+	GreenFaaSSchedulers sync.Map
+	BlueFaaSSchedulers  sync.Map
 	// used to select a FaaSScheduler by the func info Concurrent Consistent Hash
 	loadBalance loadbalance.LoadBalance
 }
@@ -129,7 +133,18 @@ func NewSchedulerProxy(lb loadbalance.LoadBalance) *SchedulerProxy {
 }
 
 // Add an FaaSScheduler
-func (sp *SchedulerProxy) Add(faaSScheduler *types.InstanceInfo, exclusivity string) {
+func (sp *SchedulerProxy) Add(faaSScheduler *types.InstanceInfo, exclusivity string,
+	tokenType string, currentVersionFlag bool) {
+	if tokenType == constant.GreenTokenType {
+		sp.GreenFaaSSchedulers.Store(faaSScheduler.InstanceName, faaSScheduler)
+	} else if tokenType == constant.BlueTokenType {
+		sp.BlueFaaSSchedulers.Store(faaSScheduler.InstanceName, faaSScheduler)
+	}
+	if !currentVersionFlag {
+		log.GetLogger().Infof("no need to add scheduler %s to load balance for not currentVersion tokenType %s",
+			faaSScheduler.InstanceName, tokenType)
+		return
+	}
 	sp.FaaSSchedulers.Store(faaSScheduler.InstanceName, faaSScheduler)
 	if exclusivity != "" {
 		// do not add exclusivity scheduler to load balance
@@ -143,9 +158,16 @@ func (sp *SchedulerProxy) Add(faaSScheduler *types.InstanceInfo, exclusivity str
 }
 
 // Remove a FaaSScheduler
-func (sp *SchedulerProxy) Remove(faasScheduler *types.InstanceInfo) {
-	sp.loadBalance.Remove(faasScheduler.InstanceName)
-	sp.FaaSSchedulers.Delete(faasScheduler.InstanceName)
+func (sp *SchedulerProxy) Remove(instanceName string, tokenType string, versionFlag bool) {
+	if versionFlag {
+		sp.loadBalance.Remove(instanceName)
+		sp.FaaSSchedulers.Delete(instanceName)
+	}
+	if tokenType == constant.GreenTokenType {
+		sp.GreenFaaSSchedulers.Delete(instanceName)
+	} else if tokenType == constant.BlueTokenType {
+		sp.BlueFaaSSchedulers.Delete(instanceName)
+	}
 }
 
 // Reset - reset hash anchor point

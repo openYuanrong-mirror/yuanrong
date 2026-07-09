@@ -33,6 +33,7 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
 	"yuanrong.org/kernel/pkg/functionscaler/requestqueue"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
@@ -160,6 +161,7 @@ func TestAcquireInstanceReserved(t *testing.T) {
 }
 
 func TestPopInstanceReserved(t *testing.T) {
+	rollout.GetGlobalRolloutConfig().ProcessRatioDelete()
 	defer gomonkey.ApplyFunc((*selfregister.SchedulerProxy).IsFuncOwner, func(_ *selfregister.SchedulerProxy,
 		funcKey string) bool {
 		return true
@@ -169,6 +171,7 @@ func TestPopInstanceReserved(t *testing.T) {
 		FuncKey:          "testFunction",
 		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
 	}, resspeckey.ResSpecKey{}, 50*time.Millisecond, InsThdReqQueue)
+	rcs.(*ReservedConcurrencyScheduler).isFuncOwner = true
 	rcs.ConnectWithInstanceScaler(&fakeInstanceScaler{})
 	popIns1 := rcs.PopInstance(false)
 	assert.Nil(t, popIns1)
@@ -355,6 +358,7 @@ func TestAddInstancePublishReserved(t *testing.T) {
 		FuncKey:          "testFunction",
 		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
 	}, resspeckey.ResSpecKey{}, 50*time.Millisecond, InsThdReqQueue)
+	rcs.(*ReservedConcurrencyScheduler).isFuncOwner = true
 	rcs.AddInstance(&types.Instance{
 		InstanceID:    "instance1",
 		ConcurrentNum: 2,

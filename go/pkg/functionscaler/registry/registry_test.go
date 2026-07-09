@@ -38,6 +38,7 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/instanceconfig"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
@@ -56,6 +57,9 @@ func TestInitRegistry(t *testing.T) {
 			}),
 		ApplyMethod(reflect.TypeOf(&etcd3.EtcdWatcher{}), "StartList", func(_ *etcd3.EtcdWatcher) {
 			return
+		}),
+		ApplyMethod(reflect.TypeOf(&etcd3.EtcdClient{}), "AttachAZPrefix", func(_ *etcd3.EtcdClient, key string) string {
+			return key
 		}),
 		ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient {
 			return &etcd3.EtcdClient{}
@@ -983,6 +987,7 @@ func TestStartRegistry(t *testing.T) {
 	ew := &etcd3.EtcdWatcher{}
 	GlobalRegistry.FaaSSchedulerRegistry.schedulerInstanceWatcher = ew
 	GlobalRegistry.FaaSSchedulerRegistry.schedulerHashWatcher = ew
+	GlobalRegistry.FaaSSchedulerRegistry.schedulerBlueHashWatcher = ew
 	GlobalRegistry.FunctionRegistry.watcher = ew
 	GlobalRegistry.FunctionRegistry.userAgencyRegistry = &UserAgencyRegistry{watcher: ew}
 	GlobalRegistry.InstanceRegistry.watcher = ew
@@ -1355,11 +1360,47 @@ func TestGetSchedulerInfo(t *testing.T) {
 	convey.Convey("GetAllSchedulerInfo", t, func() {
 		schedulerRegistry := NewFaasSchedulerRegistry(make(chan struct{}))
 		selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "scheduler1",
-			InstanceID: "scheduler1-id"}, "")
+			InstanceID: "scheduler1-id"}, "", "", true)
 		info := schedulerRegistry.GetAllSchedulerInfo()
-		convey.So(info.SchedulerIDList[0], convey.ShouldEqual, "scheduler1")
 		convey.So(info.SchedulerInstanceList[0].InstanceID, convey.ShouldEqual, "scheduler1-id")
 		convey.So(info.SchedulerInstanceList[0].InstanceName, convey.ShouldEqual, "scheduler1")
+		selfregister.GlobalSchedulerProxy.Remove("scheduler1", "", true)
+	})
+
+	convey.Convey("GetAllSchedulerInfo with blue-green", t, func() {
+		originalRatio := rollout.GetGlobalRolloutConfig().CurrentRatio
+		defer func() {
+			rollout.GetGlobalRolloutConfig().CurrentRatio = originalRatio
+		}()
+		schedulerRegistry := NewFaasSchedulerRegistry(make(chan struct{}))
+		selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "schedulerA",
+			InstanceID: "schedulerA-id"}, "", constant.GreenTokenType, true)
+		selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "schedulerB",
+			InstanceID: "schedulerB-id"}, "", constant.GreenTokenType, true)
+		selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "schedulerC",
+			InstanceID: "schedulerC-id"}, "", constant.BlueTokenType, true)
+		selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "schedulerD",
+			InstanceID: "schedulerD-id"}, "", constant.BlueTokenType, true)
+		rollout.GetGlobalRolloutConfig().CurrentRatio = 50
+		info := schedulerRegistry.GetAllSchedulerInfo()
+
+		convey.So(len(info.SchedulerIDList), convey.ShouldEqual, 0)
+		convey.So(len(info.SchedulerInstanceList), convey.ShouldEqual, 0)
+		convey.So(len(info.GreenSchedulerInstanceList), convey.ShouldEqual, 2)
+		convey.So(len(info.BlueSchedulerInstanceList), convey.ShouldEqual, 2)
+		convey.So(info.BlueRatio, convey.ShouldEqual, 50)
+
+		selfregister.GlobalSchedulerProxy.Remove("schedulerA", constant.GreenTokenType, true)
+		selfregister.GlobalSchedulerProxy.Remove("schedulerC", constant.BlueTokenType, true)
+
+		info = schedulerRegistry.GetAllSchedulerInfo()
+		convey.So(len(info.SchedulerIDList), convey.ShouldEqual, 0)
+		convey.So(len(info.GreenSchedulerInstanceList), convey.ShouldEqual, 1)
+		convey.So(len(info.BlueSchedulerInstanceList), convey.ShouldEqual, 1)
+		convey.So(info.BlueRatio, convey.ShouldEqual, 50)
+
+		selfregister.GlobalSchedulerProxy.Remove("schedulerB", constant.GreenTokenType, true)
+		selfregister.GlobalSchedulerProxy.Remove("schedulerD", constant.BlueTokenType, true)
 	})
 }
 

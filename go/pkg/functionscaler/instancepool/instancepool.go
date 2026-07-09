@@ -1617,10 +1617,10 @@ func (gi *GenericInstancePool) handleManagedChange() {
 func (gi *GenericInstancePool) handleRatioChange(ratio int) {
 	gi.Lock()
 	for _, q := range gi.scaledInstanceQueue {
-		q.HandleRatioUpdate(ratio)
+		q.HandleGrayRatioUpdate()
 	}
 	for _, q := range gi.reservedInstanceQueue {
-		q.HandleRatioUpdate(ratio)
+		q.HandleGrayRatioUpdate()
 	}
 	gi.Unlock()
 }

@@ -33,6 +33,7 @@
 #include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
+#include "src/libruntime/utils/hash_utils.h"
 #include "src/libruntime/utils/serializer.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/string_utility.h"
@@ -643,8 +644,11 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
         return err;
     }
     std::string traceId = ConstructTraceId(opts);
-    YRLOG_DEBUG("start invoke stateless function, request id: {}, obj id: {}, trace id: {}", requestId,
-                returnObjs[0].id, traceId);
+    std::string hashStr = opts.instanceSession ? opts.instanceSession->sessionID : requestId;
+    opts.ringName =
+        (hashToPer(hashStr) < this->invokeAdaptor->GetSchedulerBlueRatio()) ? BLUE_RING_NAME : GREEN_RING_NAME;
+    YRLOG_DEBUG("start invoke stateless function, request id: {}, obj id: {}, trace id: {}, ring name: {}", requestId,
+                returnObjs[0].id, traceId, opts.ringName);
     auto spec = std::make_shared<InvokeSpec>(runtimeContext->GetJobId(), funcMeta, returnObjs, std::move(invokeArgs),
                                              libruntime::InvokeType::InvokeFunctionStateless, std::move(traceId),
                                              std::move(requestId), "", opts);
