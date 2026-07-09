@@ -1655,6 +1655,9 @@ cdef class Fnruntime:
 
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam) -> None:
         """
+        Deprecated. Retained only for compatibility with legacy batch write APIs.
+        Do not use it in new code.
+
         store multiple key-value pairs to ds
         :param keys: the keys to set
         :param values: the values to set. Size of values should equal to size of keys.
@@ -2489,6 +2492,63 @@ cdef class Fnruntime:
         check_error_info(ret.first, "Failed to set double counter")
         return ret.second
 
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        set gauge metric
+        :param data: GaugeData
+        :return: None
+        """
+        cdef:
+            CErrorInfo error_info
+            CGaugeData gauge_data
+        gauge_data = gauge_data_from_py(data)
+        with nogil:
+            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().SetGauge(gauge_data)
+        check_error_info(error_info, "Failed to set gauge")
+
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        increase gauge metric
+        :param data: GaugeData
+        :return: None
+        """
+        cdef:
+            CErrorInfo error_info
+            CGaugeData gauge_data
+        gauge_data = gauge_data_from_py(data)
+        with nogil:
+            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().IncreaseGauge(gauge_data)
+        check_error_info(error_info, "Failed to increase gauge")
+
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        decrease gauge metric
+        :param data: GaugeData
+        :return: None
+        """
+        cdef:
+            CErrorInfo error_info
+            CGaugeData gauge_data
+        gauge_data = gauge_data_from_py(data)
+        with nogil:
+            error_info = CLibruntimeManager.Instance().GetLibRuntime().get().DecreaseGauge(gauge_data)
+        check_error_info(error_info, "Failed to decrease gauge")
+
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        get value of gauge
+        :param data: GaugeData
+        :return: value
+        """
+        cdef:
+            pair[CErrorInfo, float] ret
+            CGaugeData gauge_data
+        gauge_data = gauge_data_from_py(data)
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GetValueGauge(gauge_data)
+        check_error_info(ret.first, "Failed to get gauge")
+        return ret.second
+
     def report_gauge(self, data: GaugeData) -> None:
         """
         report gauge metric
@@ -2736,7 +2796,7 @@ cdef class Fnruntime:
         if not ret.second.OK():
             if ret.second.IsTimeout():
                 raise_timeout_error_from_cpp(ret.second)
-            raise_value_error_from_cpp(ret.second, "failed to invoke instance")
+            raise_value_error_from_cpp(ret.second, f"failed to get instance by name: {cinstanceID}")
         return function_meta_from_cpp(ret.first)
 
     def is_local_instances(self, instance_ids: List[str]) -> bool:

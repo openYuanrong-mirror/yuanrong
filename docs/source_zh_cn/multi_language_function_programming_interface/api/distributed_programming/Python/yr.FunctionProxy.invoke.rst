@@ -1,5 +1,7 @@
+.. _invoke_fp:
+
 yr.FunctionProxy.invoke
-=======================================
+-----------------------------
 
 .. py:method:: yr.FunctionProxy.invoke(*args, **kwargs)
 

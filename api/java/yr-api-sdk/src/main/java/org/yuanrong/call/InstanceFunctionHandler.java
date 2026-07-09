@@ -91,7 +91,8 @@ public class InstanceFunctionHandler<R> extends Handler {
         Runtime runtime = YR.getRuntime();
         FunctionWrapper function = runtime.getJavaFunction(functionMeta);
         SdkUtils.checkJavaParameterTypes(function, args);
-        List<InvokeArg> packedArgs = SdkUtils.packInvokeArgs(args);
+        Class<?>[] paramTypes = function.getMethod().getParameterTypes();
+        List<InvokeArg> packedArgs = SdkUtils.packInvokeArgs(paramTypes, args);
         String objId = runtime.invokeInstance(functionMeta, this.instanceId, packedArgs, options);
         LOGGER.debug("Succeeded to invoke instance, objectRefId: {}", objId);
         Class<?> returnType = function.getReturnType().orElse(null);

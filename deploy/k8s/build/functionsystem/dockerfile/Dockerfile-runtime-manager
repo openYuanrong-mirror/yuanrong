@@ -106,6 +106,7 @@ USER root
 # runtime-manager
 COPY --chown=sn:sn   ${FUNCTIONSYSTEM_OUTPUT_DIR}/deploy/k8s/build/functionsystem/entrypoints/health-check ${SNHOME}/bin
 COPY --chown=sn:sn   ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/bin/runtime_manager ${SNHOME}/bin/runtime_manager
+COPY --chown=sn:sn   ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/lib/ ${SNHOME}/lib/
 
 # give runtime manager capabilities
 RUN setcap 'cap_dac_override,cap_sys_admin,cap_kill,cap_setgid,cap_setuid+ep' ${RUNTIMEMANAGER} && \
@@ -114,6 +115,7 @@ RUN setcap 'cap_dac_override,cap_sys_admin,cap_kill,cap_setgid,cap_setuid+ep' ${
     setcap 'cap_dac_override+ep' ${HOME}/runtime/go/bin/goruntime; fi && \
     echo "sn    ALL=NOPASSWD:/bin/bash -c /usr/bin/dmesg -T | tail -100" >> /etc/sudoers && \
     chmod -R 550 ${SNHOME}/bin && \
+    chmod -R 550 ${SNHOME}/lib && \
     echo "/home/snuser/snlib" >> /etc/ld.so.conf.d/snlib.conf && \
     echo "/home/snuser/runtime/go/bin" >> /etc/ld.so.conf.d/snlib.conf && sudo ldconfig && \
     mkdir -p /etc/yuanrong/cli && \

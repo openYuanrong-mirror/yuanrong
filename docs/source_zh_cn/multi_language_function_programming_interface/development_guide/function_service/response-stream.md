@@ -16,12 +16,28 @@
 
 ## 调用服务时流式返回
 
-调用 openYuanrong 服务时流式返回基于 SSE(Server-Send Events) 协议实现。在函数服务中通过上下文接口中的 `context.getStream()` 关联流，发送流数据。一个流式返回的 Java 函数服务示例如下。
+调用 openYuanrong 服务时流式返回基于 SSE(Server-Send Events) 协议实现。在函数服务中通过上下文接口中的 `context.get_stream()` 关联流，发送流数据。一个流式返回的函数服务示例如下。
+
+:::::{tab-set}
+::::{tab-item} Python
+
+```python
+import json
+
+def handler(event, context):
+    data = {"event":"this is a stream"}
+    context.get_stream().write(json.dumps(data))
+    return 'ok'
+```
+
+::::
+::::{tab-item} Java
 
 ```java
 package org.yuanrong.demo;
 
 import org.yuanrong.services.runtime.Context;
+import org.yuanrong.services.runtime.action.Stream;
 import com.google.gson.JsonObject;
 
 public class Demo {
@@ -29,10 +45,8 @@ public class Demo {
         try {
             Stream stream = context.getStream();
             JsonObject obj = new JsonObject();
-            obj.addProperty("name","handler");
             obj.addProperty("event","this is a stream");
             stream.write(obj);
-            stream.write(new JsonObject());
         } catch (Exception e) {
             System.out.println("executor exception occurred");
         }
@@ -40,3 +54,14 @@ public class Demo {
     }
 }
 ```
+
+::::
+:::::
+
+调用函数服务时，需要在请求头中添加 `Accept: text/event-stream` 字段。
+
+:::{Note}
+
+使用流式返回需要在部署 openYuanrong 时支持函数服务并配置 `frontend.args.enableEvent=true`。
+
+:::

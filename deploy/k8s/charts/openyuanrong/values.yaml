@@ -269,6 +269,7 @@ global:
     snuserLibPath: /home/snuser/snlib
     virtualEnvIdleTimeLimit: -1
     requestAckAccMaxSec: 60
+    defaultWriteMode: NONE_L2_CACHE
     serverModeEnable: true
     cleanStreamProducerEnable: true
     metricsCollectorType: proc

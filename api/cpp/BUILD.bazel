@@ -239,8 +239,6 @@ genrule(
         cp -rf $$BASE_DIR/external/boost/boost/*.hpp $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/boost/boost/*.h $$CPP_SDK_DIR/include/boost
         cp -rf $$BASE_DIR/external/nlohmann_json/single_include/nlohmann/json.hpp $$CPP_SDK_DIR/include
-        cp -rf $$BASE_DIR/external/boringssl/*.so* $$CPP_SDK_DIR/lib 2>/dev/null || true
-        cp -rf $$BASE_DIR/external/boringssl/*.dylib* $$CPP_SDK_DIR/lib 2>/dev/null || true
         chmod +w $(locations :cpp_strip) &&
         if [[ "$$(uname)" != "Darwin" ]]; then chrpath -d $(locations :cpp_strip) 2>/dev/null || true; fi &&
         cp -rf $(locations :cpp_strip) $$CPP_SDK_DIR/lib/ &&
@@ -266,7 +264,15 @@ genrule(
             cp -rf $$DATASYSTEM_DIR/include/* $$CPP_SDK_DIR/include/ || true
         fi &&
         if [ -d "$$DATASYSTEM_DIR/lib" ]; then
-            cp -rf $$DATASYSTEM_DIR/lib/* $$CPP_SDK_DIR/lib/ || true
+            for f in "$$DATASYSTEM_DIR"/lib/*; do
+                [ -e "$$f" ] || [ -L "$$f" ] || continue
+                case "$$(basename "$$f")" in
+                    libyr-api.so*|libfunctionsdk.so*|libcurl.so*|libssl.so|libcrypto.so)
+                        continue
+                        ;;
+                esac
+                cp -rf "$$f" $$CPP_SDK_DIR/lib/ || true
+            done
         fi &&
         for f in $(SRCS); do
             case "$$(basename "$$f")" in
@@ -274,6 +280,23 @@ genrule(
                     [ -f "$$f" ] && cp -rf "$$f" $$CPP_SDK_DIR/lib || true
                     ;;
             esac
+        done &&
+        for lib_name in ssl crypto; do
+            link_path="$$CPP_SDK_DIR/lib/lib$${lib_name}.so"
+            target_name=""
+            for candidate in \
+                "$$CPP_SDK_DIR/lib/lib$${lib_name}.so.3" \
+                "$$CPP_SDK_DIR/lib/lib$${lib_name}.so.1.1" \
+                "$$CPP_SDK_DIR/lib/lib$${lib_name}.so."*; do
+                if [ -e "$$candidate" ]; then
+                    target_name="$$(basename "$$candidate")"
+                    break
+                fi
+            done
+            if [ -n "$$target_name" ]; then
+                rm -f "$$link_path"
+                ln -s "$$target_name" "$$link_path"
+            fi
         done &&
         EXAMPLE_3RD_DIR=$$BASE_DIR/api/cpp/example/3rd &&
         rm -rf $$EXAMPLE_3RD_DIR &&

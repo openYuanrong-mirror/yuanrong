@@ -240,16 +240,49 @@ public class SdkUtils {
      * @throws YRException If there is an error in packing the arguments.
      */
     public static List<InvokeArg> packInvokeArgs(Object... args) throws YRException {
+        return packInvokeArgs(null, args);
+    }
+
+    /**
+     * Pack the arguments to be invoked into a list of InvokeArg objects.
+     * When a declared parameter type is {@code ObjectRef}, the argument is packed by reference (the objId is
+     * put into {@code nestedObjects}) so that the callee receives an {@code ObjectRef} and resolves it via
+     * {@code YR.get()}. When the declared parameter type is not {@code ObjectRef} but an {@code ObjectRef}
+     * is passed, the argument is packed as a value reference (the objId is set and {@code isObjectRef} is
+     * true) so that the runtime resolves it to the actual value before the callee is invoked.
+     *
+     * @param parameterTypes The declared parameter types of the target function, or {@code null} if unknown
+     *                       (cross-language URN calls). When {@code null}, {@code ObjectRef} arguments are
+     *                       always packed by reference.
+     * @param args The arguments to be packed.
+     * @return A list of InvokeArg objects.
+     * @throws YRException If there is an error in packing the arguments.
+     */
+    public static List<InvokeArg> packInvokeArgs(Class<?>[] parameterTypes, Object... args) throws YRException {
         List<InvokeArg> invokeArgs = new ArrayList<InvokeArg>();
-        for (Object arg : args) {
+        for (int i = 0; i < args.length; i++) {
+            Object arg = args[i];
             InvokeArg invokeArg;
             try {
                 invokeArg = new InvokeArg(Serializer.serialize(arg));
             } catch (JsonProcessingException e) {
                 throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME_INVOKE, e);
             }
-            invokeArg.setObjectRef(false);
-            invokeArg.setNestedObjects(new HashSet<>());
+            boolean declaredAsObjectRef = parameterTypes != null && i < parameterTypes.length
+                    && ObjectRef.class.isAssignableFrom(parameterTypes[i]);
+            if (arg instanceof ObjectRef && !declaredAsObjectRef) {
+                invokeArg.setObjectRef(true);
+                invokeArg.setObjId(((ObjectRef) arg).getObjId());
+                invokeArg.setNestedObjects(new HashSet<>());
+            } else if (arg instanceof ObjectRef) {
+                invokeArg.setObjectRef(false);
+                HashSet<String> nestedObjects = new HashSet<>();
+                nestedObjects.add(((ObjectRef) arg).getObjId());
+                invokeArg.setNestedObjects(nestedObjects);
+            } else {
+                invokeArg.setObjectRef(false);
+                invokeArg.setNestedObjects(new HashSet<>());
+            }
             invokeArgs.add(invokeArg);
         }
         return invokeArgs;

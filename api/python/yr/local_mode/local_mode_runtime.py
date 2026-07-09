@@ -161,6 +161,9 @@ class LocalModeRuntime(Runtime, ABC):
 
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam) -> None:
         """
+        Deprecated. Retained only for compatibility with legacy batch write APIs.
+        Do not use it in new code.
+
         store multiple key-value pairs to ds
         :param keys: the keys to set
         :param values: the values to set. Size of values should equal to size of keys.
@@ -569,6 +572,38 @@ class LocalModeRuntime(Runtime, ABC):
         """
         get value of double counter metrics
         :param data: DoubleCounterData
+        :return: value
+        """
+        raise RuntimeError("not support in local mode")
+
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        set gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        increase gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        decrease gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        get value of gauge metrics
+        :param data: GaugeData
         :return: value
         """
         raise RuntimeError("not support in local mode")

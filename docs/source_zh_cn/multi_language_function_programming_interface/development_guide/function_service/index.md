@@ -7,6 +7,7 @@
 
    function-configuration
    version-management
+   response-stream
 ```
 
 openYuanrong 提供了函数服务能力，支持 openYuanrong 函数以 Serverless 服务方式运行，使用 HTTP 请求访问。服务实例随请求并发量全自动弹性伸缩，无请求时缩容到 0。函数服务定义了 Handler 方法作为请求处理入口，其签名如下。
@@ -134,7 +135,7 @@ int main(int argc, char *argv[])
 
 ```java
 
-import com.services.runtime.Context;
+import org.yuanrong.services.runtime.Context;
 import com.google.gson.JsonObject;
 import java.time.LocalDate;
 
@@ -464,3 +465,4 @@ openYuanrong 支持为函数配置不同的请求调度策略，包括 concurren
 
 - [配置函数](./function-configuration.md)
 - [版本管理](./version-management.md)
+- [流式响应](./response-stream.md)

@@ -16,12 +16,28 @@ View the complete usage example in [Using Streams in Function Services](../../ex
 
 ## Streaming Returns When Invoking Services
 
-Streaming returns when invoking openYuanrong services are implemented based on the SSE (Server-Send Events) protocol. In function services, associate streams through the `context.getStream()` interface in the context interface to send stream data. An example of a Java function service with streaming returns is as follows.
+Streaming returns when invoking openYuanrong services are implemented based on the SSE (Server-Send Events) protocol. In function services, associate streams through the `context.getStream()` interface in the context interface to send stream data. An example of a function service with streaming returns is as follows.
+
+:::::{tab-set}
+::::{tab-item} Python
+
+```python
+import json
+
+def handler(event, context):
+    data = {"event":"this is a stream"}
+    context.get_stream().write(json.dumps(data))
+    return 'ok'
+```
+
+::::
+::::{tab-item} Java
 
 ```java
 package org.yuanrong.demo;
 
 import org.yuanrong.services.runtime.Context;
+import org.yuanrong.services.runtime.action.Stream;
 import com.google.gson.JsonObject;
 
 public class Demo {
@@ -29,10 +45,8 @@ public class Demo {
         try {
             Stream stream = context.getStream();
             JsonObject obj = new JsonObject();
-            obj.addProperty("name","handler");
             obj.addProperty("event","this is a stream");
             stream.write(obj);
-            stream.write(new JsonObject());
         } catch (Exception e) {
             System.out.println("executor exception occurred");
         }
@@ -40,3 +54,14 @@ public class Demo {
     }
 }
 ```
+
+::::
+:::::
+
+When invoking a function service, you need to add the `Accept: text/event-stream` field to the request header.
+
+:::{Note}
+
+Streaming response requires deploying openYuanrong with function service support and configuring `frontend.args.enableEvent=true`.
+
+:::

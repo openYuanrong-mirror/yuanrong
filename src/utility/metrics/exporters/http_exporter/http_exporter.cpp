@@ -34,8 +34,10 @@ MetricsExporter::ExportResult HttpExporter::Export(
     const std::vector<MetricsSdk::MetricData> &metricDataVec) noexcept
 {
     std::unordered_map<std::string, MetricsSdk::MetricData> metricDataMap;
+    size_t emptyPointDataCount = 0;
     for (auto &data : metricDataVec) {
         if (data.pointData.empty()) {
+            ++emptyPointDataCount;
             continue;
         }
         if (const auto &it = metricDataMap.find(data.instrumentDescriptor.name); it != metricDataMap.end()) {
@@ -53,6 +55,9 @@ MetricsExporter::ExportResult HttpExporter::Export(
         }
         serializer_->Serialize(oss, it.second);
     }
+    METRICS_LOG_INFO("HttpExporter serialized metrics, inputMetricCount {}, serializedMetricCount {}, "
+                     "emptyPointDataCount {}, bodyBytes {}, url {}",
+                     metricDataVec.size(), metricDataMap.size(), emptyPointDataCount, oss.str().size(), jobUrl_);
     return PushMetrics(method_, oss);
 }
 
@@ -68,11 +73,15 @@ MetricsExporter::ExportResult HttpExporter::PushMetrics(HttpRequestMethod method
         std::cerr << "Failed to push metrics, curlHelper is nullptr, url: " << url << std::endl;
         return MetricsExporter::ExportResult::FAILURE;
     }
+    METRICS_LOG_INFO("HttpExporter starts pushing metrics, url {}, method {}, bodyBytes {}", url,
+                     static_cast<int>(method), oss.str().size());
     auto responseCode = curlHelper_->SendRequest(method, url, oss);
+    METRICS_LOG_INFO("HttpExporter finished pushing metrics, responseCode {}, url {}, method {}", responseCode, url,
+                     static_cast<int>(method));
     if (responseCode < CODE_100 || responseCode >= CODE_400) {
         METRICS_LOG_ERROR("Failed to push metrics, errCode {}, url {}, method {}", responseCode, url,
                           static_cast<int>(method));
-        std::cerr << "<HttpExporter> push metrics error, code: " << responseCode << std::endl;
+        std::cerr << "<HttpExporter> push metrics error, code: " << responseCode << ", url: " << url << std::endl;
         StartMonitor();
         return MetricsExporter::ExportResult::FAILURE;
     }

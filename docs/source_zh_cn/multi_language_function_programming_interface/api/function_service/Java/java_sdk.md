@@ -110,13 +110,9 @@ public class demo {
 
     SessionService：会话服务实例，详见下文 SessionService 接口定义。
 
-# SessionService
+## public interface SessionService
 
 包名：`org.yuanrong.services.session`。
-
-提供会话访问能力的 SDK 接口。
-
-## public interface SessionService
 
 用于加载当前调用关联的会话对象。
 
@@ -153,11 +149,9 @@ public class demo {
 }
 ```
 
-# SessionObj
+## public interface SessionObj
 
 包名：`org.yuanrong.services.session`。
-
-## public interface SessionObj
 
 表示一个 Agent 会话对象。
 
@@ -262,11 +256,9 @@ public class demo {
 }
 ```
 
-# ManagedSessionObj
+## public class ManagedSessionObj implements SessionObj
 
 包名：`org.yuanrong.services.session`。
-
-## public class ManagedSessionObj implements SessionObj
 
 运行时管理的会话对象实现类，由 JNI 层在从 libruntime 加载后构造。
 
@@ -295,11 +287,29 @@ JSON 格式：`{"sessionID":"s-123","histories":["user: hello","assistant: hi"]}
 
     ManagedSessionObj：反序列化后的对象，json 为 null、空或解析失败时返回空对象。
 
-# Function
+## public class Stream
 
-包名：`org.yuanrong.function`。
+包名：`org.yuanrong.services.runtime.action`。
+
+函数运行时提供的流处理器，用户通过 `context.getStream()` 获取 Stream 对象后即可直接调用 `write()` 方法，运行时会自动完成所有必要的上下文设置。
+
+### Interface description
+
+#### public void write(JsonObject jsonObject)
+
+将 JSON 对象流式写入到客户端。
+
+- 参数：
+
+   - **jsonObject** (JsonObject) - 要写入的 JSON 对象。内部会序列化为 JSON 字符串后再发送。
+
+- 抛出：
+
+   - **YRException** (YRException) - 底层 JNI 调用失败时抛出。
 
 ## public class Function
+
+包名：`org.yuanrong.function`。
 
 函数类用于通过函数名称实现函数间的相互调用。
 
@@ -374,11 +384,9 @@ public class demo {
 }
 ```
 
-# InvokeException
+## public class InvokeException extends RuntimeException
 
 包名：`org.yuanrong.function.runtime.exception`。
-
-## public class InvokeException extends RuntimeException
 
 Yuanrong SDK 调用返回的错误类型。
 
@@ -447,12 +455,10 @@ Yuanrong SDK 调用返回的错误类型。
 #### public CreateOptions(int memory)
 
 初始化，CPU 设为 0，并且 `aliasParams` 为空。
-  
-# ObjectRef<T>
-
-包名：`org.yuanrong.function`。
 
 ## public class ObjectRef<T>
+
+包名：`org.yuanrong.function`。
 
 用于接收调用返回结果的对象。
 

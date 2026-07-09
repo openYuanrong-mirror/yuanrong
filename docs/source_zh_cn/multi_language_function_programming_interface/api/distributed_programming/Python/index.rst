@@ -368,6 +368,10 @@ Python
 KV 缓存 API
 -------------------
 
+.. warning::
+
+   ``yr.kv_m_write_tx`` 和 ``yr.MSetParam`` 已废弃，仅为兼容历史版本保留。新代码请勿继续使用。
+
 .. list-table::
    :header-rows: 0
    :widths: 30 70
@@ -377,7 +381,7 @@ KV 缓存 API
    * - :doc:`yr.kv_write_with_param`
      - 提供支持自定义参数配置的存储接口。用于以更灵活的方式将二进制数据写入数据系统。
    * - :doc:`yr.kv_m_write_tx`
-     - 提供一个类似 Redis 的集合存储接口，支持将一组二进制数据保存到数据系统。 
+     - 已废弃，仅为兼容历史版本保留。
    * - :doc:`yr.kv_read`
      - 提供类 Redis 的 get 获取数据接口，支持同时获取多个数据。
    * - :doc:`yr.kv_del`
@@ -403,7 +407,7 @@ KV 缓存 API
    * - :doc:`yr.SetParam`
      - 设置参数。
    * - :doc:`yr.MSetParam`
-     - 表示 `mset` 操作的参数配置类。
+     - 已废弃，仅为兼容历史版本保留。
    * - :doc:`yr.CreateParam`
      - 创建参数。
 

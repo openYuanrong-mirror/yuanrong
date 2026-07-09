@@ -390,6 +390,9 @@ void InvokeSpec::BuildInstanceInvokeRequest(const LibruntimeConfig &config)
     if (opts.instanceSession && !opts.instanceSession->sessionID.empty()) {
         customTag->insert({YR_AGENT_SESSION_ID, opts.instanceSession->sessionID});
     }
+    if (opts.isInterrupted) {
+        customTag->insert({IS_INTERRUPTED, "true"});
+    }
     if (!instanceRoute.empty()) {
         customTag->insert({YR_ROUTE, instanceRoute});
     }

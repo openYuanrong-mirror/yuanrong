@@ -1371,7 +1371,7 @@ func KVSet(key string, value []byte, param api.SetParam) error {
 	return nil
 }
 
-// KVMSetTx save binary datas to the data system.
+// KVMSetTx stores batch binary data for compatibility paths. The public MSetTx API is deprecated.
 func KVMSetTx(keys []string, values [][]byte, param api.MSetParam) error {
 	cKeys, cKeysLen := CStrings(keys)
 	defer freeCStrings(cKeys, cKeysLen)

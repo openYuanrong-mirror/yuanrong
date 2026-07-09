@@ -42,6 +42,8 @@ yr.Context
          - 获取 SessionService 实例，用于加载和修改当前调用的 Session 对象。
        * - :ref:`set_session_id <set_session_id>`
          - 设置当前调用的 session ID。
+       * - :ref:`get_stream <get_stream>`
+         - 获取 SSE 流对象。
 
 .. toctree::
     :maxdepth: 1
@@ -60,6 +62,7 @@ yr.Context
     yr.Context.get_session_id
     yr.Context.get_session_service
     yr.Context.set_session_id
+    yr.Context.get_stream
 
 yr.SessionService
 ---------------------

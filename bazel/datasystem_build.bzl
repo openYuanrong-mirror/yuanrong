@@ -1,4 +1,4 @@
-load("@yuanrong_multi_language_runtime//bazel:datasystem_rules.bzl", "ds_proto_gen", "ds_proto_cc_library")
+load("@yuanrong_multi_language_runtime//bazel:datasystem_rules.bzl", "ds_brpc_cc_library", "ds_brpc_proto_gen", "ds_proto_cc_library", "ds_proto_gen")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -17,6 +17,9 @@ exports_files([
     "third_party/patches/curl/8.8.0/Backport-CVE-2025-0725-fix-CVE-2025-0725-for-curl-8.8.0-c.patch",
     "third_party/patches/curl/8.8.0/support_old_cmake.patch",
     "third_party/patches/tbb/2020.3/soft-link.patch",
+    "third_party/patches/brpc/fix-boringssl-compat.patch",
+    "third_party/patches/brpc/avoid-glog-flag-conflicts.patch",
+    "third_party/leveldb.BUILD",
 ])
 
 # ============================================================================
@@ -57,7 +60,6 @@ cc_library(
 # Section 1: Standard proto compilation (no zmq_plugin needed)
 # ============================================================================
 
-PROTO_DIR = "src/datasystem/protos"
 PROTO_SRCS = glob(["src/datasystem/protos/*.proto"])
 
 ds_proto_gen(
@@ -94,6 +96,25 @@ ds_proto_gen(
     name = "p2p_subscribe",
     proto_src = "src/datasystem/protos/p2p_subscribe.proto",
     extra_proto_deps = ["src/datasystem/protos/utils.proto"],
+)
+
+ds_proto_gen(
+    name = "generic_service",
+    proto_src = "src/datasystem/protos/generic_service.proto",
+    extra_proto_deps = [],
+)
+
+ds_proto_gen(
+    name = "master_heartbeat",
+    proto_src = "src/datasystem/protos/master_heartbeat.proto",
+    extra_proto_deps = [],
+)
+
+ds_proto_gen(
+    name = "coordinator",
+    proto_src = "src/datasystem/protos/coordinator.proto",
+    zmq = True,
+    extra_proto_deps = PROTO_SRCS,
 )
 
 # Proto cc_libraries (standard - no ZMQ stubs)
@@ -158,6 +179,28 @@ ds_proto_cc_library(
     deps = [":utils_protos_client"],
 )
 
+ds_proto_cc_library(
+    name = "generic_service_protos",
+    proto_name = "generic_service",
+)
+
+ds_proto_cc_library(
+    name = "master_heartbeat_protos",
+    proto_name = "master_heartbeat",
+)
+
+ds_proto_cc_library(
+    name = "coordinator_protos",
+    proto_name = "coordinator",
+)
+
+ds_proto_cc_library(
+    name = "coordinator_protos_client",
+    proto_name = "coordinator",
+    zmq = True,
+    deps = [":utils_protos_client"],
+)
+
 # ============================================================================
 # Section 2: ZMQ protoc plugin binary
 # ============================================================================
@@ -181,6 +224,7 @@ cc_library(
         "@com_google_protobuf//:protobuf",
         "@com_google_protobuf//:protoc_lib",
         "@com_github_grpc_grpc//:grpc++",
+        "@com_github_apache_brpc//:brpc",
         "@boringssl//:ssl",
         "@boringssl//:crypto",
         "@com_googlesource_code_re2//:re2",
@@ -202,8 +246,34 @@ cc_binary(
     name = "zmq_plugin",
     srcs = [
         "src/datasystem/common/rpc/plugin_generator/zmq_plugin.cpp",
-        "src/datasystem/common/rpc/plugin_generator/zmq_rpc_generator.cpp",
-        "src/datasystem/common/rpc/plugin_generator/zmq_rpc_generator.h",
+        "src/datasystem/common/rpc/plugin_generator/brpc_service_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/brpc_stub_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/rpc_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/rpc_generator.h",
+        "src/datasystem/common/rpc/plugin_generator/service_cpp_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/service_header_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/stub_cpp_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/stub_header_generator.cpp",
+    ],
+    copts = DATASYSTEM_COPTS,
+    deps = [
+        "@com_google_protobuf//:protobuf",
+        "@com_google_protobuf//:protoc_lib",
+        ":utils_protos",
+        ":zmq_meta_protos",
+        ":rpc_option_protos",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_binary(
+    name = "rpc_plugin",
+    srcs = [
+        "src/datasystem/common/rpc/plugin_generator/rpc_plugin.cpp",
+        "src/datasystem/common/rpc/plugin_generator/brpc_service_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/brpc_stub_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/rpc_generator.cpp",
+        "src/datasystem/common/rpc/plugin_generator/rpc_generator.h",
         "src/datasystem/common/rpc/plugin_generator/service_cpp_generator.cpp",
         "src/datasystem/common/rpc/plugin_generator/service_header_generator.cpp",
         "src/datasystem/common/rpc/plugin_generator/stub_cpp_generator.cpp",
@@ -382,6 +452,130 @@ cc_library(
         ":master_object_protos_client",
         ":master_stream_protos_client",
     ],
+)
+
+# ============================================================================
+# Section 3b: brpc proto compilation used by recent datasystem master
+# ============================================================================
+
+ds_brpc_proto_gen(
+    name = "generic_service",
+    proto_src = "src/datasystem/protos/generic_service.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "generic_service_brpc",
+    proto_name = "generic_service",
+    deps = [":generic_service_protos"],
+)
+
+ds_brpc_proto_gen(
+    name = "master_heartbeat",
+    proto_src = "src/datasystem/protos/master_heartbeat.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "master_heartbeat_brpc",
+    proto_name = "master_heartbeat",
+    deps = [":master_heartbeat_protos"],
+)
+
+ds_brpc_proto_gen(
+    name = "coordinator",
+    proto_src = "src/datasystem/protos/coordinator.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "coordinator_brpc",
+    proto_name = "coordinator",
+    deps = [":coordinator_protos"],
+)
+
+ds_brpc_proto_gen(
+    name = "share_memory",
+    proto_src = "src/datasystem/protos/share_memory.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "share_memory_brpc",
+    proto_name = "share_memory",
+    deps = [":share_memory_protos_client", ":meta_transport_protos_client", ":utils_protos_client", ":rpc_option_protos"],
+)
+
+ds_brpc_proto_gen(
+    name = "object_posix",
+    proto_src = "src/datasystem/protos/object_posix.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "object_posix_brpc",
+    proto_name = "object_posix",
+    deps = [":posix_protos_client", ":p2p_subscribe_protos_client", ":meta_transport_protos_client", ":utils_protos_client", ":rpc_option_protos"],
+)
+
+ds_brpc_proto_gen(
+    name = "stream_posix",
+    proto_src = "src/datasystem/protos/stream_posix.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "stream_posix_brpc",
+    proto_name = "stream_posix",
+    deps = [":stream_posix_protos_client"],
+)
+
+ds_brpc_proto_gen(
+    name = "worker_stream",
+    proto_src = "src/datasystem/protos/worker_stream.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "worker_stream_brpc",
+    proto_name = "worker_stream",
+    deps = [":worker_stream_protos_client", ":stream_posix_brpc"],
+)
+
+ds_brpc_proto_gen(
+    name = "master_stream",
+    proto_src = "src/datasystem/protos/master_stream.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "master_stream_brpc",
+    proto_name = "master_stream",
+    deps = [":master_stream_protos_client", ":worker_stream_brpc", ":stream_posix_brpc"],
+)
+
+ds_brpc_proto_gen(
+    name = "worker_object",
+    proto_src = "src/datasystem/protos/worker_object.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "worker_object_brpc",
+    proto_name = "worker_object",
+    deps = [":worker_object_protos_client", ":posix_protos_client"],
+)
+
+ds_brpc_proto_gen(
+    name = "master_object",
+    proto_src = "src/datasystem/protos/master_object.proto",
+    extra_proto_deps = PROTO_SRCS,
+)
+
+ds_brpc_cc_library(
+    name = "master_object_brpc",
+    proto_name = "master_object",
+    deps = [":master_object_protos_client", ":worker_object_brpc", ":posix_protos_client"],
 )
 
 # ============================================================================
@@ -587,6 +781,35 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "common_metrics",
+    srcs = glob(
+        ["src/datasystem/common/metrics/*.cpp"],
+        exclude = ["src/datasystem/common/metrics/metrics_exporter.cpp"],
+    ),
+    hdrs = glob(
+        [
+            "src/datasystem/common/metrics/*.h",
+            "src/datasystem/common/metrics/*.def",
+        ],
+        exclude = ["src/datasystem/common/metrics/metrics_exporter.h"],
+    ),
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_inject",
+        ":common_log",
+        ":common_util",
+        ":ds_flags",
+        ":dynamic_flag_config",
+        ":hard_disk_exporter",
+        ":metrics_exporter_base",
+        "@nlohmann_json//:nlohmann_json",
+        "@securec//:securec",
+        ":datasystem_hdrs",
+    ],
+)
+
 # --- Level 1: ds_spdlog integration ---
 
 cc_library(
@@ -625,6 +848,32 @@ cc_library(
         ":datasystem_hdrs",
     ],
     linkopts = ["-lpthread"],
+)
+
+cc_library(
+    name = "common_log_sampler",
+    srcs = [
+        "src/datasystem/common/log/latency_phase.cpp",
+        "src/datasystem/common/log/log_sampler.cpp",
+        "src/datasystem/common/log/log_sampler_proto.cpp",
+        "src/datasystem/common/log/operation_logger.cpp",
+    ],
+    hdrs = [
+        "src/datasystem/common/log/latency_phase.h",
+        "src/datasystem/common/log/latency_phase_types.h",
+        "src/datasystem/common/log/log_sampler.h",
+        "src/datasystem/common/log/operation_logger.h",
+    ],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_log",
+        ":ds_flags",
+        ":ds_spdlog_lib",
+        ":share_memory_protos_client",
+        ":datasystem_hdrs",
+    ],
+    alwayslink = True,
 )
 
 # --- Level 2: common_util and friends ---
@@ -679,6 +928,7 @@ cc_library(
         "@securec//:securec",
         "@boringssl//:ssl",
         "@boringssl//:crypto",
+        "@com_github_apache_brpc//:brpc",
         "@com_googlesource_code_re2//:re2",
         "@zlib//:zlib",
         ":datasystem_hdrs",
@@ -687,6 +937,46 @@ cc_library(
         "@platforms//os:linux": ["-lpthread", "-ldl"],
         "//conditions:default": ["-lpthread"],
     }),
+)
+
+cc_library(
+    name = "dynamic_flag_config",
+    srcs = [
+        "src/datasystem/common/flags/common_flag_define.cpp",
+        "src/datasystem/common/flags/common_flags_validate.cpp",
+        "src/datasystem/common/flags/config_monitor_state.cpp",
+        "src/datasystem/common/flags/dynamic_config_updater.cpp",
+        "src/datasystem/common/flags/dynamic_flag_config.cpp",
+    ],
+    hdrs = [
+        "src/datasystem/common/flags/common_flags.h",
+        "src/datasystem/common/flags/config_monitor_state.h",
+        "src/datasystem/common/flags/dynamic_config_updater.h",
+        "src/datasystem/common/flags/dynamic_flag_config.h",
+    ],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_inject",
+        ":common_log",
+        ":common_util",
+        ":ds_flags",
+        ":datasystem_hdrs",
+        "@nlohmann_json//:nlohmann_json",
+        "@securec//:securec",
+    ],
+)
+
+cc_library(
+    name = "eviction_watermark",
+    srcs = ["src/datasystem/common/flags/eviction_watermark.cpp"],
+    hdrs = ["src/datasystem/common/flags/eviction_watermark.h"],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":dynamic_flag_config",
+        ":datasystem_hdrs",
+    ],
 )
 
 # --- Level 3: Libraries depending on common_util ---
@@ -708,6 +998,7 @@ cc_library(
     name = "ak_sk_signature",
     srcs = [
         "src/datasystem/common/ak_sk/hasher.cpp",
+        "src/datasystem/common/ak_sk/ak_sk_manager.cpp",
         "src/datasystem/common/ak_sk/signature.cpp",
     ],
     hdrs = glob(["src/datasystem/common/ak_sk/*.h"]),
@@ -718,6 +1009,18 @@ cc_library(
         ":common_log",
         "@boringssl//:ssl",
         "@boringssl//:crypto",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
+    name = "common_lru",
+    hdrs = glob(["src/datasystem/common/lru/*.h"]),
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_log",
+        ":common_util",
         ":datasystem_hdrs",
     ],
 )
@@ -886,6 +1189,9 @@ cc_library(
 cc_library(
     name = "common_rpc_zmq_client",
     srcs = [
+        "src/datasystem/common/rpc/api_deadline.cpp",
+        "src/datasystem/common/rpc/brpc_stream_close_helper.cpp",
+        "src/datasystem/common/rpc/network_latency_estimator.cpp",
         "src/datasystem/common/rpc/rpc_auth_key_manager.cpp",
         "src/datasystem/common/rpc/rpc_auth_key_manager_server.cpp",
         "src/datasystem/common/rpc/rpc_channel.cpp",
@@ -906,14 +1212,69 @@ cc_library(
     includes = DATASYSTEM_INCLUDES,
     deps = [
         "@com_google_protobuf//:protobuf",
+        "@com_github_apache_brpc//:brpc",
         "@nlohmann_json//:nlohmann_json",
         "@ds_libzmq//:libzmq",
         "@securec//:securec",
+        ":dynamic_flag_config",
         ":common_log",
         ":common_perf",
         ":common_util",
         ":utils_protos_client",
         ":zmq_meta_protos_client",
+        ":datasystem_hdrs",
+    ],
+    alwayslink = True,
+)
+
+cc_library(
+    name = "rpc_stub_cache_mgr",
+    srcs = ["src/datasystem/common/rpc/rpc_stub_cache_mgr.cpp"],
+    hdrs = ["src/datasystem/common/rpc/rpc_stub_cache_mgr.h"],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        "@com_github_apache_brpc//:brpc",
+        ":ak_sk_signature",
+        ":common_inject",
+        ":common_log",
+        ":common_lru",
+        ":common_perf",
+        ":common_rpc_zmq_client",
+        ":common_util",
+        ":coordinator_brpc",
+        ":coordinator_protos_client",
+        ":datasystem_hdrs",
+        ":dynamic_flag_config",
+        ":master_object_brpc",
+        ":master_object_protos_client",
+        ":master_stream_brpc",
+        ":master_stream_protos_client",
+        ":posix_protos_client",
+        ":stream_posix_brpc",
+        ":stream_posix_protos_client",
+        ":worker_object_brpc",
+        ":worker_object_protos_client",
+        ":worker_stream_brpc",
+        ":worker_stream_protos_client",
+    ],
+    alwayslink = True,
+)
+
+cc_library(
+    name = "common_coordinator_store",
+    srcs = glob(["src/datasystem/common/coordinator/*.cpp"]),
+    hdrs = glob(["src/datasystem/common/coordinator/*.h"]),
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_log",
+        ":common_rpc_zmq_client",
+        ":common_util",
+        ":coordinator_brpc",
+        ":coordinator_protos_client",
+        ":ds_flags",
+        ":rpc_stub_cache_mgr",
         ":datasystem_hdrs",
     ],
     alwayslink = True,
@@ -958,6 +1319,23 @@ cc_library(
 # --- Level 5: etcd client ---
 
 cc_library(
+    name = "topology_worker_node_info",
+    srcs = ["src/datasystem/topology/membership/worker_node_info.cpp"],
+    hdrs = [
+        "src/datasystem/topology/membership/membership_types.h",
+        "src/datasystem/topology/membership/worker_node_info.h",
+        "src/datasystem/topology/model/topology_types.h",
+    ],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_util",
+        ":coordinator_protos",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
     name = "common_etcd_client",
     srcs = glob(["src/datasystem/common/kvstore/etcd/*.cpp"]),
     hdrs = glob(["src/datasystem/common/kvstore/etcd/*.h"]) +
@@ -969,7 +1347,9 @@ cc_library(
         ":common_util",
         ":common_signal",
         ":common_encrypt_client",
+        ":coordinator_protos",
         ":etcdapi_proto",
+        ":topology_worker_node_info",
         "@com_github_grpc_grpc//:grpc++",
         "@ds_tbb//:tbb",
         ":datasystem_hdrs",
@@ -1021,6 +1401,9 @@ cc_library(
         ":common_event_loop",
         ":common_inject",
         ":common_log",
+        ":common_log_sampler",
+        ":common_metrics",
+        ":common_coordinator_store",
         ":common_perf",
         ":common_sc",
         ":common_shm_unit_info",
@@ -1033,9 +1416,16 @@ cc_library(
         ":common_rdma",
         ":common_parallel",
         ":common_rpc_zmq_client",
+        ":rpc_stub_cache_mgr",
         ":common_encrypt_client",
         ":common_etcd_client",
         ":client_mmap_static",
+        ":dynamic_flag_config",
+        ":eviction_watermark",
+        ":object_posix_brpc",
+        ":share_memory_brpc",
+        ":stream_posix_brpc",
+        ":topology_worker_node_info",
         ":zmq_protos_all",
         ":datasystem_hdrs",
     ],

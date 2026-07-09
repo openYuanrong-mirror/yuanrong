@@ -8,6 +8,8 @@ BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
 SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
 SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp311-*.whl}"
+DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS="openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl"
+SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-${DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS}}"
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
 SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
@@ -116,8 +118,45 @@ require_bin() {
 	fi
 }
 
+read_smoke_controlplane_wheel_patterns() {
+	read -r -a SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST <<<"${SMOKE_CONTROLPLANE_WHEEL_PATTERNS}"
+}
+
+download_obs_patterns() {
+	local urls_root="$1"
+	local output_dir="$2"
+	shift 2
+
+	local pattern
+	for pattern in "$@"; do
+		python3 .buildkite/download_obs_artifacts.py \
+			--urls-root "${urls_root}" \
+			--output-dir "${output_dir}" \
+			--pattern "${pattern}"
+	done
+}
+
+resolve_single_wheel() {
+	local pattern="$1"
+	local matches=()
+
+	mapfile -t matches < <(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name "${pattern}" -print | sort -V)
+	if [ "${#matches[@]}" -eq 0 ]; then
+		printf 'Missing smoke wheel matching %s under %s\n' "${pattern}" "${RELEASE_ARTIFACT_DIR}" >&2
+		exit 1
+	fi
+	if [ "${#matches[@]}" -ne 1 ]; then
+		printf 'Expected exactly one smoke wheel matching %s under %s, found %s\n' \
+			"${pattern}" "${RELEASE_ARTIFACT_DIR}" "${#matches[@]}" >&2
+		printf '%s\n' "${matches[@]}" >&2
+		exit 1
+	fi
+	printf '%s\n' "${matches[0]}"
+}
+
 download_artifacts() {
 	mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}" "$(dirname "${SANDBOX_METADATA}")"
+	read_smoke_controlplane_wheel_patterns
 	if command -v buildkite-agent >/dev/null 2>&1; then
 		buildkite-agent meta-data get "sandbox-release.${PACKAGE_STEP_KEY}" >"${SANDBOX_METADATA}"
 		mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}" "${OBS_URL_DIR}/${SDK_STEP_KEY}"
@@ -125,10 +164,10 @@ download_artifacts() {
 			>"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
 		buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
 			>"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
-		python3 .buildkite/download_obs_artifacts.py \
-			--urls-root "${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
-			--output-dir "${RELEASE_ARTIFACT_DIR}" \
-			--pattern "openyuanrong-*.whl"
+		download_obs_patterns \
+			"${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
+			"${RELEASE_ARTIFACT_DIR}" \
+			"${SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
 		python3 .buildkite/download_obs_artifacts.py \
 			--urls-root "${OBS_URL_DIR}/${SDK_STEP_KEY}" \
 			--output-dir "${SDK_ARTIFACT_DIR}" \
@@ -196,16 +235,21 @@ resolve_smoke_python() {
 
 install_smoke_wheels() {
 	local sdk_wheel
-	local core_wheel
 	local pip_index_url
 	local pip_trusted_host
 	local -a pip_args
+	local -a smoke_wheels
+	local pattern
 	sdk_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name "${SMOKE_SDK_WHEEL_PATTERN}" | sort -V | tail -1)"
-	core_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name 'openyuanrong-*.whl' | sort -V | tail -1)"
-	if [ -z "${sdk_wheel}" ] || [ -z "${core_wheel}" ]; then
+	if [ -z "${sdk_wheel}" ]; then
 		printf 'Missing smoke wheels under %s\n' "${RELEASE_ARTIFACT_DIR}" >&2
 		exit 1
 	fi
+	read_smoke_controlplane_wheel_patterns
+	for pattern in "${SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"; do
+		smoke_wheels+=("$(resolve_single_wheel "${pattern}")")
+	done
+	smoke_wheels+=("${sdk_wheel}")
 
 	SMOKE_PYTHON="$(resolve_smoke_python "${sdk_wheel}")"
 	export SMOKE_PYTHON
@@ -218,7 +262,7 @@ install_smoke_wheels() {
 	if [ -n "${pip_trusted_host}" ]; then
 		pip_args+=(--trusted-host "${pip_trusted_host}")
 	fi
-	PIP_BREAK_SYSTEM_PACKAGES=1 "${SMOKE_PYTHON}" -m pip install "${pip_args[@]}" "${sdk_wheel}" "${core_wheel}" pytest
+	PIP_BREAK_SYSTEM_PACKAGES=1 "${SMOKE_PYTHON}" -m pip install "${pip_args[@]}" "${smoke_wheels[@]}" pytest
 }
 
 wait_for_traefik_address() {
@@ -346,11 +390,39 @@ on_k8s_test_term() {
 	exit 143
 }
 
+wait_for_smoke_ready() {
+	local server_address="$1"
+	local timeout="${YR_K8S_SMOKE_READY_TIMEOUT:-600}"
+	local deadline=$((SECONDS + timeout))
+	local attempt=1
+
+	printf 'Waiting for yr-k8s smoke readiness against %s\n' "${server_address}" >&2
+	while [ "${SECONDS}" -le "${deadline}" ]; do
+		if YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
+			YR_SERVER_ADDRESS="${server_address}" \
+			YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
+			YR_K8S_SMOKE_TIMEOUT="${YR_K8S_SMOKE_READY_OPERATION_TIMEOUT:-120}" \
+			"${SMOKE_PYTHON}" deploy/sandbox/k8s/smoke.py \
+			>"${SMOKE_LOG_DIR}/ready-${attempt}.log" 2>&1; then
+			printf 'yr-k8s smoke readiness check passed on attempt %s.\n' "${attempt}" >&2
+			return 0
+		fi
+		printf 'yr-k8s smoke readiness attempt %s failed; retrying in 15s.\n' "${attempt}" >&2
+		tail -n 80 "${SMOKE_LOG_DIR}/ready-${attempt}.log" >&2 || true
+		sleep 15
+		attempt=$((attempt + 1))
+	done
+
+	printf 'Timed out waiting for yr-k8s smoke readiness after %ss.\n' "${timeout}" >&2
+	return 1
+}
+
 run_smoke() {
 	local server_address="$1"
 	local -a pytest_args
 	mkdir -p "${SMOKE_LOG_DIR}"
 	install_smoke_wheels
+	wait_for_smoke_ready "${server_address}"
 
 	if [ -n "${YR_K8S_SMOKE_PYTEST_ARGS:-}" ]; then
 		read -r -a pytest_args <<<"${YR_K8S_SMOKE_PYTEST_ARGS}"

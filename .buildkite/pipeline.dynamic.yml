@@ -576,13 +576,29 @@ cat << YAML
 
       echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
+      rm -f output/openyuanrong-*.tar.gz output/*.whl
       bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
       cd api/python
-      rm -rf build/ dist/ *.egg-info
-      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-      cp -R dist/*whl ../../output/
+      for setup_type in "" dashboard faas sdk_cpp runtime full; do
+        rm -rf build/ dist/ *.egg-info
+        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+        cp -R dist/*whl ../../output/
+      done
       cd ../..
+      cp datasystem/output/*.whl output/ 2>/dev/null || true
+      cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
+      cp functionsystem/output/*.whl output/ 2>/dev/null || true
+      ls -lh output/*.whl
+      for required_wheel in \
+        'openyuanrong-*.whl' \
+        'openyuanrong_runtime-*.whl' \
+        'openyuanrong_faas-*.whl' \
+        'openyuanrong_dashboard-*.whl' \
+        'openyuanrong_cpp_sdk-*.whl' \
+        'openyuanrong_functionsystem-*.whl' \
+        'openyuanrong_datasystem-*.whl'; do
+        find output -maxdepth 1 -name "\$\$required_wheel" -print -quit | grep -q .
+      done
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
@@ -662,7 +678,7 @@ cat << YAML
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp output/openyuanrong-*.whl artifacts/release/ 2>/dev/null || true
+      cp output/*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
@@ -1154,13 +1170,29 @@ cat << YAML
 
       echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/openyuanrong-*.whl output/openyuanrong_sdk-*.whl
+      rm -f output/openyuanrong-*.tar.gz output/*.whl
       bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
       cd api/python
-      rm -rf build/ dist/ *.egg-info
-      SETUP_TYPE= PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-      cp -R dist/*whl ../../output/
+      for setup_type in "" dashboard faas sdk_cpp runtime full; do
+        rm -rf build/ dist/ *.egg-info
+        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
+        cp -R dist/*whl ../../output/
+      done
       cd ../..
+      cp datasystem/output/*.whl output/ 2>/dev/null || true
+      cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
+      cp functionsystem/output/*.whl output/ 2>/dev/null || true
+      ls -lh output/*.whl
+      for required_wheel in \
+        'openyuanrong-*.whl' \
+        'openyuanrong_runtime-*.whl' \
+        'openyuanrong_faas-*.whl' \
+        'openyuanrong_dashboard-*.whl' \
+        'openyuanrong_cpp_sdk-*.whl' \
+        'openyuanrong_functionsystem-*.whl' \
+        'openyuanrong_datasystem-*.whl'; do
+        find output -maxdepth 1 -name "\$\$required_wheel" -print -quit | grep -q .
+      done
 
       echo "=== [3.5/6] Verify Go plugin ABI ==="
       python3 .buildkite/verify_go_plugin_abi.py
@@ -1232,7 +1264,7 @@ cat << YAML
       echo "=== [5/6] Collect Artifacts ==="
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
-      cp output/openyuanrong-*.whl artifacts/release/ 2>/dev/null || true
+      cp output/*.whl artifacts/release/ 2>/dev/null || true
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 

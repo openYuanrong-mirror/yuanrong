@@ -20,22 +20,77 @@
 
 #include <iostream>
 
+#include "src/utility/metrics/common/include/metric_logger.h"
+
 namespace observability::exporters::metrics {
 const int HTTP_REQUEST_ERROR = -1;
 const long TIMEOUT = 3L;
+
+namespace {
+std::string BuildUrlWithScheme(const std::string &url, const SSLConfig &sslConfig)
+{
+    if (url.find("://") != std::string::npos) {
+        return url;
+    }
+    return std::string(sslConfig.isSSLEnable_ ? "https://" : "http://") + url;
+}
+
+void SetRequestBody(void *curl, const std::string &bodyString)
+{
+    if (!bodyString.empty()) {
+        (void)curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, bodyString.size());
+        (void)curl_easy_setopt(curl, CURLOPT_POSTFIELDS, bodyString.data());
+        return;
+    }
+    (void)curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
+}
+
+void SetRequestMethod(void *curl, HttpRequestMethod method)
+{
+    switch (method) {
+        case HttpRequestMethod::POST:
+            (void)curl_easy_setopt(curl, CURLOPT_POST, 1L);
+            break;
+        case HttpRequestMethod::PUT:
+            (void)curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+            break;
+        case HttpRequestMethod::GET:
+        case HttpRequestMethod::DELETE:
+        default:
+            break;
+    }
+}
+
+void ApplySSLConfig(void *curl, const SSLConfig &sslConfig)
+{
+    if (!sslConfig.isSSLEnable_) {
+        return;
+    }
+    (void)curl_easy_setopt(curl, CURLOPT_CAINFO, sslConfig.rootCertFile_.c_str());
+    (void)curl_easy_setopt(curl, CURLOPT_SSLCERT, sslConfig.certFile_.c_str());
+    (void)curl_easy_setopt(curl, CURLOPT_SSLKEY, sslConfig.keyFile_.c_str());
+    (void)curl_easy_setopt(curl, CURLOPT_KEYPASSWD, sslConfig.passphrase_.GetData());
+    (void)curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 2L);
+}
+}  // namespace
+
 CurlHelper::CurlHelper()
 {
     auto error = curl_global_init(CURL_GLOBAL_ALL);
     if (error) {
-        std::cerr << "<PrometheusPushExporter> failed to initialize global curl!" << std::endl;
+        METRICS_LOG_ERROR("CurlHelper failed to initialize global curl, error {}", static_cast<long>(error));
+        std::cerr << "<PrometheusPushExporter> failed to initialize global curl, error=" << static_cast<long>(error)
+                  << std::endl;
         return;
     }
     curl_ = curl_easy_init();
     if (!curl_) {
         curl_global_cleanup();
+        METRICS_LOG_ERROR("CurlHelper failed to initialize easy curl");
         std::cerr << "<PrometheusPushExporter> failed to initialize easy curl!" << std::endl;
         return;
     }
+    METRICS_LOG_INFO("CurlHelper initialized successfully");
 }
 
 CurlHelper::~CurlHelper()
@@ -57,56 +112,38 @@ CurlHelper::~CurlHelper()
 long CurlHelper::SendRequest(HttpRequestMethod method, const std::string &url, const std::ostringstream &ossBody)
 {
     if (!curl_) {
+        METRICS_LOG_ERROR("CurlHelper send request skipped because curl handle is null, url {}, method {}", url,
+                          static_cast<int>(method));
         return HTTP_REQUEST_ERROR;
     }
     std::lock_guard<std::mutex> l(mutex_);
     curl_easy_reset(curl_);
-    std::string urlWithScheme = url;
-    if (sslConfig_.isSSLEnable_) {
-        urlWithScheme = "https://" + urlWithScheme;
-    }
+    std::string urlWithScheme = BuildUrlWithScheme(url, sslConfig_);
 
     (void)curl_easy_setopt(curl_, CURLOPT_URL, urlWithScheme.c_str());
     (void)curl_easy_setopt(curl_, CURLOPT_HTTPHEADER, httpHeader_);
     (void)curl_easy_setopt(curl_, CURLOPT_TIMEOUT, TIMEOUT);
 
     auto bodyString = ossBody.str();
-    if (!bodyString.empty()) {
-        (void)curl_easy_setopt(curl_, CURLOPT_POSTFIELDSIZE, bodyString.size());
-        (void)curl_easy_setopt(curl_, CURLOPT_POSTFIELDS, bodyString.data());
-    } else {
-        (void)curl_easy_setopt(curl_, CURLOPT_POSTFIELDSIZE, 0L);
-    }
-
-    switch (method) {
-        case HttpRequestMethod::POST:
-            (void)curl_easy_setopt(curl_, CURLOPT_POST, 1L);
-            break;
-        case HttpRequestMethod::PUT:
-            (void)curl_easy_setopt(curl_, CURLOPT_CUSTOMREQUEST, "PUT");
-            break;
-        case HttpRequestMethod::GET:
-        case HttpRequestMethod::DELETE:
-        default:
-            break;
-    }
-
-    if (sslConfig_.isSSLEnable_) {
-        (void)curl_easy_setopt(curl_, CURLOPT_CAINFO, sslConfig_.rootCertFile_.c_str());
-        (void)curl_easy_setopt(curl_, CURLOPT_SSLCERT, sslConfig_.certFile_.c_str());
-        (void)curl_easy_setopt(curl_, CURLOPT_SSLKEY, sslConfig_.keyFile_.c_str());
-        (void)curl_easy_setopt(curl_, CURLOPT_KEYPASSWD, sslConfig_.passphrase_.GetData());
-        (void)curl_easy_setopt(curl_, CURLOPT_SSL_VERIFYPEER, 2L);
-    }
+    METRICS_LOG_INFO("CurlHelper send request, url {}, method {}, bodyBytes {}, sslEnabled {}, timeoutSec {}",
+                     urlWithScheme, static_cast<int>(method), bodyString.size(), sslConfig_.isSSLEnable_, TIMEOUT);
+    SetRequestBody(curl_, bodyString);
+    SetRequestMethod(curl_, method);
+    ApplySSLConfig(curl_, sslConfig_);
 
     auto curlError = curl_easy_perform(curl_);
     long responseCode = 0;
     (void)curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &responseCode);
     if (curlError != CURLE_OK) {
         auto errMsg = curl_easy_strerror(curlError);
-        std::cerr << "Curl error, error code: " << static_cast<long>(curlError) << ", errMsg: " << errMsg << std::endl;
+        METRICS_LOG_ERROR("CurlHelper send request failed, curlError {}, errMsg {}, responseCode {}, url {}, method {}",
+                          static_cast<long>(curlError), errMsg, responseCode, urlWithScheme, static_cast<int>(method));
+        std::cerr << "Curl error, error code: " << static_cast<long>(curlError) << ", errMsg: " << errMsg
+                  << ", responseCode: " << responseCode << ", url: " << urlWithScheme << std::endl;
         return -static_cast<long>(curlError);
     }
+    METRICS_LOG_INFO("CurlHelper send request finished, responseCode {}, url {}, method {}", responseCode,
+                     urlWithScheme, static_cast<int>(method));
     return responseCode;
 }
 

@@ -50,7 +50,8 @@ PrometheusPushExporter::PrometheusPushExporter(const std::string &config)
             options.heartbeatUrl = configJson.at("heartbeatUrl");
         }
     } catch (std::exception &e) {
-        std::cerr << "failed to parse PrometheusPushExportOptions" << std::endl;
+        METRICS_LOG_ERROR("Failed to parse PrometheusPushExportOptions, error {}", e.what());
+        std::cerr << "failed to parse PrometheusPushExportOptions, error: " << e.what() << std::endl;
         return;
     }
     options.sslConfig.Parse(config);

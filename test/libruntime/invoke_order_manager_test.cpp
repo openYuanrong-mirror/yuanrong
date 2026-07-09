@@ -121,6 +121,41 @@ TEST_F(InvokeOrderManagerTest, RegisterInstanceAndUpdateOrderTest)
     invokeOrderMgr->RegisterInstanceAndUpdateOrder(insId);
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") != invokeOrderMgr->instances.end(), true);
     ASSERT_EQ(invokeOrderMgr->instances["instanceId"]->orderingCounter, 1);
+    // unfinishedSeqNo must align with orderingCounter so that the first Invoke against an instance
+    // created by another runtime (detached/named) is not permanently blocked at the remote side.
+    ASSERT_EQ(invokeOrderMgr->instances["instanceId"]->unfinishedSeqNo, 1);
+}
+
+// Reproduces the detached-actor first-invoke hang: an instance created by another runtime is
+// registered on the driver via RegisterInstanceAndUpdateOrder, then the driver dispatches its
+// first Invoke. Before the fix, unfinishedSeqNo stayed 0 while invokeSeqNo became 1, so the
+// driver sent minUnfinishedSequenceNo=0 / invocationSequenceNo=1 and the remote
+// OrderedExecutionManager blocked forever waiting for a seqNo=0 request that never arrives.
+TEST_F(InvokeOrderManagerTest, RegisterInstanceAndUpdateOrderAlignsUnfinishedSeqForDetachedFirstInvokeTest)
+{
+    const std::string instanceId = "yr_defalut_namespace-detached-actor";
+    auto config = std::make_shared<LibruntimeConfig>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(config);
+
+    // Driver learns about a detached/named instance created by another runtime.
+    invokeOrderMgr->RegisterInstanceAndUpdateOrder(instanceId);
+    ASSERT_EQ(invokeOrderMgr->instances[instanceId]->orderingCounter, 1);
+    ASSERT_EQ(invokeOrderMgr->instances[instanceId]->unfinishedSeqNo, 1);
+
+    // Driver dispatches the first Invoke against it.
+    FunctionMeta meta;
+    meta.name = "detached-actor";
+    auto specInvoke = std::make_shared<InvokeSpec>();
+    specInvoke->invokeType = libruntime::InvokeType::InvokeFunction;
+    specInvoke->functionMeta = meta;
+    invokeOrderMgr->Invoke(specInvoke);
+    ASSERT_EQ(specInvoke->invokeSeqNo, 1);
+
+    // The value the driver will place into minUnfinishedSequenceNo. It must match invokeSeqNo so
+    // that the remote side executes immediately instead of hanging.
+    invokeOrderMgr->UpdateUnfinishedSeq(specInvoke);
+    ASSERT_EQ(specInvoke->invokeUnfinishedSeqNo, specInvoke->invokeSeqNo);
+    ASSERT_EQ(specInvoke->invokeUnfinishedSeqNo, 1);
 }
 
 TEST_F(InvokeOrderManagerTest, RegisterInstance)

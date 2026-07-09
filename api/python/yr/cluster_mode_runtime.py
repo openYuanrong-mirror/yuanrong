@@ -183,6 +183,9 @@ class ClusterModeRuntime(Runtime):
 
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam = MSetParam()) -> None:
         """
+        Deprecated. Retained only for compatibility with legacy batch write APIs.
+        Do not use it in new code.
+
         store multiple key-value pairs to ds
         :param keys: the keys to set
         :param values: the values to set. Size of values should equal to size of keys.
@@ -604,6 +607,46 @@ class ClusterModeRuntime(Runtime):
             value
         """
         return self.libruntime.get_value_double_counter(data)
+
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        Set gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.set_gauge(data)
+
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        Increase gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.increase_gauge(data)
+
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        Decrease gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            None
+        """
+        self.libruntime.decrease_gauge(data)
+
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        Get value of gauge metrics
+        Args:
+            data: GaugeData
+        Returns:
+            value
+        """
+        return self.libruntime.get_value_gauge(data)
 
     def report_gauge(self, data: GaugeData) -> None:
         """

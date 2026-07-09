@@ -20,8 +20,11 @@ yr.resources
 
     样例：
         >>> import yr
-        >>> yr.init()
-        >>>
+        >>> conf = yr.Config(
+        >>>    master_addr_list=["127.0.0.1:8888"]    
+        >>> )
+        >>> yr.init(conf)
+        >>> 
         >>> res = yr.resources()
         >>> print(res)
         [{'id': 'function-agent-172.17.0.2-25742','status': 0, 'capacity': {'CPU': 1000.0, 'Memory': 8192.0},

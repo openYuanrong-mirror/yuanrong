@@ -229,6 +229,12 @@ void TaskSubmitter::HandleFailInvokeNotify(const NotifyRequest &req, const std::
                     spec->invokeType == libruntime::InvokeType::CreateInstance;
     auto errInfo = PackageNotifyErr(req, isCreate);
     bool isConsumeRetryTime = false;
+    // Short-circuit: if the placement group this spec depends on has been removed, retrying
+    // cannot succeed (the requiredAffinity matches 0 nodes forever) and would loop until
+    // system_timeout. Propagate the failure to ray.get instead.
+    if (PropagateFailForRemovedResourceGroup(req, spec, resource, errInfo)) {
+        return;
+    }
     if (NeedRetry(errInfo, spec, isConsumeRetryTime)) {
         spec->IncrementRequestID(spec->requestInvoke->Mutable());
         YRLOG_ERROR(
@@ -506,6 +512,12 @@ void TaskSubmitter::ScheduleIns(const RequestResource &resource, const ErrorInfo
         NotifyScheduler(resource);
         return;
     }
+    // Short-circuit: if the head request depends on a removed placement group, do not kick off
+    // another create (it would just schedule-fail with No Resource again). Drain the queue and
+    // surface the error to the waiting ray.get, mirroring the !isRemainIns path below.
+    if (ShortCircuitScheduleForRemovedResourceGroup(resource, errInfo, isRemainIns)) {
+        return;
+    }
     if (NeedRetryCreate(errInfo)) {
         YRLOG_INFO("start retry create task instance, code: {}, msg: {}", fmt::underlying(errInfo.Code()),
                    errInfo.Msg());
@@ -530,8 +542,8 @@ void TaskSubmitter::ScheduleIns(const RequestResource &resource, const ErrorInfo
                 continue;
             }
             std::shared_ptr<InvokeSpec> invokeSpecNeedFailed;
-            bool specExits = requestManager->PopRequest(reqId, invokeSpecNeedFailed);
-            if (!specExits) {
+            bool specExists = requestManager->PopRequest(reqId, invokeSpecNeedFailed);
+            if (!specExists) {
                 continue;
             }
             if (invokeSpecNeedFailed) {
@@ -740,6 +752,99 @@ bool TaskSubmitter::NeedRetryCreate(const ErrorInfo &errInfo)
         return true;
     }
     return false;
+}
+
+bool TaskSubmitter::IsDependentResourceGroupRemoved(const std::shared_ptr<InvokeSpec> spec)
+{
+    // Only intervene when RG awareness is enabled and a manager is wired in; otherwise
+    // preserve the original behavior to avoid regressing non-PG workloads.
+    if (rGroupManager_ == nullptr || spec == nullptr) {
+        return false;
+    }
+    const auto &rgOpts = spec->opts.resourceGroupOpts;
+    if (!ResourceGroupEnabled(rgOpts)) {
+        return false;
+    }
+    // RemoveResourceGroup clears the local RG detail synchronously (libruntime.cpp),
+    // so a missing entry means the placement group this spec depends on is gone.
+    return !rGroupManager_->IsRGDetailExist(rgOpts.resourceGroupName);
+}
+
+bool TaskSubmitter::PropagateFailForRemovedResourceGroup(const NotifyRequest &req,
+                                                         const std::shared_ptr<InvokeSpec> spec,
+                                                         const RequestResource &resource, const ErrorInfo &errInfo)
+{
+    if (!IsDependentResourceGroupRemoved(spec)) {
+        return false;
+    }
+    YRLOG_ERROR(
+        "invoke fail and its placement group {} has been removed, do not retry, raw request id is {}, code "
+        "is: {}, trace id is {}, seq is {}, complete request id is {}",
+        spec->opts.resourceGroupOpts.resourceGroupName, req.requestid(), fmt::underlying(req.code()), spec->traceId,
+        spec->seq, spec->requestInvoke->Mutable().requestid());
+    auto ids = this->memoryStore->UnbindObjRefInReq(spec->requestId);
+    auto errorInfo = this->memoryStore->DecreGlobalReference(ids);
+    if (!errorInfo.OK()) {
+        YRLOG_WARN("failed to decrease obj ref [{},...] by requestid {}. Code: {}, MCode: {}, Msg: {}", ids[0],
+                   spec->requestId, fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()),
+                   errorInfo.Msg());
+    }
+    this->memoryStore->SetError(spec->returnIds, errInfo);
+    (void)requestManager->RemoveRequest(spec->requestId);
+    this->UpdateFaasInvokeLog(spec->requestId, errInfo);
+    NotifyScheduler(resource);
+    return true;
+}
+
+bool TaskSubmitter::ShortCircuitScheduleForRemovedResourceGroup(const RequestResource &resource,
+                                                                const ErrorInfo &errInfo, bool isRemainIns)
+{
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler == nullptr) {
+        return false;
+    }
+    // Sample the head request id under the queue lock: Empty()/Top() are not atomic with each
+    // other and Top() on an empty queue is UB, so both must be observed inside atomicMtx
+    // (same lock used by the drain loop below and by Push/Pop elsewhere).
+    std::string headReqId;
+    {
+        std::lock_guard<std::mutex> lockGuard(taskScheduler->queue->atomicMtx);
+        if (!taskScheduler->queue->Empty()) {
+            headReqId = taskScheduler->queue->Top()->requestId;
+        }
+    }
+    if (headReqId.empty()) {
+        return false;
+    }
+    // A concurrent Pop may have drained headReqId between here and GetRequest; in that case
+    // GetRequest returns nullptr and IsDependentResourceGroupRemoved returns false, so we
+    // simply fall through and re-evaluate on the next ScheduleIns.
+    auto topSpec = requestManager->GetRequest(headReqId);
+    if (!IsDependentResourceGroupRemoved(topSpec)) {
+        return false;
+    }
+    YRLOG_WARN("resource group removed, skip retry create for resource: {}, code: {}, msg: {}",
+               resource.functionMeta.funcName, fmt::underlying(errInfo.Code()), errInfo.Msg());
+    if (!isRemainIns) {
+        std::lock_guard<std::mutex> lockGuard(taskScheduler->queue->atomicMtx);
+        for (; !taskScheduler->queue->Empty(); taskScheduler->queue->Pop()) {
+            auto reqId = taskScheduler->queue->Top()->requestId;
+            this->EraseFaasCancelTimer(reqId);
+            std::shared_ptr<InvokeSpec> invokeSpecNeedFailed;
+            bool specExists = requestManager->PopRequest(reqId, invokeSpecNeedFailed);
+            if (!specExists) {
+                continue;
+            }
+            if (invokeSpecNeedFailed) {
+                YRLOG_ERROR("resource group removed, start set error, req id is {}, trace id is {}",
+                            invokeSpecNeedFailed->requestId, invokeSpecNeedFailed->traceId);
+            }
+            this->memoryStore->SetError(invokeSpecNeedFailed->returnIds[0].id, errInfo);
+            this->UpdateFaasInvokeLog(reqId, errInfo);
+        }
+    }
+    taskScheduler->Notify();
+    return true;
 }
 
 bool TaskSubmitter::NeedRetry(const ErrorInfo &errInfo, const std::shared_ptr<InvokeSpec> spec,

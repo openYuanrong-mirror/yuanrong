@@ -292,7 +292,8 @@ public class ClusterModeRuntime implements Runtime {
         throws YRException {
         FunctionWrapper function = YR.getRuntime().getJavaFunction(functionMeta);
         SdkUtils.checkJavaParameterTypes(function, args);
-        String objId = this.invokeByName(functionMeta, SdkUtils.packInvokeArgs(args), opt);
+        Class<?>[] paramTypes = function.getMethod().getParameterTypes();
+        String objId = this.invokeByName(functionMeta, SdkUtils.packInvokeArgs(paramTypes, args), opt);
         Class<?> returnType = function.getReturnType().orElse(null);
         return new ObjectRef(objId, returnType);
     }

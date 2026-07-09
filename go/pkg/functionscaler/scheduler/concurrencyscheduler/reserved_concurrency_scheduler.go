@@ -98,8 +98,19 @@ func (rcs *ReservedConcurrencyScheduler) AcquireInstance(insAcqReq *types.Instan
 			if err := rcs.insAcqReqQueue.AddRequest(pendingRequest); err != nil {
 				return nil, err
 			}
-			insAcqRsp := <-pendingRequest.ResultChan
-			return insAcqRsp.InsAlloc, insAcqRsp.Error
+			timeout := rcs.checkScalingTimeout
+			if timeout <= 0 {
+				timeout = requestqueue.DefaultRequestTimeout
+			}
+			timer := time.NewTimer(timeout)
+			defer timer.Stop()
+			select {
+			case insAcqRsp := <-pendingRequest.ResultChan:
+				return insAcqRsp.InsAlloc, insAcqRsp.Error
+			case <-timer.C:
+				rcs.insAcqReqQueue.CancelRequest(pendingRequest)
+				return nil, scheduler.ErrNoInsAvailable
+			}
 		}
 		if config.GlobalConfig.DisableReplicaScaler {
 			return nil, acquireErr

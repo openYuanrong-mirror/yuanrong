@@ -61,7 +61,7 @@ exclude_patterns = [
     "_build",
     "README.md",
     "sample_code",
-    "multi_language_function_programming_interface/development_guide/function_service/response-stream.md",
+    "observability/trace_optimization.md",
 
     ""
 ]

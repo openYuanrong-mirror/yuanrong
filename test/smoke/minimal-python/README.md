@@ -13,7 +13,7 @@ Provide a minimal, reproducible single-node validation flow that runs inside the
 ## Quick Start
 
 ```bash
-docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong/example/minimal-python && bash run_smoke.sh'
+docker exec compile bash -lc 'cd /path/to/yuanrong/example/minimal-python && bash run_smoke.sh'
 ```
 
 ## Environment Variables
@@ -31,7 +31,7 @@ docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong/example/minimal-pyt
 Example with a different frontend port:
 
 ```bash
-docker exec compile bash -lc 'cd /home/wyc/code/ant/yuanrong/example/minimal-python && FRONTEND_PORT=18888 bash run_smoke.sh'
+docker exec compile bash -lc 'cd /path/to/yuanrong/example/minimal-python && FRONTEND_PORT=18888 bash run_smoke.sh'
 ```
 
 ## What Is Tested

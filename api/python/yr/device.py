@@ -15,10 +15,14 @@
 # limitations under the License.
 
 """device providing device buffer function."""
+import importlib
 from enum import Enum
 from typing import List
-from yr import runtime_holder
 from yr.common.utils import Validator as validator
+
+
+def _get_runtime_holder():
+    return importlib.import_module("yr.runtime_holder")
 
 
 class DataType(Enum):
@@ -95,6 +99,7 @@ def g_increase_ref(object_ids: List[str]) -> None:
     validator.check_args_types(args)
     if not object_ids:
         raise RuntimeError(r"The input of object_ids list should not be empty")
+    runtime_holder = _get_runtime_holder()
     runtime_holder.global_runtime.get_runtime().increase_global_reference(object_ids)
 
 
@@ -115,4 +120,5 @@ def g_decrease_ref(object_ids: List[str]) -> None:
     validator.check_args_types(args)
     if not object_ids:
         raise RuntimeError(r"The input of object_ids list should not be empty")
+    runtime_holder = _get_runtime_holder()
     runtime_holder.global_runtime.get_runtime().decrease_global_reference(object_ids)

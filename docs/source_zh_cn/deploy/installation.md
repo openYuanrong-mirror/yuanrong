@@ -14,18 +14,22 @@ openYuanrong 目前支持在 Linux x86_64 及 aarch64 (ARM) 上安装。不同�
 
 ```bash
 # 支持以下版本
-# openyuanrong-0.8.0-[cp39-cp39/cp310-cp310/cp311-cp311]-manylinux_2_34_[x86_64/aarch64].whl
+# openyuanrong-0.9.0-[py3-none/cp39-cp39/cp310-cp310/cp311-cp311]-manylinux_2_34_[x86_64/aarch64].whl
 # 以在Python3.9及X86_64环境安装为例，最小安装包含以下whl包
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_runtime-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_datasystem-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_functionsystem-0.8.0-py3-none-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong-0.9.0-py3-none-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_runtime-0.9.0-cp39-cp39-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_datasystem-0.9.0-cp39-cp39-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_functionsystem-0.9.0-py3-none-manylinux_2_34_x86_64.whl
 # 需要使用C++ SDK时安装
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_cpp_sdk-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_cpp_sdk-0.9.0-cp39-cp39-manylinux_2_34_x86_64.whl
 # 需要开发函数服务时安装
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_faas-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_faas-0.9.0-cp39-cp39-manylinux_2_34_x86_64.whl
 # 需要使用Dashboard能力时安装
-pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.8.0/linux/x86_64/openyuanrong_dashboard-0.8.0-cp39-cp39-manylinux_2_34_x86_64.whl
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_dashboard-0.9.0-cp39-cp39-manylinux_2_34_x86_64.whl
+# 需要使用agentruntime能力时安装
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/openyuanrong_agentruntime-0.9.0-py3-none-any.whl
+# 需要使用ray-adapter能力时安装
+pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/linux/x86_64/ray_adapter-0.9.0-py3-none-any.whl
 ```
 
 您可能希望从源码编译 openYuanrong 版本，以满足更多自定义场景，请参考章节：[源码编译 openYuanrong](../contributor_guide/source_code_build.md)。
@@ -61,15 +65,7 @@ bin  include  lib  VERSION
 
 ### Java SDK
 
-[安装 openYuanrong](install-yuanrong-with-pip)后，参考如下命令查看 Java SDK 路径。其中 `yr-api-sdk-xxx.jar` 为单机程序分布式并行化 SDK，`faas-function-sdk-xxx.jar` 为函数服务 SDK，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
-
-```console
-[xxx]# python3 -c "import yr;print(yr.__path__[0])"
-/usr/local/lib/python3.9/site-packages/yr
-
-[xxx]# ls /usr/local/lib/python3.9/site-packages/yr/java/
-yr-api-sdk-1.0.0.jar faas-function-sdk-1.0.0.jar pom.xml
-```
+参考[下载 openYuanrong](../reference/releases.md)获取版本的全量包 `openyuanrong-x.x.x.tar.gz`，Java SDK 在 `openyuanrong/runtime/sdk/java` 路径下。其中 `yr-api-sdk-xxx.jar` 为单机程序分布式并行化 SDK，`faas-function-sdk-xxx.jar` 为函数服务 SDK，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
 
 如果您通过 Maven 管理 Java 项目，可参考如下命令安装 openYuanrong Java SDK，并在项目 `pom.xml` 文件中引入依赖。
 

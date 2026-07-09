@@ -64,7 +64,6 @@ exclude_patterns = [
     "multi_language_function_programming_interface/api/distributed_programming/Python/yr.StatefulInstanceCreator.*",
     "multi_language_function_programming_interface/api/distributed_programming/Python/yr.StatefulInstance.*",
     "multi_language_function_programming_interface/api/distributed_programming/Python/yr.StatelessFunction.*",
-    "multi_language_function_programming_interface/development_guide/function_service/response-stream.md",
 
     ""
 ]

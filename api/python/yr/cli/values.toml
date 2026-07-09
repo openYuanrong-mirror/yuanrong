@@ -87,6 +87,9 @@ ip = "{{ values.host_ip }}"
 port = "{{ 22772|check_port() }}"
 grpc_listen_port = "{{ 22773|check_port() }}"
 
+[values.runtime]
+default_write_mode = "NONE_L2_CACHE"
+
 [values.function_agent]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 ip = "{{ values.host_ip }}"

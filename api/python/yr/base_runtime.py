@@ -102,7 +102,7 @@ class SetParam:
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MSetParam:
-    """Represents the parameter configuration class for the mset operation."""
+    """Deprecated. Retained only for compatibility with legacy batch write APIs."""
     #: Whether duplicate key writing is supported.
     #: Optional values: ``ExistenceOpt.NONE`` (supported, default) and ``ExistenceOpt.NX`` (not supported, optional).
     existence: ExistenceOpt = ExistenceOpt.NX
@@ -257,6 +257,9 @@ class Runtime(metaclass=ABCMeta):
     @abstractmethod
     def kv_m_write_tx(self, keys: List[str], values: List[bytes], m_set_param: MSetParam) -> None:
         """
+        Deprecated. Retained only for compatibility with legacy batch write APIs.
+        Do not use it in new code.
+
         store multiple key-value pairs to ds
         :param keys: the keys to set
         :param values: the values to set. Size of values should equal to size of keys.
@@ -630,6 +633,38 @@ class Runtime(metaclass=ABCMeta):
         """
         get value of double counter metrics
         :param data: DoubleCounterData
+        :return: value
+        """
+
+    @abstractmethod
+    def set_gauge(self, data: GaugeData) -> None:
+        """
+        set gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def increase_gauge(self, data: GaugeData) -> None:
+        """
+        increase gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def decrease_gauge(self, data: GaugeData) -> None:
+        """
+        decrease gauge metrics
+        :param data: GaugeData
+        :return: None
+        """
+
+    @abstractmethod
+    def get_value_gauge(self, data: GaugeData) -> float:
+        """
+        get value of gauge metrics
+        :param data: GaugeData
         :return: value
         """
 

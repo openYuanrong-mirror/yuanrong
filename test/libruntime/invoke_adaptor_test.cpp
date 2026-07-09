@@ -1537,7 +1537,7 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     Config::Instance().ENABLE_METRICS_ = false;
 }
 
-TEST_F(InvokeAdaptorTest, MetricsEnabledFallsBackToInstanceConfigWhenInvokeMetaOmitsFlag)
+TEST_F(InvokeAdaptorTest, MetricsEnabledRequiresGlobalAndInstanceConfig)
 {
     Config::Instance().ENABLE_METRICS_ = false;
     libConfig->enableMetrics = true;
@@ -1545,10 +1545,18 @@ TEST_F(InvokeAdaptorTest, MetricsEnabledFallsBackToInstanceConfigWhenInvokeMetaO
     libruntime::MetaData metaData;
     metaData.mutable_config()->set_enablemetrics(false);
 
+    ASSERT_FALSE(invokeAdaptor->IsMetricsEnabled());
+    ASSERT_FALSE(invokeAdaptor->IsMetricsEnabled(metaData));
+
+    Config::Instance().ENABLE_METRICS_ = true;
     ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled());
+    ASSERT_FALSE(invokeAdaptor->IsMetricsEnabled(metaData));
+
+    metaData.mutable_config()->set_enablemetrics(true);
     ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled(metaData));
 
     libConfig->enableMetrics = false;
+    Config::Instance().ENABLE_METRICS_ = false;
 }
 
 TEST_F(InvokeAdaptorTest, StreamWriteEventTest)

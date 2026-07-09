@@ -21,12 +21,14 @@ POST /serverless/v1/functions/{functionVersionURN}/invocations
 | **参数** | **是否必选** | **参数类型** | **描述** |
 | ---------- | ----- | ---------- | ------------------------- |
 | Content-Type               | 是 | string | 消息体类型。<br> **取值：** 建议填写 application/json。 |
+| Accept                     | 否 | string | 是否使用 SSE 流式返回。<br> **取值：** text/event-stream。 |
 | X-Instance-Cpu             | 否 | string | 函数实例所需 CPU。 |
 | X-Instance-Memory          | 否 | string | 函数实例所需 Memory。 |
 | X-Instance-Custom-Resource | 否 | string | 函数实例所需自定义资源。 |
 | X-Pool-Label               | 否 | string | 函数实例所需亲和的资源池标签。 |
 | X-Instance-Label           | 否 | string | 在具有该标签的函数实例上运行。 |
 | X-Instance-Session         | 否 | string | 指定实例会话调用，会话与实例唯一绑定。<br> 样例：{"sessionID":"abc","sessionTTL":10,"concurrency": 5}，其中，sessionID 不超过 63 位，sessionTTL 不小于 0，单位：秒，concurrency 不能超过函数中配置的 concurrentNum，当 concurrency 为 -1 时，表示独占整个函数实例。 |
+| X-Session-Context            | 否 | string | 指定 Session Context。仅当函数元数据 `enableSessionCtx` 为 ``true`` 时生效。<br> 样例：{"sessionCtx":"ctx-a"}。相同函数下，不同 `sessionCtx` 的请求不会复用同一个函数实例；未携带或 `sessionCtx` 为空时使用默认空字符串上下文。函数进程可通过环境变量 `YR_SESSION_CTX_ID` 读取当前 Session Context ID。 |
 
 <br> 请求 Body 参数
 
@@ -44,6 +46,15 @@ POST {[frontend endpoint](api-frontend-endpoint)}/serverless/v1/functions/{funct
 {
     "name":"yuanrong"
 }
+```
+
+启用 `enableSessionCtx` 的函数可在调用时通过 `X-Session-Context` 指定 Session Context：
+
+```bash
+curl -X POST "{frontend endpoint}/serverless/v1/functions/{functionVersionURN}/invocations" \
+  -H "Content-Type: application/json" \
+  -H 'X-Session-Context: {"sessionCtx":"ctx-a"}' \
+  -d '{"name":"yuanrong"}'
 ```
 
 ## 响应示例

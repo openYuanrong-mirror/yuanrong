@@ -15,12 +15,14 @@
 # limitations under the License.
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Optional
 
 import click
 
+import yr.cli.discovery as discovery
 from yr.cli.config import ConfigResolver
 from yr.cli.const import (
     DEFAULT_CONFIG_PATH,
@@ -36,13 +38,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d | %(levelname)-7s | %(name)s:%(funcName)s:%(lineno)d - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
 print_logger = logging.getLogger("print")
 print_logger.setLevel(logging.INFO)
 print_logger.propagate = False
-handler = logging.StreamHandler()
+handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(message)s"))
 print_logger.addHandler(handler)
 
@@ -146,6 +149,15 @@ Common patterns:\n
     """,
 )
 @click.option(
+    "--master_address",
+    "function_master_addr",
+    help="""
+        Address of function_master in http(s)://host:port format for service discovery.\n
+        If using https://, TLS cert paths must be provided via --config or -s in values.fs.tls
+        (cert_file, key_file, ca_file, with optional base_path).
+    """,
+)
+@click.option(
     "--function-proxy-merge-process-enable",
     "--function_proxy_merge_process_enable",
     "function_proxy_merge_process_enable",
@@ -174,6 +186,7 @@ def start(ctx: click.Context, **kwargs) -> None:
     """Start the YuanRong system in master or agent mode."""
     overrides = kwargs["overrides"]
     master_mode = kwargs["master_mode"]
+    function_master_addr = kwargs["function_master_addr"]
     function_proxy_merge_process_enable = kwargs["function_proxy_merge_process_enable"]
     enable_runtime_launcher = kwargs["enable_runtime_launcher"]
     block = kwargs["block"]
@@ -181,6 +194,22 @@ def start(ctx: click.Context, **kwargs) -> None:
     cli_dir: Path = ctx.obj["cli_dir"]
     mode = StartMode.MASTER if master_mode else StartMode.AGENT
     logger.info(f"Starting yr in {mode.value} mode")
+    if function_master_addr:
+        logger.info(f"Discovering services from function_master at {function_master_addr}...")
+        try:
+            overrides = discovery.resolve_overrides_from_function_master(
+                config_path=config_path,
+                cli_dir=cli_dir,
+                mode=mode,
+                overrides=overrides,
+                function_master_addr=function_master_addr,
+            )
+            if overrides is None:
+                raise ValueError("service discovery returned empty config overrides")
+            logger.debug("Resolved %s config overrides from function_master", len(overrides))
+        except Exception as e:
+            logger.error(f"Failed to get service discovery info from function_master: {e}")
+            ctx.exit(1)
 
     effective_overrides = list(overrides)
     if function_proxy_merge_process_enable:
@@ -500,7 +529,7 @@ def checkpoint_delete(
 
 
 def main(cmdargs: Optional[list[str]] = None) -> None:
-    cli.main(args=cmdargs, prog_name="yrexp", standalone_mode=True)
+    cli.main(args=cmdargs, prog_name="yr", standalone_mode=True)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ PARALLELISM="off"
 AGENT_NUM=1
 START_ONLY="off"
 OFF_CLUSTER="off"
+PYTHON_PKG_INSTALLED="off"
 
 readonly USAGE="
 Usage: bash test.sh [-h] [-f *.*] [-y path-to-yuanrong] [-r][-l language][-m deploy mode][-S thread/address/off][-O]
@@ -88,6 +89,9 @@ function generate_test_dir() {
 }
 
 function install_python_pkg() {
+    if [ "${PYTHON_PKG_INSTALLED}" == "on" ]; then
+        return
+    fi
     pip3.9 install pytest
     pip3.9 install requests
     pip3.9 install numpy
@@ -96,6 +100,71 @@ function install_python_pkg() {
     # Remove stale directories left by old wheel versions that are not in the new wheel
     YR_SITE=$(python3.9 -c "import site; print(site.getusersitepackages())")/yr
     rm -rf "${YR_SITE}/runtime" "${YR_SITE}/cpp" 2>/dev/null || true
+    PYTHON_PKG_INSTALLED="on"
+}
+
+function install_python_runtime_service_deps() {
+    local requirements_file="${YUANRONG_DIR}/runtime/service/python/requirements.txt"
+    local source_requirements_file="${BASE_DIR}/../../api/python/requirements.txt"
+    local runtime_deps_dir="${DEPLOY_PATH}/python_runtime_deps"
+    if [ ! -f "${requirements_file}" ]; then
+        if [ ! -f "${source_requirements_file}" ]; then
+            echo "[gate-st] runtime python requirements not found: ${requirements_file}"
+            echo "[gate-st] source python requirements not found: ${source_requirements_file}"
+            return
+        fi
+        requirements_file="${source_requirements_file}"
+    fi
+
+    mkdir -p "${runtime_deps_dir}"
+    python3.9 -m pip install -r "${requirements_file}" -t "${runtime_deps_dir}" --no-warn-script-location
+    python3.9 -m pip install numpy -t "${runtime_deps_dir}" --no-warn-script-location
+    export PYTHONPATH="${runtime_deps_dir}${PYTHONPATH:+:${PYTHONPATH}}"
+    echo "[gate-st] installed runtime python deps to ${runtime_deps_dir}"
+}
+
+function dump_failed_runtime_logs() {
+    language=$1
+    output_file="${GLOG_log_dir}/${language}_output.txt"
+    if [ ! -f "${output_file}" ]; then
+        return
+    fi
+
+    runtime_ids=$(grep -hoE 'runtime-[[:alnum:]_.:-]+' "${output_file}" failed_case_list 2>/dev/null | sort -u | head -20 || true)
+    if [ -z "${runtime_ids}" ]; then
+        return
+    fi
+
+    echo "[gate-st] failed runtime log tails:"
+    echo "${runtime_ids}" | while read -r runtime_id; do
+        find "${DEPLOY_PATH}" -maxdepth 5 -type f -name "${runtime_id}*" | sort | while read -r log_file; do
+            echo "[gate-st] tail failed runtime ${log_file}"
+            tail -160 "${log_file}" || true
+        done
+    done
+}
+
+function dump_st_failure_diagnostics() {
+    language=$1
+    echo "[gate-st] ST failed, dump deploy diagnostics"
+    echo "[gate-st] DEPLOY_PATH=${DEPLOY_PATH}"
+    if [ -d "${DEPLOY_PATH}" ]; then
+        echo "[gate-st] deploy path files:"
+        find "${DEPLOY_PATH}" -maxdepth 3 -type f | sort | tail -120 || true
+        dump_failed_runtime_logs "${language}"
+        echo "[gate-st] recent log tails:"
+        find "${DEPLOY_PATH}" -maxdepth 5 -type f \
+            \( -name "*.log" -o -name "*.out" -o -name "*.err" -o -name "*stdout*" -o -name "*stderr*" \) \
+            | sort | tail -30 | while read -r log_file; do
+                echo "[gate-st] tail ${log_file}"
+                tail -100 "${log_file}" || true
+            done
+    else
+        echo "[gate-st] deploy path does not exist"
+    fi
+    echo "[gate-st] related process snapshot:"
+    ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|runtime_manager|ds_worker|ds_master|etcd' \
+        | grep -v grep || true
 }
 
 function common_check_st_result() {
@@ -108,6 +177,7 @@ function common_check_st_result() {
         echo "Last one ${language} case failed, may timeout or happened core dump!"
         echo "----------------------Failed to run ${language} st----------------------"
         cat "$GLOG_log_dir/${language}_output.txt"
+        dump_st_failure_diagnostics "${language}"
         exit $ret_code
     else
         echo "Failed ${language} Count is: ${failed_case_num}"
@@ -115,6 +185,7 @@ function common_check_st_result() {
         cat failed_case_list
         echo "----------------------Failed to run ${language} st----------------------"
         cat "$GLOG_log_dir/${language}_output.txt"
+        dump_st_failure_diagnostics "${language}"
         exit 1
     fi
 }
@@ -237,6 +308,10 @@ function clean_hook() {
 function deploy_yr() {
     cd "${BASE_DIR}"
     if [[ "$DEPLOY_MODE" == "process" ]]; then
+        if [ "$START_ONLY" == "off" ]; then
+            install_python_pkg
+        fi
+        install_python_runtime_service_deps
         bash prepare_and_start_yr.sh -d "$DEPLOY_PATH" -y "$YUANRONG_DIR" -a "$LOCAL_IP" -S "$SANITIZER" -n "$AGENT_NUM"
         PROXY_GRPC_PORT=$(grep PROXY_GRPC_PORT ${DEPLOY_PATH}/log/*-deploy_std.log | awk '{print $NF}')
         DS_WORKER_PORT=$(grep DS_WORKER_PORT ${DEPLOY_PATH}/log/*-deploy_std.log | awk '{print $NF}')

@@ -1,4 +1,4 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard sandbox-sdk image all clean
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard rust sandbox-sdk pkg aio image all clean
 
 # Bazel remote cache server (optional, can be set via environment variable)
 # Example: REMOTE_CACHE=https://192.0.2.1:9090 make yuanrong
@@ -6,6 +6,8 @@ REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 JOBS ?= $(NPROCS)
 FUNCTIONSYSTEM_JOBS ?= 8
+DATASYSTEM_PYTHON ?= on
+DATASYSTEM_JAVA ?= on
 BUILD_VERSION ?=
 BUILD_VERSION_ARG := $(if $(BUILD_VERSION),-v $(BUILD_VERSION),)
 
@@ -18,7 +20,10 @@ help:
 	@echo "  make runtime_launcher - Build runtime-launcher"
 	@echo "  make yuanrong       - Build runtime"
 	@echo "  make dashboard      - Build dashboard"
-	@echo "  make sandbox-sdk   - Build openyuanrong-sandbox wheel (http SDK, sandbox-sdk submodule)"
+	@echo "  make rust           - Build rrt-runtime"
+	@echo "  make sandbox-sdk    - Build openyuanrong-sandbox wheel"
+	@echo "  make pkg            - Copy packages to example/aio/pkg/"
+	@echo "  make aio            - Copy packages and build AIO image"
 	@echo "  make image         - Build aio images after make all"
 	@echo "  make all           - Build all targets"
 	@echo ""
@@ -30,6 +35,8 @@ help:
 	@echo "                      Example: make all JOBS=8"
 	@echo "  FUNCTIONSYSTEM_JOBS - Parallelism for functionsystem; defaults to 8"
 	@echo "                      Example: make all FUNCTIONSYSTEM_JOBS=6"
+	@echo "  DATASYSTEM_JAVA    - Build datasystem Java SDK jar; defaults to on"
+	@echo "                      Example: make datasystem DATASYSTEM_JAVA=off"
 
 clean:
 	@echo "Cleaning build outputs..."
@@ -75,7 +82,7 @@ frontend:
 
 datasystem:
 	@rm -rf datasystem/output/*
-	bash datasystem/build.sh -X off -P on -G on -i on -j $(JOBS) $(BUILD_VERSION_ARG)
+	bash datasystem/build.sh -X off -P $(DATASYSTEM_PYTHON) -J $(DATASYSTEM_JAVA) -G on -i on -j $(JOBS) $(BUILD_VERSION_ARG)
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem-*.tar.gz output/
 	@mkdir -p functionsystem/vendor/src
@@ -86,28 +93,11 @@ datasystem:
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	if ! command -v go >/dev/null 2>&1; then \
-		echo "Error: Go not found. Please install Go and add to PATH."; \
-		exit 1; \
-	fi
-	@mkdir -p functionsystem/runtime-launcher/bin
-	@echo "Generating protobuf files..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	cd functionsystem/runtime-launcher && \
-	./scripts/generate-proto.sh
-	@echo "Compiling runtime-launcher..."
-	@export PATH=/usr/local/go/bin:~/bin:~/go/bin:$$PATH; \
-	cd functionsystem/runtime-launcher && \
-	go build -buildvcs=false -o bin/runtime/runtime-launcher ./cmd/runtime-launcher/ && \
-	go build -buildvcs=false -o bin/rl-client ./cmd/rl-client/
+	cd functionsystem && bash run.sh build --component runtime_launcher $(BUILD_VERSION_ARG) && cd -
 	@mkdir -p output
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher output/runtime-launcher
 	@echo "Runtime-launcher built successfully!"
 
-# rrt = Rust sandbox runtime daemon. Builds rrt-runtime, which is started by the py310/sandbox slot
-# entrypoint `exec /__yuanrong/rrt-runtime` in services.yaml and packed into the AIO image bootstrap.root.
-# Requires the Rust toolchain (cargo); build inside the compile image, not directly on the host.
 rust:
 	@echo "Building rrt-runtime (Rust sandbox runtime)..."
 	@command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Build inside the rust compile image."; exit 1; }
@@ -138,8 +128,10 @@ yuanrong:
 	@echo "Building yuanrong..."
 	bash build.sh -P -j $(JOBS) $(BUILD_VERSION_ARG)
 
-# openyuanrong-sandbox = the HTTP/WS sandbox SDK (sandbox-sdk submodule). Pure-Python,
-# no toolchain; build.sh emits the wheel (+sdist) into output/ for the pipeline.
+image:
+	@echo "Building aio images via deploy/sandbox/docker/build-images.sh..."
+	@./deploy/sandbox/docker/build-images.sh
+
 sandbox-sdk:
 	@echo "Building openyuanrong-sandbox (sandbox-sdk) wheel..."
 	@if [ ! -f sandbox-sdk/build.sh ]; then \
@@ -149,11 +141,30 @@ sandbox-sdk:
 	@mkdir -p output
 	@bash sandbox-sdk/build.sh "$(CURDIR)/output"
 
-image:
-	@echo "Building aio images via deploy/sandbox/docker/build-images.sh..."
-	@./deploy/sandbox/docker/build-images.sh
+pkg:
+	@echo "Copying packages to example/aio/pkg/..."
+	@mkdir -p example/aio/pkg
+	@cp datasystem/output/sdk/openyuanrong_datasystem_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp datasystem/output/openyuanrong_datasystem-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp functionsystem/output/openyuanrong_functionsystem-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_runtime-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_dashboard-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_faas-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_cpp_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_full-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
+	@mkdir -p example/aio/docs
+	@cp example/aio/TRAEFIK_ETCD.md example/aio/docs/ 2>/dev/null || true
+	@echo "Packages copied successfully!"
+	@ls -la example/aio/pkg/
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong sandbox-sdk
+aio: pkg
+	@echo "Building Docker image openyuanrongaio:latest..."
+	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
+
+all: frontend datasystem functionsystem dashboard yuanrong sandbox-sdk
 	@echo "Build completed!"
 	@echo "Artifacts are ready under output/."
 
