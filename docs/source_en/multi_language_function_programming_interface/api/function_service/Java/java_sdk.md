@@ -191,7 +191,7 @@ This method immediately synchronizes the new value to libruntime, ensuring the r
 
    - **YRException** (YRException) - Thrown when the JNI call fails.
 
-#### JsonObject wait(long timeoutMs)
+#### JsonObject waitForNotify(long timeoutMs)
 
 Suspends the current execution thread, waiting for subsequent input from the same session. During the wait, the current thread releases the session lock, allowing other requests (such as `notify`) to enter.
 
@@ -205,7 +205,7 @@ Suspends the current execution thread, waiting for subsequent input from the sam
 
 #### void notify(JsonObject payload)
 
-Wakes up the thread in `wait` status and passes `payload` to it.
+Wakes up the thread in `waitForNotify` status and passes `payload` to it.
 
 - Parameters:
 
@@ -238,7 +238,7 @@ public class demo {
         }
 
         // Wait for user input
-        JsonObject userInput = session.wait(60000);
+        JsonObject userInput = session.waitForNotify(60000);
         if (userInput == null) {
             return "Wait timeout";
         }

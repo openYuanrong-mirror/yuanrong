@@ -30,8 +30,8 @@ In functions with AI Agent sessions enabled, you can obtain the `SessionService`
 
 The `Session` object provides capabilities for in-session synchronization and state management.
 
-- **`wait(long timeoutMs)`**: Suspend the current execution thread, waiting for input.
-- **`notify(JsonObject payload)`**: Wake up a thread that is `wait`ing.
+- **`waitForNotify(long timeoutMs)`**: Suspend the current execution thread, waiting for input.
+- **`notify(JsonObject payload)`**: Wake up a thread that is waiting via `waitForNotify`.
 - **`getInterrupted()`**: Check whether the current session has been externally interrupted.
 
 #### Java Usage Example
@@ -48,7 +48,7 @@ public Object handle(Context ctx, JsonObject input) {
         return "Notified";
     }
 
-    JsonObject userInput = sess.wait(60000); 
+    JsonObject userInput = sess.waitForNotify(60000); 
     
     if (userInput == null) return "Timeout";
     if (sess.getInterrupted()) return "Interrupted";
@@ -94,7 +94,7 @@ def handle(ctx, input):
 
 ## Complete Use Case: Multi-Turn Conversation AI Agent
 
-The following is a complete Java example demonstrating how to use `wait`/`notify` to implement a simple multi-turn interaction.
+The following is a complete Java example demonstrating how to use `waitForNotify`/`notify` to implement a simple multi-turn interaction.
 
 ```java
 import org.yuanrong.services.Context;
@@ -122,7 +122,7 @@ public class SimpleAgent {
             
             // First round of interaction
             ctx.getStream().write("Hello! I'm an AI assistant, how can I help you?\n");
-            JsonObject input1 = sess.wait(30000); // Wait for user input for 30 seconds
+            JsonObject input1 = sess.waitForNotify(30000); // Wait for user input for 30 seconds
             if (input1 == null) return "Wait timeout";
             
             String msg1 = input1.get("message").getAsString();
@@ -135,7 +135,7 @@ public class SimpleAgent {
             
             // Second round of interaction
             ctx.getStream().write("Processing completed. Do you have any other questions?\n");
-            JsonObject input2 = sess.wait(30000);
+            JsonObject input2 = sess.waitForNotify(30000);
             if (input2 == null) return "Wait timeout";
 
             if (sess.getInterrupted()) {
@@ -159,7 +159,7 @@ public class SimpleAgent {
 First round of interaction: Logical suspension
 
 1. **Client** initiates `POST /invocations` (carrying `SessionID`: ``S1``)
-2. **Function Instance** receives the request, executes business logic, until calling `sess.wait()`
+2. **Function Instance** receives the request, executes business logic, until calling `sess.waitForNotify()`
 3. **Function Instance** releases the session lock, execution thread enters suspended state, waiting for wake-up
 
 Second round of interaction: Wake-up and continuation
