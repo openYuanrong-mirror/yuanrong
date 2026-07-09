@@ -191,7 +191,7 @@ public class demo {
 
    - **YRException** (YRException) - JNI 调用失败时抛出。
 
-#### JsonObject wait(long timeoutMs)
+#### JsonObject waitForNotify(long timeoutMs)
 
 挂起当前执行线程，等待同一个会话的后续输入。在等待期间，当前线程会释放会话锁，允许其他请求（如 `notify`）进入。
 
@@ -205,7 +205,7 @@ public class demo {
 
 #### void notify(JsonObject payload)
 
-唤醒正在 `wait` 状态的线程，并将 `payload` 传递给它。
+唤醒正在 `waitForNotify` 状态的线程，并将 `payload` 传递给它。
 
 - 参数：
 
@@ -239,7 +239,7 @@ public class demo {
         }
 
         // 等待用户输入
-        JsonObject userInput = session.wait(60000);
+        JsonObject userInput = session.waitForNotify(60000);
         if (userInput == null) {
             return "Wait timeout";
         }

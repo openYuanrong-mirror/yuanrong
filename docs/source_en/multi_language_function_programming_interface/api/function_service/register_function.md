@@ -45,7 +45,7 @@ The function name must be globally unique.
 | s3CodePath | S3Object | No | Code package S3 path. Effective when `storageType` is configured as ``s3``.                                                                 |
 | poolId | String | No | Custom affinity pool ID. When function instance creation resources are insufficient (or affinity conditions are not met), the kernel creates a POD with the specified poolID for instance scheduling.<br> **Constraints**: Only effective for function services. Configuration constraints are consistent with the create pool interface.                                                                |
 | resourceAffinitySelectors | ResourceAffinitySelector | No | Function scheduling affinity and priority configuration.                                                                                     |
-| enableAgentSession | boolean | No | Whether to enable AI Agent session. After enabling, supports `wait`/`notify` SDK and session affinity scheduling. Default is ``false``. |
+| enableAgentSession | boolean | No | Whether to enable AI Agent session. After enabling, supports `waitForNotify`/`notify` SDK and session affinity scheduling. Default is ``false``. |
 | enableSessionCtx | boolean | No | Whether to enable Session Context instance isolation. After enabling, invocation requests can specify `sessionCtx` through the `X-Session-Context` header. Function instances are not reused across different `sessionCtx` values. Default is ``false``. |
 
 :::{Note}
