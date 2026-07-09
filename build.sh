@@ -115,6 +115,28 @@ log_fatal() {
 	exit 1
 }
 
+function ensure_datasystem_submodule() {
+	if [[ "${ENABLE_DATASYSTEM}" != "true" || "${BAZEL_COMMAND}" == "clean" || "$(uname)" == "Darwin" ]]; then
+		return
+	fi
+
+	local required_patch="${BASE_DIR}/datasystem/third_party/patches/spdlog/change-namespace.patch"
+	if [[ -f "${required_patch}" ]]; then
+		return
+	fi
+
+	if [[ -f "${BASE_DIR}/.gitmodules" ]] && command -v git >/dev/null 2>&1 &&
+		git -C "${BASE_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+		log_info "ensure datasystem submodule is initialized"
+		git -C "${BASE_DIR}" submodule sync -- datasystem
+		git -C "${BASE_DIR}" submodule update --init --recursive --force -- datasystem
+	fi
+
+	if [[ ! -f "${required_patch}" ]]; then
+		log_fatal "datasystem submodule is not initialized: missing ${required_patch}"
+	fi
+}
+
 function pip_flags_for_python() {
 	local py="$1"
 	if "${py}" -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
@@ -423,6 +445,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
 		BAZEL_OPTIONS="${BAZEL_OPTIONS} --macos_minimum_os=${MACOS_DEPLOYMENT_TARGET}"
 	fi
 fi
+
+ensure_datasystem_submodule
 
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
