@@ -1,6 +1,6 @@
 # Multi-turn Dialogue Assistant Based on AI Agent Session
 
-This case demonstrates how to build an intelligent dialogue assistant that supports multi-turn interaction by leveraging openYuanrong's AI Agent Session capability. Through `wait` and `notify` mechanisms, functions can suspend execution and wait for user input during execution, thereby implementing complex interaction logic.
+This case demonstrates how to build an intelligent dialogue assistant that supports multi-turn interaction by leveraging openYuanrong's AI Agent Session capability. Through `waitForNotify` and `notify` mechanisms, functions can suspend execution and wait for user input during execution, thereby implementing complex interaction logic.
 
 ## Scenario Description
 
@@ -9,7 +9,7 @@ In traditional FaaS models, functions are typically trigger-based execution and 
 openYuanrong's AI Agent Session feature provides the following advantages:
 
 - **Automatic State Management**: Session context is automatically persisted and loaded with the session lifecycle.
-- **Execution Flow Suspension**: Supports suspension within functions via `wait`, waiting for subsequent requests from the same session to wake up.
+- **Execution Flow Suspension**: Supports suspension within functions via `waitForNotify`, waiting for subsequent requests from the same session to wake up.
 - **Low-latency Response**: Through session affinity scheduling, ensures requests from the same session are routed to the same instance, reducing cold start and state synchronization overhead.
 
 ## Development Steps
@@ -61,7 +61,7 @@ public class DialogueAgent {
         try {
             // First round
             ctx.getStream().write("Hello! I'm your AI assistant. What should I call you?\n");
-            JsonObject nameInput = sess.wait(60000); // Suspend and wait for input, timeout 60s
+            JsonObject nameInput = sess.waitForNotify(60000); // Suspend and wait for input, timeout 60s
             if (nameInput == null) return "Timeout waiting for name";
             
             String userName = nameInput.get("message").getAsString();
@@ -73,7 +73,7 @@ public class DialogueAgent {
 
             // Second round
             ctx.getStream().write(userName + ", nice to meet you! How can I help you today?\n");
-            JsonObject taskInput = sess.wait(60000);
+            JsonObject taskInput = sess.waitForNotify(60000);
             if (taskInput == null) return "Timeout waiting for task instruction";
 
             String task = taskInput.get("message").getAsString();
@@ -99,7 +99,7 @@ Step A: Start session and begin first round
 
 1. **Client**: Call `POST /invocations` (SessionID: S1)
 2. **Gateway**: Forward request to bound instance
-3. **Function Instance**: Execute business logic and enter `sess.wait()`, execution thread suspends
+3. **Function Instance**: Execute business logic and enter `sess.waitForNotify()`, execution thread suspends
 
 Step B: Send notification data for wake-up
 

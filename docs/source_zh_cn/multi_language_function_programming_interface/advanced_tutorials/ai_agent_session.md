@@ -30,8 +30,8 @@ AI Agent 会话默认为弱亲和（`TTL` 为 ``0``）。
 
 `Session` 对象提供了会话内同步和状态管理的能力。
 
-- **`wait(long timeoutMs)`**: 挂起当前执行线程，等待输入。
-- **`notify(JsonObject payload)`**: 唤醒正在 `wait` 的线程。
+- **`waitForNotify(long timeoutMs)`**: 挂起当前执行线程，等待输入。
+- **`notify(JsonObject payload)`**: 唤醒正在 `waitForNotify` 的线程。
 - **`getInterrupted()`**: 检查当前会话是否已被外部中断。
 
 #### Java 使用示例
@@ -48,11 +48,11 @@ public Object handle(Context ctx, JsonObject input) {
         return "Notified";
     }
 
-    JsonObject userInput = sess.wait(60000);
-    
+    JsonObject userInput = sess.waitForNotify(60000);
+
     if (userInput == null) return "Timeout";
     if (sess.getInterrupted()) return "Interrupted";
-    
+
     return "Got: " + userInput.toString();
 }
 ```
@@ -94,7 +94,7 @@ def handle(ctx, input):
 
 ## 完整用例：多轮对话 AI Agent
 
-以下是一个完整的 Java 示例，演示了如何利用 `wait`/`notify` 实现一个简单的多轮交互。
+以下是一个完整的 Java 示例，演示了如何利用 `waitForNotify`/`notify` 实现一个简单的多轮交互。
 
 ```java
 import org.yuanrong.services.Context;
@@ -122,7 +122,7 @@ public class SimpleAgent {
             
             // 第一轮交互
             ctx.getStream().write("你好！我是 AI 助手，请问有什么可以帮您？\n");
-            JsonObject input1 = sess.wait(30000); // 等待用户输入 30 秒
+            JsonObject input1 = sess.waitForNotify(30000); // 等待用户输入 30 秒
             if (input1 == null) return "等待超时";
             
             String msg1 = input1.get("message").getAsString();
@@ -135,7 +135,7 @@ public class SimpleAgent {
             
             // 第二轮交互
             ctx.getStream().write("处理完成。您还有其他问题吗？\n");
-            JsonObject input2 = sess.wait(30000);
+            JsonObject input2 = sess.waitForNotify(30000);
             if (input2 == null) return "等待超时";
 
             if (sess.getInterrupted()) {
@@ -159,7 +159,7 @@ public class SimpleAgent {
 第一轮交互：逻辑挂起
 
 1. **客户端** 发起 `POST /invocations` (携带 `SessionID`: ``S1``)
-2. **函数实例** 接收请求，执行业务逻辑，直到调用 `sess.wait()`
+2. **函数实例** 接收请求，执行业务逻辑，直到调用 `sess.waitForNotify()`
 3. **函数实例** 释放会话锁，执行线程进入挂起状态，等待唤醒
 
 第二轮交互：唤醒与继续
