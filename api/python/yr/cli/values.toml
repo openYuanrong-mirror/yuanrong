@@ -117,7 +117,7 @@ config_path = "{{ values.yr_package_path }}/faas/init_scheduler_args.json"
 [values.meta_service]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/meta_service"
 ip = "{{ values.host_ip }}"
-port = "{{ 31182|check_port() }}" 
+port = "{{ 31182|check_port() }}"
 clusters = ""
 config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_config.json"
 log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_log_config.json"
