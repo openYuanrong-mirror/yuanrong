@@ -21,7 +21,7 @@ yr api
 import importlib
 import os
 import ctypes
-import sys
+import threading
 
 _NATIVE_PRELOADS = [
     "libsecurec.so",  # securec must before libdatasystem
@@ -77,6 +77,8 @@ _NATIVE_EXPORT_MODULES = {
     "yr.session_service",
     "yr.functionsdk.context",
 }
+_LAZY_EXPORT_LOCK = threading.RLock()
+_MISSING = object()
 
 
 def _preload_system_library(so_name):
@@ -196,14 +198,22 @@ def __getattr__(name):
     if target is None:
         raise AttributeError(f"module 'yr' has no attribute {name!r}")
     module_name, attr_name = target
-    if module_name in _NATIVE_EXPORT_MODULES:
-        _preload_native_libraries()
-    module = sys.modules.get(module_name)
-    if module is None:
-        module = importlib.import_module(module_name)
+    with _LAZY_EXPORT_LOCK:
+        value = globals().get(name, _MISSING)
+        if value is not _MISSING:
+            return value
+        if module_name in _NATIVE_EXPORT_MODULES:
+            _preload_native_libraries()
+
+    module = importlib.import_module(module_name)
     value = module if attr_name is None else getattr(module, attr_name)
-    globals()[name] = value
-    return value
+
+    with _LAZY_EXPORT_LOCK:
+        cached_value = globals().get(name, _MISSING)
+        if cached_value is not _MISSING:
+            return cached_value
+        globals()[name] = value
+        return value
 
 __all__ = [
     "init", "finalize", "Config", "UserTLSConfig",
