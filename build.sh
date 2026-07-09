@@ -71,6 +71,9 @@ fi
 # rrt is not recompiled once per Python version.
 if [ "${BUILD_SKIP_RUST}" = "1" ]; then
 	BAZEL_TARGETS="${BAZEL_TARGETS// \/\/api\/rust:yr_rust_pkg/}"
+elif ! command -v cargo >/dev/null 2>&1; then
+	echo "Warning: cargo not available, skipping //api/rust:yr_rust_pkg"
+	BAZEL_TARGETS="${BAZEL_TARGETS// \/\/api\/rust:yr_rust_pkg/}"
 fi
 
 BAZEL_PRE_OPTIONS="--output_user_root=${BUILD_BASE} --output_base=${OUTPUT_BASE}"
