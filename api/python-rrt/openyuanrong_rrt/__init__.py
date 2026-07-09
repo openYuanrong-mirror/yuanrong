@@ -25,9 +25,9 @@ bytes are also published as a bare binary for non-pip / bare-rootfs consumers
 (track B); see ``RRT_RUNTIME_BIN`` for an explicit override.
 """
 
-import os
-
 __all__ = ["runtime_path", "RRT_BINARY_NAME"]
+
+import os
 
 RRT_BINARY_NAME = "rrt-runtime"
 

@@ -83,8 +83,9 @@ def get_wheel_platform_tag():
 
 
 class BdistWheelImpl(_bdist_wheel):
-    """Force a py3-none-<platform> tag: the binary is arch-specific but not
-    Python-version/ABI specific."""
+    """
+    Force a py3-none-<platform> tag for the arch-specific binary.
+    """
 
     def get_tag(self):
         host = next(tags.sys_tags())

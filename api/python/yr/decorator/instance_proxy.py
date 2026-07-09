@@ -396,8 +396,10 @@ class InstanceCreator:
     def _invoke(self, name=None, args=None, kwargs=None, invoke_options=None):
         if invoke_options is None:
             invoke_options = self.__invoke_options__
-        # rootfs (sandbox) instances run on runtimes without datasystem mounted, so results must be returned inline.
-        # Therefore create and later method calls default to bypass_datasystem; ConfigManager global overrides still take precedence.
+        # rootfs (sandbox) instances run on runtimes without datasystem mounted,
+        # so results must be returned inline. Therefore create and later method
+        # calls default to bypass_datasystem; ConfigManager global overrides
+        # still take precedence.
         is_sandbox = "rootfs" in invoke_options.custom_extensions
         if is_sandbox and not invoke_options.bypass_datasystem:
             invoke_options = replace(invoke_options, bypass_datasystem=True)
@@ -572,7 +574,8 @@ class InstanceProxy:
         """
         Initialize the InstanceProxy instance.
         """
-        # Sandbox (rootfs) instance method calls default to bypass_datasystem: results are inline and the runtime has no datasystem.
+        # Sandbox (rootfs) instance method calls default to bypass_datasystem:
+        # results are inline and the runtime has no datasystem.
         self._bypass_datasystem_default = bypass_datasystem_default
         self._class_descriptor = class_descriptor
         self.instance_id = instance_id
