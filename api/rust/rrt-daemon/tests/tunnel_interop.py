@@ -35,18 +35,17 @@ STARTUP_RETRIES = 50
 STARTUP_SLEEP_SECONDS = 0.1
 
 
-# pylint: disable=invalid-name
 class InteropHandler(http.server.BaseHTTPRequestHandler):
     """Fake upstream server that the Python TunnelClient forwards to."""
 
-    def do_GET(self):
+    def handle_get(self):
         body = f"UPSTREAM-OK:{self.path}".encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self):
+    def handle_post(self):
         content_length = int(self.headers.get("Content-Length", 0))
         data = self.rfile.read(content_length)
         body = b"ECHO:" + data
@@ -57,6 +56,10 @@ class InteropHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         return
+
+
+setattr(InteropHandler, "do_GET", InteropHandler.handle_get)
+setattr(InteropHandler, "do_POST", InteropHandler.handle_post)
 
 
 def check_result(name, condition, detail, passed, failed):
