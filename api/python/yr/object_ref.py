@@ -21,6 +21,7 @@ import importlib
 import json
 from concurrent.futures import Future
 import logging
+import threading
 from typing import Any, Union
 
 from yr.exception import YRInvokeError, YRError, YRRuntimeError, GeneratorFinished, raise_yr_value_error
@@ -32,10 +33,17 @@ from yr.common import constants
 from yr.ds_tensor_client_manager import get_tensor_client
 
 _logger = logging.getLogger(__name__)
+_runtime_holder_module = None
+_runtime_holder_lock = threading.Lock()
 
 
 def _get_runtime_holder():
-    return importlib.import_module("yr.runtime_holder")
+    global _runtime_holder_module
+    if _runtime_holder_module is None:
+        with _runtime_holder_lock:
+            if _runtime_holder_module is None:
+                _runtime_holder_module = importlib.import_module("yr.runtime_holder")
+    return _runtime_holder_module
 
 
 def _set_future_helper(

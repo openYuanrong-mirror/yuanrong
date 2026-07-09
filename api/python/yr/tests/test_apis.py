@@ -17,11 +17,13 @@ import unittest
 from unittest.mock import patch, Mock
 
 import collections
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 import cloudpickle
 import pytest
+import time
 
 import yr
+from yr import object_ref
 from yr.apis import _recurse
 from yr import exception
 from yr import fcc
@@ -32,6 +34,28 @@ from yr.base_runtime import AlarmInfo
 from yr.object_ref import ObjectRef
 from yr.config import InvokeOptions
 from yr.runtime_holder import RuntimeHolder
+
+
+def test_runtime_holder_import_is_cached_across_threads(monkeypatch):
+    holder = object()
+    calls = []
+
+    def fake_import_module(name):
+        assert name == "yr.runtime_holder"
+        time.sleep(0.01)
+        calls.append(name)
+        return holder
+
+    monkeypatch.setattr(object_ref, "_runtime_holder_module", None)
+    monkeypatch.setattr(object_ref.importlib, "import_module", fake_import_module)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(lambda _: object_ref._get_runtime_holder(), range(16)))
+
+        assert results == [holder] * 16
+        assert calls == ["yr.runtime_holder"]
+    finally:
+        monkeypatch.setattr(object_ref, "_runtime_holder_module", None)
 
 
 @yr.invoke(return_nums=0)
