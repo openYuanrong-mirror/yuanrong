@@ -1,4 +1,4 @@
-﻿# Deploy Multi-Machine PD Separation Service Based on vLLM, Long Sequence Inference TTFT Reduced by 20%
+# Deploy Multi-Machine PD Separation Service Based on vLLM, Long Sequence Inference TTFT Reduced by 20%
 
 Long sequence reasoning enables large language models to truly understand and handle complex problems. For example, chatbots need to maintain coherence in multi-turn conversations to provide more humanized services. However, as input sequences increase, inference services also face significant challenges:
 
@@ -17,6 +17,12 @@ This case deploys a PD-separated Qwen inference service based on the vLLM infere
 - Deploy openYuanrong in the [vLLM Ascend](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"} container mirror environment based on openEuler.
 - Patch vLLM Ascend to adapt openYuanrong's distributed multi-machine caching capabilities.
 - Deploy PD-separated Qwen inference service in containers across hosts, testing long sequence inference effects.
+
+:::{Note}
+
+Version compatibility notice: This case currently runs correctly on version 0.7.0. Due to underlying architecture optimizations in the new version (0.9.0), this case is temporarily incompatible with the new version. We will release an update as soon as possible.
+
+:::
 
 ## Preparation
 

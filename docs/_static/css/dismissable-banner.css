@@ -1,0 +1,50 @@
+/* 覆盖主题默认的灰色横幅底色 */
+html[data-theme="light"] {
+    --sbt-color-announcement: #3571D2 !important;
+}
+html[data-theme="dark"] {
+    --sbt-color-announcement: #2C5AAC !important;
+}
+
+/* 公告横幅背景色和文字样式 */
+.bd-header-announcement {
+    background-color: #3571D2 !important;
+    color: #fff !important;
+}
+
+.bd-header-announcement a {
+    color: #fff !important;
+    text-decoration: underline;
+}
+
+[data-theme="dark"] .bd-header-announcement {
+    background-color: #2C5AAC !important;
+    color: #E0E8FF !important;
+}
+
+[data-theme="dark"] .bd-header-announcement a {
+    color: #E0E8FF !important;
+}
+
+#close-banner {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1.2em;
+    cursor: pointer;
+    padding: 0 5px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease, outline-color 0.2s ease;
+    position: absolute;
+    top: 8px;
+    right: 12px;
+}
+
+#close-banner:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+#close-banner:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}

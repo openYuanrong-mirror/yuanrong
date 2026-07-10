@@ -1,4 +1,4 @@
-﻿# Inference Instance Model Loading Speed 10x Improvement, Fast Elastic Response to Business Traffic Changes
+# Inference Instance Model Loading Speed 10x Improvement, Fast Elastic Response to Business Traffic Changes
 
 When facing high loads or sudden traffic, the elastic speed of inference instances helps systems quickly adjust resources to prevent service interruptions or performance degradation, ensuring real-time performance and user experience. Faster elastic speed also allows systems to automatically adjust computing resources based on real-time load, expanding quickly during high load and releasing promptly during low load to avoid resource waste.
 
@@ -11,6 +11,12 @@ This case deploys and scales a Qwen inference instance on the Ascend environment
 - Deploy openYuanrong in the [vLLM Ascend](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"} container mirror environment based on openEuler.
 - Provide vLLM patches to adapt the openYuanrong heterogeneous data object API.
 - Use openYuanrong to deploy and scale a Qwen inference instance based on vLLM, testing acceleration effects.
+
+:::{Note}
+
+Version compatibility notice: This case currently runs correctly on version 0.7.0. Due to underlying architecture optimizations in the new version (0.9.0), this case is temporarily incompatible with the new version. We will release an update as soon as possible.
+
+:::
 
 ## Preparation
 
