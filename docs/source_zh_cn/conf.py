@@ -114,9 +114,11 @@ html_favicon = "../_static/favicon.ico"
 html_extra_path = ["robots.txt"]
 html_css_files = [
     "custom.css",
+    "css/dismissable-banner.css",
 ]
 html_js_files = [
     "language-switcher.js",
+    "js/dismissable-banner.js",
 ]
 #   确保末尾加上斜杠
 html_baseurl = "https://docs.openyuanrong.org/zh-cn/latest/"
@@ -126,6 +128,12 @@ html_theme_options = {
     "collapse_navigation": True,
     "home_page_in_toc": True,
     "check_switcher": False,
+    "announcement": (
+        "🚀 <b>openYuanrong v0.9.0</b> 已发布 — 新增企业级Agent分布式运行时"
+        " &nbsp;·&nbsp; "
+        "<a href='https://gitcode.com/openeuler/yuanrong/releases'>查看详情 →</a>"
+        "<button type='button' id='close-banner' aria-label='关闭横幅'>&times;</button>"
+    ),
     "extra_footer": """
         Built with
         <a href="https://www.sphinx-doc.org/en/master/">Sphinx</a>
