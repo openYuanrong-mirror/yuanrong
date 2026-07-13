@@ -66,12 +66,25 @@ yrcli exec -i -t test-mybox "bash"        # 交互式终端
 ## Token 管理
 
 ```bash
-# 申请 token
-yrcli token-require --iam-address <iam地址> --tenant-id <租户ID> --role admin
+# 通过 frontend 申请 developer token
+yrcli token-require --frontend-address <frontend地址> --operator-token "<租户0 token>" --tenant-id <租户ID>
 
 # 验证 token
 yrcli token-auth --iam-address <iam地址> --token "<token>"
 
-# 吊销 token
-yrcli token-abandon --iam-address <iam地址> --token "<token>"
+# 当前不支持通过 frontend abandon/revoke 已签发的 developer token。
+# developer token 的失效依赖 token 自身 TTL。
+
+# 集群内直连 iam-server 的运维入口
+yrcluster token-require --iam-address <iam地址> --tenant-id <租户ID> --role developer
+yrcluster token-abandon --iam-address <iam地址> --token "<token>" --tenant-id <租户ID>
 ```
+
+`yrcli token-require` 是外部统一网关入口，只访问 frontend `/auth/token/require`，并要求 `--operator-token` 为租户 0 的 developer token。该流程不会写入 IdP，也不维护 email、quota 等 tenant profile。
+
+## 多租户验收注意事项
+
+- 创建和删除实例的端到端验收使用 SDK 链路，list 使用 `yrcli list instance`。
+- SDK 创建 sandbox/长期运行实例时应显式指定完整函数 ID，例如 `sn:cn:yrk:default:function:0-defaultservice-py310:$latest`。
+- `yrcli sandbox create` 保留兼容 fallback；当 SDK 返回 `invalid function` 或函数缺失类错误时，可能回退到 frontend sandbox API。多租户 RBAC 验收不应依赖该 fallback 判断 SDK create 行为。
+- 租户 0 预期可查询和删除所有租户实例；普通 developer 租户只能查询和删除本租户实例。

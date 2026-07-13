@@ -141,10 +141,25 @@ global:
             memory: 500
             runtime: cpp11
             concurrentNum: 20
+  systemFunctions:
+    faasFrontend:
+      cpu: 500
+      memory: 500
+      # The sandbox chart runs frontend as a component driver. Keep this at 0 so bootstrap restores function metadata
+      # without creating additional managed system-function instances.
+      instanceNum: 0
+    faasScheduler:
+      cpu: 500
+      memory: 500
+      # The sandbox chart runs scheduler as a component driver. Keep this at 0 so bootstrap restores function metadata
+      # without creating additional managed system-function instances.
+      instanceNum: 0
   secrets:
     s3AccessKey: ""
     s3SecretKey: ""
     curveSecret: ""
+    # Hex-encoded component data key used by iam-server to sign and verify internal JWT tokens.
+    litebusDataKey: ""
 
 etcd:
   enabled: true

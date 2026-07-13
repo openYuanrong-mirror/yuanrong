@@ -119,6 +119,7 @@ class FrontendLauncher(ComponentLauncher):
             "{etcdAddr}": etcd_addrs,
             "{faas_frontend_http_ip}": ip_address,
             "{faas_frontend_http_port}": str(port),
+            "{frontend_lease_bypass}": "false",
             "{sslEnable}": ssl_enable,
             "{sccEnable}": scc_enable,
             "{etcdAuthType}": etcd_auth_type,

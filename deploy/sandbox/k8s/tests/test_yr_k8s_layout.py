@@ -282,6 +282,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("--trusted-host mirrors.aliyun.com", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-frontend.sh", controlplane_dockerfile)
+        self.assertIn("{frontend_lease_bypass}", controlplane_dockerfile)
         self.assertIn("ARG BASE_IMAGE=yr-base", runtime_dockerfile)
         self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
