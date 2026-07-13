@@ -26,7 +26,7 @@
         mountpoint: /mnt
       bootstrap:
         type: path
-        root: "/opt/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/site-packages/yr/inner/runtime/service"
+        root: "/opt/uv/python"
         entrypoint: "set -e; if [ -f /__yuanrong/python/yr/main/yr_runtime_main.py ]; then export PYTHONPATH=/__yuanrong/python:${PYTHONPATH}; export LD_LIBRARY_PATH=/__yuanrong/python/yr/cpp/lib:/__yuanrong/python/yr/datasystem/lib:${LD_LIBRARY_PATH}; YR_RUNTIME_MAIN=/__yuanrong/python/yr/main/yr_runtime_main.py; else YR_RUNTIME_MAIN='-m yr.cli.scripts runtime_main'; fi; python ${YR_RUNTIME_MAIN}"
     # py310 = sandbox slot. The SDK routes here by driver Python version. The entrypoint selects the backend:
     #   Rust backend: exec /__yuanrong/rust/bin/rrt-runtime, shipped into bootstrap.root with the openyuanrong wheel
@@ -45,7 +45,7 @@
         mountpoint: /mnt
       bootstrap:
         type: path
-        root: "/opt/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/site-packages/yr/inner/runtime/service"
+        root: "/opt/uv/python"
         entrypoint: "set -e; if [ -f /__yuanrong/python/yr/main/yr_runtime_main.py ]; then export PYTHONPATH=/__yuanrong/python:${PYTHONPATH}; export LD_LIBRARY_PATH=/__yuanrong/python/yr/cpp/lib:/__yuanrong/python/yr/datasystem/lib:${LD_LIBRARY_PATH}; YR_RUNTIME_MAIN=/__yuanrong/python/yr/main/yr_runtime_main.py; else YR_RUNTIME_MAIN='-m yr.cli.scripts runtime_main'; fi; python ${YR_RUNTIME_MAIN}"
     # rrt = dedicated Rust sandbox backend (native rrt-runtime). The frontend
     # sandbox-create API selects the rrt slot directly; rootfs + bootstrap make

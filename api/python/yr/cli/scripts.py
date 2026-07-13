@@ -48,6 +48,8 @@ from yr.cli.exec import (
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
 SANDBOX_CREATE_HTTP_TIMEOUT = 180
+SANDBOX_CREATE_TIMEOUT_ENV_NAME = "YR_SANDBOX_CREATE_TIMEOUT"
+DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS = 60
 DEFAULT_SANDBOX_NAMESPACE = "default"
 DEFAULT_SANDBOX_RUNTIME = "python3.10"
 
@@ -193,6 +195,14 @@ class HTTPClient:
         logging.debug(f"headers: {json.dumps(default_headers, indent=2)}")
         logging.debug(f"body: {json.dumps(data, indent=2, ensure_ascii=False)}")
 
+        accept_event_stream = False
+        for value in default_headers.get("Accept", "").split(","):
+            normalized = value.strip().lower()
+            normalized_media_type = normalized.split(";", 1)[0].strip()
+            if normalized_media_type == "text/event-stream":
+                accept_event_stream = True
+                break
+
         # Configure certificates based on client_auth_type
         cert = None
         if self.client_auth_type == "mutual":
@@ -221,13 +231,18 @@ class HTTPClient:
             timeout=self.timeout,
             cert=cert,
             verify=verify,
+            stream=accept_event_stream,
         )
 
         try:
-            try:
-                result = response.json() if response.content else {}
-            except ValueError:
-                result =  response.content
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            if accept_event_stream and "text/event-stream" in content_type:
+                result = self._parse_event_stream(response)
+            else:
+                try:
+                    result = response.json() if response.content else {}
+                except ValueError:
+                    result = response.content
 
             logging.debug("response: %s\n%s", response.headers, result)
 
@@ -251,6 +266,48 @@ class HTTPClient:
                     else None
                 ),
             }
+
+    @classmethod
+    def _parse_event_stream(cls, response):
+        event_name = ""
+        data_lines = []
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if raw_line is None:
+                line = ""
+            elif isinstance(raw_line, bytes):
+                line = raw_line.decode("utf-8").strip()
+            else:
+                line = raw_line.strip()
+            if not line:
+                if event_name == "final" and data_lines:
+                    return cls._decode_sse_data(data_lines)
+                event_name = ""
+                data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_name = line[len("event:") :].strip()
+                data_lines = []
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[len("data:") :].strip())
+                continue
+
+        if event_name == "final" and data_lines:
+            return cls._decode_sse_data(data_lines)
+        return None
+
+    @classmethod
+    def _decode_sse_data(cls, data_lines):
+        payload = "".join(data_lines).strip()
+        if not payload:
+            return {}
+        try:
+            parsed = json.loads(payload)
+            return parsed if isinstance(parsed, dict) else {"data": parsed}
+        except Exception:
+            return {"message": payload}
 
 
 class YRContext:
@@ -610,6 +667,9 @@ def decode_frontend_sandbox_instance_id(data):
         return ""
     if isinstance(data.get("instance_id"), str):
         return data["instance_id"]
+    sandbox_id = data.get("sandboxId")
+    if isinstance(sandbox_id, str):
+        return sandbox_id
     inner = data.get("data", "")
     if isinstance(inner, dict):
         instance_id = inner.get("instance_id", "")
@@ -622,6 +682,26 @@ def decode_frontend_sandbox_instance_id(data):
         return ""
     instance_id = decoded.get("instance_id", "")
     return instance_id if isinstance(instance_id, str) else ""
+
+
+sandbox_create_status_running = "running"
+sandbox_create_status_timeout = "timeout"
+sandbox_create_status_failed = "failed"
+
+
+def get_sandbox_create_timeout_seconds(explicit_create_timeout_seconds=None):
+    if explicit_create_timeout_seconds:
+        return explicit_create_timeout_seconds
+
+    env_timeout = os.environ.get(SANDBOX_CREATE_TIMEOUT_ENV_NAME)
+    if not env_timeout:
+        return DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
+
+    try:
+        value = int(env_timeout)
+    except ValueError:
+        return DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
+    return value if value > 0 else DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
 
 
 def should_fallback_to_sdk_for_sandbox_create(resp):
@@ -750,7 +830,16 @@ def setup_sandbox_tunnel(sandbox, instance_id, upstream, proxy_port):
     }
 
 
-def create_sandbox_via_frontend(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+def create_sandbox_via_frontend(
+    namespace,
+    name,
+    runtime,
+    image=None,
+    ports=None,
+    upstream=None,
+    proxy_port=8766,
+    create_timeout_seconds=None,
+):
     if upstream:
         return False, "", {"error": "frontend sandbox create fallback does not support --upstream tunnel"}
     http_client = HTTPClient(
@@ -762,11 +851,14 @@ def create_sandbox_via_frontend(namespace, name, runtime, image=None, ports=None
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__server_address}/api/sandbox/create"
+    url = f"http://{__server_address}/api/sandbox/v1/sandboxes"
     headers = {}
     if __user:
         headers["X-Tenant-ID"] = __user
+    headers["Accept"] = "text/event-stream"
     payload = {"name": name, "namespace": namespace, "runtime": runtime}
+    create_timeout_seconds = get_sandbox_create_timeout_seconds(create_timeout_seconds)
+    payload["createTimeoutSeconds"] = create_timeout_seconds
     if image:
         payload["rootfs"] = image
     if ports:
@@ -774,7 +866,20 @@ def create_sandbox_via_frontend(namespace, name, runtime, image=None, ports=None
     resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         data = resp["data"]
-        return True, decode_frontend_sandbox_instance_id(data), data
+        if isinstance(data, dict):
+            status = data.get("status", "")
+            if status in (sandbox_create_status_running, sandbox_create_status_timeout, sandbox_create_status_failed):
+                if status == sandbox_create_status_running:
+                    return True, decode_frontend_sandbox_instance_id(data), data
+                return False, "", data
+            instance_id = decode_frontend_sandbox_instance_id(data)
+            if not instance_id:
+                return False, "", {"error": "frontend create response missing final result"}
+            return True, instance_id, data
+        if data is None:
+            return False, "", {"error": "frontend create response missing final result"}
+        instance_id = decode_frontend_sandbox_instance_id(data)
+        return True, instance_id, data
     if should_fallback_to_sdk_for_sandbox_create(resp):
         return False, "", resp
     raise RuntimeError(resp.get("error", resp))
@@ -846,7 +951,16 @@ def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30
     return instance_id
 
 
-def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+def create_sandbox_auto(
+    namespace,
+    name,
+    runtime,
+    image=None,
+    ports=None,
+    upstream=None,
+    proxy_port=8766,
+    create_timeout_seconds=None,
+):
     sdk_error = None
     try:
         instance_id, tunnel_info = create_sandbox_via_sdk(
@@ -881,6 +995,7 @@ def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstre
         ports=ports,
         upstream=upstream,
         proxy_port=proxy_port,
+        create_timeout_seconds=create_timeout_seconds,
     )
     if supported:
         resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
@@ -1416,7 +1531,24 @@ def sandbox():
     show_default=True,
     help="HTTP proxy port inside sandbox when --upstream is set",
 )
-def sandbox_create(namespace, name, runtime, image=None, ports=(), upstream=None, proxy_port=8766):
+@click.option(
+    "--create-timeout-seconds",
+    required=False,
+    type=int,
+    default=None,
+    show_default=False,
+    help="Override sandbox create timeout in seconds (overrides YR_SANDBOX_CREATE_TIMEOUT)",
+)
+def sandbox_create(
+    namespace,
+    name,
+    runtime,
+    image=None,
+    ports=(),
+    upstream=None,
+    proxy_port=8766,
+    create_timeout_seconds=None,
+):
     """Create a detached sandbox instance."""
     if not __server_address:
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
@@ -1436,6 +1568,7 @@ def sandbox_create(namespace, name, runtime, image=None, ports=(), upstream=None
             ports=ports,
             upstream=upstream,
             proxy_port=proxy_port,
+            create_timeout_seconds=create_timeout_seconds,
         )
     except Exception as e:
         print(f"sandbox create failed, name={name}, namespace={namespace}, runtime={runtime}, error={e}")

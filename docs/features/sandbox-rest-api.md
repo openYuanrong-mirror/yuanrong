@@ -83,6 +83,29 @@ Base：`{scheme}://{YR_SERVER_ADDRESS}/api/sandbox/v1/sandboxes`，`scheme` 由 
 | `POST` | `/api/sandbox/v1/sandboxes/{sandboxID}/invoke` | frontend RuntimeRPC action 通道 |
 | `GET` | `/api/sandbox/v1/sandboxes/{sandboxID}/stream` | 文件/tar WebSocket stream |
 
+`POST /api/sandbox/v1/sandboxes` returns an SSE stream when the request includes
+`Accept: text/event-stream`.
+
+Successful request example (each request has exactly one `final` event):
+
+```text
+event: accepted
+data: {"status":"creating"}
+
+event: final
+data: {"sandboxId":"default/demo","status":"running"}
+```
+
+Timeout example:
+
+```text
+event: accepted
+data: {"status":"creating"}
+
+event: final
+data: {"status":"timeout","errorCode":3002,"message":"create timed out"}
+```
+
 ### 3.1 CreateV1Request
 
 ```json
@@ -95,6 +118,8 @@ Base：`{scheme}://{YR_SERVER_ADDRESS}/api/sandbox/v1/sandboxes`，`scheme` 由 
   "rootfs": {"runtime": "runsc", "type": "image", "imageurl": "python:3.12-slim", "readonly": false},
   "ports": ["8080", "https:8443"],
   "idleTimeoutSeconds": 300,
+  "createTimeoutSeconds": 120,
+  "scheduleTimeoutSeconds": 90,
   "cpu": 1000,
   "memory": 2048,
   "cpu_limit": 0,
@@ -118,6 +143,8 @@ Base：`{scheme}://{YR_SERVER_ADDRESS}/api/sandbox/v1/sandboxes`，`scheme` 由 
 | `ports` | 用户端口声明，格式为 `PORT`、`http:PORT` 或 `https:PORT`；frontend 会自动追加 RRT/tunnel 内部端口 |
 | `cpu` / `memory` | 资源请求；未设置时 frontend 默认 `1000` / `2048` |
 | `cpu_limit` / `mem_limit` | cgroup 上限；`0` 由底层按默认处理 |
+| `createTimeoutSeconds` | Optional total create budget in seconds, from request start through Running confirmation. When omitted, it is derived as `scheduleTimeoutSeconds + 30`, or read from `YR_SANDBOX_CREATE_TIMEOUT`, with a default of 60. |
+| `scheduleTimeoutSeconds` | Optional resource-scheduling budget in seconds. When omitted, it is derived as `createTimeoutSeconds - 30`. When both values are provided, `scheduleTimeoutSeconds <= createTimeoutSeconds` and their difference must be at least 30 seconds. |
 | `env` | 用户环境变量；frontend 同时会注入 `RRT_HTTP_PORT` 以及 tunnel 相关 env |
 | `mounts` / `extra_config` | 透传给 sandboxd/runtime launcher |
 | `tunnel.enabled` | 请求 frontend 准备 reverse tunnel；SDK 使用 `upstream=` 时自动设置 |

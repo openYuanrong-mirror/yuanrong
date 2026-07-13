@@ -201,16 +201,16 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn("fetch('%s/api/sandbox/create'", webterm_text)
         self.assertIn("parseTenantFromJWT(token) || tenant", webterm_text)
 
-    def test_runtime_launcher_proto_keeps_ports_field_in_sync(self):
-        launcher_proto = (
-            REPO_ROOT / "functionsystem/runtime-launcher/api/proto/runtime/v1/runtime_launcher.proto"
-        ).read_text()
+    def test_runtime_launcher_ports_field_uses_posix_proto_source_of_truth(self):
+        legacy_launcher_proto = (
+            REPO_ROOT
+            / "functionsystem/runtime-launcher/api/proto/runtime/v1/runtime_launcher.proto"
+        )
         interface_proto = (
             REPO_ROOT / "functionsystem/proto/posix/runtime_launcher_interface.proto"
         ).read_text()
-        self.assertIn("repeated string ports = 11;", launcher_proto)
+        self.assertFalse(legacy_launcher_proto.exists())
         self.assertIn("repeated string ports = 11;", interface_proto)
-        self.assertIn("string trace_id = 10;", launcher_proto)
         self.assertIn("string trace_id = 10;", interface_proto)
 
 
