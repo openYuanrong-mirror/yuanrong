@@ -9,6 +9,7 @@ etcd_addr_list="${YR_ETCD_ADDR_LIST:?Set YR_ETCD_ADDR_LIST for external etcd, e.
 services_path="${YR_SERVICES_PATH:-/home/sn/service-config/services.yaml}"
 frontend_port="${YR_FAAS_FRONTEND_HTTP_PORT:-8888}"
 meta_service_port="${YR_META_SERVICE_PORT:-31111}"
+meta_service_address="${YR_META_SERVICE_ADDRESS:-${master_ip}:${meta_service_port}}"
 iam_server_port="${YR_IAM_SERVER_PORT:-31112}"
 function_proxy_port="${FUNCTION_PROXY_PORT:-22423}"
 function_proxy_grpc_port="${FUNCTION_PROXY_GRPC_PORT:-32568}"
@@ -57,6 +58,7 @@ exec /usr/local/bin/yr start \
   -s "values.function_proxy.grpc_listen_port=${function_proxy_grpc_port}" \
   -s "values.ds_worker.port=${ds_worker_port}" \
   -s "values.iam_server.ip=\"${master_ip}\"" \
+  -s "values.frontend.meta_service_address=\"${meta_service_address}\"" \
   -s "frontend.port=${frontend_port}" \
   -s "meta_service.ip=\"${master_ip}\"" \
   -s "meta_service.port=${meta_service_port}" \

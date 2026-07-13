@@ -377,6 +377,7 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "master_scheduler_ip",
                 "values.etcd.enable_multi_master=true",
                 "values.etcd.address",
+                "values.frontend.meta_service_address",
                 "frontend.port",
                 "meta_service.ip",
                 "values.iam_server.ip",
