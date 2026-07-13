@@ -260,6 +260,100 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("invalid instances response: missing instances", output.getvalue())
 
+    def test_token_require_calls_frontend_proxy_with_operator_token(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                self.__class__.url = url
+                self.__class__.method = method
+                self.__class__.headers = headers
+                return {"success": True, "headers": {"X-Auth": "tenant-token"}}
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), redirect_stdout(io.StringIO()) as output:
+            scripts.token_require("tenant-a", 3600, "developer", "frontend.example", "operator-token")
+
+        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/auth/token/require")
+        self.assertEqual(FakeHTTPClient.method, "GET")
+        self.assertEqual(
+            FakeHTTPClient.headers,
+            {
+                "X-Auth": "operator-token",
+                "X-Tenant-ID": "tenant-a",
+                "X-TTL": "3600",
+                "X-Role": "developer",
+            },
+        )
+        self.assertIn("Token: tenant-token", output.getvalue())
+
+    def test_token_require_rejects_missing_operator_token(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(io.StringIO()) as output:
+            scripts.token_require("tenant-a", None, "developer", "frontend.example", None)
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("operator token is required", output.getvalue())
+
+    def test_token_require_rejects_non_developer_role_before_request(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                raise AssertionError("token_require should reject non-developer role locally")
+
+        with self.assertRaises(SystemExit) as ctx, mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), \
+                redirect_stdout(io.StringIO()) as output:
+            scripts.token_require("tenant-a", 3600, "admin", "frontend.example", "operator-token")
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("role must be developer", output.getvalue())
+
+    def test_token_abandon_declares_unsupported(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                raise AssertionError("token_abandon should not call frontend")
+
+        with self.assertRaises(SystemExit) as ctx, mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), \
+                redirect_stdout(io.StringIO()) as output:
+            scripts.token_abandon("tenant-a", "frontend.example", "operator-token")
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("developer token abandon is not supported", output.getvalue())
+
+    def test_token_commands_default_frontend_address_from_server_address_env(self):
+        scripts_path = Path(__file__).resolve().parents[1] / "cli" / "scripts.py"
+        module = ast.parse(scripts_path.read_text())
+
+        token_require_func = next(
+            node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "token_require"
+        )
+
+        frontend_option = None
+        for decorator in token_require_func.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not isinstance(decorator.func, ast.Attribute) or decorator.func.attr != "option":
+                continue
+            if any(isinstance(arg, ast.Constant) and arg.value == "--frontend-address" for arg in decorator.args):
+                frontend_option = decorator
+                break
+
+        self.assertIsNotNone(frontend_option)
+        envvar = next((keyword for keyword in frontend_option.keywords if keyword.arg == "envvar"), None)
+        self.assertEqual(envvar.value.value, "YR_SERVER_ADDRESS")
+
     def test_sandbox_create_uses_default_namespace_and_generates_missing_name(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")

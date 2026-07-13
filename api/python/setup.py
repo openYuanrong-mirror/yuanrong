@@ -110,6 +110,7 @@ if setup_type_env == "sdk":
     setup_spec.entry_points = {
         "console_scripts": [
             "yrcli=yr.cli.scripts:main",
+            "yrcluster=yr.cli.cluster:main",
         ]
     }
 else:
