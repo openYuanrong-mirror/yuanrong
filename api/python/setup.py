@@ -102,7 +102,7 @@ if setup_type_env == "sdk":
         "pyyaml>=6.0.0",
         "click>=8.0.0,<9",
         "requests==2.32.5",
-        "websockets>=13.0",
+        "websockets>=15.0",
         "aiohttp>=3.9.0",  # tunnel_server Port B HTTP/WS server
         "httpx>=0.27.0",  # tunnel_client async HTTP forwarding
     ]
