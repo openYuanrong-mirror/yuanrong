@@ -2,12 +2,16 @@
 host_ip = "{{ ip }}"
 deploy_path = "{{ deploy_path }}"
 yr_package_path = "{{ yr_package_path }}"
+ds_bin = "{{ ds_bin }}"
+faas_root = "{{ faas_root }}"
 cpu_num = "{{ cpu_millicores }}" # in millicores
 memory_num = "{{ memory_num_mb }}" # in MB
 shared_memory_num = "{{ memory_num_mb // 3 }}" # in MB
 node_id = "{{ node_id }}"
 log_level = "INFO"
 pid = "{{ pid }}"
+ld_library_path = "{{ ld_library_path }}"
+python_path = "{{ python_path }}"
 
 [values.metrics]
 metrics_config = ""
@@ -39,6 +43,10 @@ base_path = ""
 ca_file = "ca.crt"
 cert_file = "module.crt"
 key_file = "module.key"
+
+[values.fs.metrics]
+metrics_config = ""
+metrics_config_file = "{{ values.yr_package_path }}/functionsystem/config/metrics/metrics_config.json"
 
 [values.ds.curve]
 enable = false
@@ -86,6 +94,13 @@ bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_proxy"
 ip = "{{ values.host_ip }}"
 port = "{{ 22772|check_port() }}"
 grpc_listen_port = "{{ 22773|check_port() }}"
+exec_grpc_port = "{{ 22774|check_port() }}"
+
+[values.runtime_launcher]
+enable = false
+socket = "/var/run/runtime-launcher.sock"
+backend = "docker"
+docker_host = "unix:///var/run/docker.sock"
 
 [values.runtime]
 default_write_mode = "NONE_L2_CACHE"
@@ -108,11 +123,15 @@ sandbox_router_listen_port = 8080
 sandbox_router_rrt_port = 50090
 sandbox_router_enable_jwt = true
 sandbox_router_validate_iam = true
+ssl_enable = false
+client_auth_type = "RequireAndVerifyClientCert"
+enable_function_token_auth = false
 
 [values.function_scheduler]
 bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
 ip = "{{ values.host_ip }}"
 config_path = "{{ values.yr_package_path }}/faas/init_scheduler_args.json"
+lease_port = "{{ 8889|check_port() }}"
 
 [values.meta_service]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/meta_service"
@@ -121,6 +140,8 @@ port = "{{ 31182|check_port() }}"
 clusters = ""
 config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_config.json"
 log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_log_config.json"
+ssl_enable = false
+client_auth_type = "RequireAndVerifyClientCert"
 
 [values.dashboard]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/dashboard"
@@ -148,3 +169,31 @@ key_file = ""
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/collector"
 ip = "{{ values.host_ip }}"
 port = "{{ 9082|check_port() }}"
+
+[values.iam_server]
+ip = "{{ values.host_ip }}"
+port = "{{ 31112|check_port() }}"
+
+[values.auth]
+provider = "casdoor" # casdoor or keycloak
+
+[values.auth.casdoor]
+enabled = false
+endpoint = "http://127.0.0.1:8000"
+public_endpoint = "" # defaults to endpoint if empty
+client_id = ""
+client_secret = ""
+organization = "yuanrong"
+application = "app-yuanrong"
+admin_user = ""
+admin_password = ""
+jwt_public_key = ""
+
+[values.auth.keycloak]
+enabled = false
+url = ""
+internal_url = "" # defaults to url if empty
+issuer_url = "" # defaults to url if empty
+realm = "yuanrong"
+client_id = "frontend"
+client_secret = ""

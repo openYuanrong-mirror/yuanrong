@@ -19,6 +19,7 @@ PYTHON_SETUP = REPO_ROOT / "api" / "python" / "setup.py"
 CPP_BUILD = REPO_ROOT / "api" / "cpp" / "BUILD.bazel"
 ROOT_BUILD = REPO_ROOT / "build.sh"
 SANDBOX_RELEASE_SCRIPT = REPO_ROOT / ".buildkite" / "package_sandbox_release.sh"
+CLI_VALUES = REPO_ROOT / "api" / "python" / "yr" / "cli" / "values.toml"
 
 
 def load_package_function_definitions():
@@ -157,6 +158,20 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
         self.assertIn('"${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"', package_script)
         self.assertIn("download_obs_patterns", package_script)
         self.assertIn("copy_artifacts", package_script)
+
+    def test_cli_values_expose_layout_specific_paths(self):
+        """CLI templates must receive paths resolved for split and full layouts."""
+        values = CLI_VALUES.read_text(encoding="utf-8")
+
+        self.assertIn('ds_bin = "{{ ds_bin }}"', values)
+        self.assertIn('faas_root = "{{ faas_root }}"', values)
+        self.assertIn('ld_library_path = "{{ ld_library_path }}"', values)
+        self.assertIn('python_path = "{{ python_path }}"', values)
+        self.assertIn("[values.fs.metrics]", values)
+        self.assertIn('exec_grpc_port = "{{ 22774|check_port() }}"', values)
+        self.assertIn("[values.runtime_launcher]", values)
+        self.assertIn("[values.auth.casdoor]", values)
+        self.assertIn("[values.auth.keycloak]", values)
 
     def test_runtime_datasystem_openssl_linker_symlinks_are_created(self):
         """Runtime datasystem libs must support consumers that link with -lssl/-lcrypto."""
