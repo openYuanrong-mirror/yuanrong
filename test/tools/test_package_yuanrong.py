@@ -18,6 +18,7 @@ ST_TEST_SCRIPT = REPO_ROOT / "test" / "st" / "test.sh"
 PYTHON_SETUP = REPO_ROOT / "api" / "python" / "setup.py"
 CPP_BUILD = REPO_ROOT / "api" / "cpp" / "BUILD.bazel"
 ROOT_BUILD = REPO_ROOT / "build.sh"
+SANDBOX_RELEASE_SCRIPT = REPO_ROOT / ".buildkite" / "package_sandbox_release.sh"
 
 
 def load_package_function_definitions():
@@ -137,6 +138,25 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
             'package_python_runtime_metrics_exporters "$OUTPUT_BASE/runtime/service/python"',
             build_script,
         )
+
+    def test_sandbox_image_downloads_complete_split_wheel_set(self):
+        """Control-plane image assembly must download every required split wheel."""
+        package_script = SANDBOX_RELEASE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("CONTROLPLANE_WHEEL_PATTERNS=", package_script)
+        for wheel_pattern in (
+            "openyuanrong-*.whl",
+            "openyuanrong_runtime-*.whl",
+            "openyuanrong_faas-*.whl",
+            "openyuanrong_dashboard-*.whl",
+            "openyuanrong_cpp_sdk-*.whl",
+            "openyuanrong_functionsystem-*.whl",
+            "openyuanrong_datasystem-*.whl",
+        ):
+            self.assertIn(wheel_pattern, package_script)
+        self.assertIn('"${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"', package_script)
+        self.assertIn("download_obs_patterns", package_script)
+        self.assertIn("copy_artifacts", package_script)
 
     def test_runtime_datasystem_openssl_linker_symlinks_are_created(self):
         """Runtime datasystem libs must support consumers that link with -lssl/-lcrypto."""

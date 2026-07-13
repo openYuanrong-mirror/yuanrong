@@ -7,6 +7,7 @@ cd "${ROOT_DIR}"
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
 SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp39}"
 IMAGE_SDK_WHEEL_PATTERN="${YR_K8S_IMAGE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl}"
+CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl}"
 case "${YR_K8S_IMAGE_ARCH:-amd64}" in
 arm64 | aarch64) RRT_WHEEL_ARCH="aarch64" ;;
 *) RRT_WHEEL_ARCH="x86_64" ;;
@@ -115,8 +116,52 @@ start_dockerd() {
 	exit 1
 }
 
+read_controlplane_wheel_patterns() {
+	read -r -a CONTROLPLANE_WHEEL_PATTERN_LIST <<<"${CONTROLPLANE_WHEEL_PATTERNS}"
+}
+
+download_obs_patterns() {
+	local urls_root="$1"
+	local output_dir="$2"
+	shift 2
+
+	local pattern
+	for pattern in "$@"; do
+		python3 .buildkite/download_obs_artifacts.py \
+			--urls-root "${urls_root}" \
+			--output-dir "${output_dir}" \
+			--pattern "${pattern}"
+	done
+}
+
+has_artifacts() {
+	local source_dir="$1"
+	shift
+
+	local pattern
+	for pattern in "$@"; do
+		if ! compgen -G "${source_dir}/${pattern}" >/dev/null; then
+			return 1
+		fi
+	done
+}
+
+copy_artifacts() {
+	local source_dir="$1"
+	local output_dir="$2"
+	shift 2
+
+	local pattern
+	for pattern in "$@"; do
+		if compgen -G "${source_dir}/${pattern}" >/dev/null; then
+			cp -af "${source_dir}"/${pattern} "${output_dir}/"
+		fi
+	done
+}
+
 download_release_artifacts() {
 	mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
+	read_controlplane_wheel_patterns
 
 	if command -v buildkite-agent >/dev/null 2>&1; then
 		rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
@@ -125,10 +170,10 @@ download_release_artifacts() {
 			mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}"
 			buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}" \
 				>"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
-			python3 .buildkite/download_obs_artifacts.py \
-				--urls-root "${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
-				--output-dir "${RELEASE_ARTIFACT_DIR}" \
-				--pattern "openyuanrong-*.whl"
+			download_obs_patterns \
+				"${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
+				"${RELEASE_ARTIFACT_DIR}" \
+				"${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
 		fi
 		mkdir -p "${OBS_URL_DIR}/${SDK_STEP_KEY}"
 		buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
@@ -158,14 +203,12 @@ download_release_artifacts() {
 	elif is_enabled "${RUNTIME_ONLY}" &&
 		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
 		return 0
-	elif compgen -G "${OUTPUT_DIR}/openyuanrong-*.whl" >/dev/null &&
+	elif has_artifacts "${OUTPUT_DIR}" "${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}" &&
 		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
 		return 0
 	fi
 
-	if compgen -G "${RELEASE_ARTIFACT_DIR}/openyuanrong-*.whl" >/dev/null; then
-		cp -af "${RELEASE_ARTIFACT_DIR}"/openyuanrong-*.whl "${OUTPUT_DIR}/"
-	fi
+	copy_artifacts "${RELEASE_ARTIFACT_DIR}" "${OUTPUT_DIR}" "${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
 	if compgen -G "${SDK_ARTIFACT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
 		cp -af "${SDK_ARTIFACT_DIR}"/${IMAGE_SDK_WHEEL_PATTERN} "${OUTPUT_DIR}/"
 	fi
