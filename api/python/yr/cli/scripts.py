@@ -1500,10 +1500,11 @@ def sandbox_list(namespace):
             instance_id,
             tenant_id,
             get_sandbox_status(instance),
+            instance.get("image") or "N/A",
             format_resource_quota(instance.get("required_cpu")),
             format_resource_quota(instance.get("required_mem")),
-            format_resource_quota(instance.get("required_gpu")),
-            format_resource_quota(instance.get("required_npu")),
+            format_resource_quota(instance.get("limit_cpu")),
+            format_resource_quota(instance.get("limit_mem")),
             format_runtime_seconds(instance.get("runtime_seconds")),
         ))
 
@@ -1511,7 +1512,17 @@ def sandbox_list(namespace):
         print("no sandbox instance found")
         return
 
-    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS", "CPU", "MEMORY", "GPU", "NPU", "RUNTIME")
+    headers = (
+        "INSTANCE_ID",
+        "TENANT_ID",
+        "STATUS",
+        "IMAGE",
+        "CPU_REQ",
+        "MEMORY_REQ",
+        "CPU_LIMIT",
+        "MEMORY_LIMIT",
+        "RUNTIME",
+    )
     widths = [
         max(len(headers[index]), *(len(str(row[index])) for row in sandboxes))
         for index in range(len(headers))
