@@ -17,6 +17,7 @@ PREPARE_ST_SCRIPT = REPO_ROOT / "test" / "st" / "prepare_and_start_yr.sh"
 ST_TEST_SCRIPT = REPO_ROOT / "test" / "st" / "test.sh"
 PYTHON_SETUP = REPO_ROOT / "api" / "python" / "setup.py"
 CPP_BUILD = REPO_ROOT / "api" / "cpp" / "BUILD.bazel"
+ROOT_BUILD = REPO_ROOT / "build.sh"
 
 
 def load_package_function_definitions():
@@ -117,6 +118,24 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
         self.assertIn(
             'os.path.join(build_lib, "yr/runtime/service/python/yr")',
             python_setup,
+        )
+
+    def test_build_stages_python_runtime_metrics_exporters(self):
+        """Runtime staging must collect exporters from SDK and functionsystem outputs."""
+        build_script = ROOT_BUILD.read_text(encoding="utf-8")
+
+        self.assertIn("function package_python_runtime_metrics_exporters()", build_script)
+        self.assertIn("'yr/cpp/lib/libobservability-*-exporter.so'", build_script)
+        self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_script)
+        for exporter in (
+            "libobservability-metrics-file-exporter.so",
+            "libobservability-prometheus-push-exporter.so",
+            "libobservability-prometheus-pull-exporter.so",
+        ):
+            self.assertIn(exporter, build_script)
+        self.assertIn(
+            'package_python_runtime_metrics_exporters "$OUTPUT_BASE/runtime/service/python"',
+            build_script,
         )
 
     def test_runtime_datasystem_openssl_linker_symlinks_are_created(self):

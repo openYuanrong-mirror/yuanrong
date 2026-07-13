@@ -144,6 +144,41 @@ function pip_flags_for_python() {
 	fi
 }
 
+function package_python_runtime_metrics_exporters() {
+	local service_python_dir=$1
+	local wheel
+	local member
+	local exporter
+	local metrics_lib_dir
+	local target_file
+
+	mkdir -p "${service_python_dir}/yr"
+	for wheel in "${OUTPUT_BASE}"/runtime/sdk/python/openyuanrong_sdk-*.whl; do
+		[ -f "${wheel}" ] || continue
+		while read -r member; do
+			[ -n "${member}" ] || continue
+			target_file="${service_python_dir}/yr/$(basename "${member}")"
+			unzip -p "${wheel}" "${member}" > "${target_file}"
+			chmod 550 "${target_file}"
+		done < <(unzip -Z1 "${wheel}" 'yr/cpp/lib/libobservability-*-exporter.so' 2>/dev/null || true)
+	done
+
+	for exporter in \
+		libobservability-metrics-file-exporter.so \
+		libobservability-prometheus-push-exporter.so \
+		libobservability-prometheus-pull-exporter.so; do
+		target_file="${service_python_dir}/yr/${exporter}"
+		[ -f "${target_file}" ] && continue
+		for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
+			if [ -f "${metrics_lib_dir}/${exporter}" ]; then
+				cp -f "${metrics_lib_dir}/${exporter}" "${target_file}"
+				chmod 550 "${target_file}"
+				break
+			fi
+		done
+	done
+}
+
 MODULE_LIST=(
 	"runtime_go"
 )
@@ -253,6 +288,7 @@ function build_python_sdk() {
 	fi
 	rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
 	rm -rf $OUTPUT_BASE/runtime/service/python/yr/runtime
+	package_python_runtime_metrics_exporters "$OUTPUT_BASE/runtime/service/python"
 }
 
 function install_python_requirements() {
