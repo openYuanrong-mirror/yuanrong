@@ -85,7 +85,7 @@ func (rcs *ReservedConcurrencyScheduler) AcquireInstance(insAcqReq *types.Instan
 	if acquireErr != nil && acquireErr != scheduler.ErrNoInsAvailable {
 		return nil, acquireErr
 	}
-	if acquireErr == scheduler.ErrNoInsAvailable && rcs.shouldTriggerColdStart() {
+	if acquireErr == scheduler.ErrNoInsAvailable {
 		// 这里如果是静态函数，则会触发到wisecloudscaler，触发一次nuwa cold start，如果不是静态函数，则会走到replicascaler，没有其他影响
 		rcs.recordColdStartTrace(insAcqReq.TraceID, insAcqReq.TraceParent)
 		rcs.publishInsThdEvent(scheduler.TriggerScaleTopic, nil)

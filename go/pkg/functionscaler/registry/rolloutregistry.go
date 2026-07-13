@@ -18,7 +18,6 @@
 package registry
 
 import (
-	"encoding/json"
 	"strings"
 	"sync"
 
@@ -27,12 +26,9 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/rollout"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
-	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
 const (
-	validRolloutKeyLen  = 7
 	rolloutConfigKeyLen = 5
 	clusterIndex        = 4
 )
@@ -41,7 +37,6 @@ const (
 type RolloutRegistry struct {
 	subscriberChans []chan SubEvent
 	configWatcher   etcd3.Watcher
-	rolloutWatcher  etcd3.Watcher
 	configDone      chan struct{}
 	stopCh          <-chan struct{}
 	sync.RWMutex
@@ -76,14 +71,6 @@ func (rr *RolloutRegistry) initWatcher(etcdClient *etcd3.EtcdClient) {
 		rr.stopCh,
 		etcdClient)
 	rolloutEtcdWatcherStartListFunc(rr.configWatcher)
-	rr.rolloutWatcher = etcd3.NewEtcdWatcher(
-		constant.SchedulerRolloutPrefix,
-		rr.watcherFilterForRollout,
-		rr.watcherHandlerForRollout,
-		rr.stopCh,
-		etcdClient)
-	rolloutEtcdWatcherStartListFunc(rr.rolloutWatcher)
-	rr.WaitForETCDList()
 }
 
 // WaitForETCDList -
@@ -104,10 +91,9 @@ func (rr *RolloutRegistry) RunWatcher() {
 		return
 	}
 	go rolloutEtcdWatcherStartWatchFunc(rr.configWatcher)
-	go rolloutEtcdWatcherStartWatchFunc(rr.rolloutWatcher)
 }
 
-// watcherFilterForConfig will filter alias event from etcd event eg:/sn/faas-scheduler/rolloutConfig/cluster1
+// watcherFilterForConfig will filter alias event from etcd event eg:/sn/faas-scheduler/gray/cluster001
 func (rr *RolloutRegistry) watcherFilterForConfig(event *etcd3.Event) bool {
 	items := strings.Split(event.Key, keySeparator)
 	if len(items) != rolloutConfigKeyLen {
@@ -119,62 +105,27 @@ func (rr *RolloutRegistry) watcherFilterForConfig(event *etcd3.Event) bool {
 	return false
 }
 
-// watcherFilterForConfig will filter alias event from etcd event eg:/sn/faas-scheduler/rollout/aaa/bbb/ccc
-func (rr *RolloutRegistry) watcherFilterForRollout(event *etcd3.Event) bool {
-	items := strings.Split(event.Key, keySeparator)
-	if len(items) != validRolloutKeyLen {
-		return true
-	}
-	if items[validRolloutKeyLen-1] != selfregister.SelfInstanceID {
-		return true
-	}
-	return false
-}
-
 // watcherHandlerForConfig will handle instance event from etcd
 func (rr *RolloutRegistry) watcherHandlerForConfig(event *etcd3.Event) {
-	log.GetLogger().Infof("handling rollout config event type %s key %s", event.Type, event.Key)
+	log.GetLogger().Infof("handling rollout ratio config event type %d key %s", event.Type, event.Key)
 	switch event.Type {
 	case etcd3.SYNCED:
-		log.GetLogger().Infof("received rollout config synced event")
+		log.GetLogger().Infof("received rollout ratio config synced event")
 		rr.configDone <- struct{}{}
 	case etcd3.PUT:
-		err := rollout.GetGlobalRolloutHandler().ProcessRatioUpdate(event.Value)
+		err := rollout.GetGlobalRolloutConfig().ProcessRatioUpdate(event.Value)
 		if err != nil {
 			log.GetLogger().Errorf("process ratio update error: %s", err.Error())
 			return
 		}
-		rr.publishEvent(SubEventTypeUpdate, rollout.GetGlobalRolloutHandler().GetCurrentRatio())
-		if selfregister.IsRolloutObject {
-			rollout.GetGlobalRolloutHandler().ProcessAllocRecordSync(selfregister.SelfInstanceID,
-				selfregister.RolloutSubjectID)
-		}
+		rr.publishEvent(SubEventTypeUpdate, rollout.GetGlobalRolloutConfig().GetCurrentRatio())
 	case etcd3.DELETE:
-		rollout.GetGlobalRolloutHandler().ProcessRatioDelete()
-		rr.publishEvent(SubEventTypeUpdate, 0)
+		rollout.GetGlobalRolloutConfig().ProcessRatioDelete()
+		rr.publishEvent(SubEventTypeUpdate, rollout.GetGlobalRolloutConfig().GetCurrentRatio())
 	case etcd3.ERROR:
 		log.GetLogger().Warnf("etcd error event: %s", event.Value)
 	default:
 		log.GetLogger().Warnf("unsupported event, key: %s", event.Key)
-	}
-}
-
-// watcherHandlerForConfig will handle instance event from etcd
-func (rr *RolloutRegistry) watcherHandlerForRollout(event *etcd3.Event) {
-	log.GetLogger().Infof("handling rollout object event type %s key %s", event.Type, event.Key)
-	insSpec := &types.RolloutInstanceSpecification{}
-	err := json.Unmarshal(event.Value, insSpec)
-	if err != nil {
-		log.GetLogger().Errorf("failed to unmarshal rollout insSpec from key %s error %s", event.Type, err.Error())
-		return
-	}
-	switch event.Type {
-	case etcd3.PUT:
-		rollout.GetGlobalRolloutHandler().UpdateForwardInstance(insSpec.InstanceID)
-	case etcd3.DELETE:
-		rollout.GetGlobalRolloutHandler().UpdateForwardInstance("")
-	default:
-		log.GetLogger().Warnf("unexpected event type %d", event.Type)
 	}
 }
 

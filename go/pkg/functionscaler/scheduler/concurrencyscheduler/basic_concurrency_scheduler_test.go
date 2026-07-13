@@ -41,6 +41,7 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
 	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
@@ -501,8 +502,8 @@ func TestAcquireInstanceWithSession(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -573,8 +574,8 @@ func TestReleaseInstance(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -1068,7 +1069,7 @@ func TestHandleInstanceUpdate(t *testing.T) {
 	})
 	assert.Equal(t, 2, checkAvailInsThd)
 	assert.Equal(t, 4, checkTotalInsThd)
-	selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "scheduler1"}, "")
+	selfregister.GlobalSchedulerProxy.Add(&commonTypes.InstanceInfo{InstanceName: "scheduler1"}, "", "", true)
 	bcs.HandleInstanceUpdate(&types.Instance{
 		InstanceID:        "instance3",
 		ConcurrentNum:     2,
@@ -1330,277 +1331,6 @@ func Test_basicConcurrencyScheduler_scheduleRequest(t *testing.T) {
 	})
 }
 
-// 测试初始10个instance，分配、更新ratio后分配，两个scheduler self和other队列对应相等
-func TestReassignInstancesGray(t *testing.T) {
-	mainScheduler := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	mainScheduler.isFuncOwner = true
-
-	grayScheduler := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	grayScheduler.isFuncOwner = true
-
-	for i := 1; i <= 10; i++ {
-		instance := &types.Instance{
-			InstanceID:     fmt.Sprintf("instance%d", i),
-			ConcurrentNum:  i,
-			ResKey:         resspeckey.ResSpecKey{},
-			InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-		}
-		assert.NoError(t, mainScheduler.AddInstance(instance))
-		assert.NoError(t, grayScheduler.AddInstance(instance))
-	}
-
-	config.GlobalConfig.EnableRollout = true
-	selfregister.IsRollingOut = true
-	defer func() {
-		config.GlobalConfig.EnableRollout = false
-		selfregister.IsRollingOut = false
-	}()
-
-	selfregister.IsRolloutObject = false
-	mainScheduler.ReassignInstanceWhenGray(50)
-	assert.Equal(t, 5, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 5, mainScheduler.otherInstanceQueue.Len())
-
-	selfregister.IsRolloutObject = true
-	grayScheduler.ReassignInstanceWhenGray(50)
-	assert.Equal(t, mainScheduler.selfInstanceQueue.Len(), grayScheduler.otherInstanceQueue.Len())
-	mainScheduler.selfInstanceQueue.Range(func(obj interface{}) bool {
-		insElem, _ := obj.(*instanceElement)
-		insElemIn2 := grayScheduler.otherInstanceQueue.GetByID(insElem.instance.InstanceID)
-		assert.NotNil(t, insElemIn2)
-		return true
-	})
-
-	selfregister.IsRolloutObject = false
-	mainScheduler.ReassignInstanceWhenGray(70)
-	assert.Equal(t, 3, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 7, mainScheduler.otherInstanceQueue.Len())
-
-	selfregister.IsRolloutObject = true
-	grayScheduler.ReassignInstanceWhenGray(70)
-	assert.Equal(t, 7, grayScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 3, grayScheduler.otherInstanceQueue.Len())
-}
-
-// 10个节点10%灰度 9个节点到10个节点删除、增加触发重分配
-func TestReassignInstancesGrayWhenAddOrDelReassign(t *testing.T) {
-	mainScheduler := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	mainScheduler.isFuncOwner = true
-
-	grayScheduler := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	grayScheduler.isFuncOwner = true
-	// 当前(9,0)
-	for i := 1; i <= 9; i++ {
-		instance := &types.Instance{
-			InstanceID:     fmt.Sprintf("instance%d", i),
-			ConcurrentNum:  2,
-			ResKey:         resspeckey.ResSpecKey{},
-			InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-		}
-		assert.NoError(t, mainScheduler.AddInstance(instance))
-		assert.NoError(t, grayScheduler.AddInstance(instance))
-	}
-	config.GlobalConfig.EnableRollout = true
-	selfregister.IsRollingOut = true
-	defer func() {
-		config.GlobalConfig.EnableRollout = false
-		selfregister.IsRollingOut = false
-	}()
-	// main重分配
-	selfregister.IsRolloutObject = false
-	mainScheduler.ReassignInstanceWhenGray(10)
-
-	assert.Equal(t, 9, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 0, mainScheduler.otherInstanceQueue.Len())
-	// gray重分配
-	selfregister.IsRolloutObject = true
-	grayScheduler.ReassignInstanceWhenGray(10)
-
-	// 2个sc各再加入一个 判断先加入了self (10,0) 应该自动变成(9,1)
-	instance := &types.Instance{
-		InstanceID:     fmt.Sprintf("instance%d", 10),
-		ConcurrentNum:  2,
-		ResKey:         resspeckey.ResSpecKey{},
-		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-	}
-
-	instance9 := &types.Instance{
-		InstanceID:     fmt.Sprintf("instance%d", 9),
-		ConcurrentNum:  2,
-		ResKey:         resspeckey.ResSpecKey{},
-		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-	}
-
-	// main加入
-	selfregister.IsRolloutObject = false
-	assert.NoError(t, mainScheduler.AddInstance(instance))
-	// gray加入
-	selfregister.IsRolloutObject = true
-	assert.NoError(t, grayScheduler.AddInstance(instance))
-
-	assert.Equal(t, mainScheduler.selfInstanceQueue.Len(), grayScheduler.otherInstanceQueue.Len())
-	assert.Equal(t, 9, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 1, mainScheduler.otherInstanceQueue.Len())
-	mainScheduler.selfInstanceQueue.Range(func(obj interface{}) bool {
-		insElem, _ := obj.(*instanceElement)
-		insElemIn2 := grayScheduler.otherInstanceQueue.GetByID(insElem.instance.InstanceID)
-		assert.NotNil(t, insElemIn2)
-		return true
-	})
-	//确定9 hash最大被分到了other
-	assert.Equal(t, "instance9", mainScheduler.otherInstanceQueue.Front().(*instanceElement).instance.InstanceID)
-
-	// 假设删除9
-	selfregister.IsRolloutObject = false
-	assert.NoError(t, mainScheduler.DelInstance(&types.Instance{
-		InstanceID: "instance9",
-	}))
-	selfregister.IsRolloutObject = true
-	assert.NoError(t, grayScheduler.DelInstance(&types.Instance{
-		InstanceID: "instance9",
-	}))
-	// 这里应该不会触发reassign
-	assert.Equal(t, 9, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 0, mainScheduler.otherInstanceQueue.Len())
-
-	// 但是如果加入9，然后删除1，会触发reassign
-	// 以update的方式加入
-	// main重新加入9 - 不会触发reassign
-	selfregister.IsRolloutObject = false
-	mainScheduler.HandleInstanceUpdate(instance9)
-
-	// gray重新加入9
-	selfregister.IsRolloutObject = true
-	grayScheduler.HandleInstanceUpdate(instance9)
-
-	// 验证9还是被分配到other
-	assert.Equal(t, "instance9", mainScheduler.otherInstanceQueue.Front().(*instanceElement).instance.InstanceID)
-
-	// 删除1 -应该触发重分配(8,1)->(9,0)
-	selfregister.IsRolloutObject = false
-	assert.NoError(t, mainScheduler.DelInstance(&types.Instance{
-		InstanceID: "instance1",
-	}))
-	selfregister.IsRolloutObject = true
-	assert.NoError(t, grayScheduler.DelInstance(&types.Instance{
-		InstanceID: "instance1",
-	}))
-	assert.Equal(t, 9, mainScheduler.selfInstanceQueue.Len())
-	assert.Equal(t, 0, mainScheduler.otherInstanceQueue.Len())
-}
-
-// 测试空指针防御
-func TestReassignInstancesGrayBothQueuesInitiallyEmpty(t *testing.T) {
-	config.GlobalConfig.EnableRollout = true
-	selfregister.IsRollingOut = true
-	defer func() {
-		config.GlobalConfig.EnableRollout = false
-		selfregister.IsRollingOut = false
-	}()
-	scheduler1 := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	scheduler1.isFuncOwner = true
-	// 空状态下reassign无空指针
-	scheduler1.ReassignInstanceWhenGray(50)
-	assert.Equal(t, 0, scheduler1.selfInstanceQueue.Len())
-	assert.Equal(t, 0, scheduler1.otherInstanceQueue.Len())
-	// 测试空状态下增加删除无空指针
-	instance := &types.Instance{
-		InstanceID:     fmt.Sprintf("instance%d", 10),
-		ConcurrentNum:  2,
-		ResKey:         resspeckey.ResSpecKey{},
-		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-	}
-	// 当前是旧sc
-	selfregister.IsRolloutObject = false
-	scheduler1.HandleInstanceUpdate(instance)
-	assert.Equal(t, 1, scheduler1.selfInstanceQueue.Len())
-	assert.NoError(t, scheduler1.DelInstance(&types.Instance{
-		InstanceID: "instance10",
-	}))
-
-	// 测试边界
-	scheduler1.HandleInstanceUpdate(instance)
-	scheduler1.ReassignInstanceWhenGray(0)
-	assert.Equal(t, 1, scheduler1.selfInstanceQueue.Len())
-
-	// 全部灰度后
-	scheduler1.ReassignInstanceWhenGray(100)
-	// 加入other，已经有了报错
-	assert.Error(t, scheduler1.AddInstance(instance))
-	assert.Equal(t, 1, scheduler1.otherInstanceQueue.Len())
-
-	// 当前是新sc
-	selfregister.IsRolloutObject = true
-	scheduler1.HandleInstanceUpdate(instance)
-	scheduler1.ReassignInstanceWhenGray(0)
-	assert.Error(t, scheduler1.AddInstance(instance))
-	assert.Equal(t, 1, scheduler1.otherInstanceQueue.Len())
-
-	// 全部灰度后
-	scheduler1.ReassignInstanceWhenGray(100)
-	// 加入self，已经有了报错
-	assert.Error(t, scheduler1.AddInstance(instance))
-	assert.Equal(t, 1, scheduler1.selfInstanceQueue.Len())
-}
-
-func TestReassignInstancesGrayWhenFixedOtherInstance(t *testing.T) {
-	config.GlobalConfig.EnableRollout = true
-	selfregister.IsRollingOut = true
-	defer func() {
-		config.GlobalConfig.EnableRollout = false
-		selfregister.IsRollingOut = false
-	}()
-
-	scheduler1 := newBasicConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, "",
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
-		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
-	instance := &types.Instance{
-		InstanceID:        "instance1",
-		ConcurrentNum:     2,
-		ResKey:            resspeckey.ResSpecKey{},
-		Permanent:         true,
-		CreateSchedulerID: "abc",
-		InstanceStatus:    commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
-	}
-	selfregister.IsRolloutObject = false
-	assert.NoError(t, scheduler1.AddInstance(instance))
-	assert.Equal(t, 0, scheduler1.selfInstanceQueue.Len())
-	assert.Equal(t, 1, scheduler1.otherInstanceQueue.Len())
-
-	selfregister.IsRolloutObject = false
-	scheduler1.ReassignInstanceWhenGray(50)
-	assert.Equal(t, 0, scheduler1.selfInstanceQueue.Len())
-	assert.Equal(t, 1, scheduler1.otherInstanceQueue.Len())
-}
-
 func TestInstanceQueueWithSubHealthAndEvictingRecord(t *testing.T) {
 	convey.Convey("Test instanceQueueWithSubHealthAndEvictingRecord", t, func() {
 		// 创建 mock queue 和 mock instanceElement
@@ -1847,9 +1577,9 @@ func TestRecoverSessionRecordFromDataSystemInGray(t *testing.T) {
 		delCnt++
 		return nil
 	}).Reset()
-	selfregister.IsRollingOut = true
+	rollout.GetGlobalRolloutConfig().SetUpdating(true)
 	defer func() {
-		selfregister.IsRollingOut = false
+		rollout.GetGlobalRolloutConfig().SetUpdating(false)
 	}()
 	config.GlobalConfig.DataSystemConfig = types.DataSystemConfig{
 		CurrentCluster:  "",
@@ -1967,8 +1697,8 @@ func TestAcquireInstanceWithSessionFullConcurrency(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -2015,8 +1745,8 @@ func TestAcquireInstanceWithSessionFullConcurrencyInsufficient(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -2051,8 +1781,8 @@ func TestAcquireReleaseSessionFullConcurrency(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -2102,8 +1832,8 @@ func TestAcquireInstanceWithSessionFullConcurrencyMonopolyChoosesFullyIdleInstan
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
@@ -2154,8 +1884,8 @@ func TestSessionFullConcurrencyTTLExpire(t *testing.T) {
 	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
 		return
 	}).Reset()
-	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
-		return map[string][]commonTypes.InstanceSessionConfig{}
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]SessionInDS {
+		return map[string][]SessionInDS{}
 	}).Reset()
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",

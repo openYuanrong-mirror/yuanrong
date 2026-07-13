@@ -39,7 +39,6 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
 	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/requestqueue"
-	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/signalmanager"
@@ -517,7 +516,6 @@ type basicConcurrencyScheduler struct {
 	sessionCtxIdleHandler func(*types.Instance)
 	*sync.RWMutex
 	*sync.Cond
-	grayAllocator       GrayInstanceAllocator
 	coldStartTraceMu    sync.Mutex
 	coldStartTraceQueue []*coldStartTraceContext
 }
@@ -544,17 +542,15 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		otherSubHealthRecord: make(map[string]*instanceElement, utils.DefaultMapSize),
 		sessionManager: makeSessionManager(makeSessionCacheKey(funcSpec.FuncMetaData.Name, funcKeyWitRes),
 			os.Getenv("HOST_IP"), instanceType),
-		observers:     make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
-		concurrentNum: utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
-		leaseInterval: leaseInterval,
-		RWMutex:       mutex,
-		Cond:          sync.NewCond(mutex),
-		grayAllocator:       NewHashBasedInstanceAllocator(0),
+		observers:           make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
+		concurrentNum:       utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
+		leaseInterval:       leaseInterval,
+		RWMutex:             mutex,
+		Cond:                sync.NewCond(mutex),
 		isFuncOwner:         selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
 		coldStartTraceQueue: make([]*coldStartTraceContext, 0, utils.DefaultSliceSize),
 	}
 	bcs.sessionManager.setFuncOwner(bcs.isFuncOwner)
-	bcs.grayAllocator.UpdateRolloutRatio(rollout.GetGlobalRolloutHandler().GetCurrentRatio())
 	bcs.createOtherInstanceQueue(otherInstanceQueue)
 	bcs.createSelfInstanceQueue(selfInstanceQueue)
 	if config.GlobalConfig.EnableSessionRecover {
@@ -710,7 +706,7 @@ func (bcs *basicConcurrencyScheduler) scheduleRequest(insAcqReq *types.InstanceA
 		if exist {
 			insAcqReq.DesignateInstanceID = record.insElem.instance.InstanceID
 		} else if bcs.sessionManager.isGrayStatus() || !bcs.isFuncOwner {
-			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(
+			insAcqReq.DesignateInstanceID = bcs.sessionManager.queryInsBySessionFromDS(
 				insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID,
 				bcs.funcSpec.ExtendedMetaData.EnableSessionCtx)
 		}
@@ -758,7 +754,7 @@ func (bcs *basicConcurrencyScheduler) AcquireInstance(insAcqReq *types.InstanceA
 		if exist {
 			insAcqReq.DesignateInstanceID = record.insElem.instance.InstanceID
 		} else if bcs.sessionManager.isGrayStatus() || !bcs.isFuncOwner {
-			insAcqReq.DesignateThreadID = bcs.sessionManager.queryInsBySessionFromDS(
+			insAcqReq.DesignateInstanceID = bcs.sessionManager.queryInsBySessionFromDS(
 				insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID,
 				bcs.funcSpec.ExtendedMetaData.EnableSessionCtx)
 		}
@@ -1137,7 +1133,7 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 		threadID := insElem.GetThreadFromThreadMap()
 		record.PutThreadToAllocThdMap(threadID)
 		// there must be no error.
-		if err := record.PutThreadToAvailThdMap(threadID); err != nil {
+		if err := record.MarkThreadAsAvailable(threadID); err != nil {
 			log.GetLogger().Errorf("acquire thread failed, skip")
 		}
 	}
@@ -1181,14 +1177,11 @@ func (bcs *basicConcurrencyScheduler) acquireSessionThread(designateThreadID str
 		}
 	}
 	record.ttl = time.Duration(sessionConfig.SessionTTL) * time.Second
-	// every object here is pointer, no need to call UpdateObjByID
-	threadID := record.GetThreadFromAvailThdMap()
 	// 指定租约id时，需要替换allocThdMap中的id
-	if designateThreadID != "" {
-		log.GetLogger().Debugf("threadID %s has been replaced by %s", threadID, designateThreadID)
-		delete(record.allocThdMap, threadID)
-		record.allocThdMap[designateThreadID] = struct{}{}
-		threadID = designateThreadID
+	threadID, err := record.GetOrReplaceDesignateThreadFromAvailThdMap(designateThreadID)
+	if err != nil {
+		log.GetLogger().Errorf("failed to acquire designate thread id %s, err %s", designateThreadID, err.Error())
+		return nil, scheduler.ErrInternal
 	}
 	return &types.InstanceAllocation{
 		Instance: record.insElem.instance.Copy(),
@@ -1292,7 +1285,7 @@ func (bcs *basicConcurrencyScheduler) releaseInstanceThreadWithSession(insQue qu
 			return nil
 		}
 	}
-	err := record.PutThreadToAvailThdMap(insAlloc.AllocationID)
+	err := record.MarkThreadAsAvailable(insAlloc.AllocationID)
 	if err != nil {
 		log.GetLogger().Warnf("put thread to availthdmap failed, err %s, func %s", err.Error(), bcs.funcKeyWithRes)
 		return ErrInsThdNotExist
@@ -1311,12 +1304,13 @@ func (bcs *basicConcurrencyScheduler) startUnbindInstanceSession(insQue queue.Qu
 }
 
 func (bcs *basicConcurrencyScheduler) unbindInstanceSession(insQue queue.Queue, record *sessionRecord) {
+	logger := log.GetLogger().With(zap.Any("sessionID", record.sessionID))
 	select {
 	case <-record.timer.C:
 		bcs.L.Lock()
 		if len(record.availThdMap) != len(record.allocThdMap) || len(record.overAcqThdMap) != 0 {
 			<-record.expireCancelCh
-			log.GetLogger().Infof("avail thd has been acquired, session %s expire canceled", record.sessionID)
+			logger.Infof("avail thd has been acquired, expire canceled")
 			record.timer.Stop()
 			record.expiring.Store(false)
 			bcs.L.Unlock()
@@ -1324,21 +1318,25 @@ func (bcs *basicConcurrencyScheduler) unbindInstanceSession(insQue queue.Queue, 
 		}
 		record.cancelFunc()
 		if record.insElem == nil {
-			log.GetLogger().Infof("session %s has not bind by instance", record.sessionID)
+			logger.Infof("session has not bind by instance")
 			return
 		}
-		for threadID, _ := range record.allocThdMap {
-			record.insElem.PutThreadToThreadMap(threadID)
-			insAlloc := &types.InstanceAllocation{
-				Instance:     record.insElem.instance,
-				AllocationID: threadID,
+		if insQue.GetByID(record.insElem.instance.InstanceID) != nil {
+			for threadID, _ := range record.allocThdMap {
+				record.insElem.PutThreadToThreadMap(threadID)
+				insAlloc := &types.InstanceAllocation{
+					Instance:     record.insElem.instance,
+					AllocationID: threadID,
+				}
+				metrics.OnReleaseLease(insAlloc)
 			}
-			metrics.OnReleaseLease(insAlloc)
+		} else {
+			logger.Warnf("instance %s has been deleted before session released", record.insElem.instance.InstanceID)
 		}
 		bcs.sessionManager.delSession(bcs.getRecordCacheKey(record))
 		if err := insQue.UpdateObjByID(record.insElem.instance.InstanceID, record.insElem); err != nil {
-			log.GetLogger().Errorf("failed to update instance %s during unbinding with session %s for function %s"+
-				" error %s", record.insElem.instance.InstanceID, record.sessionID, bcs.funcKeyWithRes, err.Error())
+			logger.Errorf("failed to update instance %s during unbinding for function %s error %s",
+				record.insElem.instance.InstanceID, bcs.funcKeyWithRes, err.Error())
 		}
 		instance := record.insElem.instance
 		idleHandler := bcs.sessionCtxIdleHandler
@@ -1347,12 +1345,12 @@ func (bcs *basicConcurrencyScheduler) unbindInstanceSession(insQue queue.Queue, 
 		if idleHandler != nil && enableSessionCtx && hasActiveSessionCtx(instance) {
 			idleHandler(instance)
 		}
-		log.GetLogger().Infof("unbind session %s with instance %s for function %s", record.sessionID,
-			record.insElem.instance.InstanceID, bcs.funcKeyWithRes)
+		logger.Infof("unbind session with instance %s for function %s", record.insElem.instance.InstanceID,
+			bcs.funcKeyWithRes)
 	case <-record.expireCancelCh:
 		// set lock here may cause deadlock because multiple acquire requests of a same session may trigger this
 		// case many times
-		log.GetLogger().Infof("session %s expire canceled", record.sessionID)
+		logger.Infof("session expire canceled")
 		record.timer.Stop()
 		record.expiring.Store(false)
 	}
@@ -1399,11 +1397,6 @@ func (bcs *basicConcurrencyScheduler) popInstanceElement(popDirection popDirecti
 	} else {
 		bcs.selfInstanceQueue.PopBack()
 	}
-	if bcs.grayAllocator.ShouldReassign(Del, insElem.instance.InstanceID) {
-		log.GetLogger().Infof("pop instance gray invoke reassign. instance: %s, funcKey: %s",
-			insElem.instance.InstanceID, bcs.funcKeyWithRes)
-		bcs.reassignInstanceWhenGray()
-	}
 	return insElem
 }
 
@@ -1436,11 +1429,6 @@ func (bcs *basicConcurrencyScheduler) AddInstance(instance *types.Instance) erro
 	// Wake popInstanceElement waiters: they block on bcs.Wait() until a creating instance is enqueued,
 	// and nothing else in the scheduler signals this Cond.
 	bcs.Broadcast()
-	if bcs.grayAllocator.ShouldReassign(Add, insElem.instance.InstanceID) {
-		log.GetLogger().Infof("add instance gray invoke reassign. instance: %s, funcKey: %s",
-			instance.InstanceID, bcs.funcKeyWithRes)
-		bcs.reassignInstanceWhenGray()
-	}
 	return err
 }
 
@@ -1460,11 +1448,6 @@ func (bcs *basicConcurrencyScheduler) DelInstance(instance *types.Instance) erro
 	bcs.leaseManager.HandleInstanceDelete(instance)
 	if err != nil {
 		return err
-	}
-	if bcs.grayAllocator.ShouldReassign(Del, instance.InstanceID) {
-		log.GetLogger().Infof("del instance gray invoke reassign. instance: %s, funcKey: %s",
-			instance.InstanceID, bcs.funcKeyWithRes)
-		bcs.reassignInstanceWhenGray()
 	}
 	return err
 }
@@ -1561,11 +1544,6 @@ func (bcs *basicConcurrencyScheduler) HandleInstanceUpdate(instance *types.Insta
 			logger.Errorf("failed to add new instance with status %+v", instance.InstanceStatus)
 			return
 		}
-		if instance.InstanceStatus.Code != int32(constant.KernelInstanceStatusEvicting) &&
-			bcs.grayAllocator.ShouldReassign(Add, instance.InstanceID) {
-			logger.Infof("update add instance invoke reassign")
-			bcs.reassignInstanceWhenGray()
-		}
 	} else {
 		insElem, ok := obj.(*instanceElement)
 		if !ok {
@@ -1592,16 +1570,7 @@ func (bcs *basicConcurrencyScheduler) IsFuncOwner() bool {
 }
 
 func (bcs *basicConcurrencyScheduler) checkSelfInstance(instance *types.Instance) bool {
-	isSelf := bcs.checkSelfInstanceInternal(instance)
-	if !isSelf {
-		return false
-	}
-
-	if !config.GlobalConfig.EnableRollout || !selfregister.IsRollingOut {
-		return isSelf
-	} else {
-		return bcs.grayAllocator.CheckSelf(selfregister.IsRolloutObject, instance.InstanceID)
-	}
+	return bcs.checkSelfInstanceInternal(instance)
 }
 
 func (bcs *basicConcurrencyScheduler) checkSelfInstanceInternal(instance *types.Instance) bool {
@@ -1652,130 +1621,6 @@ func (bcs *basicConcurrencyScheduler) addObservers(topic scheduler.InstanceTopic
 	bcs.observers[topic] = append(topicObservers, &instanceObserver{
 		callback: callback,
 	})
-}
-
-// ReassignInstanceWhenGray 监听到进入灰度状态后重新分配self队列
-func (bcs *basicConcurrencyScheduler) ReassignInstanceWhenGray(ratio int) {
-	bcs.Lock()
-	defer bcs.Unlock()
-	bcs.grayAllocator.UpdateRolloutRatio(ratio)
-	log.GetLogger().Infof("updateRolloutRatio invoke reassign self len: %d, other len: %d, funcKey %s",
-		bcs.selfInstanceQueue.Len(), bcs.otherInstanceQueue.Len(), bcs.funcKeyWithRes)
-	bcs.reassignInstanceWhenGray()
-}
-
-func (bcs *basicConcurrencyScheduler) reassignInstanceWhenGray() {
-	if !config.GlobalConfig.EnableRollout {
-		return
-	}
-	// 灰度结束的最后一步，将currentVersion修改为当前版本，ratio修改为0时，需要修改grayAllocator中的IsRolloutObject，不能直接返回
-	if !selfregister.IsRollingOut && bcs.grayAllocator.GetRolloutRatio() > 0 {
-		log.GetLogger().Infof("no need to reassign Instance when rollout %v, ratio %d , funcKey %s",
-			selfregister.IsRollingOut, bcs.grayAllocator.GetRolloutRatio(), bcs.funcKeyWithRes)
-		return
-	}
-
-	if !bcs.isFuncOwner {
-		log.GetLogger().Warnf("this scheduler is not funcOwner of function %s skipping reassign", bcs.funcKeyWithRes)
-		return
-	}
-
-	var (
-		selfInstancesToKeep  []*instanceElement
-		otherInstancesToKeep []*instanceElement
-		fixedOtherInstances  []*instanceElement
-	)
-
-	canPartitionInstances, fixedOtherInstances := bcs.collectInstancesForReassign()
-
-	selfInstancesToKeep, otherInstancesToKeep = bcs.grayAllocator.Partition(
-		canPartitionInstances,
-		selfregister.IsRolloutObject,
-	)
-
-	otherInstancesToKeep = append(otherInstancesToKeep, fixedOtherInstances...)
-
-	log.GetLogger().Infof("Gray reassign isGrayNode: %t - Before self: %d, other %d. "+
-		"After self: %d, other, %d, fix: %d, funcKey %s", selfregister.IsRolloutObject, bcs.selfInstanceQueue.Len(),
-		bcs.otherInstanceQueue.Len(), len(selfInstancesToKeep), len(otherInstancesToKeep), len(fixedOtherInstances),
-		bcs.funcKeyWithRes)
-
-	clearAndFillQueue(bcs.selfInstanceQueue, selfInstancesToKeep)
-	clearAndFillQueue(bcs.otherInstanceQueue, otherInstancesToKeep)
-
-	log.GetLogger().Infof("finish reassign. funckey %s", bcs.funcKeyWithRes)
-}
-
-func (bcs *basicConcurrencyScheduler) collectInstancesForReassign() ([]*HashedInstance, []*instanceElement) {
-	canPartitionInstances := make([]*HashedInstance, 0, bcs.selfInstanceQueue.Len()+bcs.otherInstanceQueue.Len())
-	fixedOtherInstances := make([]*instanceElement, 0, bcs.otherInstanceQueue.Len())
-
-	partitionInstance := func(insElem *instanceElement) {
-		if !bcs.checkSelfInstanceInternal(insElem.instance) {
-			fixedOtherInstances = append(fixedOtherInstances, insElem)
-			return
-		}
-		hashValue := bcs.grayAllocator.ComputeHash(insElem.instance.InstanceID)
-		canPartitionInstances = append(canPartitionInstances, &HashedInstance{
-			InsElem: insElem,
-			hash:    hashValue,
-		})
-	}
-
-	processQueue := func(queue queue.Queue) {
-		queue.Range(func(obj interface{}) bool {
-			insElem, ok := obj.(*instanceElement)
-			if !ok {
-				return true
-			}
-			if insElem.instance.InstanceStatus.Code == int32(constant.KernelInstanceStatusEvicting) {
-				return true
-			}
-			partitionInstance(insElem)
-			return true
-		})
-	}
-
-	processQueue(bcs.selfInstanceQueue)
-	processQueue(bcs.otherInstanceQueue)
-
-	return canPartitionInstances, fixedOtherInstances
-}
-
-func clearAndFillQueue(instanceQueue queue.Queue, targetInstances []*instanceElement) {
-	currentMap := make(map[string]*instanceElement, instanceQueue.Len())
-	instanceQueue.Range(func(obj interface{}) bool {
-		insElem, ok := obj.(*instanceElement)
-		if !ok {
-			return true
-		}
-		if insElem.instance.InstanceStatus.Code == int32(constant.KernelInstanceStatusEvicting) { // evicting实例不考虑在内
-			return true
-		}
-		currentMap[insElem.instance.InstanceID] = insElem
-		return true
-	})
-
-	targetMap := make(map[string]*instanceElement, len(targetInstances))
-	for _, insElem := range targetInstances {
-		targetMap[insElem.instance.InstanceID] = insElem
-	}
-
-	for instanceID := range currentMap {
-		if _, exists := targetMap[instanceID]; !exists {
-			if err := instanceQueue.DelByID(instanceID); err != nil {
-				log.GetLogger().Errorf("failed to delete instance %s", instanceID)
-			}
-		}
-	}
-
-	for _, insElem := range targetInstances {
-		if _, exists := currentMap[insElem.instance.InstanceID]; !exists {
-			if err := instanceQueue.PushBack(insElem); err != nil {
-				log.GetLogger().Errorf("failed to push instance %s", insElem.instance.InstanceID)
-			}
-		}
-	}
 }
 
 // HandleFuncOwnerUpdate will reset funcOwner and reassign instances if necessary
@@ -1843,20 +1688,6 @@ func (bcs *basicConcurrencyScheduler) reassignQueues(srcQueue queue.Queue, dstQu
 		}
 	}
 	return reassignList
-}
-
-func (bcs *basicConcurrencyScheduler) shouldTriggerColdStart() bool {
-	// 灰度状态下，新的scheduler不应该触发冷启动，应该快速返回失败
-	selfCurVer := os.Getenv(selfregister.CurrentVersionEnvKey)
-	etcdCurVer := rollout.GetGlobalRolloutHandler().CurrentVersion
-	if selfCurVer != etcdCurVer && rollout.GetGlobalRolloutHandler().GetCurrentRatio() != 100 { // 100 mean 100%
-		return false
-	}
-	// 灰度状态到100%时，老的scheduler不应该负责冷启动，应该快速返回失败
-	if selfCurVer == etcdCurVer && rollout.GetGlobalRolloutHandler().GetCurrentRatio() == 100 { // 100 mean 100%
-		return false
-	}
-	return true
 }
 
 func getInstanceID(obj interface{}) string {

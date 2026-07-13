@@ -88,6 +88,5 @@ type InstanceScheduler interface {
 	HandleFuncOwnerUpdate(isFuncOwner bool)
 	HandleCreateError(createErr error)
 	SignalAllInstances(signalFunc SignalInstanceFunc)
-	ReassignInstanceWhenGray(ratio int)
 	Destroy()
 }

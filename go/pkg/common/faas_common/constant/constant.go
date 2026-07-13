@@ -122,10 +122,10 @@ const (
 	InstancePathPrefix = "/sn/instance"
 	// SchedulerHashPrefix is the etcd path where the scheduler hash info will be placed
 	SchedulerHashPrefix = "/sn/faas-scheduler/instances"
-	// SchedulerRolloutPrefix -
-	SchedulerRolloutPrefix = "/sn/faas-scheduler/rollout"
+	// SchedulerBlueHashPrefix is the etcd path where the scheduler hash info will be placed
+	SchedulerBlueHashPrefix = "/sn/faas-scheduler-b/instances"
 	// RolloutConfigPrefix -
-	RolloutConfigPrefix = "/sn/faas-scheduler/rolloutConfig"
+	RolloutConfigPrefix = "/sn/faas-scheduler/gray"
 	// HTTPTriggerPrefix -
 	HTTPTriggerPrefix = "/sn/triggers/triggerType/HTTP/business/"
 	// FunctionPrefix -
@@ -158,6 +158,12 @@ const (
 	SchedulerExclusivityKey = "exclusivity"
 	// FaaSSchedulerExclusivityEnvKey -
 	FaaSSchedulerExclusivityEnvKey = "FaaSScheduler_Exclusivity"
+	// FaaSSchedulerTokenTypeEnvKey -
+	FaaSSchedulerTokenTypeEnvKey = "SCHEDULER_TOKEN_TYPE"
+	// GreenTokenType default token type
+	GreenTokenType = "green"
+	// BlueTokenType blue token type
+	BlueTokenType = "blue"
 
 	// SchedulerRecoverTime -
 	SchedulerRecoverTime = 30 * time.Second
@@ -372,6 +378,11 @@ const (
 
 	// EnableStream 用于识别黄区测试桩环境frontend是否开启流式场景监听本地数据系统状态
 	EnableStream = "ENABLE_STREAM"
+
+	// BlueRing -
+	BlueRing = "blue"
+	// GreenRing -
+	GreenRing = "green"
 )
 
 const (

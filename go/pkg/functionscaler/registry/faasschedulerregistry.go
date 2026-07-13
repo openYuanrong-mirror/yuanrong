@@ -18,6 +18,8 @@
 package registry
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -29,7 +31,12 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/urnutils"
 	"yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
+)
+
+var (
+	tokenType = os.Getenv(constant.FaaSSchedulerTokenTypeEnvKey)
 )
 
 // FaasSchedulerRegistry watches faasscheduler instance event of etcd
@@ -39,6 +46,7 @@ type FaasSchedulerRegistry struct {
 	moduleScheduler             *ModuleSchedulerInfos
 	instanceMap                 map[string]*types.InstanceSpecification
 	schedulerHashWatcher        etcd3.Watcher
+	schedulerBlueHashWatcher    etcd3.Watcher
 	schedulerInstanceWatcher    etcd3.Watcher
 	discoveryKeyType            string
 	schedulerInstanceListDoneCh chan struct{}
@@ -56,9 +64,12 @@ type ModuleSchedulerInfos struct {
 
 // AllSchedulerInfo scheduler info
 type AllSchedulerInfo struct {
-	SchedulerFuncKey      string                `json:"schedulerFuncKey"`
-	SchedulerIDList       []string              `json:"schedulerIDList"`
-	SchedulerInstanceList []*types.InstanceInfo `json:"schedulerInstanceList"`
+	SchedulerFuncKey           string                `json:"schedulerFuncKey"`
+	SchedulerIDList            []string              `json:"schedulerIDList"`
+	SchedulerInstanceList      []*types.InstanceInfo `json:"schedulerInstanceList"`
+	BlueSchedulerInstanceList  []*types.InstanceInfo `json:"blueSchedulerInstanceList"`
+	GreenSchedulerInstanceList []*types.InstanceInfo `json:"greenSchedulerInstanceList"`
+	BlueRatio                  int                   `json:"blueRatio"`
 }
 
 // NewFaasSchedulerRegistry will create FaasSchedulerRegistry
@@ -97,6 +108,14 @@ func (fsr *FaasSchedulerRegistry) initSchedulerHashWatcher(etcdClient *etcd3.Etc
 		fsr.stopCh,
 		etcdClient)
 	fsr.schedulerHashWatcher.StartList()
+
+	fsr.schedulerBlueHashWatcher = etcd3.NewEtcdWatcher(
+		constant.SchedulerBlueHashPrefix,
+		fsr.schedulerBlueHashFilter,
+		fsr.schedulerHashHandler,
+		fsr.stopCh,
+		etcdClient)
+	fsr.schedulerBlueHashWatcher.StartList()
 }
 
 func (fsr *FaasSchedulerRegistry) initSchedulerInstanceWatcher(etcdClient *etcd3.EtcdClient) {
@@ -132,6 +151,7 @@ func (fsr *FaasSchedulerRegistry) WaitForETCDList() {
 // RunWatcher -
 func (fsr *FaasSchedulerRegistry) RunWatcher() {
 	go fsr.schedulerHashWatcher.StartWatch()
+	go fsr.schedulerBlueHashWatcher.StartWatch()
 	go fsr.schedulerInstanceWatcher.StartWatch()
 }
 
@@ -141,6 +161,10 @@ func (fsr *FaasSchedulerRegistry) schedulerInstanceFilter(event *etcd3.Event) bo
 
 func (fsr *FaasSchedulerRegistry) schedulerHashFilter(event *etcd3.Event) bool {
 	return !strings.Contains(event.Key, constant.SchedulerHashPrefix)
+}
+
+func (fsr *FaasSchedulerRegistry) schedulerBlueHashFilter(event *etcd3.Event) bool {
+	return !strings.Contains(event.Key, constant.SchedulerBlueHashPrefix)
 }
 
 func (fsr *FaasSchedulerRegistry) schedulerHashHandler(event *etcd3.Event) {
@@ -197,33 +221,33 @@ func (fsr *FaasSchedulerRegistry) handleFunctionSchedulerHashEvent(event *etcd3.
 	}
 }
 
-func (fsr *FaasSchedulerRegistry) addLeaseBare(eventKey string) {
-	instanceName, isLeaseKey := utils.GetInstanceNameFromSchedulerLeaseEtcdKey(eventKey)
+func (fsr *FaasSchedulerRegistry) addLeaseBare(eventKey string, adaptedInstanceName string) {
+	_, isLeaseKey := utils.GetInstanceNameFromSchedulerLeaseEtcdKey(eventKey)
 	if !isLeaseKey {
 		return
 	}
 	lease := utils.ParseLeaseFromSchedulerLeaseEtcdKey(eventKey)
-	leaseIds, ok := fsr.moduleScheduler.leaseIds[instanceName]
+	leaseIds, ok := fsr.moduleScheduler.leaseIds[adaptedInstanceName]
 	if !ok {
 		leaseIds = make(map[string]bool)
-		fsr.moduleScheduler.leaseIds[instanceName] = leaseIds
+		fsr.moduleScheduler.leaseIds[adaptedInstanceName] = leaseIds
 	}
 	leaseIds[lease] = true
 }
 
-func (fsr *FaasSchedulerRegistry) delLeaseBare(eventKey string) {
-	instanceName, isLeaseKey := utils.GetInstanceNameFromSchedulerLeaseEtcdKey(eventKey)
+func (fsr *FaasSchedulerRegistry) delLeaseBare(eventKey string, adaptedInstanceName string) {
+	_, isLeaseKey := utils.GetInstanceNameFromSchedulerLeaseEtcdKey(eventKey)
 	if !isLeaseKey {
 		return
 	}
 	lease := utils.ParseLeaseFromSchedulerLeaseEtcdKey(eventKey)
-	leaseIds, ok := fsr.moduleScheduler.leaseIds[instanceName]
+	leaseIds, ok := fsr.moduleScheduler.leaseIds[adaptedInstanceName]
 	if !ok {
 		return
 	}
 	delete(leaseIds, lease)
 	if len(leaseIds) == 0 {
-		delete(fsr.moduleScheduler.leaseIds, instanceName)
+		delete(fsr.moduleScheduler.leaseIds, adaptedInstanceName)
 	}
 }
 
@@ -231,13 +255,20 @@ func (fsr *FaasSchedulerRegistry) delLeaseBare(eventKey string) {
 // this key
 func (fsr *FaasSchedulerRegistry) handleModuleSchedulerUpdate(event *etcd3.Event) {
 	instanceName := ""
+	var adaptedInstanceName string
 	isLeaseKey := false
+	eventTokenType, versionFlag := getTokenTypeAndVersionFlag(event.Key)
 	if instanceName, isLeaseKey = utils.GetInstanceNameFromSchedulerLeaseEtcdKey(event.Key); isLeaseKey {
 		fsr.Lock()
-		fsr.addLeaseBare(event.Key)
+		adaptedInstanceName = fmt.Sprintf("%s-%s", eventTokenType, instanceName)
+		fsr.addLeaseBare(event.Key, adaptedInstanceName)
 		fsr.Unlock()
 	} else {
 		insSpec := instance.GetInsSpecFromEtcdValue(event.Key, event.Value)
+		if insSpec == nil || insSpec.InstanceID == "" {
+			log.GetLogger().Infof("ignore invalid instance spec from key %s", event.Key)
+			return
+		}
 		insInfo, err := utils.GetSchedulerInfoFromEtcdKey(event.Key)
 		if err != nil {
 			log.GetLogger().Errorf("failed to parse instanceInfo from key %s error %s", event.Key, err.Error())
@@ -245,15 +276,16 @@ func (fsr *FaasSchedulerRegistry) handleModuleSchedulerUpdate(event *etcd3.Event
 		}
 		instanceName = insInfo.InstanceName
 		insInfo.InstanceID = insSpec.InstanceID
+		adaptedInstanceName = fmt.Sprintf("%s-%s", eventTokenType, instanceName)
 		fsr.Lock()
-		fsr.moduleScheduler.schedulerInsInfos[instanceName] = insInfo
-		fsr.moduleScheduler.schedulerInsSpecInfos[instanceName] = insSpec
+		fsr.moduleScheduler.schedulerInsInfos[adaptedInstanceName] = insInfo
+		fsr.moduleScheduler.schedulerInsSpecInfos[adaptedInstanceName] = insSpec
 		fsr.Unlock()
 	}
 	fsr.RLock()
-	_, ok1 := fsr.moduleScheduler.leaseIds[instanceName]
-	insInfo, ok2 := fsr.moduleScheduler.schedulerInsInfos[instanceName]
-	insSpec := fsr.moduleScheduler.schedulerInsSpecInfos[instanceName]
+	_, ok1 := fsr.moduleScheduler.leaseIds[adaptedInstanceName]
+	insInfo, ok2 := fsr.moduleScheduler.schedulerInsInfos[adaptedInstanceName]
+	insSpec := fsr.moduleScheduler.schedulerInsSpecInfos[adaptedInstanceName]
 	fsr.RUnlock()
 	if !ok1 || !ok2 {
 		return
@@ -265,14 +297,21 @@ func (fsr *FaasSchedulerRegistry) handleModuleSchedulerUpdate(event *etcd3.Event
 			exclusivity = insSpec.CreateOptions[constant.SchedulerExclusivityKey]
 		}
 	}
-	selfregister.GlobalSchedulerProxy.Add(insInfo, exclusivity)
+	selfregister.GlobalSchedulerProxy.Add(insInfo, exclusivity, eventTokenType, versionFlag)
 	fsr.publishEvent(SubEventTypeUpdate, insSpec)
+}
 
-	// 目标的效果是，老版本scheduler退出后， rolloutObject置为false，新的scheduler抢锁，registered置为true
-	if !selfregister.Registered && insInfo.InstanceName == selfregister.SelfInstanceName &&
-		len(insSpec.InstanceID) == 0 {
-		selfregister.ReplaceRolloutSubject(fsr.stopCh)
+func getTokenTypeAndVersionFlag(key string) (string, bool) {
+	var eventTokenType string
+	if strings.Contains(key, constant.SchedulerBlueHashPrefix) {
+		eventTokenType = constant.BlueTokenType
+	} else if strings.Contains(key, constant.SchedulerHashPrefix) {
+		eventTokenType = constant.GreenTokenType
 	}
+	if tokenType == "" && strings.EqualFold(eventTokenType, constant.GreenTokenType) {
+		return eventTokenType, true
+	}
+	return eventTokenType, strings.EqualFold(eventTokenType, tokenType)
 }
 
 // when registerMode is set to registerByContend, the etcd value of module scheduler may be empty if no scheduler locks
@@ -292,7 +331,7 @@ func (fsr *FaasSchedulerRegistry) handleFunctionSchedulerUpdate(event *etcd3.Eve
 			exclusivity = insSpec.CreateOptions[constant.SchedulerExclusivityKey]
 		}
 	}
-	selfregister.GlobalSchedulerProxy.Add(insInfo, exclusivity)
+	selfregister.GlobalSchedulerProxy.Add(insInfo, exclusivity, "", true)
 
 	fsr.Lock()
 	fsr.functionScheduler[insInfo.InstanceName] = insSpec
@@ -308,7 +347,7 @@ func (fsr *FaasSchedulerRegistry) handleFunctionSchedulerRemove(event *etcd3.Eve
 		return
 	}
 	if fsr.discoveryKeyType == constant.SchedulerKeyTypeFunction {
-		selfregister.GlobalSchedulerProxy.Remove(insInfo)
+		selfregister.GlobalSchedulerProxy.Remove(insInfo.InstanceName, "", true)
 	}
 	fsr.Lock()
 	delete(fsr.functionScheduler, insInfo.InstanceName)
@@ -319,7 +358,10 @@ func (fsr *FaasSchedulerRegistry) handleFunctionSchedulerRemove(event *etcd3.Eve
 func (fsr *FaasSchedulerRegistry) handleModuleSchedulerRemove(event *etcd3.Event) {
 	instanceName := ""
 	isLeaseKey := false
-	if instanceName, isLeaseKey = utils.GetInstanceNameFromSchedulerLeaseEtcdKey(event.Key); !isLeaseKey {
+	eventTokenType, versionFlag := getTokenTypeAndVersionFlag(event.Key)
+	var adaptedInstanceName string
+	instanceName, isLeaseKey = utils.GetInstanceNameFromSchedulerLeaseEtcdKey(event.Key)
+	if !isLeaseKey {
 		insInfo, err := utils.GetSchedulerInfoFromEtcdKey(event.Key)
 		if err != nil {
 			log.GetLogger().Errorf("failed to parse instanceInfo from key %s error %s", event.Key, err.Error())
@@ -327,27 +369,28 @@ func (fsr *FaasSchedulerRegistry) handleModuleSchedulerRemove(event *etcd3.Event
 		}
 		instanceName = insInfo.InstanceName
 	}
+	adaptedInstanceName = fmt.Sprintf("%s-%s", eventTokenType, instanceName)
 	defer func() {
 		fsr.Lock()
 		if isLeaseKey {
-			fsr.delLeaseBare(event.Key)
+			fsr.delLeaseBare(event.Key, adaptedInstanceName)
 		} else {
-			delete(fsr.moduleScheduler.schedulerInsInfos, instanceName)
-			delete(fsr.moduleScheduler.schedulerInsSpecInfos, instanceName)
+			delete(fsr.moduleScheduler.schedulerInsInfos, adaptedInstanceName)
+			delete(fsr.moduleScheduler.schedulerInsSpecInfos, adaptedInstanceName)
 		}
 		fsr.Unlock()
 	}()
 
 	fsr.RLock()
-	lenth := len(fsr.moduleScheduler.leaseIds[instanceName])
-	insInfo, ok := fsr.moduleScheduler.schedulerInsInfos[instanceName]
-	insSpec := fsr.moduleScheduler.schedulerInsSpecInfos[instanceName]
+	length := len(fsr.moduleScheduler.leaseIds[adaptedInstanceName])
+	insInfo, ok := fsr.moduleScheduler.schedulerInsInfos[adaptedInstanceName]
+	insSpec := fsr.moduleScheduler.schedulerInsSpecInfos[adaptedInstanceName]
 	fsr.RUnlock()
-	if lenth != 1 || !ok {
+	if length != 1 || !ok {
 		return
 	}
 
-	selfregister.GlobalSchedulerProxy.Remove(insInfo)
+	selfregister.GlobalSchedulerProxy.Remove(insInfo.InstanceName, eventTokenType, versionFlag)
 	fsr.publishEvent(SubEventTypeRemove, insSpec)
 }
 
@@ -391,21 +434,44 @@ func isFaaSScheduler(etcdPath string) bool {
 // GetAllSchedulerInfo return scheduler info
 func (fsr *FaasSchedulerRegistry) GetAllSchedulerInfo() *AllSchedulerInfo {
 	schedulerInfo := &AllSchedulerInfo{}
-	selfregister.GlobalSchedulerProxy.FaaSSchedulers.Range(func(key, value any) bool {
-		faasSchedulerID, ok := key.(string)
-		if !ok {
-			return true
-		}
+	selfregister.GlobalSchedulerProxy.GreenFaaSSchedulers.Range(func(key, value any) bool {
 		faaSScheduler, ok := value.(*types.InstanceInfo)
 		if !ok {
 			return true
 		}
-		schedulerInfo.SchedulerIDList = append(schedulerInfo.SchedulerIDList, faasSchedulerID)
 		schedulerInfo.SchedulerFuncKey = urnutils.CombineFunctionKey(faaSScheduler.TenantID,
 			faaSScheduler.FunctionName, faaSScheduler.Version)
-		schedulerInfo.SchedulerInstanceList = append(schedulerInfo.SchedulerInstanceList, faaSScheduler)
+		schedulerInfo.GreenSchedulerInstanceList = append(schedulerInfo.GreenSchedulerInstanceList, faaSScheduler)
 		return true
 	})
+	selfregister.GlobalSchedulerProxy.BlueFaaSSchedulers.Range(func(key, value any) bool {
+		faaSScheduler, ok := value.(*types.InstanceInfo)
+		if !ok {
+			return true
+		}
+		schedulerInfo.SchedulerFuncKey = urnutils.CombineFunctionKey(faaSScheduler.TenantID,
+			faaSScheduler.FunctionName, faaSScheduler.Version)
+		schedulerInfo.BlueSchedulerInstanceList = append(schedulerInfo.BlueSchedulerInstanceList, faaSScheduler)
+		return true
+	})
+	if len(schedulerInfo.GreenSchedulerInstanceList) == 0 && len(schedulerInfo.BlueSchedulerInstanceList) == 0 {
+		selfregister.GlobalSchedulerProxy.FaaSSchedulers.Range(func(key, value any) bool {
+			faasSchedulerID, ok := key.(string)
+			if !ok {
+				return true
+			}
+			faaSScheduler, ok := value.(*types.InstanceInfo)
+			if !ok {
+				return true
+			}
+			schedulerInfo.SchedulerIDList = append(schedulerInfo.SchedulerIDList, faasSchedulerID)
+			schedulerInfo.SchedulerFuncKey = urnutils.CombineFunctionKey(faaSScheduler.TenantID,
+				faaSScheduler.FunctionName, faaSScheduler.Version)
+			schedulerInfo.SchedulerInstanceList = append(schedulerInfo.SchedulerInstanceList, faaSScheduler)
+			return true
+		})
+	}
+	schedulerInfo.BlueRatio = rollout.GetGlobalRolloutConfig().GetCurrentRatio()
 	return schedulerInfo
 }
 

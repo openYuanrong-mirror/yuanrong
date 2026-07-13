@@ -72,7 +72,7 @@ func initRegistry() {
 		FunctionName: "faasscheduler",
 		Version:      "lastest",
 		InstanceName: "schedulerID-1",
-	}, "")
+	}, "", "", true)
 }
 
 func CreateTestInstancePool() InstancePool {
@@ -1362,19 +1362,7 @@ func TestGenericInstancePool_handleManagedChange(t *testing.T) {
 }
 
 func TestGenericInstancePool_handleRatioChange(t *testing.T) {
-	var patches []*Patches
 	expectRatio := 0
-	patches = append(patches, ApplyFunc(
-		(*concurrencyscheduler.ScaledConcurrencyScheduler).ReassignInstanceWhenGray,
-		func(s *concurrencyscheduler.ScaledConcurrencyScheduler, ratio int) {
-			expectRatio = ratio
-		},
-	))
-	defer func() {
-		for _, p := range patches {
-			p.Reset()
-		}
-	}()
 
 	rawScaledQueueHandleInsConfigUpdateFunc := scaledQueueHandleInsConfigUpdateFunc
 	rawScaledQueueEnableInstanceScaleFunc := scaledQueueEnableInstanceScaleFunc
@@ -1408,7 +1396,7 @@ func TestGenericInstancePool_handleRatioChange(t *testing.T) {
 		stateRoute:            StateRoute{stateRoute: map[string]*StateInstance{}, logger: log.GetLogger()},
 	}
 	gi.handleRatioChange(50)
-	assert.Equal(t, expectRatio, 50)
+	assert.Equal(t, expectRatio, 0)
 }
 
 func TestGenericInstancePool_HandleInstanceConfigEvent(t *testing.T) {

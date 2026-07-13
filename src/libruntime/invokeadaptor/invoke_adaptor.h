@@ -196,6 +196,10 @@ public:
     virtual void EraseFsIntf(const std::string &id);
     void PushInvokeSpec(std::shared_ptr<InvokeSpec> spec);
     virtual bool IsHealth();
+    virtual uint32_t GetSchedulerBlueRatio()
+    {
+        return this->taskSubmitter->GetSchedulerBlueRatio();
+    };
     virtual std::pair<ErrorInfo, std::string> GetNodeIpAddress();
 
     virtual std::pair<ErrorInfo, std::string> GetNodeId();

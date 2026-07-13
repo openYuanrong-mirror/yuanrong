@@ -22,6 +22,7 @@
 #include "src/libruntime/invokeadaptor/limiter_consistant_hash.h"
 #include "src/libruntime/invokeadaptor/request_manager.h"
 #include "src/libruntime/invokeadaptor/request_queue.h"
+#include "src/libruntime/invokeadaptor/scheduler_manager.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/utility/time_measurement.h"
 #include "src/utility/timer_worker.h"
@@ -66,9 +67,12 @@ public:
     virtual void ScaleCancel(const RequestResource &resource, size_t reqNum, bool cleanAll = false) = 0;
     virtual void StartBatchRenewTimer() = 0;
     virtual void UpdateConfig(int recycleTimeMs) = 0;
-    virtual void UpdateSchedulerInfo(const std::string &schedulerFuncKey,
-                                     const std::vector<SchedulerInstance> &schedulerInfoList)
+    virtual void UpdateSchedulerInfo(const SchedulerInfo &schedulerInfo)
     {
+    }
+    uint32_t GetSchedulerBlueRatio()
+    {
+        return this->blueRatio;
     }
     void DecreaseUnfinishReqNum(const std::shared_ptr<InvokeSpec> spec, bool isInstanceNormal = true);
     void Stop();
@@ -148,7 +152,9 @@ protected:
     void EraseResourceInfoMap(const RequestResource &resource, int currentCount = 2);
     mutable absl::Mutex insMtx;
     std::atomic<bool> runFlag{true};
-    std::shared_ptr<LimiterCsHash> csHash;
+    std::shared_ptr<SchedulerManager> schedulerManagerGreen;
+    std::shared_ptr<SchedulerManager> schedulerManagerBlue;
+    uint32_t blueRatio{0};
     int totalCreatedInstanceNum_{0};
     int totalCreatingInstanceNum_{0};
     mutable absl::Mutex createInstanceNumMutex;

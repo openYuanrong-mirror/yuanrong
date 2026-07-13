@@ -24,6 +24,9 @@ using namespace YR::utility;
 
 const static std::string SCHEDULER_FUNC_KEY = "schedulerFuncKey";
 const static std::string SCHEDULER_INSTANCE_LIST = "schedulerInstanceList";
+const static std::string BLUE_SCHEDULER_INSTANCE_LIST = "blueSchedulerInstanceList";
+const static std::string GREEN_SCHEDULER_INSTANCE_LIST = "greenSchedulerInstanceList";
+const static std::string BLUE_RATIO = "blueRatio";
 
 void from_json(const json &j, std::vector<SchedulerInstance> &schedulerInstanceList)
 {
@@ -39,8 +42,13 @@ ErrorInfo ParseSchedulerInfo(const std::string &payload, SchedulerInfo &schedule
 {
     try {
         json j = json::parse(payload);
-        schedulerInfo.schedulerFuncKey = j[SCHEDULER_FUNC_KEY].get<std::string>();
-        schedulerInfo.schedulerInstanceList = j[SCHEDULER_INSTANCE_LIST].get<std::vector<SchedulerInstance>>();
+        schedulerInfo.schedulerFuncKey = j.value(SCHEDULER_FUNC_KEY, "");
+        schedulerInfo.schedulerInstanceList = j.value(SCHEDULER_INSTANCE_LIST, std::vector<SchedulerInstance>{});
+        schedulerInfo.blueSchedulerInstanceList = j.value(BLUE_SCHEDULER_INSTANCE_LIST,
+                                                          std::vector<SchedulerInstance>{});
+        schedulerInfo.greenSchedulerInstanceList = j.value(GREEN_SCHEDULER_INSTANCE_LIST,
+                                                           std::vector<SchedulerInstance>{});
+        schedulerInfo.blueRatio = j.value(BLUE_RATIO, 0);
     } catch (std::exception &e) {
         return ErrorInfo(ErrorCode::ERR_PARAM_INVALID,
                          std::string("parse schedulerInfo info: ") + e.what());

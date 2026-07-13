@@ -186,8 +186,13 @@ func TestRegisterToEtcd(t *testing.T) {
 			selfLocker.LockedKey = ""
 			selfInstanceSpec = nil
 			var lockErr error
+			lockCallCount := 0
 			oldTryLockWithPrefix := tryLockWithPrefix
 			tryLockWithPrefix = func(_ *etcd3.EtcdLocker, prefix string, filter func(k, v []byte) bool) error {
+				lockCallCount++
+				if lockErr == nil && lockCallCount > 2 {
+					selfLocker.LockedKey = "/sn/faas-scheduler/instances/cluster1/node1/aaa"
+				}
 				return lockErr
 			}
 			defer func() {
@@ -224,7 +229,6 @@ func TestRegisterToEtcd(t *testing.T) {
 			lockErr = nil
 			err = RegisterToEtcd(ch)
 			convey.So(err, convey.ShouldNotBeNil)
-			os.Setenv(CurrentVersionEnvKey, "blue")
 			config.GlobalConfig.EnableRollout = true
 			err = RegisterToEtcd(ch)
 			convey.So(err, convey.ShouldBeNil)

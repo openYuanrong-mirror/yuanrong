@@ -31,7 +31,7 @@ import (
 func TestInterfaceLogger(t *testing.T) {
 	t.Setenv("LOG_CONFIG", `{"filepath":"`+t.TempDir()+`","level":"INFO"}`)
 	cfg := InterfaceEncoderConfig{ModuleName: "WorkerManager"}
-	interfaceLog, err := NewInterfaceLogger("", "worker-manager-interface", cfg)
+	interfaceLog, err := NewInterfaceLogger("worker-manager-interface", cfg)
 	assert.Empty(t, err)
 	assert.NotEmpty(t, interfaceLog)
 	interfaceLog.Write("123")

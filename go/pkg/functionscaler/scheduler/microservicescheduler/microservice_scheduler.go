@@ -295,8 +295,3 @@ func (ms *MicroServiceScheduler) selectInstanceWithRR() (*types.Instance, error)
 // HandleFuncOwnerUpdate -
 func (ms *MicroServiceScheduler) HandleFuncOwnerUpdate(isFuncOwner bool) {
 }
-
-// ReassignInstanceWhenGray -
-func (ms *MicroServiceScheduler) ReassignInstanceWhenGray(ratio int) {
-	return
-}

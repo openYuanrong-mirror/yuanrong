@@ -22,7 +22,7 @@ import (
 	"sort"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 )
 
 // InstanceOperType -
@@ -82,7 +82,7 @@ type HashBasedInstanceAllocator struct {
 
 // ShouldReassign -
 func (h *HashBasedInstanceAllocator) ShouldReassign(operType InstanceOperType, instanceKey string) bool {
-	if !selfregister.IsRollingOut {
+	if !rollout.GetGlobalRolloutConfig().IsUpdating() {
 		return false
 	}
 	h.modifyCount(operType, instanceKey)

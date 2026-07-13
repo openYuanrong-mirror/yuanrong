@@ -554,6 +554,9 @@ bool RequestResource::operator==(const RequestResource &r) const
     if (r.opts.debug.enable != opts.debug.enable) {
         return false;
     }
+    if (r.opts.ringName != opts.ringName) {
+        return false;
+    }
     if (r.opts.envVars.size() != opts.envVars.size()) {
         return false;
     }
@@ -575,14 +578,15 @@ bool RequestResource::operator==(const RequestResource &r) const
 
 std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const
 {
-    return std::hash<std::string>{}(i.schedulerFunctionID) ^ std::hash<std::string>{}(i.schedulerInstanceID) ^
-           std::hash<std::string>{}(i.functionId) ^ std::hash<int64_t>{}(i.batchIndex);
+    return std::hash<std::string>{}(i.ringName) ^ std::hash<std::string>{}(i.schedulerFunctionID) ^
+           std::hash<std::string>{}(i.schedulerInstanceID) ^ std::hash<std::string>{}(i.functionId) ^
+           std::hash<int64_t>{}(i.batchIndex);
 }
 
 bool FaasInfoForBatchRenew::operator==(const FaasInfoForBatchRenew &i) const
 {
-    return schedulerInstanceID == i.schedulerInstanceID && schedulerFunctionID == i.schedulerFunctionID &&
-           functionId == i.functionId && batchIndex == i.batchIndex;
+    return ringName == i.ringName && schedulerInstanceID == i.schedulerInstanceID &&
+           schedulerFunctionID == i.schedulerFunctionID && functionId == i.functionId && batchIndex == i.batchIndex;
 }
 
 void RequestResource::Print(void) const
@@ -623,6 +627,7 @@ std::size_t HashFn::operator()(const RequestResource &r) const
         std::size_t h13 = std::hash<std::string>()(envPair.second);
         result = result ^ h12 ^ h13;
     }
+    result = result ^ std::hash<std::string>()(r.opts.ringName);
     result = result ^ std::hash<DebugConfig>()(r.opts.debug);
     result = result ^ std::hash<ResourceGroupOptions>()(r.opts.resourceGroupOpts);
     return result;
