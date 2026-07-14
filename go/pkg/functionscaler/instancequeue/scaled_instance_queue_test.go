@@ -38,7 +38,6 @@ import (
 	commontypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
-	"yuanrong.org/kernel/pkg/functionscaler/requestqueue"
 	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler/concurrencyscheduler"
@@ -51,9 +50,6 @@ type fakeInstanceScheduler struct {
 	index      int
 	acquireErr error
 	releaseErr error
-}
-
-func (f *fakeInstanceScheduler) ReassignInstanceWhenGray(ratio int) {
 }
 
 func (f *fakeInstanceScheduler) AcquireInstance(insAcqReq *types.InstanceAcquireRequest) (
@@ -698,41 +694,6 @@ func TestHandleFuncOwnerChange(t *testing.T) {
 	q.HandleFuncOwnerChange(nil)
 	assert.Equal(t, true, q.isFuncOwner)
 }
-func TestHandleRatioUpdate(t *testing.T) {
-	patches := []*Patches{}
-	expectRatio := 0
-	patches = append(patches, ApplyFunc(
-		(*concurrencyscheduler.ScaledConcurrencyScheduler).ReassignInstanceWhenGray,
-		func(s *concurrencyscheduler.ScaledConcurrencyScheduler, ratio int) {
-			expectRatio = ratio
-		},
-	))
-	defer func() {
-		for _, p := range patches {
-			p.Reset()
-		}
-	}()
-	basicInsQueConfig := &InsQueConfig{
-		InstanceType: types.InstanceTypeScaled,
-		FuncSpec: &types.FunctionSpecification{
-			FuncCtx:           context.TODO(),
-			FuncMetaSignature: "funcSig1",
-		},
-		ResKey: resspeckey.ResSpecKey{},
-	}
-	metricsCollector := &metrics.BucketCollector{}
-	q := NewScaledInstanceQueue(basicInsQueConfig, metricsCollector)
-	InsThdReqQueue := requestqueue.NewInsAcqReqQueue("testFunction", 1000*time.Millisecond)
-	q.instanceScheduler = concurrencyscheduler.NewScaledConcurrencyScheduler(&types.FunctionSpecification{
-		FuncKey:          "testFunction",
-		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 1},
-	}, resspeckey.ResSpecKey{}, InsThdReqQueue)
-	q.instanceScaler = &scaler.AutoScaler{}
-
-	q.HandleRatioUpdate(50)
-	assert.Equal(t, 50, expectRatio)
-}
-
 func TestScaledInstanceQueue_HandleFaaSSchedulerUpdate(t *testing.T) {
 	basicInsQueConfig := &InsQueConfig{
 		InstanceType: types.InstanceTypeScaled,

@@ -615,15 +615,16 @@ void InsManager::UpdateSchdulerInfo(const std::string &schedulerName, const std:
     UpdateSchedulerOption opt = stringToOption(option);
     switch (opt) {
         case UpdateSchedulerOption::ADD:
-            this->csHash->Add(schedulerName, schedulerId);
+            this->schedulerManagerGreen->Add(schedulerName, schedulerId);
             break;
         case UpdateSchedulerOption::REMOVE:
-            this->csHash->Remove(schedulerName);
+            this->schedulerManagerGreen->Remove(schedulerName);
             break;
         case UpdateSchedulerOption::UNKNOWN:
             YRLOG_ERROR("option: {} is not correct, do nothing about scheudler: {}", option, schedulerName);
             break;
     }
+    this->blueRatio = 0;
 }
 }  // namespace Libruntime
 }  // namespace YR

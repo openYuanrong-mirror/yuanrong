@@ -112,13 +112,7 @@ func check(w http.ResponseWriter, r *http.Request) {
 	if discoveryConfig != nil && discoveryConfig.RegisterMode == types.RegisterTypeContend {
 		if !selfregister.Registered {
 			log.GetLogger().Warnf("health check now, scheduler is not registered")
-			if config.GlobalConfig.EnableRollout && selfregister.IsRolloutObject {
-				log.GetLogger().Infof("health check now, scheduler is the rollout object")
-				w.WriteHeader(http.StatusOK)
-			} else {
-				log.GetLogger().Errorf("health check now, scheduler is not rollout object")
-				w.WriteHeader(http.StatusInternalServerError)
-			}
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}

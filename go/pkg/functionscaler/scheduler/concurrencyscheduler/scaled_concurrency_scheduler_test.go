@@ -133,6 +133,7 @@ func TestAcquireInstanceScaled(t *testing.T) {
 		FuncKey:          "testFunction",
 		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
 	}, resspeckey.ResSpecKey{}, InsThdReqQueue)
+	scs.(*ScaledConcurrencyScheduler).isFuncOwner = true
 	index := 0
 	scs.ConnectWithInstanceScaler(&fakeInstanceScaler{
 		scaleUpFunc: func() {
@@ -183,6 +184,7 @@ func TestPopInstanceScaled(t *testing.T) {
 		FuncKey:          "testFunction",
 		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
 	}, resspeckey.ResSpecKey{}, InsThdReqQueue).(*ScaledConcurrencyScheduler)
+	scs.isFuncOwner = true
 	scs.ConnectWithInstanceScaler(&fakeInstanceScaler{})
 	scs.AddInstance(&types.Instance{
 		InstanceID:     "instance1",
@@ -312,7 +314,8 @@ func TestAddInstancePublishScaled(t *testing.T) {
 	rcs := NewScaledConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",
 		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
-	}, resspeckey.ResSpecKey{}, InsThdReqQueue)
+	}, resspeckey.ResSpecKey{}, InsThdReqQueue).(*ScaledConcurrencyScheduler)
+	rcs.isFuncOwner = true
 	rcs.AddInstance(&types.Instance{
 		InstanceID:    "instance1",
 		ConcurrentNum: 2,

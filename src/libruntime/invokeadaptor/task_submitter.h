@@ -64,8 +64,8 @@ public:
                                                                      std::shared_ptr<InvokeSpec> spec);
     virtual ErrorInfo ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
                                       std::shared_ptr<InvokeSpec> spec);
-    virtual void UpdateFaaSSchedulerInfo(std::string schedulerFuncKey,
-                                         const std::vector<SchedulerInstance> &schedulerInstanceList);
+    virtual void UpdateFaaSSchedulerInfo(const SchedulerInfo &schedulerInfo);
+    uint32_t GetSchedulerBlueRatio();
     void RecordFaasInvokeData(const std::shared_ptr<InvokeSpec> spec);
     void CancelFaasScheduleTimeoutReq(const std::string &reqId, int timeoutSeconds);
     void EraseFaasCancelTimer(const std::string &reqId);

@@ -6,7 +6,7 @@ package: `org.yuanrong`.
 
 The Config class is the initialization data structure of openYuanrong, used to store basic information such as IP, port, and URN needed when initializing the openYuanrong system.
 
-The Config instance is the input parameter of the init interface. Except for functionURN, serverAddress, dataSystemAddress and cppFunctionURN (the top four in the table), which are mandatory configurations and supported through the constructor, the rest of the parameters are default and set through setters. For specific interfaces, please refer to the table at the end.
+The Config instance is the input parameter of the init interface. Except for functionURN, serverAddress, dataSystemAddress, cppFunctionURN, and isInCluster (the top five in the table), which are mandatory configurations and supported through the constructor, the rest of the parameters are default and set through setters. For specific interfaces, please refer to the table at the end.
 
 ```java
 
@@ -16,7 +16,7 @@ The Config instance is the input parameter of the init interface. Except for fun
 
 ### Interface description
 
-#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isInCluster)
 
 The constructor of Config.
 
@@ -26,12 +26,13 @@ The constructor of Config.
    - **serverAddress** - Cluster IP (openYuanrong cluster master node).
    - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
    - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **isInCluster** - Inside/Outside the cluster.
 
 #### public Config()
 
 The constructor of Config.
 
-#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isDriver)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, String goFunctionURN, boolean isInCluster)
 
 The constructor of Config.
 
@@ -41,9 +42,37 @@ The constructor of Config.
    - **serverAddress** - Cluster IP (openYuanrong cluster master node).
    - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
    - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **goFunctionURN** - The functionID returned by the deployment go function.
+   - **isInCluster** - Inside/Outside the cluster.
+
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, boolean isInCluster, boolean isDriver)
+
+The constructor of Config.
+
+- Parameters:
+
+   - **functionURN** - The functionURN returned by the deployment function.
+   - **serverAddress** - Cluster IP (openYuanrong cluster master node).
+   - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
+   - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **isInCluster** - Inside/Outside the cluster.
    - **isDriver** - On cloud or off cloud.
 
-#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn)
+#### public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN, String goFunctionURN, boolean isInCluster, boolean isDriver)
+
+The constructor of Config.
+
+- Parameters:
+
+   - **functionURN** - The functionURN returned by the deployment function.
+   - **serverAddress** - Cluster IP (openYuanrong cluster master node).
+   - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
+   - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **goFunctionURN** - The functionID returned by the deployment go function.
+   - **isInCluster** - Inside/Outside the cluster.
+   - **isDriver** - On cloud or off cloud.
+
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isInCluster)
 
 The constructor of Config.
 
@@ -55,8 +84,9 @@ The constructor of Config.
    - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
    - **dataSystemAddressPort** - DataSystem port number.
    - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **isInCluster** - Inside/Outside the cluster.
 
-#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isDriver)
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, String goFunctionUrn, boolean isInCluster)
 
 The constructor of Config.
 
@@ -68,6 +98,22 @@ The constructor of Config.
    - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
    - **dataSystemAddressPort** - DataSystem port number.
    - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **goFunctionURN** - The functionID returned by the deployment go function.
+   - **isInCluster** - Inside/Outside the cluster.
+
+#### public Config(String functionUrn, String serverAddr, int serverAddressPort, String dataSystemAddr, int dataSystemAddressPort, String cppFunctionUrn, boolean isInCluster, boolean isDriver)
+
+The constructor of Config.
+
+- Parameters:
+
+   - **functionURN** - The functionURN returned by the deployment function.
+   - **serverAddr** - Cluster IP (openYuanrong cluster master node).
+   - **serverAddressPort** - Cluster port number.
+   - **dataSystemAddress** - Data system IP (openYuanrong cluster master node).
+   - **dataSystemAddressPort** - DataSystem port number.
+   - **cppFunctionURN** - The functionID returned by the deployment cpp function.
+   - **isInCluster** - Inside/Outside the cluster.
    - **isDriver** - On cloud or off cloud.
 
 ### Private Members

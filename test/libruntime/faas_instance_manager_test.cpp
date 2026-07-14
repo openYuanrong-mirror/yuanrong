@@ -549,9 +549,13 @@ TEST_F(FaasInstanceManagerTest, AcquireCallbackTest)
     auto acquireSpec = std::make_shared<InvokeSpec>();
     auto invokeSpec = std::make_shared<InvokeSpec>();
 
-    insManager->UpdateSchedulerInfo("schedulerkey",
-                                    {SchedulerInstance{.InstanceName = "instanceName1", .InstanceID = "instanceId1"},
-                                     SchedulerInstance{.InstanceName = "instanceName2", .InstanceID = "instanceId2"}});
+    SchedulerInfo schedulerInfo;
+    schedulerInfo.schedulerFuncKey = "schedulerkey";
+    schedulerInfo.schedulerInstanceList = {
+        SchedulerInstance{.InstanceName = "instanceName1", .InstanceID = "instanceId1"},
+        SchedulerInstance{.InstanceName = "instanceName2", .InstanceID = "instanceId2"},
+    };
+    insManager->UpdateSchedulerInfo(schedulerInfo);
 
     ErrorInfo err(YR::Libruntime::ErrorCode::ERR_INSTANCE_EXITED, "err msg");
     ErrorInfo outputErr;
@@ -559,17 +563,80 @@ TEST_F(FaasInstanceManagerTest, AcquireCallbackTest)
         bool isRemainIs) -> void {
         outputErr = err;
     };
+    invokeSpec->functionMeta.functionId = "testFunction";
+    acquireSpec->invokeInstanceId = "testInstance";
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
     std::cout << "size is :" << invokeSpec->schedulerInfos->schedulerInstanceList.size() << std::endl;
     ASSERT_NE(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE);
 
-    acquireSpec->invokeInstanceId = invokeSpec->schedulerInfos->schedulerInstanceList[0]->InstanceID;
+    acquireSpec->invokeInstanceId = "instanceId1";
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
     ASSERT_NE(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE);
 
-    acquireSpec->invokeInstanceId = invokeSpec->schedulerInfos->schedulerInstanceList[1]->InstanceID;
+    acquireSpec->invokeInstanceId = "ownerSchedulerId";
+    invokeSpec->ownerScheduler.schedulerInstanceID = "ownerSchedulerId";
+    invokeSpec->ownerScheduler.currentRetryTimeSpent = invokeSpec->ownerScheduler.maxRetryTimeSpent;
+    insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
+    ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_OWNER_SCHEDULER_RETRY_TIMEOUT);
+
+    acquireSpec->invokeInstanceId = "instanceId2";
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
     ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE);
+}
+
+TEST_F(FaasInstanceManagerTest, AcquireCallbackRetryOwnerTest)
+{
+    constexpr int ERR_NO_INSTANCE_AVAILABLE = 150431;
+    auto acquireSpec = std::make_shared<InvokeSpec>();
+    auto invokeSpec = std::make_shared<InvokeSpec>();
+
+    SchedulerInfo schedulerInfo;
+    schedulerInfo.schedulerFuncKey = "schedulerInfo";
+    schedulerInfo.schedulerInstanceList = {
+        SchedulerInstance{.InstanceName = "instanceName1", .InstanceID = "instanceId1"},
+        SchedulerInstance{.InstanceName = "instanceName2", .InstanceID = "instanceId2"},
+        SchedulerInstance{.InstanceName = "ownerScheduler", .InstanceID = "ownerScheduler"},
+    };
+    insManager->UpdateSchedulerInfo(schedulerInfo);
+
+    ErrorInfo err(YR::Libruntime::ErrorCode::ERR_OK, "");
+    ErrorInfo outputErr;
+    InstanceResponse resp{
+        {},
+        ERR_NO_INSTANCE_AVAILABLE,
+        "ERR",
+        0.0,
+    };
+    insManager->scheduleInsCb = [&outputErr](const RequestResource &resource, const ErrorInfo &err,
+        bool isRemainIs) -> void {
+        outputErr = err;
+    };
+
+    invokeSpec->functionMeta.functionId = "testFunction";
+    acquireSpec->invokeInstanceId = "testInstance";
+    insManager->AcquireCallback(acquireSpec, err, resp, invokeSpec);
+    ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_INNER_COMMUNICATION);
+
+    resp.errorCode = ERR_NON_CORRECT_SCHEDULER_OWNER;
+    resp.errorMessage = "ownerScheduler";
+    acquireSpec->invokeInstanceId = "instanceId1";
+    insManager->AcquireCallback(acquireSpec, err, resp, invokeSpec);
+    ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_NON_CORRECT_SCHEDULER_OWNER);
+    ASSERT_EQ(invokeSpec->ownerScheduler.schedulerInstanceID, "ownerScheduler");
+
+    acquireSpec->invokeInstanceId = "ownerScheduler";
+    resp.errorCode = ERR_NO_INSTANCE_AVAILABLE;
+    resp.errorMessage = "ERR";
+    insManager->AcquireCallback(acquireSpec, err, resp, invokeSpec);
+    ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_INNER_COMMUNICATION);
+    ASSERT_LT(invokeSpec->ownerScheduler.currentRetryTimeSpent, invokeSpec->ownerScheduler.maxRetryTimeSpent);
+
+    acquireSpec->invokeInstanceId = "ownerScheduler";
+    resp.errorCode = ERR_NO_INSTANCE_AVAILABLE;
+    resp.errorMessage = "ERR";
+    invokeSpec->ownerScheduler.currentRetryTimeSpent = invokeSpec->ownerScheduler.maxRetryTimeSpent;
+    insManager->AcquireCallback(acquireSpec, err, resp, invokeSpec);
+    ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_OWNER_SCHEDULER_RETRY_TIMEOUT);
 }
 
 TEST_F(FaasInstanceManagerTest, BuildAcquireRequestWithSessionCtx)

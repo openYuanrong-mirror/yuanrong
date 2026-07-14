@@ -35,5 +35,20 @@ TEST_F(HashUtilTest, CorrectHMACSHA256Test2)
     EXPECT_EQ(worldSha256, "fcfaffa7fef86515c7beb6b62d779fa4ccf092f2e61c164376054271252821ff");
 }
 
+TEST_F(HashUtilTest, HashToPerTest)
+{
+    const int test_count = 100000;
+    int count_over_50 = 0;
+    for (int i = 0; i < test_count; ++i) {
+        std::string test_str = "test_" + std::to_string(i);
+        uint32_t result = hashToPer(test_str);
+        if (result >= 50) {
+            count_over_50++;
+        }
+    }
+    auto result = static_cast<double>(count_over_50) / test_count * 100;
+    EXPECT_TRUE(result < 51 && result > 49);
+}
+
 }  // namespace test
 }  // namespace YR

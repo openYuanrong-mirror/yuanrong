@@ -20,12 +20,15 @@
 #include <sstream>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
+#include <boost/functional/hash.hpp>
 
 namespace YR {
 namespace Libruntime {
 const static unsigned int CHAR_TO_HEX = 2;
 const static std::string HEX_STRING_SET = "0123456789abcdef";
 const int32_t FIRST_FOUR_BIT_MOVE = 4;
+const uint32_t MAX_PER = 99;
+boost::hash<std::string> string_hasher;
 std::string GetHMACSha256(const SensitiveValue &key, const std::string &data)
 {
     HMAC_CTX *ctx = HMAC_CTX_new();
@@ -51,6 +54,17 @@ void SHA256AndHex(const std::string &input, std::stringstream &output)
         output << HEX_STRING_SET[c >> FIRST_FOUR_BIT_MOVE] << HEX_STRING_SET[c & 0xf];
     }
     output << "\n";
+}
+
+uint32_t hashToPer(const std::string &str)
+{
+    auto hash = static_cast<uint32_t>(string_hasher(str));
+    uint64_t product = static_cast<uint64_t>(hash) * 100ULL;
+    auto result = static_cast<uint32_t>(product >> 32);
+    if (result > MAX_PER) {
+        result = MAX_PER;
+    }
+    return result;
 }
 }  // namespace Libruntime
 }  // namespace YR

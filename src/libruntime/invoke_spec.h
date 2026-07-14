@@ -99,6 +99,7 @@ struct InvokeSpec {
     std::shared_ptr<InvokeMessageSpec> requestInvoke;
     uint8_t seq = 0;
     std::string instanceRoute = "";
+    OwnerSchedulerInfo ownerScheduler;
     bool downgradeFlag_{false};
     int64_t createTimestamp = 0;
     int64_t invokeTimestamp = 0;
@@ -197,17 +198,20 @@ struct FaasAllocationInfo {
     int tLeaseInterval;
     std::string schedulerInstanceID;
     std::string schedulerFunctionID;
+    std::string ringName;
     // ReportRecord record; // metrics, faas scheduler弹性依据
 };
 
 struct FaasInfoForBatchRenew {
+    std::string ringName;
     std::string schedulerInstanceID;
     std::string schedulerFunctionID;
     std::string functionId;
     int64_t batchIndex;
     bool operator==(const FaasInfoForBatchRenew &r) const;
     FaasInfoForBatchRenew(const FaasAllocationInfo &faasInfo, int64_t index)
-        : schedulerInstanceID(faasInfo.schedulerInstanceID),
+        : ringName(faasInfo.ringName),
+          schedulerInstanceID(faasInfo.schedulerInstanceID),
           schedulerFunctionID(faasInfo.schedulerFunctionID),
           functionId(faasInfo.functionId),
           batchIndex(index)

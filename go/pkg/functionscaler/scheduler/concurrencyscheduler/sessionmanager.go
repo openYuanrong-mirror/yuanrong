@@ -35,7 +35,7 @@ import (
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/common/uuid"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
 )
@@ -65,7 +65,7 @@ type sessionRecord struct {
 	insElem *instanceElement
 }
 
-func (s *sessionRecord) PutThreadToAvailThdMap(threadID string) error {
+func (s *sessionRecord) MarkThreadAsAvailable(threadID string) error {
 	if _, ok := s.allocThdMap[threadID]; !ok {
 		return fmt.Errorf("thread %s doesn't belong to session %s for function", threadID, s.sessionID)
 	}
@@ -87,6 +87,24 @@ func (s *sessionRecord) GetThreadFromAvailThdMap() string {
 	}
 	delete(s.availThdMap, threadID)
 	return threadID
+}
+
+func (s *sessionRecord) GetOrReplaceDesignateThreadFromAvailThdMap(designateThreadID string) (string, error) {
+	if designateThreadID == "" {
+		return s.GetThreadFromAvailThdMap(), nil
+	}
+	if _, ok := s.availThdMap[designateThreadID]; ok {
+		delete(s.availThdMap, designateThreadID)
+		return designateThreadID, nil
+	}
+	if _, ok := s.allocThdMap[designateThreadID]; ok {
+		return "", fmt.Errorf("designate thread %s has been acquired", designateThreadID)
+	}
+	threadID := s.GetThreadFromAvailThdMap()
+	log.GetLogger().Debugf("threadID %s has been replaced by %s", threadID, designateThreadID)
+	delete(s.allocThdMap, threadID)
+	s.allocThdMap[designateThreadID] = struct{}{}
+	return designateThreadID, nil
 }
 
 type sessionManager struct {
@@ -330,7 +348,7 @@ func (sm *sessionManager) queryInsBySessionFromDS(sessionID, sessionCtxID string
 }
 
 func (sm *sessionManager) isGrayStatus() bool {
-	return selfregister.IsRollingOut
+	return rollout.GetGlobalRolloutConfig().IsUpdating()
 }
 
 func makeSessionCacheKey(funcName, funcKeyWithRes string) string {

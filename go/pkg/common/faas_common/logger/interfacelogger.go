@@ -26,13 +26,14 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"yuanrong.org/kernel/pkg/common/faas_common/logger/async"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/config"
 )
 
 const defaultPerm = 0666
 
 // NewInterfaceLogger returns a new interface logger
-func NewInterfaceLogger(logPath, fileName string, cfg InterfaceEncoderConfig) (*InterfaceLogger, error) {
+func NewInterfaceLogger(fileName string, cfg InterfaceEncoderConfig) (*InterfaceLogger, error) {
 	coreInfo, err := config.GetCoreInfoFromEnv()
 	if err != nil {
 		coreInfo = config.GetDefaultCoreInfo()
@@ -67,7 +68,7 @@ func newCore(coreInfo config.CoreInfo, cfg InterfaceEncoderConfig) (zapcore.Core
 	if err != nil {
 		return nil, err
 	}
-	syncer := zapcore.AddSync(w)
+	syncer := async.NewAsyncWriteSyncer(w)
 
 	encoder := NewInterfaceEncoder(cfg, false)
 

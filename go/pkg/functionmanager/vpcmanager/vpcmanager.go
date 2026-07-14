@@ -193,6 +193,10 @@ func (v *VPCManager) handlePatCREvent(ctx context.Context, event types.VPCEvent)
 		logger.Errorf("convert pat failed, %s", err.Error())
 		return
 	}
+	if patInfo == nil {
+		logger.Errorf("convert pat result is nil")
+		return
+	}
 	if patInfo.Spec.RequireCount == 0 && len(patInfo.Status.PatPods) == 0 {
 		logger.Infof("pat cr is empty, wait to delete")
 		v.waitDeleteQueue.AddAfter(k8stypes.NamespacedName{
@@ -293,6 +297,9 @@ func (v *VPCManager) isPatNeedDel(ctx context.Context, pat k8stypes.NamespacedNa
 	patInfo, err := utils.UnstructuredToPat(unstructedPat)
 	if err != nil {
 		return false, err
+	}
+	if patInfo == nil {
+		return false, nil
 	}
 	if patInfo.Spec.RequireCount != 0 || len(patInfo.Status.PatPods) != 0 {
 		return false, nil

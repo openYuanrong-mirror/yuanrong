@@ -299,6 +299,14 @@ func (si *ScaledInstanceQueue) HandleFaaSSchedulerUpdate() {
 	})
 }
 
+// HandleGrayRatioUpdate -
+func (si *ScaledInstanceQueue) HandleGrayRatioUpdate() {
+	log.GetLogger().Infof("begin update gray ratio to %s's instance", si.funcKey)
+	si.instanceScheduler.SignalAllInstances(func(instance *types.Instance) {
+		si.signalInstanceFunc(instance, constant.KillSignalFaaSSchedulerUpdate)
+	})
+}
+
 // GetInstanceNumber will get current instance number
 func (si *ScaledInstanceQueue) GetInstanceNumber(onlySelf bool) int {
 	return si.instanceScheduler.GetInstanceNumber(onlySelf)
@@ -604,15 +612,5 @@ func (si *ScaledInstanceQueue) HandleFuncOwnerChange(fn utils.RecoverSessionCall
 	// after owner change, need recover session info from datasystem
 	if isFuncOwner {
 		si.HandleInstanceSync(fn)
-	}
-}
-
-// HandleRatioUpdate -
-func (si *ScaledInstanceQueue) HandleRatioUpdate(ratio int) {
-	si.Cond.L.Lock()
-	isFuncOwner := si.isFuncOwner
-	si.Cond.L.Unlock()
-	if isFuncOwner {
-		si.instanceScheduler.ReassignInstanceWhenGray(ratio)
 	}
 }

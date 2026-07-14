@@ -147,6 +147,15 @@ py_test(
   env = SAN_ENV,
 )
 py_test(
+  name = "test_lazy_exports",
+  size = "small",
+  srcs = ["test_lazy_exports.py"],
+  tags = ["smoke"],
+  imports = ["../../"],
+  deps = ["//api/python:yr_lib"],
+  env = SAN_ENV,
+)
+py_test(
     name="test_fcc",
     size="small",
     srcs=["test_fcc.py"],

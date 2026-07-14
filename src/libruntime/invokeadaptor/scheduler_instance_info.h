@@ -33,6 +33,9 @@ struct SchedulerInstance {
 struct SchedulerInfo {
     std::string schedulerFuncKey;
     std::vector<SchedulerInstance> schedulerInstanceList;
+    std::vector<SchedulerInstance> blueSchedulerInstanceList;
+    std::vector<SchedulerInstance> greenSchedulerInstanceList;
+    uint32_t blueRatio = 0;
 };
 
 struct AvailableSchedulerInfos {

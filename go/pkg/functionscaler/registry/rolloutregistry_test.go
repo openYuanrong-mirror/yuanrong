@@ -21,51 +21,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/rollout"
-	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 )
 
 func TestWatcherFilter(t *testing.T) {
 	config.GlobalConfig.ClusterID = "cluster1"
 	registry := RolloutRegistry{}
 	event := &etcd3.Event{
-		Key: "/sn/faas-scheduler/rolloutConfig/cluster1",
+		Key: "/sn/faas-scheduler/gray/cluster1",
 	}
 	ignore := registry.watcherFilterForConfig(event)
 	assert.False(t, ignore)
 	event = &etcd3.Event{
-		Key: "/sn/faas-scheduler/rolloutConfig",
+		Key: "/sn/faas-scheduler/gray",
 	}
 	ignore = registry.watcherFilterForConfig(event)
 	assert.True(t, ignore)
 	event = &etcd3.Event{
-		Key: "/sn/faas-scheduler/rolloutConfig/cluster2",
+		Key: "/sn/faas-scheduler/gray/cluster2",
 	}
 	ignore = registry.watcherFilterForConfig(event)
 	assert.True(t, ignore)
-	selfregister.SelfInstanceID = "instance1"
-	event = &etcd3.Event{
-		Key: "/sn/faas-scheduler/rollout/cluster1/node1",
-	}
-	ignore = registry.watcherFilterForRollout(event)
-	assert.True(t, ignore)
-	event = &etcd3.Event{
-		Key: "/sn/faas-scheduler/rollout/cluster1/node1/instance2",
-	}
-	ignore = registry.watcherFilterForRollout(event)
-	assert.True(t, ignore)
-	event = &etcd3.Event{
-		Key: "/sn/faas-scheduler/rollout/cluster1/node1/instance1",
-	}
-	ignore = registry.watcherFilterForRollout(event)
-	assert.False(t, ignore)
-	selfregister.SelfInstanceID = ""
 }
 
 func TestInitWatch(t *testing.T) {
@@ -95,19 +76,17 @@ func TestInitWatch(t *testing.T) {
 	}
 	convey.Convey("test init watch", t, func() {
 		rr.initWatcher(&etcd3.EtcdClient{})
-		convey.So(listCalled, convey.ShouldEqual, 2)
+		convey.So(listCalled, convey.ShouldEqual, 1)
 		rr.RunWatcher()
 		time.Sleep(100 * time.Millisecond)
-		convey.So(watchCalled, convey.ShouldEqual, 2)
+		convey.So(watchCalled, convey.ShouldEqual, 1)
 	})
 }
 
 func TestWatchHandlerForConfig(t *testing.T) {
 	config.GlobalConfig.EnableRollout = true
-	selfregister.IsRolloutObject = true
 	defer func() {
 		config.GlobalConfig.EnableRollout = false
-		selfregister.IsRolloutObject = false
 	}()
 	stopCh := make(chan struct{})
 	rr := NewRolloutRegistry(stopCh)
@@ -116,52 +95,28 @@ func TestWatchHandlerForConfig(t *testing.T) {
 	}
 	subChan := make(chan SubEvent, 1)
 	rr.addSubscriberChan(subChan)
-	processCalled := 0
-	defer gomonkey.ApplyFunc((*rollout.RFHandler).ProcessAllocRecordSync, func(_ *rollout.RFHandler, selfInsID,
-		targetInsID string) {
-		processCalled++
-	}).Reset()
+	originalRatio := rollout.GetGlobalRolloutConfig().GetCurrentRatio()
+	originalUpdating := rollout.GetGlobalRolloutConfig().IsUpdating()
+	defer func() {
+		rollout.GetGlobalRolloutConfig().CurrentRatio = originalRatio
+		rollout.GetGlobalRolloutConfig().SetUpdating(originalUpdating)
+	}()
 	convey.Convey("test watch process", t, func() {
 		event.Type = etcd3.PUT
-		event.Key = "/sn/faas-scheduler/rolloutConfig/cluster1"
+		event.Key = "/sn/faas-scheduler/gray/cluster1"
 		rr.watcherHandlerForConfig(event)
 		convey.So(len(subChan), convey.ShouldEqual, 0)
-		event.Value = []byte(`{"rolloutRatio":"100%"}`)
+		event.Value = []byte(`{"blue-ratio":"100%"}`)
 		rr.watcherHandlerForConfig(event)
 		convey.So(len(subChan), convey.ShouldEqual, 1)
 		e := <-subChan
 		ratio := e.EventMsg.(int)
 		convey.So(ratio, convey.ShouldEqual, 100)
-		convey.So(processCalled, convey.ShouldEqual, 1)
 		event.Type = etcd3.DELETE
 		rr.watcherHandlerForConfig(event)
 		convey.So(len(subChan), convey.ShouldEqual, 1)
 		e = <-subChan
 		ratio = e.EventMsg.(int)
 		convey.So(ratio, convey.ShouldEqual, 0)
-	})
-}
-
-func TestWatchHandlerForRollout(t *testing.T) {
-	config.GlobalConfig.EnableRollout = true
-	defer func() {
-		config.GlobalConfig.EnableRollout = false
-	}()
-	stopCh := make(chan struct{})
-	rr := NewRolloutRegistry(stopCh)
-	event := &etcd3.Event{
-		Rev: 1,
-	}
-	convey.Convey("test watch process", t, func() {
-		event.Type = etcd3.PUT
-		event.Key = "/sn/faas-scheduler/rollout/cluster1/node1/instance1"
-		rr.watcherHandlerForRollout(event)
-		convey.So(len(rollout.GetGlobalRolloutHandler().ForwardInstance), convey.ShouldEqual, 0)
-		event.Value = []byte(`{"instanceID":"aaa"}`)
-		rr.watcherHandlerForRollout(event)
-		convey.So(rollout.GetGlobalRolloutHandler().ForwardInstance, convey.ShouldEqual, "aaa")
-		event.Type = etcd3.DELETE
-		rr.watcherHandlerForRollout(event)
-		convey.So(len(rollout.GetGlobalRolloutHandler().ForwardInstance), convey.ShouldEqual, 0)
 	})
 }

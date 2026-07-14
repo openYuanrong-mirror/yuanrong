@@ -25,6 +25,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"hash/fnv"
 	"io"
 	"io/ioutil"
@@ -71,6 +72,7 @@ const (
 	dnsPairLength     = 2
 	hostFilePath      = "/etc/hosts"
 	defaultMessageLen = 256
+	percentDivisor    = 101
 )
 
 const (
@@ -677,4 +679,8 @@ func SafeCloseChannel(stopCh chan struct{}) {
 	default:
 		close(stopCh)
 	}
+}
+
+func ConvertHashToPercent(str string) uint32 {
+	return crc32.ChecksumIEEE([]byte(str)) % percentDivisor
 }

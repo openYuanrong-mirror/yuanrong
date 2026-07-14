@@ -789,8 +789,8 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
                 "function will failed",
                 schedulerDataStr, err.Msg());
         } else {
-            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
-                                                         schedulerInfo.schedulerInstanceList);
+            YRLOG_DEBUG("parse schedule info {}, ratio {}", schedulerDataStr, schedulerInfo.blueRatio);
+            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo);
         }
     }
 
@@ -1020,8 +1020,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 resp.set_message(err.Msg());
                 break;
             }
-            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
-                                                         schedulerInfo.schedulerInstanceList);
+            YRLOG_INFO("parse schedule info {}, ratio {}", req.payload(), schedulerInfo.blueRatio);
+            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo);
             break;
         }
         case libruntime::Signal::GetInstance: {

@@ -36,6 +36,7 @@ import (
 func TestMain(m *testing.M) {
 	patches := []*gomonkey.Patches{
 		gomonkey.ApplyFunc((*etcd3.EtcdWatcher).StartList, func(_ *etcd3.EtcdWatcher) {}),
+		gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }),
 		gomonkey.ApplyFunc(etcd3.GetRouterEtcdClient, func() *etcd3.EtcdClient { return &etcd3.EtcdClient{} }),
 		gomonkey.ApplyFunc(etcd3.GetMetaEtcdClient, func() *etcd3.EtcdClient { return &etcd3.EtcdClient{} }),
 		gomonkey.ApplyFunc(etcd3.GetCAEMetaEtcdClient, func() *etcd3.EtcdClient { return &etcd3.EtcdClient{} }),
@@ -55,7 +56,7 @@ func TestMain(m *testing.M) {
 		FunctionName: "faasscheduler",
 		Version:      "lastest",
 		InstanceName: "schedulerID-1",
-	}, "")
+	}, "", "", true)
 	m.Run()
 }
 

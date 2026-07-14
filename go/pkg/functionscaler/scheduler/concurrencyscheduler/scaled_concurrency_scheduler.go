@@ -24,6 +24,7 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/queue"
 	"yuanrong.org/kernel/pkg/common/faas_common/resspeckey"
 	"yuanrong.org/kernel/pkg/functionscaler/requestqueue"
+	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
@@ -274,7 +275,7 @@ func (scs *ScaledConcurrencyScheduler) AcquireInstance(insAcqReq *types.Instance
 	if acquireErr != nil && acquireErr != scheduler.ErrNoInsAvailable {
 		return nil, acquireErr
 	}
-	if acquireErr == scheduler.ErrNoInsAvailable && !insAcqReq.SkipWaitPending && scs.shouldTriggerColdStart() {
+	if acquireErr == scheduler.ErrNoInsAvailable && !insAcqReq.SkipWaitPending {
 		// if this scheduler is not the funcOwner, only scale in the case of traffic limit of the original funcOwner
 		if !scs.IsFuncOwner() && !insAcqReq.TrafficLimited {
 			return nil, acquireErr
@@ -389,11 +390,18 @@ func (scs *ScaledConcurrencyScheduler) Destroy() {
 func priorityFuncForScaledInstance(concurrency int) func(obj interface{}) (int, error) {
 	return func(obj interface{}) (int, error) {
 		insElem, ok := obj.(*instanceElement)
-		if ok {
-			weight := concurrency - len(insElem.threadMap) + getInstancePriorityBonus(insElem)
+		if !ok {
+			return -1, scheduler.ErrTypeConvertFail
+		}
+		if rollout.GetGlobalRolloutConfig().IsUpdating() {
+			weight := concurrency - len(insElem.threadMap)
+			if !insElem.isNewInstance {
+				weight = -concurrency - weight
+			}
 			return weight, nil
 		}
-		return -1, scheduler.ErrTypeConvertFail
+		weight := concurrency - len(insElem.threadMap) + getInstancePriorityBonus(insElem)
+		return weight, nil
 	}
 }
 

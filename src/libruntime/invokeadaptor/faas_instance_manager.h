@@ -16,6 +16,7 @@
 
 #pragma once
 #include "src/libruntime/invokeadaptor/instance_manager.h"
+#include "src/libruntime/utils/hash_utils.h"
 
 namespace YR {
 namespace Libruntime {
@@ -29,16 +30,15 @@ public:
                    std::shared_ptr<RequestManager> reqMgr, std::shared_ptr<LibruntimeConfig> config)
         : InsManager(cb, client, store, reqMgr, config)
     {
-        std::shared_ptr<LoadBalancer> lb(LoadBalancer::Factory(LoadBalancerType::ConsistantRoundRobin));
-        this->csHash = std::make_shared<LimiterCsHash>(lb);
+        this->schedulerManagerBlue = std::make_shared<SchedulerManager>();
+        this->schedulerManagerGreen = std::make_shared<SchedulerManager>();
     }
     bool ScaleUp(std::shared_ptr<InvokeSpec> spec, size_t reqNum) override;
     void ScaleDown(const std::shared_ptr<InvokeSpec> spec, bool isInstanceNormal = false) override;
     void ScaleCancel(const RequestResource &resource, size_t reqNum, bool cleanAll = false) override;
     void StartBatchRenewTimer() override;
     virtual void UpdateConfig(int recycleTimeMs) override;
-    void UpdateSchedulerInfo(const std::string &schedulerFuncKey,
-                             const std::vector<SchedulerInstance> &schedulerInstanceList) override;
+    void UpdateSchedulerInfo(const SchedulerInfo &schedulerInfo) override;
     void RecordRequest(const RequestResource &resource, const std::shared_ptr<InvokeSpec> spec, bool isInstanceNormal);
     void DelRelatedLease(const std::string &insId, const RequestResource &resource);
     std::pair<InstanceAllocation, ErrorInfo> AcquireInstance(const std::string &stateId,
@@ -46,8 +46,8 @@ public:
     void ProcessInstanceInfo(std::shared_ptr<InvokeSpec> spec, const InstanceAllocation &inst);
     ErrorInfo ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
                               std::shared_ptr<InvokeSpec> spec);
-    void ProcessBatchRenewResult(const NotifyRequest &notifyReq, const std::string &functionId, const ErrorInfo &err,
-                                 std::vector<std::string> leaseIds);
+    void ProcessBatchRenewResult(const NotifyRequest &notifyReq, const FaasInfoForBatchRenew &faasInfo,
+                                 const ErrorInfo &err, std::vector<std::string> leaseIds);
     // add instance info without locking; the caller must ensure locking.
     void AddInsInfoBare(std::shared_ptr<RequestResourceInfo> info, std::shared_ptr<InstanceInfo> &faasInsInfo);
     void UpdateSpecSchedulerIds(std::shared_ptr<InvokeSpec> spec, const std::string &schedulerId);
@@ -61,6 +61,8 @@ private:
     void SendAcquireReq(const std::shared_ptr<InvokeSpec> spec, size_t delayTime);
     std::shared_ptr<InvokeSpec> BuildAcquireRequest(std::shared_ptr<InvokeSpec> invokeSpec,
                                                     const std::string &stateId = "");
+    std::string GetNextSchedulerWithRing(const std::string &functionId, std::string ringName,
+                                         const std::shared_ptr<AvailableSchedulerInfos> &schedulerInfos = nullptr);
     InvokeRequest BuildReleaseReq(const std::shared_ptr<InstanceInfo> &ins);
     bool AcquireFaasIns(const std::shared_ptr<InvokeSpec> spec, size_t reqNum);
     void HandleFaasInsInfo(std::shared_ptr<InstanceInfo> &faasInsInfo, const RequestResource &resource);
@@ -75,7 +77,17 @@ private:
     ErrorInfo SendReleaseInstanceReq(const std::shared_ptr<InstanceInfo> &ins, std::shared_ptr<InvokeSpec> spec);
     std::string GetSchedulerKey();
     std::string GetFunctionIdWithLabel(const RequestResource &resource);
-    void ChangeInstanceSchedulerId(const std::string &functionId, std::vector<std::string> &leaseIds);
+    void ChangeInstanceSchedulerId(const FaasInfoForBatchRenew &faasInfo, std::vector<std::string> &leaseIds);
+    void CollectBatchRenewFailedLeases(const NotifyRequest &notifyReq, const FaasInfoForBatchRenew &faasInfo,
+                                       const BatchInstanceResponse &instanceResp,
+                                       std::vector<std::string> &reacquireLeaseIds,
+                                       std::vector<std::string> &decreaseLeaseIds);
+    void UpdateBatchRenewLeaseState(const std::vector<std::string> &reacquireLeaseIds,
+                                    const std::vector<std::string> &decreaseLeaseIds, bool updateLeaseInterval,
+                                    int64_t tLeaseInterval);
+    bool NeedRetryOwnerScheduler(std::shared_ptr<InvokeSpec> invokeSpec, const std::string &schedulerId);
+    void ProcessNonOwnerBatchRenew(const FaasInfoForBatchRenew &faasInfo, const std::string &ownSchedulerId,
+                                   const std::string &leaseId);
     mutable absl::Mutex schedulerFuncKeyMtx;
     std::string schedulerFuncKey;
 };

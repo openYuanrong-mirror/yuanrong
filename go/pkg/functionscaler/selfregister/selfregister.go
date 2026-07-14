@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
@@ -31,7 +32,6 @@ import (
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	commonUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/rollout"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
@@ -65,8 +65,6 @@ func RegisterToEtcd(stopCh <-chan struct{}) error {
 	log.GetLogger().Infof("start to register to etcd, discoveryConfig %+v", discoveryConfig)
 	if discoveryConfig != nil && discoveryConfig.RegisterMode == types.RegisterTypeContend {
 		log.GetLogger().Infof("start to contend for instance name in etcd")
-		selfCurVer := os.Getenv(CurrentVersionEnvKey)
-		etcdCurVer := rollout.GetGlobalRolloutHandler().CurrentVersion
 		selfLocker = &etcd3.EtcdLocker{
 			EtcdClient:     etcd3.GetRouterEtcdClient(),
 			LeaseTTL:       defaultLeaseTTL,
@@ -74,12 +72,6 @@ func RegisterToEtcd(stopCh <-chan struct{}) error {
 			LockCallback:   putInsSpecForInstanceKey,
 			UnlockCallback: delInsSpecForInstanceKey,
 			FailCallback:   unsetInstanceRegister,
-		}
-		if config.GlobalConfig.EnableRollout && selfCurVer != etcdCurVer {
-			log.GetLogger().Infof("rollout is enable, this scheduler's version %s doesn't equal to current "+
-				"version %s, contend for rollout instead",
-				selfCurVer, etcdCurVer)
-			return ContendRolloutInEtcd(stopCh)
 		}
 		if err := contendInstanceInEtcd(stopCh); err != nil {
 			return err
@@ -103,20 +95,23 @@ func RegisterToEtcd(stopCh <-chan struct{}) error {
 		}
 	}
 	log.GetLogger().Infof("succeed to register to etcd")
-	if err := RegisterRolloutToEtcd(stopCh); err != nil {
-		log.GetLogger().Errorf("failed to register to etcd for rollout, register failed error %s", err.Error())
-		return err
-	}
 	return nil
 }
 
 func contendInstanceInEtcd(stopCh <-chan struct{}) error {
 	log.GetLogger().Infof("start to contend for instance key in etcd")
 	var err error
+	var watchPrefix string
+	if strings.EqualFold(os.Getenv(constant.FaaSSchedulerTokenTypeEnvKey), constant.BlueTokenType) {
+		watchPrefix = constant.SchedulerBlueHashPrefix
+	} else {
+		watchPrefix = constant.SchedulerHashPrefix
+	}
 	for i := 0; i < maxContendTime; i++ {
-		err = tryLockWithPrefix(selfLocker, constant.SchedulerHashPrefix, contendFilterForInstance)
+		err = tryLockWithPrefix(selfLocker, watchPrefix, contendFilterForInstance)
 		if err != nil {
-			log.GetLogger().Errorf("failed to contend for rollout key, lock failed error %s", err.Error())
+			log.GetLogger().Errorf("failed to contend instance for register key, "+
+				"watch prefix %s lock failed error %s", watchPrefix, err.Error())
 			time.Sleep(contendWaitInterval)
 			continue
 		}

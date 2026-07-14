@@ -35,15 +35,15 @@ func Test_schedulerProxy_DealFilter(t *testing.T) {
 
 			proxy.Add(&types.InstanceInfo{
 				InstanceName: "aa2794fb-dc9e-420d-ae54-bedfa3577930",
-			}, "")
+			}, "", "", true)
 
 			proxy.Add(&types.InstanceInfo{
 				InstanceName: "7d3f736e-b2b0-4b7e-bc8d-3a390ec0ed31",
-			}, "")
+			}, "", "", true)
 
 			proxy.Add(&types.InstanceInfo{
 				InstanceName: "d06832bc-8c02-4589-9c37-edae4109302d",
-			}, "")
+			}, "", "", true)
 
 			SelfInstanceID = "aa2794fb-dc9e-420d-ae54-bedfa3577930"
 
@@ -51,17 +51,13 @@ func Test_schedulerProxy_DealFilter(t *testing.T) {
 
 			convey.So(flag, convey.ShouldBeFalse)
 
-			proxy.Remove(&types.InstanceInfo{
-				InstanceName: "d06832bc-8c02-4589-9c37-edae4109302d",
-			})
+			proxy.Remove("d06832bc-8c02-4589-9c37-edae4109302d", "", true)
 
 			flag = proxy.IsFuncOwner("244177614494719500/0@default@testcustom001/latest")
 
 			convey.So(flag, convey.ShouldBeFalse)
 
-			proxy.Remove(&types.InstanceInfo{
-				InstanceName: "7d3f736e-b2b0-4b7e-bc8d-3a390ec0ed31",
-			})
+			proxy.Remove("7d3f736e-b2b0-4b7e-bc8d-3a390ec0ed31", "", true)
 
 			flag = proxy.IsFuncOwner("244177614494719500/0@default@testcustom001/latest")
 
@@ -69,7 +65,7 @@ func Test_schedulerProxy_DealFilter(t *testing.T) {
 
 			proxy.Add(&types.InstanceInfo{
 				InstanceName: "d06832bc-8c02-4589-9c37-edae4109302d",
-			}, "")
+			}, "", "", true)
 
 			flag = proxy.IsFuncOwner("244177614494719500/0@default@testcustom001/latest")
 
@@ -77,7 +73,7 @@ func Test_schedulerProxy_DealFilter(t *testing.T) {
 
 			proxy.Add(&types.InstanceInfo{
 				InstanceName: "7d3f736e-b2b0-4b7e-bc8d-3a390ec0ed31",
-			}, "")
+			}, "", "", true)
 
 			proxy.Reset()
 
@@ -96,7 +92,7 @@ func TestDealFilter(t *testing.T) {
 	})
 	proxy.Add(&types.InstanceInfo{
 		InstanceName: "scheduler-001",
-	}, "")
+	}, "", "", true)
 	convey.Convey("start failed", t, func() {
 		res := proxy.IsFuncOwner("mock-funcKey")
 		convey.So(res, convey.ShouldBeFalse)

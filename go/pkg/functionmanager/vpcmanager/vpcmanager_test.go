@@ -281,10 +281,9 @@ func TestHandlePatCREvent(t *testing.T) {
 			convertCnt++
 			return nil, nil
 		}).Reset()
-		fakeClient.Invokes(testing2.NewDeleteAction(patGVR, "default", "pat-simple"), emptyResult)
 		vpcManager.EventCh <- vpcEvent
 		time.Sleep(5 * time.Millisecond)
-		convey.So(convertCnt, convey.ShouldEqual, 0)
+		convey.So(convertCnt, convey.ShouldEqual, 1)
 	})
 	close(stopCh)
 }

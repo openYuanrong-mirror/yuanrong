@@ -342,9 +342,9 @@ TEST_F(InvokeAdaptorTest, CallTest)
 
     std::vector<SchedulerInstance> schedulerInstanceList;
     this->taskSubmitter = std::make_shared<MockTaskSubmitter>();
-    EXPECT_CALL(*(this->taskSubmitter), UpdateFaaSSchedulerInfo(_, _))
-        .WillOnce([=](std::string schedulerFuncKey, const std::vector<SchedulerInstance> &sInstanceList) {
-       ASSERT_EQ(sInstanceList.size(), 2);
+    EXPECT_CALL(*(this->taskSubmitter), UpdateFaaSSchedulerInfo(_))
+        .WillOnce([=](const SchedulerInfo &schedulerInfo) {
+       ASSERT_EQ(schedulerInfo.schedulerInstanceList.size(), 2);
         return;
         });
     invokeAdaptor->taskSubmitter = this->taskSubmitter;
