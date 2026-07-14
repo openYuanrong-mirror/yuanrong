@@ -17,6 +17,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <boost/beast/http.hpp>
+#include <cstdlib>
 #include "mock/mock_datasystem.h"
 #include "mock/mock_fs_intf.h"
 #include "mock/mock_invoke_adaptor.h"
@@ -712,9 +713,94 @@ TEST_F(LibruntimeTest, InitAppliesInClusterTenantIdWithoutDatasystemAuth)
     runtime->Finalize(true);
 }
 
+TEST_F(LibruntimeTest, InitAppliesTenantIdFromEnvironmentWhenRuntimeConfigIsEmpty)
+{
+    struct TenantEnvGuard {
+        bool hadTenant;
+        std::string oldTenantValue;
+
+        TenantEnvGuard()
+        {
+            const char *oldTenant = std::getenv("YR_TENANT_ID");
+            hadTenant = oldTenant != nullptr;
+            oldTenantValue = oldTenant == nullptr ? "" : oldTenant;
+            setenv("YR_TENANT_ID", "default", 1);
+            Config::Reset();
+        }
+
+        ~TenantEnvGuard()
+        {
+            if (hadTenant) {
+                setenv("YR_TENANT_ID", oldTenantValue.c_str(), 1);
+            } else {
+                unsetenv("YR_TENANT_ID");
+            }
+            Config::Reset();
+        }
+    } tenantEnvGuard;
+
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->jobId = YR::utility::IDGenerator::GenApplicationId();
+    config->tenantId = "";
+    config->inCluster = true;
+    config->enableAuth = false;
+    auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, clientsMgr, YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+    auto gateway = std::make_shared<MockGwClient>();
+    auto objectStore = std::make_shared<MockObjectStore>();
+    auto stateStore = std::make_shared<MockStateStore>();
+    DatasystemClients clients{objectStore, stateStore, streamStore_, heteroStore_};
+
+    EXPECT_CALL(*objectStore, SetTenantId("default")).Times(1);
+    EXPECT_CALL(*stateStore, SetTenantId("default")).Times(1);
+    ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
+    ASSERT_EQ(runtime->GetTenantId(), "default");
+
+    EXPECT_CALL(*gateway, KillAsync(_, _, _))
+        .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+            if (cb != nullptr) {
+                YR::Libruntime::KillResponse resp;
+                cb(resp, ErrorInfo());
+            }
+        });
+    runtime->Finalize(true);
+}
+
 TEST_F(LibruntimeTest, GetTenantIdTest)
 {
-    ASSERT_EQ(lr->GetTenantId(), "tenantId");
+    struct TenantEnvUnsetGuard {
+        bool hadTenant;
+        std::string oldTenantValue;
+
+        TenantEnvUnsetGuard()
+        {
+            const char *oldTenant = std::getenv("YR_TENANT_ID");
+            hadTenant = oldTenant != nullptr;
+            oldTenantValue = oldTenant == nullptr ? "" : oldTenant;
+            unsetenv("YR_TENANT_ID");
+            Config::Reset();
+        }
+
+        ~TenantEnvUnsetGuard()
+        {
+            if (hadTenant) {
+                setenv("YR_TENANT_ID", oldTenantValue.c_str(), 1);
+            } else {
+                unsetenv("YR_TENANT_ID");
+            }
+            Config::Reset();
+        }
+    } tenantEnvUnsetGuard;
+
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->tenantId = "tenantId";
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, std::make_shared<YR::Libruntime::ClientsManager>(), YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+
+    ASSERT_EQ(runtime->GetTenantId(), "tenantId");
 }
 
 TEST_F(LibruntimeTest, TestInvokeByInstanceIdSuccessfully)

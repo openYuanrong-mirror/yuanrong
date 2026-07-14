@@ -1909,12 +1909,23 @@ void Libruntime::SetTenantIdWithPriority()
 
 std::string Libruntime::GetTenantId()
 {
-    // get tenantId with priority: config tenant id > seturn tenant id > init tenant id
-    auto tenantId = !this->config->tenantId.empty()
-                        ? this->config->tenantId
-                        : this->config->functionIds[this->config->selfLanguage].substr(
-                              0, this->config->functionIds[this->config->selfLanguage].find_first_of('/'));
-    return tenantId;
+    // get tenantId with priority: env tenant id > config tenant id > function id tenant id
+    auto tenantId = Config::Instance().YR_TENANT_ID();
+    if (!tenantId.empty()) {
+        return tenantId;
+    }
+    if (!this->config->tenantId.empty()) {
+        return this->config->tenantId;
+    }
+    auto it = this->config->functionIds.find(this->config->selfLanguage);
+    if (it == this->config->functionIds.end()) {
+        return "";
+    }
+    auto tenantEnd = it->second.find_first_of('/');
+    if (tenantEnd == std::string::npos) {
+        return "";
+    }
+    return it->second.substr(0, tenantEnd);
 }
 
 ErrorInfo Libruntime::GenerateKeyByStateStore(std::shared_ptr<StateStore> stateStore, std::string &returnKey)
