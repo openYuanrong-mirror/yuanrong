@@ -251,3 +251,52 @@ func TestSetAlarmEnv(t *testing.T) {
 		})
 	})
 }
+
+func TestLoadFunctionConfigNormalizeLite(t *testing.T) {
+	// Minimal required fields so govalidator.ValidateStruct passes and
+	// loadFunctionConfig reaches the normalizeLiteScheduler call. Mirrors the
+	// cfg shape used by TestInitConfig (sans StsSDK/DockerRootPath which are
+	// optional and default-skipped here).
+	baseRequired := func() types.Configuration {
+		return types.Configuration{
+			CPU:    999,
+			Memory: 999,
+			AutoScaleConfig: types.AutoScaleConfig{
+				SLAQuota:      1,
+				ScaleDownTime: 1,
+				BurstScaleNum: 1,
+			},
+			LeaseSpan: 1,
+			RouterETCDConfig: etcd3.EtcdConfig{
+				Password: "321",
+			},
+			MetaETCDConfig: etcd3.EtcdConfig{
+				Password: "123",
+			},
+			SchedulerNum: 1,
+		}
+	}
+	convey.Convey("normalizeLiteScheduler fills defaults", t, func() {
+		cfg := baseRequired()
+		cfg.LiteScheduler = types.LiteSchedulerConfig{}
+		err := loadFunctionConfig(&cfg)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(cfg.LiteScheduler.AcquireWaitTimeoutMs, convey.ShouldEqual, defaultAcquireWaitTimeoutMs)
+		convey.So(cfg.LiteScheduler.EnabledTenants, convey.ShouldResemble, []string{})
+		convey.So(cfg.LiteScheduler.EnabledFunctions, convey.ShouldResemble, []string{})
+	})
+	convey.Convey("normalizeLiteScheduler preserves set values", t, func() {
+		cfg := baseRequired()
+		cfg.LiteScheduler = types.LiteSchedulerConfig{
+			Enable:               true,
+			AcquireWaitTimeoutMs: 800,
+			EnabledTenants:       []string{"tenant1"},
+			EnabledFunctions:     []string{"tenant1/funcA"},
+		}
+		err := loadFunctionConfig(&cfg)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(cfg.LiteScheduler.AcquireWaitTimeoutMs, convey.ShouldEqual, 800)
+		convey.So(cfg.LiteScheduler.EnabledTenants, convey.ShouldResemble, []string{"tenant1"})
+		convey.So(cfg.LiteScheduler.EnabledFunctions, convey.ShouldResemble, []string{"tenant1/funcA"})
+	})
+}

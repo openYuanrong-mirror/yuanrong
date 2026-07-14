@@ -102,6 +102,13 @@ port = "{{ 58866|check_port() }}"
 [values.function_scheduler]
 lease_port = "{{ 8889|check_port() }}"
 
+[values.lite_scheduler]
+enable = false
+enable_all_tenants = false
+enabled_tenants = []
+enabled_functions = []
+acquire_wait_timeout_ms = 3000
+
 [values.dashboard]
 ip = "{{ values.host_ip }}"
 port = "{{ 9080|check_port() }}"

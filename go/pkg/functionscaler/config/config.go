@@ -43,9 +43,10 @@ const (
 	defaultDockerRootPath           = "/var/lib/docker"
 	defaultFaasschedulerSTScertPath = "/opt/certs/HMSClientCloudAccelerateService/" +
 		"HMSCaaSYuanRongWorkerManager/HMSCaaSYuanRongWorkerManager.ini"
-	defaultPredictGroupWindow      = 15 * 60 * 1000
-	defaultDataSystemTimeoutMs     = 60000
-	defaultUploadDataSystemTimeout = 10
+	defaultPredictGroupWindow       = 15 * 60 * 1000
+	defaultDataSystemTimeoutMs      = 60000
+	defaultUploadDataSystemTimeout  = 10
+	defaultAcquireWaitTimeoutMs     = 3000
 )
 
 var (
@@ -145,7 +146,21 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 	if GlobalConfig.DataSystemConfig.UploadTTLSec <= 0 {
 		GlobalConfig.DataSystemConfig.UploadTTLSec = defaultUploadDataSystemTimeout
 	}
+	normalizeLiteScheduler(&GlobalConfig.LiteScheduler)
 	return nil
+}
+
+// normalizeLiteScheduler fills default values for LiteScheduler config.
+func normalizeLiteScheduler(cfg *types.LiteSchedulerConfig) {
+	if cfg.AcquireWaitTimeoutMs <= 0 {
+		cfg.AcquireWaitTimeoutMs = defaultAcquireWaitTimeoutMs
+	}
+	if cfg.EnabledTenants == nil {
+		cfg.EnabledTenants = []string{}
+	}
+	if cfg.EnabledFunctions == nil {
+		cfg.EnabledFunctions = []string{}
+	}
 }
 
 func setServiceAccountJwt(cfg *types.Configuration) error {

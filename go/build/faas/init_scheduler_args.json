@@ -91,5 +91,12 @@
     }
   },
   "deployMode": "Processes",
-  "httpServerPort": "{functionSchedulerLeasePort}"
+  "httpServerPort": "{functionSchedulerLeasePort}",
+  "liteScheduler": {
+    "enable": {liteEnable},
+    "enableAllTenants": {liteEnableAllTenants},
+    "enabledTenants": {liteEnabledTenants},
+    "enabledFunctions": {liteEnabledFunctions},
+    "acquireWaitTimeoutMs": {liteAcquireWaitTimeoutMs}
+  }
 }
