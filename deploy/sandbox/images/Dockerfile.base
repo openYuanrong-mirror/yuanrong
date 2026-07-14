@@ -47,6 +47,8 @@ RUN uv python install "${PYTHON_VERSION}" --default --compile-bytecode && \
     ln -sf "${python_bin_dir}/python${PYTHON_MAJOR_MINOR}" /usr/local/bin/python${PYTHON_MAJOR_MINOR} && \
     ln -sf "${python_bin_dir}/python" /usr/local/bin/python && \
     ln -sf "${python_bin_dir}/python3" /usr/local/bin/python3 && \
+    python_purelib_dir="$(/usr/local/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" && \
+    ln -sf "${python_purelib_dir}" /opt/uv/python/python && \
     uv pip install --python /usr/local/bin/python --break-system-packages --upgrade \
         -i https://mirrors.huaweicloud.com/repository/pypi/simple \
         --trusted-host mirrors.huaweicloud.com \

@@ -12,6 +12,7 @@
 - [Snapshot 与 Checkpoint](./snapshot-checkpoint.md) - 函数快照与实例恢复
 - [WebTerminal](./webterminal.md) - WebSocket 终端
 - [Sandbox RESTful API](./sandbox-rest-api.md) - HTTP/WS 接口、action 词表、tunnel 协议、SDK 用法
+- [Sandbox Create SSE/Timeout Design](./sandbox-create-sse-timeout.md) - aligned create semantics, SSE result delivery, and timeout handling
 - [Rust Sandbox Runtime (rrt)](../rust-sandbox-runtime/README.md) - rrt-runtime 架构、接入、构建、部署、契约
 - [可观测性](./observability.md) - OpenTelemetry、Prometheus、Loki、Tempo
 - [Traefik 路由重构](./traefik-routing.md) - HTTP 路径路由
