@@ -29,7 +29,7 @@ func TestHandleInstanceUpdateRunningAddsSlot(t *testing.T) {
 	convey.Convey("running instance added to pool", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
-			instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		ls.pools["t1/fA/v1"] = pool
 		ins := &types.Instance{InstanceID: "ins1", FuncKey: "t1/fA/v1", ConcurrentNum: 5}
 		ins.InstanceStatus.Code = int32(constant.KernelInstanceStatusRunning)
@@ -43,9 +43,9 @@ func TestHandleInstanceUpdateFatalRemovesSlot(t *testing.T) {
 	convey.Convey("fatal instance removed, allocation/session cleaned", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
-			instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		pool.instances["ins1"] = &LiteInstance{InstanceID: "ins1", Capacity: 2, InUse: 1, Status: InstanceStatusRunning}
-		pool.sessions["sess1"] = "ins1"
+		pool.sessions["sess1"] = &sessionBinding{instanceID: "ins1", activeAllocs: 1}
 		ls.pools["t1/fA/v1"] = pool
 		ls.allocations["lite:x:ins1:thread:1"] = &Allocation{AllocationID: "lite:x:ins1:thread:1", SessionID: "sess1", InstanceID: "ins1", FuncKey: "t1/fA/v1"}
 		ins := &types.Instance{InstanceID: "ins1", FuncKey: "t1/fA/v1"}
@@ -60,7 +60,7 @@ func TestHandleInstanceUpdateFatalRemovesSlot(t *testing.T) {
 func TestFunctionDeleteRemovesPool(t *testing.T) {
 	convey.Convey("function delete removes pool and allocations", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
-		ls.pools["t1/fA/v1"] = &LiteFunctionPool{funcKey: "t1/fA/v1", instances: map[string]*LiteInstance{}, sessions: map[string]string{}}
+		ls.pools["t1/fA/v1"] = &LiteFunctionPool{funcKey: "t1/fA/v1", instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}}
 		ls.allocations["lite:x:ins1:thread:1"] = &Allocation{FuncKey: "t1/fA/v1"}
 		ls.deletePool("t1/fA/v1")
 		convey.So(ls.pools["t1/fA/v1"], convey.ShouldBeNil)

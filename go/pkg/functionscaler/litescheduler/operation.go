@@ -26,7 +26,6 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
-	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 )
 
@@ -48,6 +47,10 @@ func (ls *LiteScheduler) getPool(funcKey string) *LiteFunctionPool {
 func (ls *LiteScheduler) handleAcquire(req *LiteRequest, startTime time.Time) *commonTypes.InstanceResponse {
 	logger := log.GetLogger().With(zap.String("traceID", req.TraceID), zap.String("funcKey", req.FuncKey),
 		zap.String("sessionID", req.SessionID))
+	if req.SessionTTL < 0 {
+		logger.Warnf("lite acquire sessionTTL invalid: %d (must be >= 0)", req.SessionTTL)
+		return liteErrResp(statuscode.InstanceSessionInvalidErrCode, "sessionTTL must not be negative", startTime)
+	}
 	pool := ls.getPool(req.FuncKey)
 	if pool == nil {
 		logger.Warnf("lite acquire pool not found, func not deployed or pool not synced yet")
@@ -55,17 +58,20 @@ func (ls *LiteScheduler) handleAcquire(req *LiteRequest, startTime time.Time) *c
 	}
 	pool.Lock()
 	// 1. session sticky
-	if instanceID, ok := pool.sessions[req.SessionID]; ok {
+	if binding, ok := pool.sessions[req.SessionID]; ok {
+		instanceID := binding.instanceID
 		if slot := pool.instances[instanceID]; slot != nil &&
 			(slot.Status == InstanceStatusRunning || slot.Status == InstanceStatusSubHealth) &&
 			slot.InUse < slot.Capacity {
+			// Cancel any pending idle-unbind timer for this session.
+			pool.cancelSessionUnbind(req.SessionID)
 			logger.Debugf("lite acquire session sticky hit: instance %s (inUse %d/%d)", instanceID, slot.InUse+1, slot.Capacity)
 			resp := ls.assignInstance(pool, req, slot, startTime)
 			pool.Unlock()
 			return resp
 		}
 		logger.Infof("lite acquire session sticky invalidated: instance %s absent/unhealthy/full, redispatch", instanceID)
-		delete(pool.sessions, req.SessionID)
+		pool.removeSessionBinding(req.SessionID)
 	}
 	// 2. dispatch
 	slots := pool.candidateSlotsLocked()
@@ -98,15 +104,19 @@ func (ls *LiteScheduler) assignInstance(pool *LiteFunctionPool, req *LiteRequest
 	seq := int(pool.seqCounter)
 	allocID := genAllocationID(req.SessionID, slot.InstanceID, seq)
 	slot.InUse++
-	pool.sessions[req.SessionID] = slot.InstanceID
+	pool.bindSessionOnAcquire(req.SessionID, slot.InstanceID)
 	alloc := &Allocation{
-		AllocationID: allocID, SessionID: req.SessionID, TenantID: req.TenantID,
+		AllocationID: allocID, SessionID: req.SessionID, SessionTTL: req.SessionTTL,
+		TenantID:   req.TenantID,
 		InstanceID: slot.InstanceID, FuncKey: req.FuncKey,
 		ExpireAt: time.Now().Add(liteTTL()), CreatedAt: time.Now(),
 	}
 	ls.allocMu.Lock()
 	ls.allocations[allocID] = alloc
 	ls.allocMu.Unlock()
+	// Register the lease on the expiry wheel so that a frontend crash or a
+	// forgotten release is automatically reaped.
+	ls.registerExpiryTask(allocID)
 	if ls.metrics != nil {
 		policy := "unknown"
 		if pool.dispatcher != nil {
@@ -114,7 +124,7 @@ func (ls *LiteScheduler) assignInstance(pool *LiteFunctionPool, req *LiteRequest
 		}
 		ls.metrics.incAcquire(req.FuncKey, req.TenantID, policy, "success")
 	}
-	return liteSuccessResp(slot, allocID, startTime)
+	return liteSuccessResp(slot, allocID, req.FuncKey, startTime)
 }
 
 func (ls *LiteScheduler) handleRelease(req *LiteRequest, startTime time.Time) *commonTypes.InstanceResponse {
@@ -128,6 +138,8 @@ func (ls *LiteScheduler) handleRelease(req *LiteRequest, startTime time.Time) *c
 	}
 	delete(ls.allocations, req.AllocationIDs[0])
 	ls.allocMu.Unlock()
+	// Cancel the auto-reap timer since the client explicitly released.
+	ls.removeExpiryTask(req.AllocationIDs[0])
 	pool := ls.getPool(alloc.FuncKey)
 	// Capture the slot pointer inside the pool.Lock block. After Unlock,
 	// reading pool.instances[...] without the lock would race with concurrent
@@ -138,6 +150,8 @@ func (ls *LiteScheduler) handleRelease(req *LiteRequest, startTime time.Time) *c
 	// Snapshot inUse/Capacity under pool.Lock; reading slot fields after Unlock
 	// would race with concurrent acquire's slot.InUse++ (assignInstance).
 	var logInUse, logCap = -1, -1
+	var needUnbindTimer bool
+	var unbindSessionID string
 	if pool != nil {
 		pool.Lock()
 		if s := pool.instances[alloc.InstanceID]; s != nil && s.InUse > 0 {
@@ -148,9 +162,18 @@ func (ls *LiteScheduler) handleRelease(req *LiteRequest, startTime time.Time) *c
 			logInUse = s.InUse
 			logCap = s.Capacity
 		}
+		// Decrement session's activeAllocs; if zero, mark for idle-unbind timer.
+		needUnbindTimer, _ = pool.unbindSessionOnRelease(alloc.SessionID)
+		if needUnbindTimer {
+			unbindSessionID = alloc.SessionID
+		}
 		slot = pool.instances[alloc.InstanceID]
 		pool.Unlock()
 		logger.Debugf("lite release decremented: instance %s (inUse %d/%d)", alloc.InstanceID, logInUse, logCap)
+		// Start the idle-unbind timer OUTSIDE pool.Lock to avoid blocking.
+		if needUnbindTimer {
+			ls.startSessionUnbindTimer(pool, unbindSessionID, alloc.SessionTTL)
+		}
 	} else {
 		logger.Infof("lite release pool gone (func undeployed), allocation %s cleaned, instance inUse untouched", alloc.AllocationID)
 	}
@@ -161,7 +184,35 @@ func (ls *LiteScheduler) handleRelease(req *LiteRequest, startTime time.Time) *c
 		}
 		ls.metrics.incRelease(alloc.FuncKey, alloc.TenantID, policy, "success")
 	}
-	return liteSuccessResp(slot, alloc.AllocationID, startTime)
+	return liteSuccessResp(slot, alloc.AllocationID, alloc.FuncKey, startTime)
+}
+
+// startSessionUnbindTimer starts a goroutine that waits for sessionTTL and then
+// removes the session→instance binding if no new acquire arrived in between.
+// Mirrors legacy's startUnbindInstanceSession + unbindInstanceSession pattern.
+func (ls *LiteScheduler) startSessionUnbindTimer(pool *LiteFunctionPool, sessionID string, sessionTTL int) {
+	ttl := sessionTTLFor(sessionTTL)
+	go func() {
+		timer := time.NewTimer(ttl)
+		defer timer.Stop()
+		<-timer.C
+		pool.Lock()
+		// Re-check: a concurrent acquire may have already cancelled the timer
+		// (expiring=false) or removed the binding entirely.
+		binding, ok := pool.sessions[sessionID]
+		if !ok || !binding.expiring {
+			pool.Unlock()
+			return
+		}
+		// Still expiring and no active allocs: remove the binding.
+		if binding.activeAllocs == 0 {
+			binding.stopTimer()
+			delete(pool.sessions, sessionID)
+			log.GetLogger().With(zap.String("sessionID", sessionID), zap.String("funcKey", pool.funcKey)).
+				Infof("lite session idle-unbind: session %s unbound after TTL (func %s)", sessionID, pool.funcKey)
+		}
+		pool.Unlock()
+	}()
 }
 
 // handleRetain refreshes a lease. Lock order is carefully designed to avoid
@@ -198,6 +249,7 @@ func (ls *LiteScheduler) handleRetain(req *LiteRequest, startTime time.Time) *co
 		ls.allocMu.Lock()
 		delete(ls.allocations, allocID)
 		ls.allocMu.Unlock()
+		ls.removeExpiryTask(allocID)
 		logger.Infof("lite retain pool gone (func %s undeployed), allocation dropped", funcKey)
 		return liteErrResp(constant.LeaseExpireOrDeletedErrorCode, constant.LeaseExpireOrDeletedErrorMessage, startTime)
 	}
@@ -214,6 +266,7 @@ func (ls *LiteScheduler) handleRetain(req *LiteRequest, startTime time.Time) *co
 		ls.allocMu.Lock()
 		delete(ls.allocations, allocID)
 		ls.allocMu.Unlock()
+		ls.removeExpiryTask(allocID)
 		logger.Warnf("lite retain instance %s absent or unhealthy, allocation dropped", instanceID)
 		return liteErrResp(statuscode.InstanceStatusAbnormalCode, constant.LeaseErrorInstanceIsAbnormalMessage, startTime)
 	}
@@ -234,6 +287,9 @@ func (ls *LiteScheduler) handleRetain(req *LiteRequest, startTime time.Time) *co
 	alloc.ExpireAt = time.Now().Add(liteTTL())
 	newExpire := alloc.ExpireAt
 	ls.allocMu.Unlock()
+	// Push the auto-reap deadline forward, mirroring the legacy
+	// leaseHolder.extendLease -> timeWheel.
+	ls.updateExpiryTask(allocID)
 
 	if ls.metrics != nil {
 		policy := "unknown"
@@ -243,7 +299,7 @@ func (ls *LiteScheduler) handleRetain(req *LiteRequest, startTime time.Time) *co
 		ls.metrics.incRetain(alloc.FuncKey, alloc.TenantID, policy, "success")
 	}
 	logger.Debugf("lite retain refreshed: instance %s, new expiry %s", instanceID, newExpire.Format(time.RFC3339Nano))
-	return liteSuccessResp(slot, alloc.AllocationID, startTime)
+	return liteSuccessResp(slot, alloc.AllocationID, alloc.FuncKey, startTime)
 }
 
 func (ls *LiteScheduler) handleBatchRetain(req *LiteRequest, startTime time.Time) *commonTypes.BatchInstanceResponse {
@@ -273,7 +329,7 @@ func (ls *LiteScheduler) handleBatchRetain(req *LiteRequest, startTime time.Time
 	return resp
 }
 
-func liteSuccessResp(slot *LiteInstance, allocID string, startTime time.Time) *commonTypes.InstanceResponse {
+func liteSuccessResp(slot *LiteInstance, allocID, funcKey string, startTime time.Time) *commonTypes.InstanceResponse {
 	resp := &commonTypes.InstanceResponse{
 		InstanceAllocationInfo: commonTypes.InstanceAllocationInfo{
 			ThreadID: allocID, LeaseInterval: int64(liteTTL().Milliseconds()),
@@ -283,7 +339,7 @@ func liteSuccessResp(slot *LiteInstance, allocID string, startTime time.Time) *c
 		SchedulerTime: time.Since(startTime).Seconds(),
 	}
 	if slot != nil {
-		resp.InstanceAllocationInfo.FuncKey = slot.FuncKey
+		resp.InstanceAllocationInfo.FuncKey = funcKey
 		resp.InstanceAllocationInfo.FuncSig = slot.FuncSig
 		resp.InstanceAllocationInfo.InstanceID = slot.InstanceID
 		resp.InstanceAllocationInfo.InstanceIP = slot.InstanceIP
@@ -323,7 +379,7 @@ func (ls *LiteScheduler) handleColdStart(pool *LiteFunctionPool, req *LiteReques
 	if ls.scaleHintSender != nil {
 		logger.Infof("lite cold start: emit scale hint (inUse %d, capacity %d)",
 			pool.currentInUse(), pool.currentCapacity())
-		ls.scaleHintSender.Send(&scaler.ScaleHint{
+		ls.scaleHintSender.Send(&ScaleHint{
 			FuncKey:                 req.FuncKey,
 			TenantID:                req.TenantID,
 			SessionID:               req.SessionID,

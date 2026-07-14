@@ -42,6 +42,7 @@ func (ls *LiteScheduler) SubscribeAndLoop() {
 	go ls.processFuncSpecEvents()
 	go ls.processInstanceEvents()
 	go ls.processSchedulerEvents()
+	go ls.processExpiryEvents()
 }
 
 func (ls *LiteScheduler) processFuncSpecEvents() {
@@ -149,7 +150,7 @@ func (ls *LiteScheduler) upsertPool(funcSpec *types.FunctionSpecification) {
 	if !ok {
 		pool = &LiteFunctionPool{
 			funcKey: funcSpec.FuncKey, funcSpec: funcSpec,
-			instances: map[string]*LiteInstance{}, sessions: map[string]string{},
+			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{},
 			dispatcher: newDispatcher(funcSpec),
 		}
 		ls.pools[funcSpec.FuncKey] = pool
@@ -163,12 +164,22 @@ func (ls *LiteScheduler) upsertPool(funcSpec *types.FunctionSpecification) {
 func (ls *LiteScheduler) deletePool(funcKey string) {
 	logger := log.GetLogger().With(zap.String("funcKey", funcKey))
 	ls.poolsMu.Lock()
+	pool, ok := ls.pools[funcKey]
+	if ok {
+		// Stop all session idle-unbind timers before deleting the pool.
+		pool.Lock()
+		for _, binding := range pool.sessions {
+			binding.stopTimer()
+		}
+		pool.Unlock()
+	}
 	delete(ls.pools, funcKey)
 	ls.poolsMu.Unlock()
 	ls.allocMu.Lock()
 	for id, alloc := range ls.allocations {
 		if alloc.FuncKey == funcKey {
 			delete(ls.allocations, id)
+			ls.removeExpiryTask(id)
 		}
 	}
 	ls.allocMu.Unlock()
@@ -199,15 +210,16 @@ func (ls *LiteScheduler) handleInstanceDelete(pool *LiteFunctionPool, ins *types
 
 func (ls *LiteScheduler) removeInstanceLocked(pool *LiteFunctionPool, instanceID string) {
 	delete(pool.instances, instanceID)
-	for sid, iid := range pool.sessions {
-		if iid == instanceID {
-			delete(pool.sessions, sid)
+	for sid, binding := range pool.sessions {
+		if binding.instanceID == instanceID {
+			pool.removeSessionBinding(sid)
 		}
 	}
 	ls.allocMu.Lock()
 	for allocID, alloc := range ls.allocations {
 		if alloc.InstanceID == instanceID && alloc.FuncKey == pool.funcKey {
 			delete(ls.allocations, allocID)
+			ls.removeExpiryTask(allocID)
 		}
 	}
 	ls.allocMu.Unlock()

@@ -27,12 +27,21 @@ import (
 	"go.uber.org/zap"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
+	"yuanrong.org/kernel/pkg/common/faas_common/timewheel"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
-	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
+
+// liteExpiryScanPace is the time wheel pace for the expiry scanner. It must be
+// <= liteTTL so that an unretained lease is reaped within roughly one TTL cycle.
+const liteExpiryScanPace = 5 * time.Millisecond
+
+// liteExpiryScanSlots is the slot count for the expiry time wheel. With pace=5ms
+// and slots=100, the wheel circumference is 500ms, which is well below the typical
+// LeaseSpan (≥1s). This ensures retain's UpdateTask lands within one revolution.
+const liteExpiryScanSlots = 100
 
 // ScaleHintSender sends idempotent capacity hints to a Scaler backend.
 // The current default implementation is noopSender (logs only). Future
@@ -40,7 +49,7 @@ import (
 // (stream hints over gRPC) to a remote scaler service. Swapping implementations
 // requires no changes to operation.go or callers of handleColdStart.
 type ScaleHintSender interface {
-	Send(hint *scaler.ScaleHint)
+	Send(hint *ScaleHint)
 }
 
 // LiteScheduler is the session-based lightweight scheduling branch.
@@ -57,6 +66,12 @@ type LiteScheduler struct {
 	funcSpecCh      chan registry.SubEvent
 	insSpecCh       chan registry.SubEvent
 	schedulerCh     chan registry.SubEvent
+	// expiryWheel is the time wheel that drives automatic lease expiry. Each
+	// allocation is registered as a task; when the wheel fires, the expiry
+	// callback reaps the allocation and decrements InUse. retain calls
+	// expiryWheel.UpdateTask to push the deadline forward, mirroring the
+	// legacy timeWheel.
+	expiryWheel timewheel.TimeWheel
 }
 
 // New constructs a LiteScheduler with injected dependencies. It does NOT snapshot
@@ -73,6 +88,7 @@ func New(ownerProxy *selfregister.SchedulerProxy,
 		funcSpecGetter:  funcSpecGetter,
 		scaleHintSender: scaleHintSender,
 		stopCh:          stopCh,
+		expiryWheel:     timewheel.NewSimpleTimeWheel(liteExpiryScanPace, liteExpiryScanSlots),
 	}
 	// Build the Prometheus collector WITHOUT registering it with the default
 	// prometheus registry. Registration is a separate InitMetric step owned by the
@@ -238,6 +254,7 @@ func (ls *LiteScheduler) reverseLookup(req *LiteRequest) *lookupErr {
 			return &lookupErr{code: statuscode.LeaseIDNotFoundCode, msg: statuscode.LeaseIDNotFoundMsg}
 		}
 		req.SessionID = alloc.SessionID
+		req.SessionTTL = alloc.SessionTTL
 		req.TenantID = alloc.TenantID
 		req.FuncKey = alloc.FuncKey
 	}

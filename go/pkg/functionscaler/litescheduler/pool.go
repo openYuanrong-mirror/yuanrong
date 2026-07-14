@@ -19,6 +19,7 @@ package litescheduler
 
 import (
 	"sync"
+	"time"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
@@ -56,12 +57,23 @@ type LiteInstance struct {
 	AZ              string
 }
 
+// sessionBinding tracks a session's binding to an instance plus the idle-unbind
+// timer state. It mirrors legacy's sessionRecord: when activeAllocs drops to 0,
+// a timer is started; if a new acquire arrives before the timer fires, the timer
+// is cancelled. On timer fire, the session→instance binding is removed.
+type sessionBinding struct {
+	instanceID   string
+	activeAllocs int // number of outstanding allocations for this session
+	timer        *time.Timer
+	expiring     bool // true when the idle-unbind timer is ticking
+}
+
 // LiteFunctionPool holds local instances, session bindings and dispatcher for one funcKey.
 type LiteFunctionPool struct {
 	funcKey    string
 	funcSpec   *types.FunctionSpecification
 	instances  map[string]*LiteInstance
-	sessions   map[string]string // sessionID -> instanceID
+	sessions   map[string]*sessionBinding // sessionID -> binding
 	dispatcher Dispatcher
 	sync.RWMutex
 	seqCounter uint64 // for allocationID seq; protected by pool.Lock (writer-serialized)
@@ -188,5 +200,83 @@ func (p *LiteFunctionPool) Stats() PoolStats {
 		InUse:         inUse,
 		SessionCount:  len(p.sessions),
 		Policy:        policy,
+	}
+}
+
+// sessionTTLFor normalizes a request-provided sessionTTL (seconds) to a Duration.
+// 0 means immediate unbind (timer fires instantly); positive values are used as-is.
+// Negative values are rejected by handleAcquire before reaching here.
+func sessionTTLFor(reqTTL int) time.Duration {
+	if reqTTL <= 0 {
+		return 0
+	}
+	return time.Duration(reqTTL) * time.Second
+}
+
+// bindSessionOnAcquire creates or refreshes a sessionBinding for the given
+// sessionID, incrementing activeAllocs. If the session was in the idle-unbind
+// pending state (expiring), the timer is cancelled. Caller must hold pool.Lock.
+func (p *LiteFunctionPool) bindSessionOnAcquire(sessionID, instanceID string) {
+	binding, ok := p.sessions[sessionID]
+	if !ok {
+		binding = &sessionBinding{instanceID: instanceID}
+		p.sessions[sessionID] = binding
+	} else {
+		// session rebind to a different instance (e.g. sticky invalidated): stop
+		// any pending unbind timer and rebind.
+		binding.stopTimer()
+		binding.expiring = false
+		binding.instanceID = instanceID
+	}
+	binding.activeAllocs++
+}
+
+// unbindSessionOnRelease decrements activeAllocs and, if it reaches 0, starts the
+// idle-unbind timer. Returns the sessionID so the caller can launch the timer
+// goroutine (the goroutine must be started OUTSIDE pool.Lock to avoid blocking).
+// Caller must hold pool.Lock.
+func (p *LiteFunctionPool) unbindSessionOnRelease(sessionID string) (needTimer bool, ttl time.Duration) {
+	binding, ok := p.sessions[sessionID]
+	if !ok {
+		return false, 0
+	}
+	if binding.activeAllocs > 0 {
+		binding.activeAllocs--
+	}
+	if binding.activeAllocs > 0 || binding.expiring {
+		return false, 0
+	}
+	// All allocations released and no timer running: start idle-unbind countdown.
+	binding.expiring = true
+	return true, 0 // ttl filled by caller via sessionTTLFor
+}
+
+// cancelSessionUnbind cancels the idle-unbind timer if it is running.
+// Called when an acquire arrives for a session whose timer is ticking.
+// Caller must hold pool.Lock.
+func (p *LiteFunctionPool) cancelSessionUnbind(sessionID string) {
+	binding, ok := p.sessions[sessionID]
+	if !ok || !binding.expiring {
+		return
+	}
+	binding.stopTimer()
+	binding.expiring = false
+}
+
+// removeSessionBinding deletes the session binding entry entirely.
+// Used by the timer callback and by instance deletion cleanup.
+// Caller must hold pool.Lock.
+func (p *LiteFunctionPool) removeSessionBinding(sessionID string) {
+	if binding, ok := p.sessions[sessionID]; ok {
+		binding.stopTimer()
+	}
+	delete(p.sessions, sessionID)
+}
+
+// stopTimer stops the timer if set; safe to call when timer is nil.
+func (b *sessionBinding) stopTimer() {
+	if b.timer != nil {
+		b.timer.Stop()
+		b.timer = nil
 	}
 }

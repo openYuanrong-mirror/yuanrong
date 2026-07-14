@@ -30,7 +30,7 @@ import (
 func TestLiteCollectorDescribeCollect(t *testing.T) {
 	convey.Convey("collector registers and scrapes", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
-		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		pool.instances["ins1"] = &LiteInstance{InstanceID: "ins1", Capacity: 2, InUse: 1, Status: InstanceStatusRunning, FuncKey: "t1/fA/v1"}
 		ls.pools["t1/fA/v1"] = pool
 		c := NewLiteCollector(ls)
@@ -48,7 +48,7 @@ func TestLiteCollectorIncAcquireWired(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		ls.metrics = NewLiteCollector(ls)
 		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
-			instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		pool.instances["ins1"] = &LiteInstance{InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 2, InUse: 0,
 			Status: InstanceStatusRunning, FuncSig: "sig"}
 		ls.pools["t1/fA/v1"] = pool

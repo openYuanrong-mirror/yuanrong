@@ -21,8 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 )
 
 func TestNoopSenderNilHintDoesNotPanic(t *testing.T) {
@@ -35,6 +33,6 @@ func TestNoopSenderNilHintDoesNotPanic(t *testing.T) {
 func TestNoopSenderSendsWithoutPanic(t *testing.T) {
 	s := NewNoopSender()
 	assert.NotPanics(t, func() {
-		s.Send(&scaler.ScaleHint{FuncKey: "unknown/f/v1", Reason: "cold_start"})
+		s.Send(&ScaleHint{FuncKey: "unknown/f/v1", Reason: "cold_start"})
 	})
 }

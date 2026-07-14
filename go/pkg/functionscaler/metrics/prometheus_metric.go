@@ -40,13 +40,9 @@ var (
 	metricsReporter = wisecloudtool.NewMetricProvider()
 )
 
-// InitServerMetric start prometheus http server.
-// Guard relaxed from ScenarioWiseCloud-only to "start whenever MetricsAddr is set":
-// the lite scheduler emits metrics regardless of scenario, and tying metric serving to
-// the scenario gate would silently drop lite metrics in non-WiseCloud deployments that
-// set MetricsAddr. types remains imported: the helpers below keep the scenario guard.
+// InitServerMetric start prometheus http server
 func InitServerMetric(stopCh <-chan struct{}) {
-	if config.GlobalConfig.MetricsAddr == "" {
+	if config.GlobalConfig.Scenario != types.ScenarioWiseCloud {
 		return
 	}
 	// start metric server

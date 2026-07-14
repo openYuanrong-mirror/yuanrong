@@ -20,8 +20,22 @@ package litescheduler
 import (
 	"go.uber.org/zap"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
-	"yuanrong.org/kernel/pkg/functionscaler/scaler"
 )
+
+// ScaleHint is an idempotent capacity demand hint from LiteScheduler to Scaler.
+// Scaler dedups by FuncKey and does not create N instances for N hints.
+type ScaleHint struct {
+	FuncKey                 string
+	TenantID                string
+	SessionID               string
+	Reason                  string // cold_start, no_capacity, high_concurrency
+	RequestedConcurrency    int
+	CurrentLocalConcurrency int
+	CurrentLocalCapacity    int
+	SchedulerID             string
+	TraceID                 string
+	RequestID               string
+}
 
 // noopSender is a placeholder ScaleHintSender that logs hints but does not dispatch
 // them. It exists so that LiteScheduler's cold-start path (construct hint -> send ->
@@ -43,7 +57,7 @@ func NewNoopSender() ScaleHintSender {
 	return &noopSender{}
 }
 
-func (n *noopSender) Send(hint *scaler.ScaleHint) {
+func (n *noopSender) Send(hint *ScaleHint) {
 	if hint == nil {
 		return
 	}

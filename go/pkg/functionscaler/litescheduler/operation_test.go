@@ -35,7 +35,7 @@ func newTestPool(t *testing.T) *LiteFunctionPool {
 		funcKey:    "t1/fA/v1",
 		funcSpec:   &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
 		instances:  map[string]*LiteInstance{},
-		sessions:   map[string]string{},
+		sessions:   map[string]*sessionBinding{},
 		dispatcher: &concurrencyDispatcher{},
 	}
 	p.instances["ins1"] = &LiteInstance{InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 2, InUse: 0,
@@ -50,7 +50,7 @@ func TestAcquireSessionSticky(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
 		resp1 := ls.handleAcquire(req, time.Now())
 		convey.So(resp1.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		id1 := resp1.InstanceID
@@ -64,14 +64,17 @@ func TestReleaseDecrementsInUseKeepsSticky(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
 		resp := ls.handleAcquire(req, time.Now())
 		allocID := resp.ThreadID
 		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 1)
 		relReq := &LiteRequest{Op: "release", AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
 		ls.handleRelease(relReq, time.Now())
 		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 0)
-		convey.So(pool.sessions, convey.ShouldContainKey, "sess1") // binding kept
+		pool.RLock()
+		_, hasBinding := pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(hasBinding, convey.ShouldBeTrue) // binding kept (sessionTTL=30s)
 	})
 }
 
@@ -80,7 +83,7 @@ func TestRetainDoesNotChangeConcurrency(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
 		resp := ls.handleAcquire(req, time.Now())
 		allocID := resp.ThreadID
 		oldExpire := ls.allocations[allocID].ExpireAt
@@ -159,7 +162,7 @@ func TestConcurrentAcquireRetainNoDeadlock(t *testing.T) {
 				defer wg.Done()
 				sess := "sess" + string(rune('A'+id%8))
 				req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-					SessionID: sess, TenantID: "t1", TraceID: "tr"}
+					SessionID: sess, SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
 				start := time.Now()
 				resp := ls.handleAcquire(req, start)
 				if resp.ErrorCode != constant.InsReqSuccessCode {
@@ -191,7 +194,7 @@ func TestAcquireNoInstanceReturnsNoInstanceAfterTimeout(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{},
 			scaleHintSender: NewNoopSender(), stopCh: make(chan struct{})}
 		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
-			instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		ls.pools["t1/fA/v1"] = pool
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
 		resp := ls.handleAcquire(req, time.Now())
@@ -209,7 +212,7 @@ func TestColdStartConcurrentWithInstanceUpdateNoRace(t *testing.T) {
 	ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{},
 		scaleHintSender: NewNoopSender(), stopCh: make(chan struct{})}
 	pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
-		instances: map[string]*LiteInstance{}, sessions: map[string]string{}, dispatcher: &concurrencyDispatcher{}}
+		instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 	ls.pools["t1/fA/v1"] = pool
 	var wg sync.WaitGroup
 	// N goroutines: handleAcquire (triggers cold-start, currentInUse reads map under RLock)

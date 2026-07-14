@@ -39,21 +39,6 @@ type ScaleUpHandler func(int, ScaleUpCallback)
 // ScaleDownHandler handles instance scale down
 type ScaleDownHandler func(int, ScaleDownCallback)
 
-// ScaleHint is an idempotent capacity demand hint from LiteScheduler to Scaler.
-// Scaler dedups by FuncKey and does not create N instances for N hints.
-type ScaleHint struct {
-	FuncKey                 string
-	TenantID                string
-	SessionID               string
-	Reason                  string // cold_start, no_capacity, high_concurrency
-	RequestedConcurrency    int
-	CurrentLocalConcurrency int
-	CurrentLocalCapacity    int
-	SchedulerID             string
-	TraceID                 string
-	RequestID               string
-}
-
 // InstanceScaler scales instance to meet certain need
 type InstanceScaler interface {
 	SetEnable(enable bool)

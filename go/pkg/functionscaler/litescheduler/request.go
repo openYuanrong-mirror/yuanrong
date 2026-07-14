@@ -37,6 +37,8 @@ type LiteRequest struct {
 	FuncKey           string
 	TenantID          string
 	SessionID         string
+	SessionTTL        int // seconds; 0 means use default
+	Concurrency       int
 	AllocationIDs     []string
 	ExtraData         []byte
 	MetricsData       []byte
@@ -68,7 +70,7 @@ func (ls *LiteScheduler) ParseRequest(op InstanceOperation, targetName string,
 
 	switch op {
 	case "acquire":
-		sessionID := extractSessionID(extraData)
+		sessionID, sessionTTL, concurrency := extractSessionConfig(extraData)
 		if sessionID == "" {
 			return nil, false // 4d: non-session call chain -> legacy
 		}
@@ -79,8 +81,10 @@ func (ls *LiteScheduler) ParseRequest(op InstanceOperation, targetName string,
 		logger.Debugf("lite parseRequest acquire enters lite branch: funcKey %s", funcKey)
 		return &LiteRequest{
 			Op: op, FuncKey: funcKey, SessionID: sessionID,
-			TenantID:  splitFuncKey(funcKey).tenantID,
-			ExtraData: extraData, TraceID: traceID,
+			SessionTTL:  sessionTTL,
+			Concurrency: concurrency,
+			TenantID:    splitFuncKey(funcKey).tenantID,
+			ExtraData:   extraData, TraceID: traceID,
 		}, true
 	case "release", "retain":
 		if !IsLiteAllocationID(targetName) {
@@ -117,24 +121,25 @@ func (ls *LiteScheduler) ParseRequest(op InstanceOperation, targetName string,
 	return nil, false
 }
 
-// extractSessionID parses extraData for InstanceSessionConfig (key constant.InstanceSessionConfig).
-func extractSessionID(extraData []byte) string {
+// extractSessionConfig parses extraData for InstanceSessionConfig (key constant.InstanceSessionConfig).
+// Returns sessionID, sessionTTL (seconds) and concurrency. sessionID is "" if absent.
+func extractSessionConfig(extraData []byte) (sessionID string, sessionTTL int, concurrency int) {
 	if len(extraData) == 0 {
-		return ""
+		return "", 0, 0
 	}
 	m := map[string][]byte{}
 	if err := json.Unmarshal(extraData, &m); err != nil {
-		log.GetLogger().Debugf("lite extractSessionID: extraData unmarshal failed: %v", err)
-		return ""
+		log.GetLogger().Debugf("lite extractSessionConfig: extraData unmarshal failed: %v", err)
+		return "", 0, 0
 	}
 	raw, exists := m[constant.InstanceSessionConfig]
 	if !exists {
-		return ""
+		return "", 0, 0
 	}
 	sess := commonTypes.InstanceSessionConfig{}
 	if err := json.Unmarshal(raw, &sess); err != nil {
-		log.GetLogger().Debugf("lite extractSessionID: InstanceSessionConfig unmarshal failed: %v", err)
-		return ""
+		log.GetLogger().Debugf("lite extractSessionConfig: InstanceSessionConfig unmarshal failed: %v", err)
+		return "", 0, 0
 	}
-	return sess.SessionID
+	return sess.SessionID, sess.SessionTTL, sess.Concurrency
 }

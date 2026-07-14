@@ -35,6 +35,7 @@ const liteAllocPrefix = "lite"
 type Allocation struct {
 	AllocationID string
 	SessionID    string // full sessionID (allocationID only stores hash)
+	SessionTTL   int    // seconds; 0 means default; used for idle-unbind timer
 	TenantID     string
 	InstanceID   string
 	FuncKey      string
