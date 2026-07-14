@@ -101,7 +101,7 @@ void SchedulerManager::ResetAll(const std::vector<SchedulerInstance> &schedulerI
 {
     absl::WriterMutexLock lk(&mtx_);
     schedulerInfoMap_.clear();
-    for (const auto info : schedulerInfoList) {
+    for (const auto &info : schedulerInfoList) {
         if (info.InstanceName.empty() || info.InstanceID.empty() || !info.isAvailable) {
             YRLOG_WARN("Invalid scheduler info: name={}, id={}", info.InstanceName, info.InstanceID);
             continue;
