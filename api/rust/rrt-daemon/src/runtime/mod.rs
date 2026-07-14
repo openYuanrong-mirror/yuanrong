@@ -43,7 +43,6 @@ mod codec;
 mod dispatch;
 mod fs;
 mod httpserver;
-mod stream;
 mod tunnel;
 
 /// Start only the RRT atomic-operation HTTP server without connecting to the function-proxy worker. Used for isolated verification.

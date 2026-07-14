@@ -199,7 +199,6 @@ Primary action groups:
 | Process | `process.exec`, `process.start`, `process.poll`, `process.wait`, `process.kill`, `process.list`, `process.send_stdin` |
 | Filesystem | `file.read`, `file.write`, `file.write_chunk`, `file.read_chunk`, `file.list`, `file.exists`, `file.remove`, `file.stat`, `file.mkdir` |
 | Shell | `shell.create`, `shell.run`, `shell.poll`, `shell.delete` |
-| Stream internals | `sandbox_stream_*` methods used by frontend stream handling |
 
 Public SDKs should use the canonical action names documented in `sandbox-rest-api.md`.
 
