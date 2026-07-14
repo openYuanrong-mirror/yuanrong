@@ -209,15 +209,6 @@ pub(crate) fn dispatch_runtime_action(
             "bash_poll" => super::bash::bash_poll(kw),
             _ => super::bash::bash_destroy(kw),
         }),
-        "sandbox_stream_open"
-        | "sandbox_stream_send"
-        | "sandbox_stream_recv"
-        | "sandbox_stream_close" => Some(match method {
-            "sandbox_stream_open" => super::stream::sandbox_stream_open(kw),
-            "sandbox_stream_send" => super::stream::sandbox_stream_send(kw),
-            "sandbox_stream_recv" => super::stream::sandbox_stream_recv(kw),
-            _ => super::stream::sandbox_stream_close(kw),
-        }),
         _ => None,
     }
 }
@@ -392,26 +383,6 @@ impl Ctx {
                     )])
                 });
                 log_access(&trace_id, &command, started);
-                call_result_msg(
-                    call.request_id,
-                    iid,
-                    oid,
-                    0,
-                    "ok",
-                    codec::yr_serialize_value(&r),
-                )
-            }
-            "sandbox_stream_open"
-            | "sandbox_stream_send"
-            | "sandbox_stream_recv"
-            | "sandbox_stream_close" => {
-                let kw = codec::parse_kwargs(&call.args);
-                let r = dispatch_runtime_action(method.as_str(), &kw).unwrap_or_else(|| {
-                    codec::map_value(vec![(
-                        "error",
-                        rmpv::Value::from(format!("unsupported method: {method}")),
-                    )])
-                });
                 call_result_msg(
                     call.request_id,
                     iid,
