@@ -187,12 +187,13 @@ func (sp *SchedulerProxy) IsFuncOwner(funcKey string) bool {
 	return ok
 }
 
-// CheckFuncOwner determine etcd event should or not to be deal with
-func (sp *SchedulerProxy) CheckFuncOwner(funcKey string) (string, bool) {
-	logger := log.GetLogger().With(zap.Any("funcKey", funcKey))
-	logger.Debugf("check which faas scheduler instance should process this function")
-	// select one FaaSScheduler by the func key
-	next := sp.loadBalance.Next(funcKey, false)
+// CheckHashOwner determine if current scheduler is owner of the hashKey.
+// Generic owner check by arbitrary hash key (funcKey for legacy, tenantID/sessionID for LiteScheduler).
+func (sp *SchedulerProxy) CheckHashOwner(hashKey string) (string, bool) {
+	logger := log.GetLogger().With(zap.Any("hashKey", hashKey))
+	logger.Debugf("check which faas scheduler instance should process this hash key")
+	// select one FaaSScheduler by the hash key
+	next := sp.loadBalance.Next(hashKey, false)
 	faasSchedulerName, ok := next.(string)
 	if !ok {
 		logger.Errorf("failed to parse the result of load balance: %+v", next)
@@ -217,8 +218,13 @@ func (sp *SchedulerProxy) CheckFuncOwner(funcKey string) (string, bool) {
 			faaSScheduler.InstanceName)
 		return faaSScheduler.InstanceID, false
 	}
-	logger.Infof("this scheduler %s should process function", SelfInstanceID)
+	logger.Infof("this scheduler %s should process hash key", SelfInstanceID)
 	return faaSScheduler.InstanceID, true
+}
+
+// CheckFuncOwner determine etcd event should or not to be deal with (legacy: funcKey dimension)
+func (sp *SchedulerProxy) CheckFuncOwner(funcKey string) (string, bool) {
+	return sp.CheckHashOwner(funcKey)
 }
 
 // WaitForHash wait for num of concurrent hash node to add

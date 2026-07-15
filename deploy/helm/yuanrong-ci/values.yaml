@@ -214,7 +214,7 @@ gitcodeWebhookRelay:
       - "v[0-9]*"
     gitTimeoutSeconds: 120
     buildkite:
-      pipeline: yuanrong-master-verify
+      pipeline: yuanrong
       env:
         BUILD_TARGET: linux
         ENABLE_LINUX_ARM: "true"

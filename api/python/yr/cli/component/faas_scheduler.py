@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 from pathlib import Path
 
@@ -70,6 +71,14 @@ class FaaSSchedulerLauncher(ComponentLauncher):
             "{passphraseFile}": pass_phrase,
             "{functionSchedulerLeasePort}": str(values["function_scheduler"]["lease_port"]),
         }
+
+        # —— lite scheduler config rendering ——
+        lite = values.get("lite_scheduler", {})
+        replacements["{liteEnable}"] = str(lite.get("enable", False)).lower()
+        replacements["{liteEnableAllTenants}"] = str(lite.get("enable_all_tenants", False)).lower()
+        replacements["{liteEnabledTenants}"] = json.dumps(lite.get("enabled_tenants", []))
+        replacements["{liteEnabledFunctions}"] = json.dumps(lite.get("enabled_functions", []))
+        replacements["{liteAcquireWaitTimeoutMs}"] = str(lite.get("acquire_wait_timeout_ms", 3000))
 
         for placeholder, value in replacements.items():
             text = text.replace(placeholder, value)

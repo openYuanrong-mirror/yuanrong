@@ -30,6 +30,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"yuanrong.org/kernel/runtime/libruntime/api"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
@@ -46,6 +48,7 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/crprocessor"
 	"yuanrong.org/kernel/pkg/functionscaler/instancepool"
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
+	"yuanrong.org/kernel/pkg/functionscaler/litescheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
@@ -106,6 +109,7 @@ type StateOperation string
 // FaaSScheduler manages instances for faas functions
 type FaaSScheduler struct {
 	PoolManager     *instancepool.PoolManager
+	liteScheduler   *litescheduler.LiteScheduler
 	funcSpecCh      chan registry.SubEvent
 	insSpecCh       chan registry.SubEvent
 	insConfigCh     chan registry.SubEvent
@@ -145,6 +149,29 @@ func NewFaaSScheduler(stopCh <-chan struct{}) *FaaSScheduler {
 		schedulerCh:     make(chan registry.SubEvent, defaultChanSize),
 		rolloutConfigCh: make(chan registry.SubEvent, defaultChanSize),
 		leaseInterval:   leaseInterval,
+	}
+	// LiteScheduler branch (session-based). Only active when config enables it.
+	if config.GlobalConfig.LiteScheduler.Enable {
+		faasScheduler.liteScheduler = litescheduler.New(
+			selfregister.GlobalSchedulerProxy,
+			registry.GlobalRegistry.GetFuncSpec,
+			litescheduler.NewNoopSender(),
+			stopCh)
+		faasScheduler.liteScheduler.SubscribeAndLoop()
+		log.GetLogger().Infof("LiteScheduler enabled (allTenants=%v, tenants=%d, funcs=%d, acquireWaitMs=%d)",
+			config.GlobalConfig.LiteScheduler.EnableAllTenants,
+			len(config.GlobalConfig.LiteScheduler.EnabledTenants),
+			len(config.GlobalConfig.LiteScheduler.EnabledFunctions),
+			config.GlobalConfig.LiteScheduler.AcquireWaitTimeoutMs)
+		// Register the LiteCollector with the default Prometheus registry so the
+		// faas_lite_* metrics are exposed at /metrics. Use Register (not MustRegister)
+		// and ignore the already-registered error to survive test/restart scenarios
+		// where NewFaaSScheduler may run more than once in one process.
+		if err := prometheus.DefaultRegisterer.Register(faasScheduler.liteScheduler.Metrics()); err == nil {
+			log.GetLogger().Infof("LiteCollector registered to prometheus default registry")
+		} else {
+			log.GetLogger().Warnf("LiteCollector register skipped: %v", err)
+		}
 	}
 	setupAgentCRsManager(stopCh, faasScheduler)
 	registry.GlobalRegistry.SubscribeFuncSpec(faasScheduler.funcSpecCh)
@@ -328,6 +355,14 @@ func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceI
 		logger.Infof("process of instance operation %s target %s cost %dms", insOp, targetName,
 			time.Now().Sub(startTime).Milliseconds())
 	}()
+	// LiteScheduler bypass (session-based). Runs before the legacy switch.
+	if fs.liteScheduler != nil {
+		if liteReq, ok := fs.liteScheduler.ParseRequest(litescheduler.InstanceOperation(insOp),
+			targetName, extraData, traceID); ok {
+			logger.Debugf("lite branch taken: op %s target %s", insOp, targetName)
+			return fs.liteScheduler.Process(liteReq, traceID, traceParent, extraData)
+		}
+	}
 	var response interface{}
 	switch insOp {
 	case insOpCreate:

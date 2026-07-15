@@ -62,7 +62,7 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
                 "message_prefix": "Triggered by GitCode",
                 "buildkite_env": {},
                 "master_tag_path": "/webhook/gitcode/yuanrong-master-tag",
-                "master_tag_pipeline": "yuanrong-master-verify",
+                "master_tag_pipeline": "yuanrong",
                 "master_tag_repository": "https://gitcode.com/openeuler/yuanrong.git",
                 "master_tag_branch": "master",
                 "master_tag_patterns": {"[0-9]*", "v[0-9]*"},
@@ -289,7 +289,7 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(result["version"], "0.8.0")
         self.assertEqual(self.triggered[0]["branch"], "v0.8.0")
         self.assertEqual(self.triggered[0]["commit"], "abcdef1234567890")
-        self.assertEqual(self.triggered[0]["overrides"]["pipeline"], "yuanrong-master-verify")
+        self.assertEqual(self.triggered[0]["overrides"]["pipeline"], "yuanrong")
         self.assertEqual(
             self.triggered[0]["overrides"]["repository"],
             "https://gitcode.com/openeuler/yuanrong.git",

@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -242,10 +243,82 @@ class TestFaaSSchedulerLauncher(TestCase):
             self.launcher.resolver = mock_resolver
             
             self.launcher.patch_init_scheduler_args(src_file, dest_file)
-            
+
             content = dest_file.read_text()
             self.assertIn("TLS", content)
             self.assertIn("/etc/ssl/ca.crt", content)
+
+    def test_patch_init_scheduler_args_with_lite_scheduler(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_file = Path(tmpdir) / "init_scheduler_args.json"
+            dest_file = Path(tmpdir) / "init_scheduler_args.rendered.json"
+
+            src_template = (
+                '{\n'
+                '  "httpServerPort": "{functionSchedulerLeasePort}",\n'
+                '  "liteScheduler": {\n'
+                '    "enable": {liteEnable},\n'
+                '    "enableAllTenants": {liteEnableAllTenants},\n'
+                '    "enabledTenants": {liteEnabledTenants},\n'
+                '    "enabledFunctions": {liteEnabledFunctions},\n'
+                '    "acquireWaitTimeoutMs": {liteAcquireWaitTimeoutMs}\n'
+                '  }\n'
+                '}\n'
+            )
+            src_file.write_text(src_template)
+
+            mock_resolver = Mock()
+            mock_resolver.rendered_config = {
+                "values": {
+                    "etcd": {
+                        "auth_type": "Noauth",
+                        "table_prefix": "",
+                        "auth": {},
+                    },
+                    "fs": {
+                        "tls": {
+                            "enable": "false",
+                            "base_path": "",
+                        }
+                    },
+                    "function_scheduler": {
+                        "lease_port": "8889",
+                    },
+                    "lite_scheduler": {
+                        "enable": True,
+                        "enable_all_tenants": False,
+                        "enabled_tenants": ["t1"],
+                        "enabled_functions": ["f1"],
+                        "acquire_wait_timeout_ms": 3000,
+                    },
+                },
+                "function_proxy": {
+                    "args": {
+                        "etcd_address": "127.0.0.1:2379"
+                    }
+                },
+            }
+            self.launcher.resolver = mock_resolver
+
+            self.launcher.patch_init_scheduler_args(src_file, dest_file)
+
+            self.assertTrue(dest_file.exists())
+            content = dest_file.read_text()
+
+            # —— no residual placeholders ——
+            self.assertNotIn("{liteEnable}", content)
+            self.assertNotIn("{liteEnabledTenants}", content)
+            self.assertNotIn("{functionSchedulerLeasePort}", content)
+
+            # —— rendered JSON is valid & liteScheduler fields correct ——
+            rendered = json.loads(content)
+            self.assertEqual(rendered["httpServerPort"], "8889")
+            lite = rendered["liteScheduler"]
+            self.assertTrue(lite["enable"])
+            self.assertFalse(lite["enableAllTenants"])
+            self.assertEqual(lite["enabledTenants"], ["t1"])
+            self.assertEqual(lite["enabledFunctions"], ["f1"])
+            self.assertEqual(lite["acquireWaitTimeoutMs"], 3000)
 
 
 if __name__ == "__main__":

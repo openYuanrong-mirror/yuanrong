@@ -131,3 +131,27 @@ func Test(t *testing.T) {
 		convey.So(callTime, convey.ShouldEqual, 0)
 	})
 }
+
+func TestCheckHashOwnerEquivalentToCheckFuncOwner(t *testing.T) {
+	convey.Convey("CheckHashOwner returns same result as CheckFuncOwner for same key", t, func() {
+		// 构造一个含 2 个 scheduler 的 proxy
+		sp := NewSchedulerProxy(loadbalance.NewSimpleCHGeneric())
+		sp.Add(&types.InstanceInfo{InstanceID: "s1", InstanceName: "n1"}, "")
+		sp.Add(&types.InstanceInfo{InstanceID: "s2", InstanceName: "n2"}, "")
+		funcKey := "tenant1/funcA/v1"
+		ownerID1, ok1 := sp.CheckFuncOwner(funcKey)
+		ownerID2, ok2 := sp.CheckHashOwner(funcKey)
+		convey.So(ownerID1, convey.ShouldEqual, ownerID2)
+		convey.So(ok1, convey.ShouldEqual, ok2)
+	})
+	convey.Convey("CheckHashOwner different key may hit different owner", t, func() {
+		sp := NewSchedulerProxy(loadbalance.NewSimpleCHGeneric())
+		sp.Add(&types.InstanceInfo{InstanceID: "s1", InstanceName: "n1"}, "")
+		sp.Add(&types.InstanceInfo{InstanceID: "s2", InstanceName: "n2"}, "")
+		// session 维度 key：仅验证不 panic，owned 状态由 ring 决定
+		_, okFunc := sp.CheckHashOwner("tenant1/funcA/v1")
+		_, okSession := sp.CheckHashOwner("tenant1/sessionXYZ")
+		_ = okFunc
+		_ = okSession
+	})
+}

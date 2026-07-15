@@ -63,7 +63,7 @@ function download_third_party_cache() {
 }
 
 function download_cache() {
-    if [ "$IS_MACOS" == "true" ]; then
+    if [[ "$(uname -s)" == "Darwin" ]]; then
         echo "skip runtime_deps cache on macOS"
         return
     fi

@@ -143,6 +143,13 @@ log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_servi
 ssl_enable = false
 client_auth_type = "RequireAndVerifyClientCert"
 
+[values.lite_scheduler]
+enable = false
+enable_all_tenants = false
+enabled_tenants = []
+enabled_functions = []
+acquire_wait_timeout_ms = 3000
+
 [values.dashboard]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/dashboard"
 ip = "{{ values.host_ip }}"
