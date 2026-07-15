@@ -70,7 +70,8 @@ def get_version():
     """get version"""
     version = os.getenv("BUILD_VERSION", None)
     if version is None or len(version) == 0:
-        return open(os.path.join(ROOT_DIR, "../../VERSION")).read().strip()
+        with open(os.path.join(ROOT_DIR, "../../VERSION"), encoding="utf-8") as version_file:
+            return version_file.read().strip()
     return version
 
 
@@ -477,10 +478,42 @@ def copy_file(target, filename, root):
     source = os.path.relpath(filename, root)
     dst = os.path.join(target, source)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if is_same_file_content(filename, dst):
+        return
+    link_or_copy_file(filename, dst)
+
+
+def link_or_copy_file(source, target):
+    """stage a file by hardlinking when possible, falling back to copy."""
+    link_source = os.path.realpath(source) if os.path.islink(source) else source
     try:
-        shutil.copy(filename, dst, follow_symlinks=True)
+        if os.path.exists(target):
+            os.remove(target)
+        os.link(link_source, target, follow_symlinks=True)
+        return
+    except OSError:
+        pass
+    try:
+        shutil.copy(source, target, follow_symlinks=True)
     except Exception as e:
-        print(f"Warning: Failed to copy {filename}: {e}")
+        print(f"Warning: Failed to copy {source}: {e}")
+
+
+def is_same_file_content(source, target):
+    """return whether target already contains the same file payload"""
+    if not os.path.exists(target):
+        return False
+    try:
+        if os.path.samefile(source, target):
+            return True
+    except OSError:
+        pass
+    try:
+        if os.path.getsize(source) != os.path.getsize(target):
+            return False
+        return _md5_file(source) == _md5_file(target)
+    except OSError:
+        return False
 
 
 def copy_file_flat(target, filename):
@@ -489,10 +522,9 @@ def copy_file_flat(target, filename):
         return
     os.makedirs(target, exist_ok=True)
     dst = os.path.join(target, os.path.basename(filename))
-    try:
-        shutil.copy(filename, dst, follow_symlinks=True)
-    except Exception as e:
-        print(f"Warning: Failed to copy {filename}: {e}")
+    if is_same_file_content(filename, dst):
+        return
+    link_or_copy_file(filename, dst)
 
 
 def contains_keyword(text, keywords):
@@ -891,20 +923,23 @@ class BinaryDistribution(setuptools.Distribution):
 
 def strip_wheel_tests(wheel_path):
     """remove yr/tests from built wheel"""
-    temp_fd, temp_path = tempfile.mkstemp(suffix=".whl", dir=os.path.dirname(wheel_path))
-    os.close(temp_fd)
-    try:
-        with zipfile.ZipFile(wheel_path, "r") as src, zipfile.ZipFile(
-            temp_path, "w", compression=zipfile.ZIP_DEFLATED
-        ) as dst:
-            for member in src.infolist():
-                if member.filename.startswith("yr/tests/"):
-                    continue
-                dst.writestr(member, src.read(member.filename))
-        os.replace(temp_path, wheel_path)
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    with zipfile.ZipFile(wheel_path, "r") as src:
+        members = src.infolist()
+        if not any(member.filename.startswith("yr/tests/") for member in members):
+            return
+
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".whl", dir=os.path.dirname(wheel_path))
+        os.close(temp_fd)
+        try:
+            with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst:
+                for member in members:
+                    if member.filename.startswith("yr/tests/"):
+                        continue
+                    dst.writestr(member, src.read(member.filename))
+            os.replace(temp_path, wheel_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
 
 warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)

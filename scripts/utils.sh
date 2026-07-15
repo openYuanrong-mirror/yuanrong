@@ -32,6 +32,24 @@ die() {
     exit 1
 }
 
+create_tar_gz() {
+    local output_file=$1
+    local source_path=$2
+    local compression_threads=${PACKAGE_COMPRESSION_THREADS:-8}
+
+    if command -v pigz >/dev/null 2>&1; then
+        log_info "create ${output_file} with parallel gzip (${compression_threads} threads)"
+        if ! (set -o pipefail; tar -cf - "${source_path}" | pigz -p "${compression_threads}" > "${output_file}"); then
+            rm -f "${output_file}"
+            return 1
+        fi
+        return
+    fi
+
+    log_info "parallel gzip unavailable, create ${output_file} with tar gzip"
+    tar -zcf "${output_file}" "${source_path}"
+}
+
 function make_combined_yuanrong_package() {
     # path to openyuanrong.tar.gz
     PREBUILD_BIN_PATH_YUANRONG=$1
@@ -81,4 +99,3 @@ function make_valid_semver() {
         echo "${VERSION}"
     fi
 }
-
