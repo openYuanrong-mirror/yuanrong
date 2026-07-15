@@ -81,8 +81,8 @@ ds_proto_gen(
 )
 
 ds_proto_gen(
-    name = "hash_ring",
-    proto_src = "src/datasystem/protos/hash_ring.proto",
+    name = "cluster_topology",
+    proto_src = "src/datasystem/protos/cluster_topology.proto",
     extra_proto_deps = [],
 )
 
@@ -146,13 +146,13 @@ ds_proto_cc_library(
 )
 
 ds_proto_cc_library(
-    name = "hash_ring_protos",
-    proto_name = "hash_ring",
+    name = "cluster_topology_protos",
+    proto_name = "cluster_topology",
 )
 
 ds_proto_cc_library(
-    name = "hash_ring_protos_client",
-    proto_name = "hash_ring",
+    name = "cluster_topology_protos_client",
+    proto_name = "cluster_topology",
 )
 
 ds_proto_cc_library(
@@ -235,7 +235,7 @@ cc_library(
         ":utils_protos",
         ":zmq_meta_protos",
         ":rpc_option_protos",
-        ":hash_ring_protos",
+        ":cluster_topology_protos",
         ":meta_transport_protos_client",
         ":p2p_subscribe_protos",
         ":etcdapi_proto",
@@ -394,7 +394,7 @@ ds_proto_cc_library(
     zmq = True,
     deps = [
         ":zmq_meta_protos_client",
-        ":hash_ring_protos_client",
+        ":cluster_topology_protos_client",
         ":meta_transport_protos_client",
         ":utils_protos_client",
         ":rpc_option_protos",
@@ -1187,6 +1187,19 @@ cc_library(
 # --- Level 4: RPC client library ---
 
 cc_library(
+    name = "brpc_factory",
+    srcs = ["src/datasystem/common/rpc/brpc_factory.cpp"],
+    hdrs = ["src/datasystem/common/rpc/brpc_factory.h"],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        "@com_github_apache_brpc//:brpc",
+        ":common_log",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
     name = "common_rpc_zmq_client",
     srcs = [
         "src/datasystem/common/rpc/api_deadline.cpp",
@@ -1235,6 +1248,7 @@ cc_library(
     includes = DATASYSTEM_INCLUDES,
     deps = [
         "@com_github_apache_brpc//:brpc",
+        ":brpc_factory",
         ":ak_sk_signature",
         ":common_inject",
         ":common_log",
@@ -1308,7 +1322,10 @@ cc_library(
         ":common_log",
         ":common_util",
         ":common_shared_memory",
+        ":master_object_brpc",
+        ":object_posix_brpc",
         ":posix_protos_client",
+        ":worker_object_brpc",
         ":zmq_protos_all",
         "@securec//:securec",
         "@ds_tbb//:tbb",
@@ -1316,16 +1333,12 @@ cc_library(
     ],
 )
 
-# --- Level 5: etcd client ---
+# --- Level 5: etcd client and cluster topology ---
 
 cc_library(
-    name = "topology_worker_node_info",
-    srcs = ["src/datasystem/topology/membership/worker_node_info.cpp"],
-    hdrs = [
-        "src/datasystem/topology/membership/membership_types.h",
-        "src/datasystem/topology/membership/worker_node_info.h",
-        "src/datasystem/topology/model/topology_types.h",
-    ],
+    name = "cluster_membership_codec",
+    srcs = ["src/datasystem/cluster/membership/membership_value_codec.cpp"],
+    hdrs = glob(["src/datasystem/cluster/membership/*.h"]),
     copts = DATASYSTEM_COPTS,
     includes = DATASYSTEM_INCLUDES,
     deps = [
@@ -1349,9 +1362,78 @@ cc_library(
         ":common_encrypt_client",
         ":coordinator_protos",
         ":etcdapi_proto",
-        ":topology_worker_node_info",
+        ":cluster_membership_codec",
         "@com_github_grpc_grpc//:grpc++",
         "@ds_tbb//:tbb",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
+    name = "cluster_topology_keyspace",
+    srcs = ["src/datasystem/cluster/repository/topology_key_helper.cpp"],
+    hdrs = ["src/datasystem/cluster/repository/topology_key_helper.h"],
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":common_log",
+        ":common_util",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
+    name = "cluster_coordination_backend",
+    srcs = glob(["src/datasystem/cluster/coordination_backend/*.cpp"]),
+    hdrs = glob(["src/datasystem/cluster/coordination_backend/*.h"]),
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":cluster_membership_codec",
+        ":common_coordinator_store",
+        ":common_etcd_client",
+        ":common_util",
+        ":coordinator_protos",
+        ":datasystem_hdrs",
+    ],
+)
+
+cc_library(
+    name = "cluster_topology",
+    srcs = [
+        "src/datasystem/cluster/algorithm/algorithm_catalog.cpp",
+        "src/datasystem/cluster/algorithm/hash_algorithm.cpp",
+        "src/datasystem/cluster/control/topology_controller.cpp",
+        "src/datasystem/cluster/control/topology_failure_classifier.cpp",
+        "src/datasystem/cluster/control/topology_plan_builder.cpp",
+        "src/datasystem/cluster/control/topology_task_materializer.cpp",
+        "src/datasystem/cluster/control/topology_task_janitor.cpp",
+        "src/datasystem/cluster/executor/hash_key_filter.cpp",
+        "src/datasystem/cluster/executor/storage_scan_plan.cpp",
+        "src/datasystem/cluster/executor/topology_task_executor.cpp",
+        "src/datasystem/cluster/membership/membership_endpoint_view.cpp",
+        "src/datasystem/cluster/model/topology_snapshot.cpp",
+        "src/datasystem/cluster/repository/topology_repository.cpp",
+        "src/datasystem/cluster/repository/topology_repository_codec.cpp",
+        "src/datasystem/cluster/routing/placement_facade.cpp",
+        "src/datasystem/cluster/runtime/coordination_event_dispatcher.cpp",
+        "src/datasystem/cluster/runtime/topology_engine.cpp",
+        "src/datasystem/cluster/runtime/topology_observer.cpp",
+        "src/datasystem/cluster/runtime/topology_reader.cpp",
+        "src/datasystem/cluster/runtime/topology_role_watch_plan.cpp",
+        "src/datasystem/cluster/runtime/topology_snapshot_state.cpp",
+    ],
+    hdrs = glob(["src/datasystem/cluster/**/*.h"]),
+    copts = DATASYSTEM_COPTS,
+    includes = DATASYSTEM_INCLUDES,
+    deps = [
+        ":ak_sk_signature",
+        ":cluster_coordination_backend",
+        ":cluster_membership_codec",
+        ":cluster_topology_keyspace",
+        ":cluster_topology_protos_client",
+        ":common_log",
+        ":common_util",
         ":datasystem_hdrs",
     ],
 )
@@ -1382,7 +1464,11 @@ cc_library(
     name = "datasystem_client_lib",
     srcs = glob(
         ["src/datasystem/client/*.cpp", "src/datasystem/client/**/*.cpp"],
-        exclude = ["src/datasystem/client/mmap/*.cpp", "src/datasystem/client/perf_client/*.cpp"],
+        exclude = [
+            "src/datasystem/client/mmap/*.cpp",
+            "src/datasystem/client/perf_client/*.cpp",
+            "src/datasystem/client/transport/rpc/client_request_auth.cpp",
+        ],
     ),
     hdrs = glob(
         ["src/datasystem/client/*.h", "src/datasystem/client/**/*.h"],
@@ -1397,6 +1483,7 @@ cc_library(
         "@nlohmann_json//:nlohmann_json",
         ":token",
         ":ak_sk_signature",
+        ":brpc_factory",
         ":common_buffer",
         ":common_event_loop",
         ":common_inject",
@@ -1425,7 +1512,10 @@ cc_library(
         ":object_posix_brpc",
         ":share_memory_brpc",
         ":stream_posix_brpc",
-        ":topology_worker_node_info",
+        ":cluster_membership_codec",
+        ":cluster_topology",
+        ":cluster_topology_keyspace",
+        ":cluster_topology_protos_client",
         ":zmq_protos_all",
         ":datasystem_hdrs",
     ],
@@ -1448,7 +1538,8 @@ cc_library(
     deps = [
         ":common_etcd_client",
         ":common_util",
-        ":hash_ring_protos_client",
+        ":cluster_topology",
+        ":cluster_topology_protos_client",
         ":etcdapi_proto",
         ":datasystem_hdrs",
     ],
