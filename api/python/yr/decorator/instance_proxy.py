@@ -43,6 +43,37 @@ from yr.serialization import Serialization
 
 _logger = logging.getLogger(__name__)
 
+# Global named locks for get_if_exists atomicity.
+# Key: "namespace-name", Value: a tuple of (Lock, refcount_lock, refcount).
+# This prevents the TOCTOU race where multiple threads concurrently check-then-create
+# the same named actor.
+_named_instance_locks: dict = {}
+_named_instance_locks_guard = threading.Lock()
+
+
+def _get_named_instance_lock(name: str, namespace: str) -> threading.Lock:
+    """Get or create a named lock for the given instance name+namespace."""
+    key = f"{namespace or ''}-{name}"
+    with _named_instance_locks_guard:
+        entry = _named_instance_locks.get(key)
+        if entry is None:
+            entry = [threading.Lock(), 1]  # [lock, refcount]
+            _named_instance_locks[key] = entry
+        else:
+            entry[1] += 1
+        return entry[0]
+
+
+def _release_named_instance_lock(name: str, namespace: str):
+    """Release reference to a named lock, cleaning up when refcount reaches 0."""
+    key = f"{namespace or ''}-{name}"
+    with _named_instance_locks_guard:
+        entry = _named_instance_locks.get(key)
+        if entry is not None:
+            entry[1] -= 1
+            if entry[1] <= 0:
+                del _named_instance_locks[key]
+
 
 def _resolve_need_order(invoke_options: InvokeOptions, is_async: bool) -> bool:
     if invoke_options.concurrency not in (None, 1):
@@ -398,19 +429,38 @@ class InstanceCreator:
             invoke_options = self.__invoke_options__
         invoke_options = ConfigManager().override_bypass_datasystem(invoke_options)
         if invoke_options.idle_timeout >= 0:
-            # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it 
+            # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it
             invoke_options.custom_extensions["idle_timeout"] = str(invoke_options.idle_timeout)
         invoke_options.check_options_valid()
         if invoke_options.get_if_exists:
             if invoke_options.name is None or len(invoke_options.name) == 0:
                 raise ValueError("The actor name must be specified to use `get_if_exists`.")
+            # Hold a per-name lock so that "check-then-create" is atomic across threads.
+            # Without this, multiple threads can all see "not found" and race to create
+            # the same named instance, causing stale-connection conflicts in function_proxy.
+            named_lock = _get_named_instance_lock(
+                invoke_options.name,
+                "" if invoke_options.namespace is None else invoke_options.namespace)
             try:
-                return get_instance_by_name(invoke_options.name,
-                                            "" if invoke_options.namespace is None else invoke_options.namespace, 60)
-            except Exception as e:
-                _logger.warning("can not get instance of id: %s, err is : %s",
-                             invoke_options.name, e)
-                pass
+                with named_lock:
+                    try:
+                        return get_instance_by_name(
+                            invoke_options.name,
+                            "" if invoke_options.namespace is None else invoke_options.namespace, 60)
+                    except Exception as e:
+                        _logger.warning("can not get instance of id: %s, err is : %s",
+                                        invoke_options.name, e)
+                    # Instance not found — proceed to create it while still holding the lock,
+                    # so other concurrent threads waiting on the same name will see it after.
+                    return self._create_instance_inner(name, args, kwargs, invoke_options)
+            finally:
+                _release_named_instance_lock(
+                    invoke_options.name,
+                    "" if invoke_options.namespace is None else invoke_options.namespace)
+        return self._create_instance_inner(name, args, kwargs, invoke_options)
+
+    def _create_instance_inner(self, name, args, kwargs, invoke_options):
+        """Serialize code, package args, create the instance, and return an InstanceProxy."""
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         skip_serialize = getattr(invoke_options, "skip_serialize", False)
         code_missing = self._code_ref is None
