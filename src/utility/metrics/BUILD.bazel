@@ -135,10 +135,22 @@ cc_library(
 
 # Exporter - Prometheus Push (using system libraries for now)
 cc_library(
+    name = "prometheus_text_serializer",
+    srcs = ["exporters/prometheus_push_exporter/prometheus_text_serializer.cpp"],
+    hdrs = ["include/metrics/exporters/prometheus_push_exporter/prometheus_text_serializer.h"],
+    copts = COPTS,
+    visibility = ["//visibility:public"],
+    deps = [":metrics_core"],
+)
+
+cc_library(
     name = "prometheus_push_exporter",
     srcs = glob(
         ["exporters/prometheus_push_exporter/*.cpp"],
-        exclude = ["exporters/prometheus_push_exporter/factory_impl.cpp"],
+        exclude = [
+            "exporters/prometheus_push_exporter/factory_impl.cpp",
+            "exporters/prometheus_push_exporter/prometheus_text_serializer.cpp",
+        ],
     ),
     hdrs = glob([
         "include/metrics/exporters/prometheus_push_exporter/*.h",
@@ -153,8 +165,34 @@ cc_library(
         ":metrics_common",
         ":exporter_common",
         ":http_exporter",
+        ":prometheus_text_serializer",
         "@boringssl//:ssl",
         "@nlohmann_json//:nlohmann_json",
+    ],
+)
+
+# Exporter - Prometheus Pull
+cc_library(
+    name = "prometheus_pull_exporter",
+    srcs = glob(
+        ["exporters/prometheus_pull_exporter/*.cpp"],
+        exclude = ["exporters/prometheus_pull_exporter/factory_impl.cpp"],
+    ),
+    hdrs = glob([
+        "include/metrics/exporters/prometheus_pull_exporter/*.h",
+    ]),
+    copts = COPTS,
+    linkopts = LOPTS + ["-lpthread"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":exporter_common",
+        ":metrics_common",
+        ":metrics_core",
+        ":prometheus_text_serializer",
+        "//src/utility:yr_utils",
+        "@boringssl//:ssl",
+        "@nlohmann_json//:nlohmann_json",
+        "@securec",
     ],
 )
 
@@ -180,12 +218,22 @@ cc_binary(
     deps = [":prometheus_push_exporter"],
 )
 
+cc_binary(
+    name = "libobservability-prometheus-pull-exporter.so",
+    srcs = ["exporters/prometheus_pull_exporter/factory_impl.cpp"],
+    linkshared = True,
+    copts = COPTS + ["-fPIC"],
+    visibility = ["//visibility:public"],
+    deps = [":prometheus_pull_exporter"],
+)
+
 filegroup(
     name = "shared_exporters",
     srcs = select({
         "//:disable_observability": [],
         "//conditions:default": [
             ":libobservability-metrics-file-exporter.so",
+            ":libobservability-prometheus-pull-exporter.so",
             ":libobservability-prometheus-push-exporter.so",
         ],
     }),
@@ -200,6 +248,7 @@ cc_library(
         ":ostream_exporter",
         ":file_exporter",
         ":http_exporter",
+        ":prometheus_pull_exporter",
         ":prometheus_push_exporter",
     ],
 )

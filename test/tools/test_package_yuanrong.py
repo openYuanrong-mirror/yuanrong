@@ -3,6 +3,7 @@
 
 """Regression tests for package_yuanrong.sh layout contracts."""
 
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ import zipfile
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PACKAGE_SCRIPT = REPO_ROOT / "scripts" / "package_yuanrong.sh"
+BUILD_SCRIPT = REPO_ROOT / "build.sh"
 PREPARE_ST_SCRIPT = REPO_ROOT / "test" / "st" / "prepare_and_start_yr.sh"
 ST_TEST_SCRIPT = REPO_ROOT / "test" / "st" / "test.sh"
 PYTHON_SETUP = REPO_ROOT / "api" / "python" / "setup.py"
@@ -20,6 +22,7 @@ CPP_BUILD = REPO_ROOT / "api" / "cpp" / "BUILD.bazel"
 ROOT_BUILD = REPO_ROOT / "build.sh"
 SANDBOX_RELEASE_SCRIPT = REPO_ROOT / ".buildkite" / "package_sandbox_release.sh"
 CLI_VALUES = REPO_ROOT / "api" / "python" / "yr" / "cli" / "values.toml"
+SCRIPT_UTILS = REPO_ROOT / "scripts" / "utils.sh"
 
 
 def load_package_function_definitions():
@@ -30,6 +33,119 @@ def load_package_function_definitions():
 
 
 class PackageYuanrongLayoutTest(unittest.TestCase):
+    def test_release_archive_uses_parallel_gzip_with_compatible_fallback(self):
+        """Final release archives should preserve layout with or without parallel gzip."""
+        package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+        utils_script = SCRIPT_UTILS.read_text(encoding="utf-8")
+
+        self.assertIn("create_tar_gz", utils_script)
+        self.assertIn(
+            'create_tar_gz "openyuanrong-${BUILD_VERSION}.tar.gz" openyuanrong',
+            package_script,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            source_dir = temp_path / "openyuanrong"
+            source_dir.mkdir()
+            executable = source_dir / "bin"
+            executable.write_text("release-binary", encoding="utf-8")
+            executable.chmod(0o750)
+            (source_dir / "binary-link").symlink_to("bin")
+            os.link(executable, source_dir / "binary-hardlink")
+
+            fake_bin = temp_path / "fake-bin"
+            fake_bin.mkdir()
+            invocation_log = temp_path / "parallel-gzip.log"
+            fake_pigz = fake_bin / "pigz"
+            fake_pigz.write_text(
+                "#!/bin/bash\nprintf '%s\\n' \"$*\" > \"$PARALLEL_GZIP_LOG\"\nexec gzip\n",
+                encoding="utf-8",
+            )
+            fake_pigz.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:/usr/bin:/bin",
+                    "PACKAGE_COMPRESSION_THREADS": "3",
+                    "PARALLEL_GZIP_LOG": str(invocation_log),
+                }
+            )
+            parallel_archive = temp_path / "parallel.tar.gz"
+            subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'source "{SCRIPT_UTILS}"; cd "{temp_path}"; '
+                    f'create_tar_gz "{parallel_archive}" openyuanrong',
+                ],
+                check=True,
+                env=env,
+            )
+            self.assertEqual(invocation_log.read_text(encoding="utf-8").strip(), "-p 3")
+
+            fallback_archive = temp_path / "fallback.tar.gz"
+            fallback_env = os.environ.copy()
+            fallback_env["PATH"] = "/usr/bin:/bin"
+            subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'source "{SCRIPT_UTILS}"; cd "{temp_path}"; '
+                    f'create_tar_gz "{fallback_archive}" openyuanrong',
+                ],
+                check=True,
+                env=fallback_env,
+            )
+
+            for archive_name in (parallel_archive, fallback_archive):
+                extract_dir = temp_path / f"extract-{archive_name.stem}"
+                extract_dir.mkdir()
+                subprocess.run(
+                    ["tar", "-xzf", str(archive_name), "-C", str(extract_dir)],
+                    check=True,
+                )
+                extracted = extract_dir / "openyuanrong"
+                self.assertEqual((extracted / "bin").read_text(encoding="utf-8"), "release-binary")
+                self.assertEqual((extracted / "bin").stat().st_mode & 0o777, 0o750)
+                self.assertEqual(os.readlink(extracted / "binary-link"), "bin")
+                self.assertEqual(
+                    (extracted / "bin").stat().st_ino,
+                    (extracted / "binary-hardlink").stat().st_ino,
+                )
+
+    def test_package_io_diagnostics_cover_unexplained_build_phases(self):
+        """Packaging diagnostics must split SDK assembly, runtime tar, and tree finalization."""
+        build_script = BUILD_SCRIPT.read_text(encoding="utf-8")
+        package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+
+        for label in (
+            "bazel-build",
+            "python-sdk-pip-bootstrap",
+            "python-sdk-wheel-build",
+            "python-sdk-wheel-publish",
+            "python-runtime-service-assembly",
+            "python-runtime-abi-extensions",
+            "python-java-runtime-launchers",
+            "python-sdk-assembly-total",
+            "runtime-tar",
+        ):
+            self.assertIn(f"[PACKAGE_TIMER] {label}", build_script)
+
+        for label in (
+            "runtime-native-restore",
+            "java-sdk-native-jar-refresh",
+            "package-permission-normalization",
+            "package-layout-finalization",
+            "openyuanrong-tree",
+        ):
+            self.assertIn(f"[PACKAGE_TIMER] {label}", package_script)
+
+        self.assertIn("[PACKAGE_SIZE] openyuanrong-tree", package_script)
+        self.assertNotIn("pigz", build_script)
+        self.assertNotIn("pigz", package_script)
+
     def test_cpp_sdk_package_creates_openssl_linker_symlinks(self):
         """C++ SDK packaging must expose linker names when versioned OpenSSL libs exist."""
         cpp_build = CPP_BUILD.read_text(encoding="utf-8")
@@ -122,11 +238,12 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
             python_setup,
         )
 
-    def test_build_stages_python_runtime_metrics_exporters(self):
-        """Runtime staging must collect exporters from SDK and functionsystem outputs."""
+    def test_build_stages_python_runtime_abi_extensions(self):
+        """Runtime staging must collect ABI extensions from SDK and component outputs."""
         build_script = ROOT_BUILD.read_text(encoding="utf-8")
 
-        self.assertIn("function package_python_runtime_metrics_exporters()", build_script)
+        self.assertIn("function package_python_runtime_abi_extensions()", build_script)
+        self.assertIn("'yr/fnruntime*.so'", build_script)
         self.assertIn("'yr/cpp/lib/libobservability-*-exporter.so'", build_script)
         self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_script)
         for exporter in (
@@ -136,7 +253,7 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
         ):
             self.assertIn(exporter, build_script)
         self.assertIn(
-            'package_python_runtime_metrics_exporters "$OUTPUT_BASE/runtime/service/python"',
+            'package_python_runtime_abi_extensions "$OUTPUT_BASE/runtime/service/python"',
             build_script,
         )
 

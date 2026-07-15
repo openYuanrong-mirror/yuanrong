@@ -144,39 +144,67 @@ function pip_flags_for_python() {
 	fi
 }
 
-function package_python_runtime_metrics_exporters() {
-	local service_python_dir=$1
-	local wheel
-	local member
-	local exporter
-	local metrics_lib_dir
-	local target_file
+function package_python_runtime_abi_extensions() {
+    local service_python_dir=$1
+    local wheel
+    local member
+    local pattern
+    local exporter
+    local metrics_lib_dir
+    local target_file
 
-	mkdir -p "${service_python_dir}/yr"
-	for wheel in "${OUTPUT_BASE}"/runtime/sdk/python/openyuanrong_sdk-*.whl; do
-		[ -f "${wheel}" ] || continue
-		while read -r member; do
-			[ -n "${member}" ] || continue
-			target_file="${service_python_dir}/yr/$(basename "${member}")"
-			unzip -p "${wheel}" "${member}" > "${target_file}"
-			chmod 550 "${target_file}"
-		done < <(unzip -Z1 "${wheel}" 'yr/cpp/lib/libobservability-*-exporter.so' 2>/dev/null || true)
-	done
+    for wheel in "${OUTPUT_BASE}"/runtime/sdk/python/openyuanrong_sdk-*.whl; do
+        [ -f "${wheel}" ] || continue
+        for pattern in 'yr/fnruntime*.so' 'yr/cpp/lib/libobservability-*-exporter.so'; do
+            while read -r member; do
+                [ -n "${member}" ] || continue
+                target_file="${service_python_dir}/yr/$(basename "${member}")"
+                rm -f "${target_file}"
+                unzip -p "${wheel}" "${member}" > "${target_file}"
+                if [[ "$(uname)" != "Darwin" ]]; then
+                    chrpath -r '$ORIGIN' "${target_file}" 2>/dev/null || true
+                fi
+                chmod 550 "${target_file}"
+            done < <(unzip -Z1 "${wheel}" "${pattern}" 2>/dev/null || true)
+        done
+    done
 
-	for exporter in \
-		libobservability-metrics-file-exporter.so \
-		libobservability-prometheus-push-exporter.so \
-		libobservability-prometheus-pull-exporter.so; do
-		target_file="${service_python_dir}/yr/${exporter}"
-		[ -f "${target_file}" ] && continue
-		for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
-			if [ -f "${metrics_lib_dir}/${exporter}" ]; then
-				cp -f "${metrics_lib_dir}/${exporter}" "${target_file}"
-				chmod 550 "${target_file}"
-				break
-			fi
-		done
-	done
+    for exporter in \
+        libobservability-metrics-file-exporter.so \
+        libobservability-prometheus-push-exporter.so \
+        libobservability-prometheus-pull-exporter.so \
+        libobservability-aom-alarm-exporter.so; do
+        target_file="${service_python_dir}/yr/${exporter}"
+        [ -f "${target_file}" ] && continue
+        for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
+            if [ -f "${metrics_lib_dir}/${exporter}" ]; then
+                cp -f "${metrics_lib_dir}/${exporter}" "${target_file}"
+                chmod 550 "${target_file}"
+                break
+            fi
+        done
+    done
+}
+
+function package_java_runtime_launchers() {
+    local java_bin_dir="${OUTPUT_BASE}/runtime/service/java/bin"
+
+    mkdir -p "${java_bin_dir}"
+    cat > "${java_bin_dir}/java1.8" <<'EOF'
+#!/usr/bin/env bash
+set -e
+
+if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+    exec "${JAVA_HOME}/bin/java" "$@"
+fi
+
+if [ -x /opt/buildtools/jdk8/bin/java ]; then
+    exec /opt/buildtools/jdk8/bin/java "$@"
+fi
+
+exec java "$@"
+EOF
+    chmod 550 "${java_bin_dir}/java1.8"
 }
 
 MODULE_LIST=(
@@ -256,39 +284,80 @@ function run_python_coverage_report() {
 }
 
 function build_python_sdk() {
-	if [ "${BAZEL_COMMAND}" != "build" ]; then
-		return
-	fi
-	API_DIR="$BASE_DIR/api"
-	cd $API_DIR/python
-	rm -rf build/ dist/ *.egg-info
-	# Ensure packaging is available (setup.py requires it)
-	local pip_flag
-	pip_flag="$(pip_flags_for_python "${PYTHON3_SDK_BIN_PATH}")"
-	"${PYTHON3_SDK_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -q packaging wheel
-	# Determine python runtime version for services.yaml
-	if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
-		PYTHON_RUNTIME_VERSION=python3.11
-	else
-		PYTHON_RUNTIME_VERSION=$PYTHON3_BIN_PATH
-	fi
-	mkdir -p ${OUTPUT_DIR}
-	mkdir -p $OUTPUT_BASE/runtime/sdk/python/
-	SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-	cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-	cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
-	chmod 750 $BASE_DIR/output/*.whl
-	if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
-		cp -Rf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
-		rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
-	else
-		mkdir -p $OUTPUT_BASE/runtime/service/python/yr
-		cp -R $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
-		rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
-	fi
-	rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
-	rm -rf $OUTPUT_BASE/runtime/service/python/yr/runtime
-	package_python_runtime_metrics_exporters "$OUTPUT_BASE/runtime/service/python"
+    if  [ "${BAZEL_COMMAND}" != "build" ];then
+        return
+    fi
+    API_DIR="$BASE_DIR/api"
+    cd $API_DIR/python
+    local package_total_start
+    package_total_start=$(date +%s)
+    rm -rf build/ dist/ *.egg-info
+    # Ensure packaging is available (setup.py requires it)
+    local pip_flag
+    local package_timer_start
+    pip_flag="$(pip_flags_for_python "${PYTHON3_SDK_BIN_PATH}")"
+    package_timer_start=$(date +%s)
+    "${PYTHON3_SDK_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -q packaging wheel cloudpickle==3.1.2
+    echo "[PACKAGE_TIMER] python-sdk-pip-bootstrap python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    # Determine python runtime version for services.yaml
+    if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
+        PYTHON_RUNTIME_VERSION=python3.11
+    else
+        PYTHON_RUNTIME_VERSION=$PYTHON3_BIN_PATH
+    fi
+    mkdir -p ${OUTPUT_DIR}
+    mkdir -p $OUTPUT_BASE/runtime/sdk/python/
+    local py_ext_suffix
+    py_ext_suffix="$("${PYTHON3_BIN_PATH}" - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("EXT_SUFFIX") or ".so")
+PY
+)"
+    local bazel_fnruntime="$BASE_DIR/bazel-bin/api/python/yr/fnruntime.so"
+    if [ -f "$bazel_fnruntime" ]; then
+        rm -f "$API_DIR/python/yr"/fnruntime*.so
+        cp -L "$bazel_fnruntime" "$API_DIR/python/yr/fnruntime${py_ext_suffix}"
+        if [[ "$(uname)" != "Darwin" ]]; then
+            chrpath -r '$ORIGIN' "$API_DIR/python/yr/fnruntime${py_ext_suffix}" 2>/dev/null || true
+        fi
+        chmod 550 "$API_DIR/python/yr/fnruntime${py_ext_suffix}"
+    fi
+    package_timer_start=$(date +%s)
+    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    echo "[PACKAGE_TIMER] python-sdk-wheel-build python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
+    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+    cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
+    chmod 750 $BASE_DIR/output/*.whl
+    echo "[PACKAGE_TIMER] python-sdk-wheel-publish python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
+    rm -f "$OUTPUT_BASE/runtime/service/python/yr"/fnruntime*.so
+    if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
+        cp -Rf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
+        rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
+    else
+        mkdir -p $OUTPUT_BASE/runtime/service/python/yr
+        cp -R $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
+        rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
+    fi
+    rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
+    rm -rf $OUTPUT_BASE/runtime/service/python/yr/runtime
+    if [ -f "$bazel_fnruntime" ]; then
+        rm -f "$OUTPUT_BASE/runtime/service/python/yr"/fnruntime*.so
+        cp -L "$bazel_fnruntime" "$OUTPUT_BASE/runtime/service/python/yr/fnruntime${py_ext_suffix}"
+        if [[ "$(uname)" != "Darwin" ]]; then
+            chrpath -r '$ORIGIN' "$OUTPUT_BASE/runtime/service/python/yr/fnruntime${py_ext_suffix}" 2>/dev/null || true
+        fi
+        chmod 550 "$OUTPUT_BASE/runtime/service/python/yr/fnruntime${py_ext_suffix}"
+    fi
+    echo "[PACKAGE_TIMER] python-runtime-service-assembly python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
+    package_python_runtime_abi_extensions "$OUTPUT_BASE/runtime/service/python"
+    echo "[PACKAGE_TIMER] python-runtime-abi-extensions python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
+    package_java_runtime_launchers
+    echo "[PACKAGE_TIMER] python-java-runtime-launchers python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    echo "[PACKAGE_TIMER] python-sdk-assembly-total python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_total_start))s"
 }
 
 function install_python_requirements() {
@@ -505,7 +574,9 @@ fi
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR
+package_timer_start=$(date +%s)
 bazel ${BAZEL_PRE_OPTIONS} ${BAZEL_COMMAND} ${BAZEL_OPTIONS} -- ${BAZEL_TARGETS}
+echo "[PACKAGE_TIMER] bazel-build python=${PYTHON3_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
 
 PYTHON3_SDK_BIN_PATH=$PYTHON3_BIN_PATH
 build_python_sdk
@@ -531,22 +602,33 @@ if [ "$BAZEL_COMMAND" == "clean" ]; then
 fi
 
 if [ "$BAZEL_COMMAND" == "build" ]; then
-	mkdir -p ${OUTPUT_DIR}
-	tar -czf ${OUTPUT_DIR}/yr-runtime-${BUILD_VERSION}.tar.gz -C ${OUTPUT_BASE} runtime
-	if [ -d "${OUTPUT_BASE}/symbols" ] && [ "$(ls -A ${OUTPUT_BASE}/symbols 2>/dev/null)" ]; then
-		tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
-	fi
+    mkdir -p ${OUTPUT_DIR}
+    runtime_tree_kib=$(du -sk "${OUTPUT_BASE}/runtime" | awk '{print $1}')
+    echo "[PACKAGE_SIZE] runtime-tree python=${PYTHON3_BIN_PATH} kib=${runtime_tree_kib}"
+    package_timer_start=$(date +%s)
+    tar -czf ${OUTPUT_DIR}/yr-runtime-${BUILD_VERSION}.tar.gz -C ${OUTPUT_BASE} runtime
+    echo "[PACKAGE_TIMER] runtime-tar python=${PYTHON3_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    if [ -d "${OUTPUT_BASE}/symbols" ] && [ "$(ls -A ${OUTPUT_BASE}/symbols 2>/dev/null)" ]; then
+        tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
+    fi
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then
-	start=$(date +%s)
-	bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
-	cd "$BASE_DIR"/api/python
-	rm -rf build/ dist/ *.egg-info
-	SETUP_TYPE= PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-	cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-	end=$(date +%s)
-	echo "Package openyuanrong.whl elapsed: $((end - start)) seconds"
-	chmod 750 $BASE_DIR/output/*.whl
+    if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
+        PACKAGE_PYTHON_VERSION=python3.11
+    else
+        PACKAGE_PYTHON_VERSION=$PYTHON3_BIN_PATH
+    fi
+
+    start=$(date +%s)
+    bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
+    end1=$(date +%s)
+    echo "Package openyuanrong.tar.gz elapsed: $((end1 - start)) seconds"
+
+    bash "$BASE_DIR/scripts/package_python_wheels.sh" \
+        "$API_DIR" "$BASE_DIR/output" "$PYTHON3_SDK_BIN_PATH" "$PACKAGE_PYTHON_VERSION"
+    end2=$(date +%s)
+    echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"
+    chmod 750 $BASE_DIR/output/*.whl
 fi
 cd -
