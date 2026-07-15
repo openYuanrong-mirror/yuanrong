@@ -91,6 +91,7 @@ type Configuration struct {
 	MetricsHTTPSEnable           bool                             `json:"metricsHttpsEnable" valid:"optional"`
 	PprofAddr                    string                           `json:"pprofAddr" valid:"optional"`
 	SchedulerDiscovery           *SchedulerDiscovery              `json:"schedulerDiscovery" valid:"optional"`
+	LiteScheduler                LiteSchedulerConfig              `json:"liteScheduler" valid:"optional"`
 	EnableSessionRecover         bool                             `json:"enableSessionRecover" valid:"optional"`
 	DataSystemConfig             DataSystemConfig                 `json:"dataSystemConfig" valid:"optional"`
 	CustomContainerEnv           map[string]string                `json:"customContainerEnv" valid:"optional"`
@@ -707,4 +708,13 @@ func (i *IntOrString) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return fmt.Errorf("expected int or string, but got %s", data)
+}
+
+// LiteSchedulerConfig - config for LiteScheduler (session-based lightweight branch)
+type LiteSchedulerConfig struct {
+	Enable               bool     `json:"enable"`
+	EnableAllTenants     bool     `json:"enableAllTenants"`
+	EnabledTenants       []string `json:"enabledTenants" valid:"optional"`
+	EnabledFunctions     []string `json:"enabledFunctions" valid:"optional"`
+	AcquireWaitTimeoutMs int      `json:"acquireWaitTimeoutMs" valid:"optional"`
 }

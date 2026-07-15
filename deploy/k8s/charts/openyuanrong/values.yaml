@@ -90,6 +90,19 @@ global:
       requests:
         cpu: "500m"
         memory: "500Mi"
+  # LiteScheduler: lightweight per-function scheduling layer on top of the
+  # existing function scheduler. Disabled by default; opt-in per tenant /
+  # function. See docs/superpowers/specs/2026-07-13-litescheduler-design.md.
+  # NOTE: this is application configuration (parallel to global.resources),
+  # not a K8s resource declaration. Override via spec §11.4 path:
+  #   --set global.functionScheduler.liteScheduler.enable=true
+  functionScheduler:
+    liteScheduler:
+      enable: false
+      enableAllTenants: false
+      enabledTenants: []
+      enabledFunctions: []
+      acquireWaitTimeoutMs: 3000
   # component port
   port:
     iamAdapterHttpPort: 31218
