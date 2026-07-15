@@ -272,11 +272,16 @@ function build_python_sdk() {
     fi
     API_DIR="$BASE_DIR/api"
     cd $API_DIR/python
+    local package_total_start
+    package_total_start=$(date +%s)
     rm -rf build/ dist/ *.egg-info
     # Ensure packaging is available (setup.py requires it)
     local pip_flag
+    local package_timer_start
     pip_flag="$(pip_flags_for_python "${PYTHON3_SDK_BIN_PATH}")"
+    package_timer_start=$(date +%s)
     "${PYTHON3_SDK_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -q packaging wheel cloudpickle==3.1.2
+    echo "[PACKAGE_TIMER] python-sdk-pip-bootstrap python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
     # Determine python runtime version for services.yaml
     if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
         PYTHON_RUNTIME_VERSION=python3.11
@@ -300,10 +305,15 @@ PY
         fi
         chmod 550 "$API_DIR/python/yr/fnruntime${py_ext_suffix}"
     fi
+    package_timer_start=$(date +%s)
     SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    echo "[PACKAGE_TIMER] python-sdk-wheel-build python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
     cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
     cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
     chmod 750 $BASE_DIR/output/*.whl
+    echo "[PACKAGE_TIMER] python-sdk-wheel-publish python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
     rm -f "$OUTPUT_BASE/runtime/service/python/yr"/fnruntime*.so
     if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
         cp -Rf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
@@ -323,8 +333,14 @@ PY
         fi
         chmod 550 "$OUTPUT_BASE/runtime/service/python/yr/fnruntime${py_ext_suffix}"
     fi
+    echo "[PACKAGE_TIMER] python-runtime-service-assembly python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
     package_python_runtime_abi_extensions "$OUTPUT_BASE/runtime/service/python"
+    echo "[PACKAGE_TIMER] python-runtime-abi-extensions python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    package_timer_start=$(date +%s)
     package_java_runtime_launchers
+    echo "[PACKAGE_TIMER] python-java-runtime-launchers python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    echo "[PACKAGE_TIMER] python-sdk-assembly-total python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_total_start))s"
 }
 
 function install_python_requirements() {
@@ -539,7 +555,9 @@ fi
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR
+package_timer_start=$(date +%s)
 bazel ${BAZEL_PRE_OPTIONS} ${BAZEL_COMMAND} ${BAZEL_OPTIONS} -- ${BAZEL_TARGETS}
+echo "[PACKAGE_TIMER] bazel-build python=${PYTHON3_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
 
 PYTHON3_SDK_BIN_PATH=$PYTHON3_BIN_PATH
 build_python_sdk
@@ -565,7 +583,11 @@ fi
 
 if [ "$BAZEL_COMMAND" == "build" ]; then
     mkdir -p ${OUTPUT_DIR}
+    runtime_tree_kib=$(du -sk "${OUTPUT_BASE}/runtime" | awk '{print $1}')
+    echo "[PACKAGE_SIZE] runtime-tree python=${PYTHON3_BIN_PATH} kib=${runtime_tree_kib}"
+    package_timer_start=$(date +%s)
     tar -czf ${OUTPUT_DIR}/yr-runtime-${BUILD_VERSION}.tar.gz -C ${OUTPUT_BASE} runtime
+    echo "[PACKAGE_TIMER] runtime-tar python=${PYTHON3_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
     if [ -d "${OUTPUT_BASE}/symbols" ] && [ "$(ls -A ${OUTPUT_BASE}/symbols 2>/dev/null)" ]; then
         tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
     fi
@@ -583,25 +605,8 @@ if [ "$PACKAGE_ALL" == "true" ]; then
     end1=$(date +%s)
     echo "Package openyuanrong.tar.gz elapsed: $((end1 - start)) seconds"
 
-    cd "$BASE_DIR"/api/python
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE= PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=dashboard PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=faas PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=sdk_cpp PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=runtime PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=full PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+    bash "$BASE_DIR/scripts/package_python_wheels.sh" \
+        "$API_DIR" "$BASE_DIR/output" "$PYTHON3_SDK_BIN_PATH" "$PACKAGE_PYTHON_VERSION"
     end2=$(date +%s)
     echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"
     chmod 750 $BASE_DIR/output/*.whl

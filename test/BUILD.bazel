@@ -28,6 +28,27 @@ genrule(
     cmd = "cp $< $@",
 )
 
+genrule(
+    name = "metrics_prometheus_pull_exporter_so_in_test_dir",
+    srcs = ["//src/utility/metrics:libobservability-prometheus-pull-exporter.so"],
+    outs = ["libobservability-prometheus-pull-exporter.so"],
+    cmd = "cp $< $@",
+)
+
+cc_test(
+    name = "prometheus_pull_exporter_test",
+    size = "medium",
+    srcs = ["utility/metrics/prometheus_pull_exporter_test.cpp"],
+    data = [":metrics_prometheus_pull_exporter_so_in_test_dir"],
+    linkopts = ["-ldl"],
+    deps = [
+        "@gtest//:gtest_main",
+        "@nlohmann_json//:nlohmann_json",
+        "//src/utility/metrics:metrics_core",
+    ],
+    linkstatic = True,
+)
+
 cc_test(
   name = "utility_test",
   size = "small",
@@ -60,6 +81,7 @@ cc_test(
   }),
   data = [
     "//src/utility/metrics:libobservability-metrics-file-exporter.so",
+    "//src/utility/metrics:libobservability-prometheus-pull-exporter.so",
     "//src/utility/metrics:libobservability-prometheus-push-exporter.so",
   ],
   deps = [

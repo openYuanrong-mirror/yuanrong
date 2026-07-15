@@ -649,6 +649,7 @@ cd ${OUTPUT_DIR}
 
 get_all
 
+openyuanrong_tree_start=$(date +%s)
 baseTime_s=$(date +%s)
 copy_tree_or_extract_tar "${RUNTIME_STAGE_DIR}" "yr-runtime-*.tar.gz" "${OUTPUT_DIR}/openyuanrong" "runtime"
 copy_tree_or_extract_tar "${FUNCTIONSYSTEM_STAGE_DIR}" "*functionsystem*.tar.gz" "${OUTPUT_DIR}/openyuanrong" "functionsystem"
@@ -679,11 +680,15 @@ copy_datasystem_sdk_python_stage_or_unzip_wheel \
     "${OUTPUT_DIR}/openyuanrong/datasystem/sdk/openyuanrong_datasystem_sdk*.whl" \
     "${OUTPUT_DIR}/openyuanrong/runtime/service/python/" \
     "Expand datasystem sdk python payload into runtime python service"
+package_timer_start=$(date +%s)
 restore_runtime_cpp_sdk_native_libs "${OUTPUT_DIR}/openyuanrong"
 restore_runtime_java_service_native_libs "${OUTPUT_DIR}/openyuanrong"
 restore_runtime_service_native_libs "${OUTPUT_DIR}/openyuanrong"
 ensure_package_openssl_linker_symlinks "${OUTPUT_DIR}/openyuanrong"
+echo "[PACKAGE_TIMER] runtime-native-restore elapsed=$(($(date +%s)-package_timer_start))s"
+package_timer_start=$(date +%s)
 update_runtime_java_sdk_native_jar "${OUTPUT_DIR}/openyuanrong"
+echo "[PACKAGE_TIMER] java-sdk-native-jar-refresh elapsed=$(($(date +%s)-package_timer_start))s"
 echo "[TIMER] Populate runtime python service datasystem sdk payload: $(($(date +%s)-baseTime_s)) seconds"
 
 mkdir -p "${OUTPUT_DIR}/openyuanrong/runtime/service/python"
@@ -712,6 +717,7 @@ if [ -n "${dashboard_filename}" ]; then
     copy_dashboard_stage_or_extract_tar "${DASHBOARD_STAGE_DIR}" "${dashboard_filename}" "${OUTPUT_DIR}/openyuanrong/dashboard/" "dashboard"
 fi
 
+baseTime_s=$(date +%s)
 find . -type d -exec chmod 750 {} \;
 find . -type l -exec chmod 777 {} \;
 find . -type f -exec chmod 640 {} \;
@@ -726,7 +732,9 @@ fi
 if [ -d ${OUTPUT_DIR}/openyuanrong/datasystem/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/datasystem/ -type f -exec chmod 550 {} \;
 fi
+echo "[PACKAGE_TIMER] package-permission-normalization elapsed=$(($(date +%s)-baseTime_s))s"
 
+baseTime_s=$(date +%s)
 mv ${OUTPUT_DIR}/openyuanrong/functionsystem/deploy/third_party ${OUTPUT_DIR}/openyuanrong/
 mv ${OUTPUT_DIR}/openyuanrong/functionsystem/deploy/function_system/* ${OUTPUT_DIR}/openyuanrong/functionsystem/deploy/
 rm -rf ${OUTPUT_DIR}/openyuanrong/functionsystem/deploy/function_system/
@@ -769,6 +777,7 @@ fi
 if [ -d ${OUTPUT_DIR}/openyuanrong/runtime/service/python/yr/config/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/runtime/service/python/yr/config/ -type f -exec chmod 640 {} \;
 fi
+echo "[PACKAGE_TIMER] package-layout-finalization elapsed=$(($(date +%s)-baseTime_s))s"
 
 cat >${OUTPUT_DIR}/openyuanrong/VERSION <<EOF
 "${BUILD_VERSION}"
@@ -788,6 +797,9 @@ require_release_file \
   "${OUTPUT_DIR}/openyuanrong/runtime/sdk/java/yr-api-sdk-*.jar" \
   "YuanRong Java API SDK jar"
 
+echo "[PACKAGE_TIMER] openyuanrong-tree elapsed=$(($(date +%s)-openyuanrong_tree_start))s"
+openyuanrong_tree_kib=$(du -sk "${OUTPUT_DIR}/openyuanrong" | awk '{print $1}')
+echo "[PACKAGE_SIZE] openyuanrong-tree kib=${openyuanrong_tree_kib}"
 baseTime_s=$(date +%s)
-tar -zcf openyuanrong-${BUILD_VERSION}.tar.gz openyuanrong
+create_tar_gz "openyuanrong-${BUILD_VERSION}.tar.gz" openyuanrong
 echo "[TIMER] Archive combined openyuanrong package: $(($(date +%s)-baseTime_s)) seconds"
