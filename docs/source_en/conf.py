@@ -89,6 +89,7 @@ sitemap_show_lastmod = True
 sitemap_excludes = [
     "search.html",
     "genindex.html",
+    "_modules/**",
 ]
 autoclass_content = "both"
 copybutton_exclude = ".linenos, .gp, .go"
@@ -210,6 +211,5 @@ html_context = {
     "metatags": """
             <meta name="author" content="openYuanrong Team">
             <meta name="keywords" content="openYuanrong, distributed computing engine, AI inference, Serverless">
-            <meta name="description" content="openYuanrong is a leading Serverless distributed computing engine, dedicated to supporting AI, big data, microservices and other distributed applications with a unified Serverless architecture.">
         """
 }

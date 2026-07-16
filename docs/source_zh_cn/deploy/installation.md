@@ -32,6 +32,14 @@ pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.
 pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.9.0/openeuler/x86_64/ray_adapter-0.9.0-py3-none-any.whl
 ```
 
+### 每日版本
+
+您也可以通过以下链接安装每日构建的版本。这些版本经过自动化测试，但未经过完整的发布流程和测试，可能包含未解决的问题。
+
+每日构建版本：[下载链接](https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_daily/)
+
+### 源码编译版本
+
 您可能希望从源码编译 openYuanrong 版本，以满足更多自定义场景，请参考章节：[源码编译 openYuanrong](../contributor_guide/source_code_build.md)。
 
 ## 使用 openYuanrong SDK
