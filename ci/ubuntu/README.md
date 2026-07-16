@@ -6,13 +6,22 @@
 - **JDK 8** (Eclipse Temurin)
 - **Maven 3.9.11**
 - **Go 1.24.1**
-- **Python** (3.9.11, 3.10.2, 3.11.4, 3.12.0, 3.13.0 - 均由源码构建)
+- **Python** (3.9.11, 3.10.2, 3.11.4, 3.12.0, 3.13.0, 3.14.6 - 均由源码构建)
 - **Bazel 6.5.0**
 - **CMake 3.31.10**
 - **Protoc 25.1**
 - **Node.js v20.19.0**
 - **Ninja 1.12.0**
 - **GCC 10 / G++ 10**
+
+## Python 3.14 builder 发布约定
+
+Python 3.14 SDK 使用 Python **3.14.6** 和 **cp314** ABI。Buildkite 必须先运行 builder bootstrap，发布以下可覆盖的默认镜像，再运行产品 workflow：
+
+- standard multi-arch builder（Linux amd64/arm64）：`swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260714_py3146`
+- Rust amd64 builder：`swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260714_py3146`
+
+产品 workflow 产出 Linux amd64、Linux arm64 和 macOS arm64 的 cp314 SDK wheel；Linux 产品镜像是必需产物。FunctionSystem 默认使用稳定的 C++ 路径（`ENABLE_RUST_FUNCTIONSYSTEM_ST=false`），在目标集群可用前保持 Kubernetes 测试关闭（`ENABLE_SANDBOX_K8S_TEST=false`）。
 
 ## 快速构建与推送
 

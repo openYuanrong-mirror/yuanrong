@@ -1,7 +1,10 @@
 #!/bin/bash
 # Buildkite dynamic pipeline - standard SSH variant
 set -e
-BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
+PYTHON314_BUILDER_IMAGE="${PYTHON314_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260714_py3146}"
+PYTHON314_BOOTSTRAP_AMD64_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
+PYTHON314_BOOTSTRAP_ARM64_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
+BUILDER_IMAGE="${BUILDER_IMAGE_OVERRIDE:-${PYTHON314_BUILDER_IMAGE}}"
 SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260506_kubectl}"
 SANDBOX_DEPLOYER_IMAGE="${SANDBOX_DEPLOYER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-deployer:v20260506_kubectl_py39}"
 ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"
@@ -9,24 +12,25 @@ ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
 ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"
 ENABLE_RUNTIME_ARM="${ENABLE_RUNTIME_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
-ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
+ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-false}}"
 ENABLE_SANDBOX_K8S_TEST_ONLY="${ENABLE_SANDBOX_K8S_TEST_ONLY:-false}"
+ENABLE_PYTHON314_BUILDER_BOOTSTRAP="${ENABLE_PYTHON314_BUILDER_BOOTSTRAP:-false}"
 ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
 RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
 FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
 FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
 BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
 SDK_BUILDER_IMAGE="${BUILDER_IMAGE}"
-# rrt-runtime (Rust) is built in its own parallel "Build RRT <arch>" step (key
-# build-rrt-<arch>) using BUILD_ALL_IMAGE, so that image must stay Rust-capable.
-# The amd64 full build sets BUILD_SKIP_RUST=1 (rrt is no longer on its critical
-# path). Decoupled from ENABLE_RUST_FUNCTIONSYSTEM_ST (a functionsystem concern).
+RRT_BUILDER_IMAGE="${RUST_BUILDER_IMAGE}"
+# rrt-runtime (Rust) is built in its own parallel "Build RRT <arch>" step using
+# RRT_BUILDER_IMAGE. The C++ FunctionSystem build and SDK wheel jobs stay on the
+# Python 3.14 standard builder; RRT does not require a Python 3.14 Rust overlay.
 ENABLE_RUST_BUILD="${ENABLE_RUST_BUILD:-true}"
 # arm64 rrt-runtime requires a Rust-capable arm64 builder image. Keep it off by
 # default until that image is available; amd64 sandbox packaging/tests still run.
 ENABLE_RRT_ARM="${ENABLE_RRT_ARM:-false}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
-SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"
+SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13 python3.14}"
 SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"
 
 is_enabled() {
@@ -67,8 +71,6 @@ fi
 
 if is_enabled "${ENABLE_RUST_BUILD}"; then
   validate_ci_value "RUST_BUILDER_IMAGE" "$RUST_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
-  BUILD_ALL_IMAGE="${RUST_BUILDER_IMAGE}"
-  SDK_BUILDER_IMAGE="${RUST_BUILDER_IMAGE}"
 fi
 
 sdk_python_suffix() {
@@ -78,6 +80,7 @@ sdk_python_suffix() {
     python3.11) printf 'cp311' ;;
     python3.12) printf 'cp312' ;;
     python3.13) printf 'cp313' ;;
+    python3.14) printf 'cp314' ;;
     *)
       printf 'Unsupported SDK Python version: %s\n' "$1" >&2
       exit 1
@@ -85,9 +88,30 @@ sdk_python_suffix() {
   esac
 }
 
-SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-cp311"
-SANDBOX_AMD64_SDK_SUFFIX="cp311"
-SANDBOX_ARM64_SDK_STEP="build-sdk-arm64-cp39"
+select_sdk_python_version() {
+  local preferred="$1"
+  local first=""
+  local candidate
+  for candidate in ${SDK_PYTHON_VERSIONS}; do
+    [ -n "${first}" ] || first="${candidate}"
+    if [ "${candidate}" = "${preferred}" ]; then
+      printf '%s' "${candidate}"
+      return 0
+    fi
+  done
+  [ -n "${first}" ] || {
+    printf 'SDK_PYTHON_VERSIONS must contain at least one supported version.\n' >&2
+    exit 1
+  }
+  printf '%s' "${first}"
+}
+
+SANDBOX_AMD64_SDK_PYTHON_VERSION="$(select_sdk_python_version python3.11)"
+SANDBOX_AMD64_SDK_SUFFIX="$(sdk_python_suffix "${SANDBOX_AMD64_SDK_PYTHON_VERSION}")"
+SANDBOX_AMD64_SDK_STEP="build-sdk-amd64-${SANDBOX_AMD64_SDK_SUFFIX}"
+SANDBOX_ARM64_SDK_PYTHON_VERSION="$(select_sdk_python_version python3.9)"
+SANDBOX_ARM64_SDK_SUFFIX="$(sdk_python_suffix "${SANDBOX_ARM64_SDK_PYTHON_VERSION}")"
+SANDBOX_ARM64_SDK_STEP="build-sdk-arm64-${SANDBOX_ARM64_SDK_SUFFIX}"
 SANDBOX_MANIFEST_SDK_DEPENDS=""
 SANDBOX_MANIFEST_RUNTIME_DEPENDS=""
 SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=""
@@ -381,6 +405,14 @@ cat << YAML
     command: |
       set -e
       export PATH="/workspace:\$\$PATH"
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
+      export YR_EXPECTED_SDK_VERSION="\$\$YR_BUILD_VERSION"
       bash .buildkite/package_sandbox_release.sh
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
@@ -440,7 +472,180 @@ ${node_selector}
 YAML
 }
 
+emit_python314_builder_bootstrap() {
+cat << YAML
+  - group: ":construction: Python 3.14 builder bootstrap"
+    key: "python314-builder-bootstrap"
+    steps:
+      - label: ":docker: Build Python 3.14 builder amd64"
+        key: "build-python314-builder-amd64"
+        command: |
+          set -e
+          bash .buildkite/build_python314_builder_image.sh
+        env:
+          PYTHON314_BUILDER_VARIANT: "compile"
+          PYTHON314_BUILDER_ARCH: "amd64"
+          PYTHON314_BUILDER_BASE_IMAGE: "${PYTHON314_BOOTSTRAP_AMD64_IMAGE}"
+          PYTHON314_BUILDER_OUTPUT_TAG: "${PYTHON314_BUILDER_IMAGE}-amd64"
+        agents:
+          queue: "default"
+          os: "linux"
+          arch: "amd64"
+        plugins:
+          - kubernetes:
+              podSpec:
+                imagePullSecrets:
+                  - name: swr-pull-secret
+                containers:
+                  - image: "${SANDBOX_PACKAGER_IMAGE}"
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: docker-graph
+                        mountPath: /var/lib/docker
+                    resources:
+                      requests: { cpu: "8", memory: "16Gi" }
+                      limits: { cpu: "16", memory: "32Gi" }
+                    env:
+                      - name: SWR_USERNAME
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: username, optional: true }
+                      - name: SWR_PASSWORD
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: password, optional: true }
+                      - name: SWR_DOCKER_CONFIG_JSON
+                        valueFrom:
+                          secretKeyRef: { name: swr-pull-secret, key: .dockerconfigjson, optional: true }
+                volumes:
+                  - name: docker-graph
+                    emptyDir: {}
+        timeout_in_minutes: 120
+
+      - label: ":docker: Build Python 3.14 builder arm64"
+        key: "build-python314-builder-arm64"
+        command: |
+          set -e
+          bash .buildkite/build_python314_builder_image.sh
+        env:
+          PYTHON314_BUILDER_VARIANT: "compile"
+          PYTHON314_BUILDER_ARCH: "arm64"
+          PYTHON314_BUILDER_BASE_IMAGE: "${PYTHON314_BOOTSTRAP_ARM64_IMAGE}"
+          PYTHON314_BUILDER_OUTPUT_TAG: "${PYTHON314_BUILDER_IMAGE}-arm64"
+        agents:
+          queue: "default"
+          os: "linux"
+          linux_arch: "arm64"
+        plugins:
+          - kubernetes:
+              podSpec:
+                nodeSelector:
+                  kubernetes.io/arch: arm64
+                imagePullSecrets:
+                  - name: swr-pull-secret
+                containers:
+                  - image: "${PYTHON314_BOOTSTRAP_ARM64_IMAGE}"
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: docker-graph
+                        mountPath: /var/lib/docker
+                    resources:
+                      requests: { cpu: "8", memory: "16Gi" }
+                      limits: { cpu: "16", memory: "32Gi" }
+                    env:
+                      - name: SWR_USERNAME
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: username, optional: true }
+                      - name: SWR_PASSWORD
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: password, optional: true }
+                      - name: SWR_DOCKER_CONFIG_JSON
+                        valueFrom:
+                          secretKeyRef: { name: swr-pull-secret, key: .dockerconfigjson, optional: true }
+                volumes:
+                  - name: docker-graph
+                    emptyDir: {}
+        timeout_in_minutes: 120
+
+      - label: ":docker: Publish Python 3.14 builder manifest"
+        key: "publish-python314-builder-manifest"
+        depends_on:
+          - "build-python314-builder-amd64"
+          - "build-python314-builder-arm64"
+        command: |
+          set -euo pipefail
+          : "\$\${PYTHON314_BUILDER_FINAL_TAG:?missing final tag}"
+          : "\$\${PYTHON314_BUILDER_AMD64_TAG:?missing amd64 tag}"
+          : "\$\${PYTHON314_BUILDER_ARM64_TAG:?missing arm64 tag}"
+          mkdir -p artifacts/python314-builder
+          source .buildkite/docker_job_helpers.sh
+          trap docker_job_stop_dockerd EXIT
+          docker_job_start_dockerd artifacts/python314-builder/dockerd.log
+          if [ -n "\$\${SWR_USERNAME:-}" ] && [ -n "\$\${SWR_PASSWORD:-}" ]; then
+            printf '%s' "\$\$SWR_PASSWORD" | docker login "\$\${PYTHON314_BUILDER_FINAL_TAG%%/*}" -u "\$\$SWR_USERNAME" --password-stdin
+          elif [ -n "\$\${SWR_DOCKER_CONFIG_JSON:-}" ]; then
+            mkdir -p "\$\$HOME/.docker"
+            printf '%s' "\$\$SWR_DOCKER_CONFIG_JSON" >"\$\$HOME/.docker/config.json"
+          else
+            echo "SWR credentials are required to publish the builder manifest." >&2
+            exit 1
+          fi
+          for source in "\$\$PYTHON314_BUILDER_AMD64_TAG" "\$\$PYTHON314_BUILDER_ARM64_TAG"; do
+            digest=\$\$(docker manifest inspect --verbose "\$\$source" | python3 -c 'import json,sys; data=json.load(sys.stdin); values=[]; walk=lambda x: values.append(x.get("digest")) if isinstance(x,dict) and x.get("digest") else [walk(v) for v in (x.values() if isinstance(x,dict) else x if isinstance(x,list) else [])]; walk(data); print(next((v for v in values if v.startswith("sha256:")), ""))')
+            [ -n "\$\$digest" ] || { echo "Missing registry digest for \$\$source" >&2; exit 1; }
+            echo "Verified \$\$source at \$\$digest"
+          done
+          docker manifest rm "\$\$PYTHON314_BUILDER_FINAL_TAG" >/dev/null 2>&1 || true
+          docker manifest create "\$\$PYTHON314_BUILDER_FINAL_TAG" "\$\$PYTHON314_BUILDER_AMD64_TAG" "\$\$PYTHON314_BUILDER_ARM64_TAG"
+          docker manifest annotate "\$\$PYTHON314_BUILDER_FINAL_TAG" "\$\$PYTHON314_BUILDER_AMD64_TAG" --os linux --arch amd64
+          docker manifest annotate "\$\$PYTHON314_BUILDER_FINAL_TAG" "\$\$PYTHON314_BUILDER_ARM64_TAG" --os linux --arch arm64
+          docker manifest push --purge "\$\$PYTHON314_BUILDER_FINAL_TAG"
+          docker manifest inspect "\$\$PYTHON314_BUILDER_FINAL_TAG" | python3 -c 'import json,sys; data=json.load(sys.stdin); platforms={(item["platform"]["os"],item["platform"]["architecture"]) for item in data["manifests"]}; assert platforms == {("linux","amd64"),("linux","arm64")}, platforms'
+        env:
+          PYTHON314_BUILDER_FINAL_TAG: "${PYTHON314_BUILDER_IMAGE}"
+          PYTHON314_BUILDER_AMD64_TAG: "${PYTHON314_BUILDER_IMAGE}-amd64"
+          PYTHON314_BUILDER_ARM64_TAG: "${PYTHON314_BUILDER_IMAGE}-arm64"
+        agents:
+          queue: "default"
+          os: "linux"
+          arch: "amd64"
+        plugins:
+          - kubernetes:
+              podSpec:
+                imagePullSecrets:
+                  - name: swr-pull-secret
+                containers:
+                  - image: "${SANDBOX_PACKAGER_IMAGE}"
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: docker-graph
+                        mountPath: /var/lib/docker
+                    resources:
+                      requests: { cpu: "2", memory: "4Gi" }
+                      limits: { cpu: "4", memory: "8Gi" }
+                    env:
+                      - name: SWR_USERNAME
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: username, optional: true }
+                      - name: SWR_PASSWORD
+                        valueFrom:
+                          secretKeyRef: { name: swr-credentials, key: password, optional: true }
+                      - name: SWR_DOCKER_CONFIG_JSON
+                        valueFrom:
+                          secretKeyRef: { name: swr-pull-secret, key: .dockerconfigjson, optional: true }
+                volumes:
+                  - name: docker-graph
+                    emptyDir: {}
+        timeout_in_minutes: 30
+YAML
+}
+
 echo "steps:"
+if is_enabled "${ENABLE_PYTHON314_BUILDER_BOOTSTRAP}"; then
+  emit_python314_builder_bootstrap
+  exit 0
+fi
 if is_enabled "${ENABLE_SANDBOX_K8S_TEST_ONLY}"; then
   emit_sandbox_k8s_test
   exit 0
@@ -804,7 +1009,7 @@ cat << YAML
       - kubernetes:
           podSpec:
             containers:
-              - image: "$BUILD_ALL_IMAGE"
+              - image: "$RRT_BUILDER_IMAGE"
                 volumeMounts:
                   - name: build-cache
                     mountPath: /mnt/paas
@@ -1379,7 +1584,7 @@ cat << YAML
             nodeSelector:
               kubernetes.io/arch: arm64
             containers:
-              - image: "$BUILD_ALL_IMAGE"
+              - image: "$RRT_BUILDER_IMAGE"
                 volumeMounts:
                   - name: build-cache
                     mountPath: /mnt/paas

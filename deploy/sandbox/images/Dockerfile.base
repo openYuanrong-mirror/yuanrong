@@ -42,11 +42,34 @@ RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.
         uv==0.11.11 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN uv python install "${PYTHON_VERSION}" --default --compile-bytecode && \
-    python_bin_dir="$(/root/.local/bin/python${PYTHON_MAJOR_MINOR} -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" && \
+RUN set -eux; \
+    if ! uv python install "${PYTHON_VERSION}" --default --compile-bytecode; then \
+        build_packages="build-essential libbz2-dev libffi-dev libgdbm-dev liblzma-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev uuid-dev zlib1g-dev"; \
+        apt-get -o Acquire::Retries=5 update; \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends ${build_packages}; \
+        python_prefix="/opt/uv/python/cpython-${PYTHON_VERSION}"; \
+        source_dir="$(mktemp -d)"; \
+        curl -fsSL "https://mirrors.huaweicloud.com/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o "${source_dir}/Python-${PYTHON_VERSION}.tgz"; \
+        tar -xzf "${source_dir}/Python-${PYTHON_VERSION}.tgz" -C "${source_dir}"; \
+        cd "${source_dir}/Python-${PYTHON_VERSION}"; \
+        ./configure --prefix="${python_prefix}" --enable-shared --with-openssl=/usr; \
+        make -j"$(nproc)"; \
+        make install; \
+        mkdir -p /root/.local/bin; \
+        ln -sf "${python_prefix}/bin/python${PYTHON_MAJOR_MINOR}" "/root/.local/bin/python${PYTHON_MAJOR_MINOR}"; \
+        printf '%s\n' "${python_prefix}/lib" > /etc/ld.so.conf.d/managed-python.conf; \
+        ldconfig; \
+        cd /; \
+        rm -rf "${source_dir}"; \
+        apt-get purge -y --auto-remove ${build_packages}; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi; \
+    python_version="$(/root/.local/bin/python${PYTHON_MAJOR_MINOR} -c 'import platform; print(platform.python_version())')"; \
+    test "${python_version}" = "${PYTHON_VERSION}"; \
+    python_bin_dir="$(/root/.local/bin/python${PYTHON_MAJOR_MINOR} -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"; \
     ln -sf "${python_bin_dir}/python${PYTHON_MAJOR_MINOR}" /usr/local/bin/python${PYTHON_MAJOR_MINOR} && \
-    ln -sf "${python_bin_dir}/python" /usr/local/bin/python && \
-    ln -sf "${python_bin_dir}/python3" /usr/local/bin/python3 && \
+    ln -sf "${python_bin_dir}/python${PYTHON_MAJOR_MINOR}" /usr/local/bin/python && \
+    ln -sf "${python_bin_dir}/python${PYTHON_MAJOR_MINOR}" /usr/local/bin/python3 && \
     python_purelib_dir="$(/usr/local/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" && \
     ln -sf "${python_purelib_dir}" /opt/uv/python/python && \
     uv pip install --python /usr/local/bin/python --break-system-packages --upgrade \

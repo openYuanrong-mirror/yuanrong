@@ -110,7 +110,7 @@ setuptools.setup(
     version=get_version(),
     author="openyuanrong",
     description="openYuanrong Rust sandbox runtime (rrt-runtime) binary",
-    python_requires=">=3.9,<3.14",
+    python_requires=">=3.9,<3.15",
     cmdclass={"bdist_wheel": BdistWheelImpl},
     # BinaryDistribution.has_ext_modules() forces a platform (non-purelib) wheel;
     # BdistWheelImpl.get_tag() pins it to py3-none-<platform>.

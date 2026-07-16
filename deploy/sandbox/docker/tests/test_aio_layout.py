@@ -29,6 +29,14 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn("uv==0.11.11", base_text)
         self.assertIn("mirrors.huaweicloud.com/repository/pypi/simple", base_text)
         self.assertIn('uv python install "${PYTHON_VERSION}"', base_text)
+        self.assertIn('if ! uv python install "${PYTHON_VERSION}"', base_text)
+        self.assertIn('Python-${PYTHON_VERSION}.tgz', base_text)
+        self.assertIn('test "${python_version}" = "${PYTHON_VERSION}"', base_text)
+        self.assertIn(
+            'ln -sf "${python_bin_dir}/python${PYTHON_MAJOR_MINOR}" /usr/local/bin/python',
+            base_text,
+        )
+        self.assertNotIn('ln -sf "${python_bin_dir}/python" /usr/local/bin/python', base_text)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_text)
         self.assertIn("COPY openyuanrong-*.whl", runtime_text)
         self.assertIn('link.symlink_to(runtime)', runtime_text)
@@ -39,8 +47,7 @@ class AioLayoutTests(unittest.TestCase):
         self.assertNotIn("runtime-launcher", runtime_text)
         self.assertNotIn(" AS python-builder", runtime_text)
         self.assertNotIn(" AS python-builder", base_text)
-        self.assertNotIn("build-essential", base_text)
-        self.assertNotIn("Python-${PYTHON_VERSION}", base_text)
+        self.assertIn("build-essential", base_text)
 
     def test_runtime_image_includes_libcurl(self):
         base_text = (ROOT.parent / "images" / "Dockerfile.base").read_text()

@@ -36,6 +36,7 @@ global:
     cp311: {}
     cp312: {}
     cp313: {}
+    cp314: {}
   externalEtcd:
     addrList: ""
     metaStoreAddress: ""
@@ -89,6 +90,22 @@ global:
               type: path
               root: "/"
               entrypoint: "python -m yr.cli.scripts runtime_main"
+          py312:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.12
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp312") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
           # rrt = dedicated Rust sandbox backend (native rrt-runtime), the k8s
           # analog of the docker AIO rrt slot. The frontend create API selects
           # the rrt slot directly; the runtime field is still propagated as
@@ -123,6 +140,22 @@ global:
               runtime: runc
               type: image
               imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp313") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          py314:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.14
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp314") | quote }}
               readonly: true
               mountpoint: /mnt
             bootstrap:
