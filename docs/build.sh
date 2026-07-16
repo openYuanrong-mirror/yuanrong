@@ -69,7 +69,8 @@ function add_noindex() {
   local DIR="$1"
   find "$DIR" -name "*.html" -not -path "*/_static/*" -not -path "*/_modules/*" -not -path "*/_sources/*" | while read -r file; do
     if ! grep -q 'name="robots"' "$file"; then
-      sed -i 's/<head>/<head>\n    <meta name="robots" content="noindex, nofollow">/' "$file"
+      # Insert noindex meta tag right after <head> (preserving original attributes)
+      sed -i 's/<head[^>]*>/&\n    <meta name="robots" content="noindex, nofollow">/' "$file"
     fi
   done
 }
@@ -85,22 +86,24 @@ function build_zh_cn() {
   # The || and queryTerm.match are on separate lines, so we need multiline sed.
   # First join the lines, then remove the digit-match condition.
   sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
-  rm -rf "${OUTPUT_DIR}"/docs/zh-cn && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn
-  cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh-cn
 
   if [ "$BUILD_VERSION" = "latest" ]; then
+    rm -rf "${OUTPUT_DIR}"/docs/zh-cn/latest && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn/latest
+    cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh-cn/latest
     # sphinx_sitemap does not include html_additional_pages (custom-index.html).
     # Add the homepage index.html to the sitemap manually (inside <urlset>).
-    SITEMAP="${OUTPUT_DIR}"/docs/zh-cn/sitemap.xml
+    SITEMAP="${OUTPUT_DIR}"/docs/zh-cn/latest/sitemap.xml
     if [ -f "$SITEMAP" ]; then
       BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       sed -i "/<urlset.*>/a<url><loc>https://docs.openyuanrong.org/zh-cn/${BUILD_VERSION}/index.html</loc><lastmod>${BUILD_DATE}</lastmod></url>" "$SITEMAP"
     fi
   else
+    rm -rf "${OUTPUT_DIR}"/docs/zh-cn/${BUILD_VERSION} && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn/${BUILD_VERSION}
+    cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh-cn/${BUILD_VERSION}
     # Non-latest versions should not be indexed by search engines.
-    add_noindex "${OUTPUT_DIR}"/docs/zh-cn
+    add_noindex "${OUTPUT_DIR}"/docs/zh-cn/${BUILD_VERSION}
     # Remove sitemap so search engines won't discover these pages.
-    rm -f "${OUTPUT_DIR}"/docs/zh-cn/sitemap.xml
+    rm -f "${OUTPUT_DIR}"/docs/zh-cn/${BUILD_VERSION}/sitemap.xml
   fi
 }
 
@@ -115,22 +118,24 @@ function build_en() {
   # The || and queryTerm.match are on separate lines, so we need multiline sed.
   # First join the lines, then remove the digit-match condition.
   sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
-  rm -rf "${OUTPUT_DIR}"/docs/en && mkdir -p "${OUTPUT_DIR}"/docs/en
-  cp -rf "${BASE_DIR}"/source_en/_build/html/* "${OUTPUT_DIR}"/docs/en
 
   if [ "$BUILD_VERSION" = "latest" ]; then
+    rm -rf "${OUTPUT_DIR}"/docs/en/latest && mkdir -p "${OUTPUT_DIR}"/docs/en/latest
+    cp -rf "${BASE_DIR}"/source_en/_build/html/* "${OUTPUT_DIR}"/docs/en/latest
     # sphinx_sitemap does not include html_additional_pages (custom-index.html).
     # Add the homepage index.html to the sitemap manually (inside <urlset>).
-    SITEMAP="${OUTPUT_DIR}"/docs/en/sitemap.xml
+    SITEMAP="${OUTPUT_DIR}"/docs/en/latest/sitemap.xml
     if [ -f "$SITEMAP" ]; then
       BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       sed -i "/<urlset.*>/a<url><loc>https://docs.openyuanrong.org/en/${BUILD_VERSION}/index.html</loc><lastmod>${BUILD_DATE}</lastmod></url>" "$SITEMAP"
     fi
   else
+    rm -rf "${OUTPUT_DIR}"/docs/en/${BUILD_VERSION} && mkdir -p "${OUTPUT_DIR}"/docs/en/${BUILD_VERSION}
+    cp -rf "${BASE_DIR}"/source_en/_build/html/* "${OUTPUT_DIR}"/docs/en/${BUILD_VERSION}
     # Non-latest versions should not be indexed by search engines.
-    add_noindex "${OUTPUT_DIR}"/docs/en
+    add_noindex "${OUTPUT_DIR}"/docs/en/${BUILD_VERSION}
     # Remove sitemap so search engines won't discover these pages.
-    rm -f "${OUTPUT_DIR}"/docs/en/sitemap.xml
+    rm -f "${OUTPUT_DIR}"/docs/en/${BUILD_VERSION}/sitemap.xml
   fi
 }
 
@@ -151,8 +156,8 @@ EOF
   # Generate robots.txt at root level
   cat > "${OUTPUT_DIR}"/docs/robots.txt << 'EOF'
 User-agent: *
-Allow: /zh-cn/latest/
-Allow: /en/latest/
+Allow: /zh-cn/latest
+Allow: /en/latest
 Disallow: /zh-cn/
 Disallow: /en/
 Disallow: */search.html
