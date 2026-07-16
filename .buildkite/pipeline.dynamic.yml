@@ -412,17 +412,7 @@ cat << YAML
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
-      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
-      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
-      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
-      cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
-      cd ../..
+      echo "=== [3.1/6] Collect release artifacts from make all ==="
       cp datasystem/output/*.whl output/ 2>/dev/null || true
       cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
       cp functionsystem/output/*.whl output/ 2>/dev/null || true
@@ -892,17 +882,7 @@ cat << YAML
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
-      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
-      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
-      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
-      cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
-      cd ../..
+      echo "=== [3.1/6] Collect release artifacts from make all ==="
       cp datasystem/output/*.whl output/ 2>/dev/null || true
       cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
       cp functionsystem/output/*.whl output/ 2>/dev/null || true
