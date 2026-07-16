@@ -317,7 +317,7 @@ genrule(
     ] + select({
         "//:disable_datasystem": [],
         "//conditions:default": [
-            "@datasystem_sdk//:shared",
+            "@datasystem_sdk//bazel/sdk:runtime_files",
             "@boringssl//:shared",
         ],
     }) + select({
@@ -460,7 +460,7 @@ genrule(
     ] + select({
         "//:disable_datasystem": [],
         "//conditions:default": [
-            "@datasystem_sdk//:shared",
+            "@datasystem_sdk//bazel/sdk:runtime_files",
             "@boringssl//:shared",
         ],
     }) + select({

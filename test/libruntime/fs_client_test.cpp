@@ -752,7 +752,7 @@ TEST_F(FSClientGrpcTest, GrpcClientTest_EventAsync)
 {
     DoStartGrpcClient();
     fsClient_->UpdateEventServerInfo(Config::Instance().HOST_IP(), grpcServer->GetPort(), "test_instace_id");
-    EXPECT_EQ(fsClient_->GetEventServerIP(), "");
+    EXPECT_EQ(fsClient_->GetEventServerIP(), Config::Instance().HOST_IP());
     EXPECT_NE(fsClient_->GetEventServerPort(), grpcServer->GetPort());
 }
 

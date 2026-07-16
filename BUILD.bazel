@@ -127,7 +127,7 @@ cc_library(
     ] + select({
         "//:disable_datasystem": [],
         "//conditions:default": [
-            "@datasystem_sdk//:lib_datasystem_sdk",
+            "@datasystem_sdk//bazel/sdk:client",
         ],
     }) + select({
         "//:disable_observability": [],
@@ -198,7 +198,7 @@ cc_library(
     ] + select({
         "//:disable_datasystem": [],
         "//conditions:default": [
-            "@datasystem_sdk//:lib_datasystem_sdk",
+            "@datasystem_sdk//bazel/sdk:client",
         ],
     }) + select({
         "//:disable_observability": [],
