@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -z "${HOME:-}" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+        HOME="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory | awk '{print $2}')"
+    else
+        HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    fi
+    if [[ -z "${HOME}" ]]; then
+        printf 'Cannot resolve HOME for SDK build user %s\n' "$(id -un)" >&2
+        exit 1
+    fi
+    export HOME
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${1:-${ROOT_DIR}/output}"
-SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"
+SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13 python3.14}"
 BUILD_VERSION="${BUILD_VERSION:-$(cat "${ROOT_DIR}/VERSION")}"
 BOOST_VERSION="${BOOST_VERSION:-1.87.0}"
 SDK_BAZEL_JOBS="${SDK_BAZEL_JOBS:-8}"
@@ -22,6 +35,7 @@ resolve_sdk_python() {
     local candidate
 
     for candidate in \
+        "${PYTHON314_PREFIX:-${HOME}/.cache/openyuanrong/python/3.14.6}/bin/${py_version}" \
         "${py_version}" \
         "/opt/buildtools/${py_version}/bin/${py_version}" \
         "${conda_root}/bin/${py_version}" \
@@ -61,15 +75,15 @@ ensure_sdk_python_packages() {
     local python_bin="$1"
     local pip_flag
 
-    if "${python_bin}" -c 'import packaging, wheel' >/dev/null 2>&1; then
+    if "${python_bin}" -c 'import packaging, setuptools, wheel; import wheel.bdist_wheel' >/dev/null 2>&1; then
         return 0
     fi
 
     pip_flag="$(pip_flags_for_python "${python_bin}")"
-    "${python_bin}" -m pip install ${pip_flag:+${pip_flag}} -q --retries 2 --timeout 60 \
+    "${python_bin}" -m pip install ${pip_flag:+${pip_flag}} -q --retries 2 --timeout 60 --upgrade \
         --index-url "${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}" \
         --trusted-host "${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}" \
-        packaging wheel
+        packaging setuptools wheel
 }
 
 build_sdk_wheel() {
@@ -88,6 +102,16 @@ build_sdk_wheel() {
         bash "${ROOT_DIR}/build.sh" -p "${python_bin}" -v "${BUILD_VERSION}" -j "${SDK_BAZEL_JOBS}"
     if [ "${OUTPUT_DIR}" != "${ROOT_DIR}/output" ]; then
         cp -R "${ROOT_DIR}"/output/openyuanrong_sdk-*.whl "${OUTPUT_DIR}/"
+    fi
+
+    if [ "${py_version}" = "python3.14" ]; then
+        local cp314_wheels=("${OUTPUT_DIR}"/openyuanrong_sdk-*-cp314-cp314-*.whl)
+        if [ "${#cp314_wheels[@]}" -ne 1 ] || [ ! -f "${cp314_wheels[0]}" ]; then
+            printf 'Expected exactly one cp314 SDK wheel in %s\n' "${OUTPUT_DIR}" >&2
+            find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'openyuanrong_sdk-*.whl' -print >&2
+            exit 1
+        fi
+        bash "${ROOT_DIR}/.buildkite/verify_python314_sdk_wheel.sh" "${python_bin}" "${cp314_wheels[0]}"
     fi
 }
 

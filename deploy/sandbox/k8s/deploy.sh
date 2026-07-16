@@ -21,6 +21,7 @@ RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${RUNTIME_IMAGE_TAG}}
 RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${IMAGE_TAG}-cp311}"
 RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${IMAGE_TAG}-cp312}"
 RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${IMAGE_TAG}-cp313}"
+RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${IMAGE_TAG}-cp314}"
 PULL_SECRET_NAME="${YR_K8S_PULL_SECRET_NAME:-yr-swr-pull}"
 
 require_bin() {
@@ -195,6 +196,7 @@ helm_deploy() {
     --set global.runtimeImages.cp311.tag="${RUNTIME_IMAGE_TAG_CP311}" \
     --set global.runtimeImages.cp312.tag="${RUNTIME_IMAGE_TAG_CP312}" \
     --set global.runtimeImages.cp313.tag="${RUNTIME_IMAGE_TAG_CP313}" \
+    --set global.runtimeImages.cp314.tag="${RUNTIME_IMAGE_TAG_CP314}" \
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
@@ -336,13 +338,14 @@ prepull_runtime_image() {
 
   local pods pod username password runtime_image suffix tag
   local -a runtime_images=()
-  for suffix in ${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp39 cp310 cp311 cp312 cp313}; do
+  for suffix in ${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp39 cp310 cp311 cp312 cp313 cp314}; do
     case "${suffix}" in
     cp39) tag="${RUNTIME_IMAGE_TAG_CP39}" ;;
     cp310) tag="${RUNTIME_IMAGE_TAG_CP310}" ;;
     cp311) tag="${RUNTIME_IMAGE_TAG_CP311}" ;;
     cp312) tag="${RUNTIME_IMAGE_TAG_CP312}" ;;
     cp313) tag="${RUNTIME_IMAGE_TAG_CP313}" ;;
+    cp314) tag="${RUNTIME_IMAGE_TAG_CP314}" ;;
     *)
       printf 'Unknown runtime pre-pull suffix: %s\n' "${suffix}" >&2
       exit 1

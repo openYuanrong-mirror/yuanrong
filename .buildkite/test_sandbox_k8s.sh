@@ -176,6 +176,8 @@ resolve_smoke_python() {
 	*-cp310-*) python_minor="3.10" ;;
 	*-cp311-*) python_minor="3.11" ;;
 	*-cp312-*) python_minor="3.12" ;;
+	*-cp313-*) python_minor="3.13" ;;
+	*-cp314-*) python_minor="3.14" ;;
 	*) python_minor="" ;;
 	esac
 
@@ -616,6 +618,7 @@ main() {
 	export YR_K8S_RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp311}"
 	export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp312}"
 	export YR_K8S_RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp313}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp314}"
 	export YR_K8S_REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-$(json_field registry)}"
 	export HELM_BIN
 

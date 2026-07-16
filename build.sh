@@ -87,7 +87,7 @@ ENABLE_GLOO="true"
 ENABLE_UCC="false"
 ENABLE_DATASYSTEM="true"
 MACOS_DEPLOYMENT_TARGET=""
-LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:${LD_LIBRARY_PATH}
+LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/opt/buildtools/python3.14/lib:${LD_LIBRARY_PATH}
 BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
 
@@ -124,6 +124,7 @@ MODULE_LIST=(
 )
 
 PYTHON_VERSION_LIST=(
+	"python3.14"
 	"python3.13"
 	"python3.12"
 	"python3.11"

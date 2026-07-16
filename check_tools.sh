@@ -32,6 +32,9 @@ check_tool() {
                 "Python 3.13")
                     version=$(python3.13 --version 2>&1 | awk '{print $2}')
                     ;;
+                "Python 3.14")
+                    version=$(python3.14 --version 2>&1 | awk '{print $2}')
+                    ;;
                 "glibc")
                     version=$(ldd --version 2>&1 | head -n1 | awk '{print $NF}')
                     ;;
@@ -63,6 +66,7 @@ check_tools() {
     check_tool python3.11 "" "Python 3.11"
     check_tool python3.12 "" "Python 3.12"
     check_tool python3.13 "" "Python 3.13"
+    check_tool python3.14 "" "Python 3.14"
     check_tool ninja "" "Ninja"
     check_tool protoc "" "protoc"
     check_tool cmake "cmake --version 2>&1 | head -n1 | awk '{print \$3}'" "CMake"
@@ -83,6 +87,7 @@ check_tools() {
         "python3.11"
         "python3.12"
         "python3.13"
+        "python3.14"
         "ninja"
         "protoc"
         "cmake"
