@@ -1632,6 +1632,7 @@ def sandbox_list(namespace):
         sandboxes.append((
             instance_id,
             tenant_id,
+            instance.get("node_id") or "N/A",
             get_sandbox_status(instance),
             instance.get("image") or "N/A",
             format_resource_quota(instance.get("required_cpu")),
@@ -1648,6 +1649,7 @@ def sandbox_list(namespace):
     headers = (
         "INSTANCE_ID",
         "TENANT_ID",
+        "NODE_ID",
         "STATUS",
         "IMAGE",
         "CPU_REQ",
