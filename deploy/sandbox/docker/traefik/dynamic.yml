@@ -18,12 +18,6 @@ http:
       rule: "PathPrefix(`/direct/`) || Path(`/direct`)"
       service: frontend
 
-    tunnel-router:
-      entryPoints:
-        - web
-      rule: "PathPrefix(`/tunnel/`) || Path(`/tunnel`)"
-      service: frontend
-
   services:
     frontend:
       loadBalancer:

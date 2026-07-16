@@ -81,9 +81,12 @@ class AioLayoutTests(unittest.TestCase):
         dynamic_text = read_text("traefik/dynamic.yml")
         traefik_text = read_text("traefik/traefik.yml")
         self.assertIn("web:", traefik_text)
-        self.assertIn('__AIO_NODE_IP__:32379', traefik_text)
+        self.assertIn('__AIO_NODE_IP__:22770/global-scheduler/traefik/config', traefik_text)
+        self.assertIn("http:", traefik_text)
+        self.assertNotIn("etcd:", traefik_text)
         self.assertIn("frontend-root", dynamic_text)
         self.assertIn('url: "http://__AIO_NODE_IP__:8889"', dynamic_text)
+        self.assertNotIn("tunnel-router", dynamic_text)
         self.assertNotIn("redirect-to-https", dynamic_text)
         self.assertNotIn("tls:", dynamic_text)
 
@@ -100,25 +103,25 @@ class AioLayoutTests(unittest.TestCase):
         supervisord_text = read_text("supervisord.conf")
         self.assertIn("[program:yuanrong-master]", supervisord_text)
         self.assertIn("command=/usr/local/bin/start-yuanrong.sh", supervisord_text)
-        self.assertIn("[program:seed-traefik-etcd]", supervisord_text)
-        self.assertIn("command=/usr/local/bin/seed-traefik-etcd.sh", supervisord_text)
+        self.assertNotIn("[program:seed-traefik-etcd]", supervisord_text)
         self.assertIn("autorestart=true", supervisord_text)
 
     def test_start_yuanrong_script_uses_container_ip(self):
         script_text = read_text("start-yuanrong.sh")
         self.assertIn('AIO_NODE_IP="$(hostname -i | awk \'{print $1}\')"', script_text)
         self.assertIn("--block true", script_text)
-        self.assertIn("--enable_traefik_registry true", script_text)
-        self.assertIn("--traefik_http_entrypoint web", script_text)
+        self.assertIn("--enable_traefik_provider true", script_text)
+        self.assertIn("--traefik_http_entry_point web", script_text)
+        self.assertNotIn("--enable_traefik_registry true", script_text)
         self.assertIn("--faas_frontend_http_port 8889", script_text)
         self.assertIn("--function_scheduler_lease_port 8890", script_text)
         self.assertIn('-a "${AIO_NODE_IP}"', script_text)
         self.assertNotIn("-a 127.0.0.1", script_text)
 
-    def test_seed_traefik_script_initializes_root_key(self):
-        script_text = read_text("seed-traefik-etcd.sh")
-        self.assertIn('ETCD_ENDPOINT="${AIO_NODE_IP}:32379"', script_text)
-        self.assertIn('put traefik/_keepalive 1', script_text)
+    def test_images_do_not_install_traefik_etcd_seed(self):
+        self.assertNotIn("seed-traefik-etcd", read_text("Dockerfile"))
+        self.assertNotIn("seed-traefik-etcd", read_text("Dockerfile.aio-yr"))
+        self.assertFalse((ROOT / "seed-traefik-etcd.sh").exists())
 
     def test_supervisord_entrypoint_retries_vfs_when_dockerd_exits_early(self):
         entrypoint_lines = read_text("supervisord-entrypoint.sh").splitlines()

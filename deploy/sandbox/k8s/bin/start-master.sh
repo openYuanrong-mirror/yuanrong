@@ -23,6 +23,10 @@ exec /usr/local/bin/yr start \
   --enable_function_scheduler true \
   --enable_meta_service true \
   --enable_iam_server true \
+  --enable_traefik_provider "${YR_ENABLE_TRAEFIK_PROVIDER:-false}" \
+  --traefik_http_entry_point "${YR_TRAEFIK_HTTP_ENTRY_POINT:-web}" \
+  --traefik_enable_tls "${YR_TRAEFIK_ENABLE_TLS:-false}" \
+  --traefik_forward_timeout_ms "${YR_TRAEFIK_FORWARD_TIMEOUT_MS:-3000}" \
   --cpu_num "${controlplane_cpu_num}" \
   -a "${master_ip}" \
   -p "${services_path}" \

@@ -45,6 +45,14 @@ spec:
                   fieldPath: status.hostIP
             - name: YR_ETCD_ADDR_LIST
               value: {{ include "yr-k8s.etcdAddrList" . | quote }}
+            - name: YR_ENABLE_TRAEFIK_PROVIDER
+              value: {{ .Values.traefik.enabled | quote }}
+            - name: YR_TRAEFIK_HTTP_ENTRY_POINT
+              value: {{ .Values.traefik.httpProvider.entryPoint | quote }}
+            - name: YR_TRAEFIK_ENABLE_TLS
+              value: {{ .Values.traefik.tls.router.enabled | quote }}
+            - name: YR_TRAEFIK_FORWARD_TIMEOUT_MS
+              value: {{ .Values.traefik.httpProvider.masterForwardTimeoutMs | quote }}
           ports:
             - name: master
               containerPort: {{ .Values.master.service.ports.master }}
