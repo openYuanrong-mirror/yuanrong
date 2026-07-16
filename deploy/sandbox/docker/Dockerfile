@@ -29,14 +29,13 @@ ENV CONTAINER_EP="unix:///var/run/runtime-launcher.sock" \
 COPY aio-yr-runtime.tar /opt/runtime-images/aio-yr-runtime.tar
 COPY --from=deploy services.yaml /openyuanrong/services.yaml
 COPY --from=deploy traefik /openyuanrong/traefik/
-COPY --from=deploy docs/TRAEFIK_ETCD.md /openyuanrong/docs/TRAEFIK_ETCD.md
+COPY --from=deploy docs/TRAEFIK_HTTP_PROVIDER.md /openyuanrong/docs/TRAEFIK_HTTP_PROVIDER.md
 COPY --from=deploy supervisord.conf /etc/supervisor/supervisord.conf
 COPY --from=deploy dockerd-entrypoint.sh /usr/local/bin/dockerd-entrypoint.sh
 COPY --from=deploy supervisord-entrypoint.sh /usr/local/bin/supervisord-entrypoint.sh
 COPY --from=deploy start-yuanrong.sh /usr/local/bin/start-yuanrong.sh
-COPY --from=deploy seed-traefik-etcd.sh /usr/local/bin/seed-traefik-etcd.sh
 
-RUN chmod +x /openyuanrong/runtime-launcher /usr/local/bin/dockerd-entrypoint.sh /usr/local/bin/supervisord-entrypoint.sh /usr/local/bin/start-yuanrong.sh /usr/local/bin/seed-traefik-etcd.sh
+RUN chmod +x /openyuanrong/runtime-launcher /usr/local/bin/dockerd-entrypoint.sh /usr/local/bin/supervisord-entrypoint.sh /usr/local/bin/start-yuanrong.sh
 
 RUN wget -qO /tmp/traefik.tar.gz https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz || \
     curl -sL -o /tmp/traefik.tar.gz https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz && \

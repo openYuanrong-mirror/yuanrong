@@ -12,8 +12,6 @@ data:
     entryPoints:
       web:
         address: {{ .Values.traefik.entryPoints.web.address | quote }}
-      router:
-        address: {{ .Values.traefik.entryPoints.router.address | quote }}
 {{- with .Values.traefik.tls.entryPoint }}
 {{- if .enabled }}
         http:
@@ -31,8 +29,8 @@ data:
       file:
         directory: /etc/traefik/dynamic
         watch: true
-      etcd:
-        endpoints:
-          - {{ include "yr-k8s.etcdAddrList" . | quote }}
-        rootKey: {{ .Values.traefik.etcd.rootKey }}
+      http:
+        endpoint: {{ printf "http://%s:%v/global-scheduler/traefik/config" (include "yr-k8s.componentName" (dict "root" . "component" "master-access")) .Values.master.service.ports.master | quote }}
+        pollInterval: {{ .Values.traefik.httpProvider.pollInterval | quote }}
+        pollTimeout: {{ .Values.traefik.httpProvider.pollTimeout | quote }}
 {{- end }}

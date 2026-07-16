@@ -59,4 +59,8 @@ exec /usr/local/bin/yr start \
   -s "function_master.args.services_path=\"${services_path}\"" \
   -s "function_proxy.args.services_path=\"${services_path}\"" \
   -s "meta_service.port=${meta_service_port}" \
+  --enable_traefik_provider "${YR_ENABLE_TRAEFIK_PROVIDER:-false}" \
+  --traefik_http_entry_point "${YR_TRAEFIK_HTTP_ENTRY_POINT:-web}" \
+  --traefik_enable_tls "${YR_TRAEFIK_ENABLE_TLS:-false}" \
+  --traefik_forward_timeout_ms "${YR_TRAEFIK_FORWARD_TIMEOUT_MS:-3000}" \
   "$@"

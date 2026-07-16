@@ -57,26 +57,9 @@ data:
           rule: "PathPrefix(`/direct/`) || Path(`/direct`)"
           priority: 100
           service: frontend
-        # Static router alias, not per-sandbox dynamic routing: sandboxRouter
-        # accepts /tunnel/{safeID} and maps it to /{safeID}/<tunnelPort>.
-        tunnel-router:
-          entryPoints:
-            - router
-          rule: "PathPrefix(`/tunnel/`) || Path(`/tunnel`)"
-          priority: 100
-          service: sandbox-router
-        sandbox-router:
-          entryPoints:
-            - router
-          rule: "PathPrefix(`/`)"
-          service: sandbox-router
       services:
         frontend:
           loadBalancer:
             servers:
               - url: http://{{ include "yr-k8s.componentName" (dict "root" . "component" "frontend") }}:{{ .Values.frontend.service.port }}
-        sandbox-router:
-          loadBalancer:
-            servers:
-              - url: http://{{ include "yr-k8s.componentName" (dict "root" . "component" "frontend") }}:{{ .Values.frontend.service.routerPort }}
 {{- end }}

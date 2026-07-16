@@ -106,3 +106,15 @@ YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 --
 - repeated CI deployments stop the existing runtime workloads, wait for their pods to exit, then reset the managed sandbox `etcd` state before installing fresh workloads. This prevents stale pod IPs, frontend drivers, and job leases from earlier builds from affecting smoke tests. Set `YR_K8S_RESET_ETCD_STATE=false` to preserve state for manual debugging.
 - `datasystem` validates `etcd_address` strictly, so the K8S start scripts resolve service DNS names to IPs before rendering component configs
 - `helm` is required locally for linting and rendering. If `helm` is missing, chart verification is incomplete.
+
+## Traefik instance routes
+
+Traefik 的 file provider 仅维护 frontend 与 `/direct` 静态路由；实例级 tunnel 和用户端口路由从 FunctionMaster HTTP Provider 获取：
+
+```text
+http://yr-master-access:22770/global-scheduler/traefik/config
+```
+
+对外 gateway 统一使用 8888。RRT 50090 和 tunnel 内部 8766 标记为 `direct`，不会出现在 provider JSON；8765 标记为 `tunnel`，发布 `/tunnel/{safeID}`；用户 HTTP/HTTPS 端口发布 `/{safeID}/{containerPort}`。
+
+升级顺序：先升级能够解析 route kind 的 Runtime、SandboxRouter 和 FunctionMaster，再升级 Frontend producer，确认 provider JSON 后最后切换 Traefik provider。回滚顺序相反。

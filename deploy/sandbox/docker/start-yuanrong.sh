@@ -10,8 +10,8 @@ exec /usr/local/bin/yr start \
   --port_policy FIX \
   --enable_faas_frontend=true \
   --faas_frontend_http_port 8889 \
-  --enable_traefik_registry true \
-  --traefik_http_entrypoint web \
+  --enable_traefik_provider true \
+  --traefik_http_entry_point web \
   --traefik_enable_tls false \
   --enable_function_scheduler true \
   --function_scheduler_lease_port 8890 \

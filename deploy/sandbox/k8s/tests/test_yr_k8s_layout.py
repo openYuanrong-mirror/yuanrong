@@ -198,6 +198,30 @@ def expected_etcd_addr(values: dict) -> str:
 
 
 class YrK8sLayoutTests(unittest.TestCase):
+    def test_traefik_uses_master_http_provider_on_web_entrypoint(self):
+        manifests = render_chart()
+        master = find_manifest(manifests, "StatefulSet", "yr-master")
+        traefik = find_manifest(manifests, "Deployment", "yr-traefik")
+        service = find_manifest(manifests, "Service", "yr-traefik")
+        static_config = find_manifest(manifests, "ConfigMap", "yr-traefik-configmap")["data"]["traefik.yaml"]
+        dynamic_config = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")["data"]["config.yml"]
+
+        master_container = find_container(master, "master")
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
+        self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
+        self.assertIn(
+            "http://yr-master-access:22770/global-scheduler/traefik/config",
+            static_config,
+        )
+        self.assertIn('pollInterval: "5s"', static_config)
+        self.assertIn('pollTimeout: "5s"', static_config)
+        self.assertNotIn("etcd:", static_config)
+        self.assertNotIn("router:", static_config)
+        self.assertNotIn("tunnel-router", dynamic_config)
+        self.assertNotIn("sandbox-router", dynamic_config)
+        self.assertEqual([p["name"] for p in find_container(traefik, "traefik")["ports"]], ["web"])
+        self.assertEqual([p["name"] for p in service["spec"]["ports"]], ["web"])
+
     def test_surface_tree_matches_three_workload_model(self):
         assert_paths_exist(
             self,
@@ -661,6 +685,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(master_container["image"], controlplane_image)
         self.assertEqual(master_container["command"], ["/usr/local/bin/start-master.sh"])
         self.assertEqual(find_env(master_container, "YR_ETCD_ADDR_LIST"), etcd_addr)
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
+        self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
         master_mounts = {m["mountPath"] for m in master_container.get("volumeMounts", [])}
         self.assertIn(values["debug"]["sidecar"]["sessionDir"], master_mounts)
 
@@ -734,9 +760,11 @@ class YrK8sLayoutTests(unittest.TestCase):
         traefik_text = traefik_cfg["data"]["traefik.yaml"]
         traefik_dynamic_text = traefik_dynamic_cfg["data"]["config.yml"]
         traefik_annotations = traefik_dep["spec"]["template"]["metadata"]["annotations"]
-        self.assertEqual(values["traefik"]["etcd"]["rootKey"], "traefik")
-        self.assertIn(etcd_addr, traefik_text)
-        self.assertIn(values["traefik"]["etcd"]["rootKey"], traefik_text)
+        provider_endpoint = f"http://{master_access_name}:22770/global-scheduler/traefik/config"
+        self.assertIn(provider_endpoint, traefik_text)
+        self.assertIn('pollInterval: "5s"', traefik_text)
+        self.assertIn('pollTimeout: "5s"', traefik_text)
+        self.assertNotIn("etcd:", traefik_text)
         self.assertIn("/etc/traefik/dynamic", traefik_text)
         self.assertIn(frontend_name, traefik_dynamic_text)
         self.assertIn("/api/sandbox", traefik_dynamic_text)
@@ -744,8 +772,16 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("/invocations", traefik_dynamic_text)
         self.assertRegex(traefik_annotations["checksum/traefik-config"], r"^[0-9a-f]{64}$")
         self.assertRegex(traefik_annotations["checksum/traefik-dynamic"], r"^[0-9a-f]{64}$")
+        self.assertIn("direct-router", traefik_dynamic_text)
+        self.assertIn("PathPrefix(`/direct/`) || Path(`/direct`)", traefik_dynamic_text)
+        self.assertNotIn("tunnel-router", traefik_dynamic_text)
+        self.assertNotIn("sandbox-router", traefik_dynamic_text)
+        self.assertIn("service: frontend", traefik_dynamic_text)
+        self.assertNotIn("direct-strip", traefik_dynamic_text)
         self.assertEqual(find_container(traefik_dep, "traefik")["image"], expected_image(values, "traefik"))
         self.assertEqual(traefik_svc["spec"]["ports"][0]["port"], values["traefik"]["service"]["port"])
+        self.assertEqual(len(traefik_svc["spec"]["ports"]), 1)
+        self.assertEqual([p["name"] for p in find_container(traefik_dep, "traefik")["ports"]], ["web"])
 
         for manifest in [master_sts, frontend_dep, node_ds]:
             debug_container = find_container(manifest, "debug-busybox")

@@ -9,10 +9,10 @@ providers:
   file:
     filename: /openyuanrong/traefik/dynamic.yml
     watch: true
-  etcd:
-    endpoints:
-      - "__AIO_NODE_IP__:32379"
-    rootKey: "traefik"
+  http:
+    endpoint: "http://__AIO_NODE_IP__:22770/global-scheduler/traefik/config"
+    pollInterval: "5s"
+    pollTimeout: "5s"
 
 log:
   level: INFO
