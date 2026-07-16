@@ -983,6 +983,7 @@ class TestCliScripts(unittest.TestCase):
                     {
                         "id": "tenant-a-box",
                         "tenantID": "tenant-a",
+                        "node_id": "node-a",
                         "status": "running",
                         "required_cpu": 500,
                         "required_mem": 1024,
@@ -1001,8 +1002,8 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(
             output.getvalue().splitlines(),
             [
-                "INSTANCE_ID   TENANT_ID  STATUS   IMAGE                     CPU_REQ  MEMORY_REQ  CPU_LIMIT  MEMORY_LIMIT  RUNTIME",
-                "tenant-a-box  tenant-a   running  s3://crfs-dev/rootfs.img  500      1024        1000       2048          125s",
+                "INSTANCE_ID   TENANT_ID  NODE_ID  STATUS   IMAGE                     CPU_REQ  MEMORY_REQ  CPU_LIMIT  MEMORY_LIMIT  RUNTIME",
+                "tenant-a-box  tenant-a   node-a   running  s3://crfs-dev/rootfs.img  500      1024        1000       2048          125s",
             ],
         )
 
