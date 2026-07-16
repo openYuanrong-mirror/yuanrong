@@ -260,7 +260,7 @@ yrcli deploy-language-rt [OPTIONS]
 
 | 选项 | 说明 |
 |------|------|
-| `--runtime` | 运行时版本 (`python3.9`\|`python3.10`\|`python3.11`\|`python3.12`\|`python3.13`) |
+| `--runtime` | 运行时版本 (`python3.9`\|`python3.10`\|`python3.11`\|`python3.12`\|`python3.13`\|`python3.14`) |
 | `--sdk` | 部署为 SDK 运行时 |
 | `--no-rootfs` | 不使用 rootfs |
 | `--function-json` | 函数配置文件路径 |

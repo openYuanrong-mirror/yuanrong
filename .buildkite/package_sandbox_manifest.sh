@@ -4,10 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-SANDBOX_ARTIFACT_DIR="${ROOT_DIR}/artifacts/sandbox"
+SANDBOX_ARTIFACT_DIR="${SANDBOX_ARTIFACT_DIR:-${ROOT_DIR}/artifacts/sandbox}"
 HELM_DIR="${SANDBOX_ARTIFACT_DIR}/helm"
 MANIFEST_DIR="${SANDBOX_ARTIFACT_DIR}/manifests"
 METADATA_DIR="${SANDBOX_ARTIFACT_DIR}/metadata"
+MANIFEST_INSPECT_DIR="${METADATA_DIR}/manifest-inspect"
+MANIFEST_EVIDENCE_FILE="${METADATA_DIR}/image-manifest-evidence.tsv"
 ARCHIVE_DIR="${SANDBOX_ARTIFACT_DIR}/archive"
 CHART_DIR="${ROOT_DIR}/deploy/sandbox/k8s/charts/yr-k8s"
 VALUES_FILE="${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.prod.yaml"
@@ -28,9 +30,9 @@ RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}-${DEFAULT_RUNTIME_SD
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313}"
-LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313}"
-MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313}"
+LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313 build-sdk-amd64-cp314}"
+LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313 build-sdk-arm64-cp314}"
+MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313 build-sdk-macos-arm64-cp314}"
 RRT_ARTIFACT_STEPS="${SANDBOX_RRT_ARTIFACT_STEPS:-build-rrt-amd64 build-rrt-arm64}"
 SANDBOX_SDK_ARTIFACT_STEPS="${SANDBOX_SANDBOX_SDK_STEPS:-test-sandbox-sdk}"
 EXTRA_ARTIFACT_STEPS="${SANDBOX_EXTRA_ARTIFACT_STEPS:-}"
@@ -81,11 +83,32 @@ create_manifest() {
     local target="${REGISTRY_REPO}/${image_name}:${target_tag}"
     local arch
     local source
+    local source_inspect
+    local final_inspect
+    local push_output
+    local final_digest
     local sources=()
+    local expected_platform_args=()
 
     mapfile -t sources < <(manifest_source_args "${image_name}" "${source_tag_suffix}")
     printf 'Creating manifest %s from:\n' "${target}" >&2
     printf '  %s\n' "${sources[@]}" >&2
+
+    for arch in ${IMAGE_ARCHES}; do
+        case "${arch}" in
+            amd64|arm64) ;;
+            *) printf 'Unsupported manifest architecture: %s\n' "${arch}" >&2; exit 1 ;;
+        esac
+        source="${REGISTRY_REPO}/${image_name}:${IMAGE_TAG}-${arch}${source_tag_suffix}"
+        source_inspect="${MANIFEST_INSPECT_DIR}/${image_name}-${target_tag}-${arch}-source.json"
+        "${DOCKER_BIN}" manifest inspect --verbose "${source}" >"${source_inspect}"
+        python3 .buildkite/verify_image_manifest.py source \
+            --input "${source_inspect}" \
+            --image "${source}" \
+            --expected-platform "linux/${arch}" \
+            --evidence "${MANIFEST_EVIDENCE_FILE}"
+        expected_platform_args+=(--expected-platform "linux/${arch}")
+    done
 
     "${DOCKER_BIN}" manifest rm "${target}" >/dev/null 2>&1 || true
     "${DOCKER_BIN}" manifest create "${target}" "${sources[@]}"
@@ -93,7 +116,17 @@ create_manifest() {
         source="${REGISTRY_REPO}/${image_name}:${IMAGE_TAG}-${arch}${source_tag_suffix}"
         "${DOCKER_BIN}" manifest annotate "${target}" "${source}" --os linux --arch "${arch}"
     done
-    "${DOCKER_BIN}" manifest push --purge "${target}"
+    push_output="${MANIFEST_INSPECT_DIR}/${image_name}-${target_tag}-push.txt"
+    "${DOCKER_BIN}" manifest push --purge "${target}" | tee "${push_output}"
+    final_digest="$(python3 .buildkite/verify_image_manifest.py push-digest --input "${push_output}")"
+    final_inspect="${MANIFEST_INSPECT_DIR}/${image_name}-${target_tag}-final.json"
+    "${DOCKER_BIN}" manifest inspect "${target}" >"${final_inspect}"
+    python3 .buildkite/verify_image_manifest.py final \
+        --input "${final_inspect}" \
+        --image "${target}" \
+        --digest "${final_digest}" \
+        "${expected_platform_args[@]}" \
+        --evidence "${MANIFEST_EVIDENCE_FILE}"
 }
 
 runtime_sdk_suffixes() {
@@ -228,6 +261,24 @@ collect_artifact_archive() {
     done
 }
 
+require_cp314_sdk_records() {
+    if ! command -v buildkite-agent >/dev/null 2>&1; then
+        return 0
+    fi
+    local required_records=(
+        "linux-amd64-sdk/build-sdk-amd64-cp314/obs-urls.txt"
+        "linux-arm64-sdk/build-sdk-arm64-cp314/obs-urls.txt"
+        "macos-arm64-sdk/build-sdk-macos-arm64-cp314/obs-urls.txt"
+    )
+    local record
+    for record in "${required_records[@]}"; do
+        if [ ! -s "${ARCHIVE_DIR}/${record}" ]; then
+            printf 'Required Python 3.14 SDK metadata is missing or empty: %s\n' "${record}" >&2
+            exit 1
+        fi
+    done
+}
+
 write_artifact_summary_json() {
     python3 - "${ARCHIVE_DIR}" "${METADATA_DIR}/build-artifacts.json" "${BUILD_NUMBER}" "${BRANCH_NAME}" "${COMMIT_SHA}" "${REGISTRY_REPO}" "${IMAGE_TAG}" <<'PY'
 import json
@@ -271,6 +322,7 @@ summary = {
     "image_tag": image_tag,
     "artifact_groups": artifact_groups,
     "runtime_images": sorted(set(runtime_images)),
+    "manifest_evidence": "metadata/image-manifest-evidence.tsv",
 }
 output_path.parent.mkdir(parents=True, exist_ok=True)
 output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -310,6 +362,7 @@ upload_manifest_artifacts_to_obs_if_configured() {
         "${MANIFEST_DIR}"/*.yaml \
         "${METADATA_DIR}"/*.json \
         "${METADATA_DIR}"/*.yaml \
+        "${METADATA_DIR}"/*.tsv \
         "${ARCHIVE_DIR}/index.html"
 }
 
@@ -392,11 +445,15 @@ PY
 }
 
 main() {
-    mkdir -p "${HELM_DIR}" "${MANIFEST_DIR}" "${METADATA_DIR}" "${ARCHIVE_DIR}"
+    mkdir -p "${HELM_DIR}" "${MANIFEST_DIR}" "${METADATA_DIR}" "${ARCHIVE_DIR}" "${MANIFEST_INSPECT_DIR}"
+    : >"${MANIFEST_EVIDENCE_FILE}"
 
     require_bin "${DOCKER_BIN}"
     require_bin helm
     require_bin python3
+
+    collect_artifact_archive
+    require_cp314_sdk_records
 
     export DOCKER_CLI_EXPERIMENTAL="${DOCKER_CLI_EXPERIMENTAL:-enabled}"
     docker_login_if_configured
@@ -425,7 +482,6 @@ main() {
         --app-version "${APP_VERSION}" \
         --destination "${HELM_DIR}"
 
-    collect_artifact_archive
     write_artifact_summary_json
     write_artifact_archive_html
     upload_manifest_artifacts_to_obs_if_configured
@@ -434,6 +490,7 @@ main() {
         buildkite-agent meta-data set "sandbox-release.${BUILDKITE_STEP_KEY}" "$(cat "${METADATA_DIR}/sandbox-release.json")"
         buildkite-agent artifact upload "${ARCHIVE_DIR}/index.html" || true
         buildkite-agent artifact upload "${METADATA_DIR}/build-artifacts.json" || true
+        buildkite-agent artifact upload "${MANIFEST_EVIDENCE_FILE}" || true
         buildkite-agent annotate --style "success" --context "sandbox-manifest" \
             "Sandbox multi-arch manifests pushed with tag ${IMAGE_TAG}; Helm chart packaged as version ${CHART_VERSION}; build artifacts are summarized in artifacts/sandbox/archive/index.html and build-artifacts.json."
     fi

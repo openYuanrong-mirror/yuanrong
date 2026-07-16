@@ -7,8 +7,12 @@
 
 set -euo pipefail
 
+HOME="${HOME:-$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory | awk '{print $2}')}"
+export HOME
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PYTHON314_VERSION="${PYTHON314_VERSION:-3.14.6}"
+PYTHON314_PREFIX="${PYTHON314_PREFIX:-${HOME}/.cache/openyuanrong/python/${PYTHON314_VERSION}}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -54,23 +58,45 @@ brew_install_if_missing() {
     brew_install "${formula}"
 }
 
-brew_install() {
-    local formula="$1"
-    if brew list --versions "$formula" >/dev/null 2>&1; then
-        log_info "$formula already installed"
+brew_mutate() {
+    local brew_bin
+    brew_bin="$(command -v brew)"
+    if [[ "$(id -u)" == "0" ]]; then
+        local brew_owner
+        brew_owner="$(stat -f '%Su' "$(brew --prefix)")"
+        if [[ -z "${brew_owner}" || "${brew_owner}" == "root" ]]; then
+            log_error "Cannot determine the non-root Homebrew owner"
+            exit 1
+        fi
+        sudo -H -u "${brew_owner}" env \
+            HOMEBREW_NO_AUTO_UPDATE=1 \
+            HOMEBREW_NO_ENV_HINTS=1 \
+            "${brew_bin}" "$@"
         return
     fi
-    brew install "$formula"
+    "${brew_bin}" "$@"
+}
+
+brew_install() {
+    local formula="$1"
+    local installed_versions
+    installed_versions="$(brew_mutate list --versions "$formula" 2>/dev/null || true)"
+    if [[ -n "${installed_versions}" ]]; then
+        log_info "$formula already installed: ${installed_versions}"
+        return
+    fi
+    brew_mutate install "$formula"
 }
 
 python_formula_bin() {
     local formula="$1"
-    if ! brew list --versions "$formula" >/dev/null 2>&1; then
+    if ! brew_mutate list --versions "$formula" >/dev/null 2>&1; then
         return 1
     fi
     local prefix
-    prefix="$(brew --prefix "$formula")"
+    prefix="$(brew_mutate --prefix "$formula")"
     case "$formula" in
+        python@3.14) echo "${prefix}/bin/python3.14" ;;
         python@3.13) echo "${prefix}/bin/python3.13" ;;
         python@3.12) echo "${prefix}/bin/python3.12" ;;
         python@3.11) echo "${prefix}/bin/python3.11" ;;
@@ -88,6 +114,7 @@ sdk_python_bin() {
     local candidate
 
     for candidate in \
+        "${PYTHON314_PREFIX}/bin/${py_version}" \
         "${py_version}" \
         "${conda_root}/bin/${py_version}" \
         "${conda_root}/envs/${py_env}/bin/${py_version}" \
@@ -134,13 +161,13 @@ pick_python() {
     local py
     local candidates=()
 
-    for py in python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
+    for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
         if command -v "${py}" >/dev/null 2>&1; then
             candidates+=("$(command -v "${py}")")
         fi
     done
 
-    for py in python@3.13 python@3.12 python@3.11 python@3.10 python@3.9; do
+    for py in python@3.14 python@3.13 python@3.12 python@3.11 python@3.10 python@3.9; do
         if py_path="$(python_formula_bin "${py}" 2>/dev/null)"; then
             candidates+=("${py_path}")
         fi
@@ -173,7 +200,7 @@ ensure_python() {
         return
     fi
     brew_install python@3.11
-    brew link --overwrite --force python@3.11 >/dev/null 2>&1 || true
+    brew_mutate link --overwrite --force python@3.11 >/dev/null 2>&1 || true
 
     if ! pick_python >/dev/null 2>&1; then
         log_error "python3.9+ is still unavailable after installing python@3.11"
@@ -181,9 +208,61 @@ ensure_python() {
     fi
 }
 
+ensure_python314() {
+    local python_bin="${PYTHON314_PREFIX}/bin/python3.14"
+    if [[ -x "${python_bin}" ]] && "${python_bin}" -c \
+        'import platform, sys; assert platform.python_version() == sys.argv[1]' \
+        "${PYTHON314_VERSION}" >/dev/null 2>&1; then
+        log_info "Python ${PYTHON314_VERSION} already available at ${python_bin}"
+        return
+    fi
+
+    brew_install openssl@3
+    brew_install readline
+    brew_install sqlite
+    brew_install xz
+
+    local openssl_prefix readline_prefix sqlite_prefix xz_prefix source_dir
+    openssl_prefix="$(brew_mutate --prefix openssl@3)"
+    readline_prefix="$(brew_mutate --prefix readline)"
+    sqlite_prefix="$(brew_mutate --prefix sqlite)"
+    xz_prefix="$(brew_mutate --prefix xz)"
+    source_dir="$(mktemp -d)"
+
+    log_step "Building exact Python ${PYTHON314_VERSION} for the macOS SDK"
+    curl -fL \
+        --retry 10 \
+        --retry-delay 5 \
+        --retry-all-errors \
+        --continue-at - \
+        --speed-limit 1024 \
+        --speed-time 60 \
+        "https://mirrors.huaweicloud.com/python/${PYTHON314_VERSION}/Python-${PYTHON314_VERSION}.tgz" \
+        -o "${source_dir}/Python-${PYTHON314_VERSION}.tgz"
+    tar -xzf "${source_dir}/Python-${PYTHON314_VERSION}.tgz" -C "${source_dir}"
+    (
+        cd "${source_dir}/Python-${PYTHON314_VERSION}"
+        env \
+            CPPFLAGS="-I${openssl_prefix}/include -I${readline_prefix}/include -I${sqlite_prefix}/include -I${xz_prefix}/include" \
+            LDFLAGS="-L${openssl_prefix}/lib -L${readline_prefix}/lib -L${sqlite_prefix}/lib -L${xz_prefix}/lib" \
+            PKG_CONFIG_PATH="${openssl_prefix}/lib/pkgconfig:${readline_prefix}/lib/pkgconfig:${sqlite_prefix}/lib/pkgconfig:${xz_prefix}/lib/pkgconfig" \
+            ./configure --prefix="${PYTHON314_PREFIX}" --enable-shared --with-openssl="${openssl_prefix}"
+        make -j"$(sysctl -n hw.logicalcpu)"
+        make install
+    )
+    rm -rf "${source_dir}"
+    "${python_bin}" -c \
+        'import platform, sys; assert platform.python_version() == sys.argv[1]' \
+        "${PYTHON314_VERSION}"
+}
+
 ensure_sdk_python_versions() {
     local py_version
-    for py_version in python3.13 python3.12 python3.11 python3.10 python3.9; do
+    for py_version in ${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13 python3.14}; do
+        if [[ "${py_version}" == "python3.14" ]]; then
+            ensure_python314
+            continue
+        fi
         if sdk_python_bin "${py_version}" >/dev/null 2>&1; then
             log_info "${py_version} already available"
             continue
@@ -219,7 +298,7 @@ main() {
 
     log_step "Checking minimal macOS SDK build prerequisites"
     if [[ "${SKIP_BREW_UPDATE:-0}" != "1" ]]; then
-        brew update
+        brew_mutate update
     else
         export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
     fi

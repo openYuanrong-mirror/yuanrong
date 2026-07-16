@@ -41,6 +41,7 @@ IMAGE_TAG_SUFFIX="${YR_K8S_IMAGE_TAG_SUFFIX:-${IMAGE_ARCH:+-${IMAGE_ARCH}}}"
 PUSH_IMAGE_TAG="${YR_K8S_PUSH_IMAGE_TAG:-${IMAGE_TAG}${IMAGE_TAG_SUFFIX}}"
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
+EXPECTED_SDK_VERSION="${YR_EXPECTED_SDK_VERSION:-${YR_BUILD_VERSION:-${BUILD_VERSION:-}}}"
 DOCKERD_PID=""
 
 is_enabled() {
@@ -214,6 +215,36 @@ download_release_artifacts() {
 	fi
 }
 
+resolve_expected_sdk_version() {
+	if [ -n "${EXPECTED_SDK_VERSION}" ]; then
+		return 0
+	fi
+	local sdk_wheel
+	sdk_wheel="$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "${IMAGE_SDK_WHEEL_PATTERN}" -print -quit)"
+	if [ -z "${sdk_wheel}" ]; then
+		printf 'Cannot resolve SDK version: no wheel matches %s in %s.\n' \
+			"${IMAGE_SDK_WHEEL_PATTERN}" "${OUTPUT_DIR}" >&2
+		exit 1
+	fi
+	EXPECTED_SDK_VERSION="$(python3 - "${sdk_wheel}" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as wheel:
+    metadata_files = [name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")]
+    if len(metadata_files) != 1:
+        raise SystemExit(f"expected one METADATA file, found {len(metadata_files)}")
+    for line in wheel.read(metadata_files[0]).decode("utf-8").splitlines():
+        if line.startswith("Version: "):
+            print(line.removeprefix("Version: "))
+            break
+    else:
+        raise SystemExit("wheel METADATA has no Version field")
+PY
+)"
+	printf 'Resolved SDK version from %s: %s\n' "$(basename "${sdk_wheel}")" "${EXPECTED_SDK_VERSION}"
+}
+
 write_runtime_metadata() {
 	mkdir -p "${METADATA_DIR}" "${SANDBOX_ARTIFACT_DIR}/runtime-images"
 	cat >"${METADATA_DIR}/sandbox-runtime-image.json" <<EOF
@@ -227,7 +258,8 @@ write_runtime_metadata() {
   "pushed_image_tag": "${PUSH_IMAGE_TAG}",
   "image_arch": "${IMAGE_ARCH}",
   "sdk_step": "${SDK_STEP_KEY}",
-  "sdk_wheel_pattern": "${IMAGE_SDK_WHEEL_PATTERN}"
+  "sdk_wheel_pattern": "${IMAGE_SDK_WHEEL_PATTERN}",
+  "sdk_version": "${EXPECTED_SDK_VERSION}"
 }
 EOF
 	printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}" \
@@ -252,6 +284,35 @@ docker_login_if_configured() {
 	fi
 
 	printf '%s' "${SWR_PASSWORD}" | docker login "${REGISTRY_SERVER}" -u "${SWR_USERNAME}" --password-stdin
+}
+
+verify_python314_runtime_image() {
+	case "${IMAGE_SDK_WHEEL_PATTERN}" in
+	*cp314*) ;;
+	*) return 0 ;;
+	esac
+	if [ -z "${EXPECTED_SDK_VERSION}" ]; then
+		printf 'YR_EXPECTED_SDK_VERSION, YR_BUILD_VERSION, or BUILD_VERSION is required for cp314 runtime verification.\n' >&2
+		exit 1
+	fi
+	local image="${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}"
+	docker pull "${image}"
+	docker run --rm --env EXPECTED_SDK_VERSION="${EXPECTED_SDK_VERSION}" --entrypoint python "${image}" -c '
+import importlib.metadata
+import os
+import pathlib
+import platform
+import yr
+from yr.cli import scripts
+assert platform.python_version() == "3.14.6"
+assert callable(scripts.runtime_main)
+package_root = pathlib.Path(yr.__file__).resolve().parent
+assert not [path for path in package_root.rglob("*") if "cp313" in path.name or "cpython-313" in path.name]
+installed_version = importlib.metadata.version("openyuanrong-sdk")
+expected_version = os.environ["EXPECTED_SDK_VERSION"]
+assert installed_version == expected_version, (installed_version, expected_version)
+print(installed_version)
+'
 }
 
 write_values_override() {
@@ -340,6 +401,7 @@ main() {
 	require_bin python3
 
 	download_release_artifacts
+	resolve_expected_sdk_version
 	start_dockerd
 	docker_login_if_configured
 
@@ -347,6 +409,7 @@ main() {
 	export YR_K8S_REGISTRY_REPO="${REGISTRY_REPO}"
 	bash deploy/sandbox/k8s/build-images.sh
 	bash deploy/sandbox/k8s/push-images-swr.sh
+	verify_python314_runtime_image
 
 	if is_enabled "${RUNTIME_ONLY}"; then
 		write_runtime_metadata

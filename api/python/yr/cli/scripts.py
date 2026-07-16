@@ -1806,7 +1806,7 @@ def async_result(request_id, timeout):
 @click.option(
     "--runtime",
     required=False,
-    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13"]),
+    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13", "python3.14"]),
     help="Runtime language version",
 )
 @click.option(

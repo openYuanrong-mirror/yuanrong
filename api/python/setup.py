@@ -145,7 +145,8 @@ if setup_type_env == "sdk":
     setup_spec.install_requires = [
         "cloudpickle==3.1.2",
         "msgpack==1.0.5",
-        "protobuf==4.25.5",
+        'protobuf==4.25.5; python_version < "3.14"',
+        'protobuf>=7.35.1,<8; python_version >= "3.14"',
         "cython==3.0.10",
         "pyyaml>=6.0.0",
         "click>=8.0.0,<9",
@@ -962,13 +963,14 @@ setuptools.setup(
     name=setup_spec.name,
     version=setup_spec.version,
     author="openyuanrong",
-    python_requires=">=3.9,<3.14",
+    python_requires=">=3.9,<3.15",
     classifiers=[
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
     ],
     cmdclass={
         "bdist_wheel": BdistWheelImpl,
