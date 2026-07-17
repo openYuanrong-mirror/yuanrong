@@ -99,3 +99,15 @@ YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 --
 - `etcd` is external in this model and is passed in through `global.externalEtcd`
 - `datasystem` validates `etcd_address` strictly, so local deployments should use an IP or full service FQDN such as `yr-etcd.yr.svc.cluster.local:2379`, not a bare short service name
 - `helm` is required locally for linting and rendering. If `helm` is missing, chart verification is incomplete.
+
+## Traefik instance routes
+
+Traefik 的 file provider 仅维护 frontend 与 `/direct` 静态路由；实例级 tunnel 和用户端口路由从 FunctionMaster HTTP Provider 获取：
+
+```text
+http://yr-master-access:22770/global-scheduler/traefik/config
+```
+
+对外 gateway 统一使用 8888。RRT 50090 和 tunnel 内部 8766 标记为 `direct`，不会出现在 provider JSON；8765 标记为 `tunnel`，发布 `/tunnel/{safeID}`；用户 HTTP/HTTPS 端口发布 `/{safeID}/{containerPort}`。
+
+升级顺序：先升级能够解析 route kind 的 Runtime、SandboxRouter 和 FunctionMaster，再升级 Frontend producer，确认 provider JSON 后最后切换 Traefik provider。回滚顺序相反。

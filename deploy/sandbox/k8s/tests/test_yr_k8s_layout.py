@@ -197,6 +197,30 @@ def expected_etcd_addr(values: dict) -> str:
 
 
 class YrK8sLayoutTests(unittest.TestCase):
+    def test_traefik_uses_master_http_provider_on_web_entrypoint(self):
+        manifests = render_chart()
+        master = find_manifest(manifests, "StatefulSet", "yr-master")
+        traefik = find_manifest(manifests, "Deployment", "yr-traefik")
+        service = find_manifest(manifests, "Service", "yr-traefik")
+        static_config = find_manifest(manifests, "ConfigMap", "yr-traefik-configmap")["data"]["traefik.yaml"]
+        dynamic_config = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")["data"]["config.yml"]
+
+        master_container = find_container(master, "master")
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
+        self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
+        self.assertIn(
+            "http://yr-master-access:22770/global-scheduler/traefik/config",
+            static_config,
+        )
+        self.assertIn('pollInterval: "5s"', static_config)
+        self.assertIn('pollTimeout: "5s"', static_config)
+        self.assertNotIn("etcd:", static_config)
+        self.assertNotIn("router:", static_config)
+        self.assertNotIn("tunnel-router", dynamic_config)
+        self.assertNotIn("sandbox-router", dynamic_config)
+        self.assertEqual([p["name"] for p in find_container(traefik, "traefik")["ports"]], ["web"])
+        self.assertEqual([p["name"] for p in service["spec"]["ports"]], ["web"])
+
     def test_surface_tree_matches_three_workload_model(self):
         assert_paths_exist(
             self,
@@ -495,6 +519,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(master_container["image"], controlplane_image)
         self.assertEqual(master_container["command"], ["/usr/local/bin/start-master.sh"])
         self.assertEqual(find_env(master_container, "YR_ETCD_ADDR_LIST"), etcd_addr)
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
+        self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
         master_mounts = {m["mountPath"] for m in master_container.get("volumeMounts", [])}
         self.assertIn(values["debug"]["sidecar"]["sessionDir"], master_mounts)
 
@@ -554,8 +580,11 @@ class YrK8sLayoutTests(unittest.TestCase):
         traefik_dynamic_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")
         traefik_text = traefik_cfg["data"]["traefik.yaml"]
         traefik_dynamic_text = traefik_dynamic_cfg["data"]["config.yml"]
-        self.assertIn(etcd_addr, traefik_text)
-        self.assertIn(values["traefik"]["etcd"]["rootKey"], traefik_text)
+        provider_endpoint = f"http://{master_access_name}:22770/global-scheduler/traefik/config"
+        self.assertIn(provider_endpoint, traefik_text)
+        self.assertIn('pollInterval: "5s"', traefik_text)
+        self.assertIn('pollTimeout: "5s"', traefik_text)
+        self.assertNotIn("etcd:", traefik_text)
         self.assertIn("/etc/traefik/dynamic", traefik_text)
         self.assertIn(frontend_name, traefik_dynamic_text)
         self.assertIn("/api/sandbox", traefik_dynamic_text)
@@ -563,12 +592,14 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("/invocations", traefik_dynamic_text)
         self.assertIn("direct-router", traefik_dynamic_text)
         self.assertIn("PathPrefix(`/direct/`) || Path(`/direct`)", traefik_dynamic_text)
-        self.assertIn("tunnel-router", traefik_dynamic_text)
-        self.assertIn("PathPrefix(`/tunnel/`) || Path(`/tunnel`)", traefik_dynamic_text)
+        self.assertNotIn("tunnel-router", traefik_dynamic_text)
+        self.assertNotIn("sandbox-router", traefik_dynamic_text)
         self.assertIn("service: frontend", traefik_dynamic_text)
         self.assertNotIn("direct-strip", traefik_dynamic_text)
         self.assertEqual(find_container(traefik_dep, "traefik")["image"], expected_image(values, "traefik"))
         self.assertEqual(traefik_svc["spec"]["ports"][0]["port"], values["traefik"]["service"]["port"])
+        self.assertEqual(len(traefik_svc["spec"]["ports"]), 1)
+        self.assertEqual([p["name"] for p in find_container(traefik_dep, "traefik")["ports"]], ["web"])
 
         for manifest in [master_sts, frontend_dep, node_ds]:
             debug_container = find_container(manifest, "debug-busybox")
@@ -627,6 +658,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("TRAEFIK_WEB_ADDRESS", deploy_script)
         self.assertIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
         self.assertIn('TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"', deploy_script)
+        self.assertIn('"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}"', deploy_script)
         self.assertIn('probe_sandbox_ready "${smoke_server_address}"', deploy_script)
         self.assertIn('run_idle_timeout_e2e "${smoke_server_address}"', deploy_script)
         self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
@@ -1117,6 +1149,67 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('*-cp312-*) python_minor="3.12" ;;', smoke_script)
         self.assertIn('*-cp314-*) python_minor="3.14" ;;', smoke_script)
         self.assertIn("python@3.12", macos_tools)
+
+    def test_test_pypi_publish_only_depends_on_emitted_sandbox_sdk_test(self):
+        without_sandbox = emit_dynamic_pipeline(
+            ENABLE_LINUX_ARM="false",
+            ENABLE_MACOS_SDK="false",
+            ENABLE_RUNTIME_X86="false",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="false",
+            ENABLE_TEST_PYPI_PUBLISH="true",
+            SDK_PYTHON_VERSIONS="python3.11",
+        )
+        without_sandbox_steps = {
+            step["key"]: step for step in flatten_pipeline_steps(without_sandbox)
+        }
+        self.assertNotIn("test-sandbox-sdk", without_sandbox_steps)
+        self.assertEqual(
+            without_sandbox_steps["publish-wheels-testpypi"]["env"][
+                "SANDBOX_SANDBOX_SDK_STEPS"
+            ],
+            "",
+        )
+        self.assertNotIn(
+            "test-sandbox-sdk",
+            without_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
+        )
+        publish_command = without_sandbox_steps["publish-wheels-testpypi"]["command"]
+        self.assertIn('set -- --pattern \'openyuanrong_sdk*.whl\'', publish_command)
+        self.assertIn(
+            'if [ -n "$$SANDBOX_SANDBOX_SDK_STEPS" ]; then',
+            publish_command,
+        )
+        self.assertIn(
+            'set -- "$$@" --pattern \'openyuanrong_sandbox*.whl\'',
+            publish_command,
+        )
+        self.assertIn('"$$@"', publish_command)
+
+        with_sandbox = emit_dynamic_pipeline(
+            ENABLE_LINUX_ARM="false",
+            ENABLE_MACOS_SDK="false",
+            ENABLE_RUNTIME_X86="false",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="true",
+            ENABLE_SANDBOX_MANIFEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="true",
+            SDK_PYTHON_VERSIONS="python3.11",
+        )
+        with_sandbox_steps = {
+            step["key"]: step for step in flatten_pipeline_steps(with_sandbox)
+        }
+        self.assertIn("test-sandbox-sdk", with_sandbox_steps)
+        self.assertEqual(
+            with_sandbox_steps["publish-wheels-testpypi"]["env"][
+                "SANDBOX_SANDBOX_SDK_STEPS"
+            ],
+            "test-sandbox-sdk",
+        )
+        self.assertIn(
+            "test-sandbox-sdk",
+            with_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
+        )
 
     def test_python314_buildkite_execution_contract(self):
         packager = "registry.example.com/openyuanrong/sandbox-packager:test"

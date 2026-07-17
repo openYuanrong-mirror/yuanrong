@@ -358,16 +358,15 @@ traefik:
   entryPoints:
     web:
       address: ":8888"
-    router:
-      address: ":8080"
-  etcd:
-    rootKey: /traefik
+  httpProvider:
+    entryPoint: web
+    pollInterval: 5s
+    pollTimeout: 5s
+    masterForwardTimeoutMs: 3000
   service:
     type: LoadBalancer
     port: 8888
     targetPort: 8888
-    # LoadBalancer port for sandbox data-plane gateway (/tunnel and user port URLs).
-    routerPort: 8080
     annotations: {}
   tls:
     entryPoint:
