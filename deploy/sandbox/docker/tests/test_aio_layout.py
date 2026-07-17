@@ -222,6 +222,14 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn('["curl", "-sk", "-o", "-", "-w", "\\nHTTP_STATUS:%{http_code}\\n", url]', script_text)
         self.assertIn('yr.kill_instance(instance_id)', script_text)
 
+    def test_rrt_runtime_does_not_expose_removed_stream_actions(self):
+        runtime_dir = REPO_ROOT / "api/rust/rrt-daemon/src/runtime"
+        dispatch_text = (runtime_dir / "dispatch.rs").read_text()
+        module_text = (runtime_dir / "mod.rs").read_text()
+        self.assertFalse((runtime_dir / "stream.rs").exists())
+        self.assertNotIn("sandbox_stream_", dispatch_text)
+        self.assertNotIn("mod stream;", module_text)
+
     def test_webterminal_uses_direct_sandbox_create_flow(self):
         webterm_text = (
             REPO_ROOT / "frontend/pkg/frontend/webui/webterm.go"
