@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 import subprocess
 
 import click
@@ -52,12 +51,11 @@ def token_require(tenant_id, ttl, role, iam_address):
     try:
         response = run_curl("GET", url, headers)
     except subprocess.CalledProcessError as exc:
-        sys.stdout.write(f"Token generation failed: {exc}\n")
-        raise SystemExit(1) from exc
+        raise click.ClickException(f"Token generation failed: {exc}") from exc
 
     token = parse_header(response.stdout, "X-Auth")
     if token:
-        sys.stdout.write(f"Token: {token}\n")
+        click.echo(f"Token: {token}")
 
 
 @cli.command("token-abandon")
@@ -81,10 +79,9 @@ def token_abandon(token, tenant_id, iam_address):
     try:
         run_curl("POST", url, headers)
     except subprocess.CalledProcessError as exc:
-        sys.stdout.write(f"Token abandonment failed: {exc}\n")
-        raise SystemExit(1) from exc
+        raise click.ClickException(f"Token abandonment failed: {exc}") from exc
 
-    sys.stdout.write("Token successfully abandoned/revoked\n")
+    click.echo("Token successfully abandoned/revoked")
 
 
 def run_curl(method, url, headers):

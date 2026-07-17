@@ -96,27 +96,13 @@ class SandboxCreateOptions:
 
     @classmethod
     def from_call(cls, *args, **kwargs):
-        fields = (
-            "namespace",
-            "name",
-            "runtime",
-            "image",
-            "ports",
-            "upstream",
-            "proxy_port",
-            "create_timeout_seconds",
-        )
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port", "create_timeout_seconds")
         values = dict(zip(fields, args))
         values.update(kwargs)
         return cls(
-            namespace=values["namespace"],
-            name=values["name"],
-            runtime=values["runtime"],
-            image=values.get("image"),
-            ports=values.get("ports"),
-            upstream=values.get("upstream"),
-            proxy_port=values.get("proxy_port", 8766),
-            create_timeout_seconds=values.get("create_timeout_seconds"),
+            values["namespace"], values["name"], values["runtime"], values.get("image"),
+            values.get("ports"), values.get("upstream"), values.get("proxy_port", 8766),
+            values.get("create_timeout_seconds"),
         )
 
 
@@ -180,6 +166,47 @@ class FunctionName:
         return "/".join([self.service, f"{self.name}:{self.version}"])
 
 
+def _decode_sse_data(data_lines):
+    payload = "".join(data_lines).strip()
+    if not payload:
+        return {}
+    try:
+        parsed = json.loads(payload)
+        return parsed if isinstance(parsed, dict) else {"data": parsed}
+    except (TypeError, ValueError):
+        return {"message": payload}
+
+
+def _parse_event_stream(response):
+    event_name = ""
+    data_lines = []
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if raw_line is None:
+            line = ""
+        elif isinstance(raw_line, bytes):
+            line = raw_line.decode("utf-8").strip()
+        else:
+            line = raw_line.strip()
+        if not line:
+            if event_name == "final" and data_lines:
+                return _decode_sse_data(data_lines)
+            event_name = ""
+            data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event_name = line[len("event:"):].strip()
+            data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[len("data:"):].strip())
+
+    if event_name == "final" and data_lines:
+        return _decode_sse_data(data_lines)
+    return None
+
+
 class HTTPClient:
     """HTTP client with TLS authentication support (mutual or one-way) and JWT token"""
 
@@ -204,6 +231,9 @@ class HTTPClient:
         self.jwt_token = jwt_token
         self.accept_status = accept_status
         self.verify = False
+
+    _parse_event_stream = staticmethod(_parse_event_stream)
+    _decode_sse_data = staticmethod(_decode_sse_data)
 
     def request(
         self,
@@ -309,49 +339,6 @@ class HTTPClient:
                     else None
                 ),
             }
-
-    @classmethod
-    def _parse_event_stream(cls, response):
-        event_name = ""
-        data_lines = []
-        for raw_line in response.iter_lines(decode_unicode=True):
-            if raw_line is None:
-                line = ""
-            elif isinstance(raw_line, bytes):
-                line = raw_line.decode("utf-8").strip()
-            else:
-                line = raw_line.strip()
-            if not line:
-                if event_name == "final" and data_lines:
-                    return cls._decode_sse_data(data_lines)
-                event_name = ""
-                data_lines = []
-                continue
-            if line.startswith(":"):
-                continue
-            if line.startswith("event:"):
-                event_name = line[len("event:") :].strip()
-                data_lines = []
-                continue
-            if line.startswith("data:"):
-                data_lines.append(line[len("data:") :].strip())
-                continue
-
-        if event_name == "final" and data_lines:
-            return cls._decode_sse_data(data_lines)
-        return None
-
-    @classmethod
-    def _decode_sse_data(cls, data_lines):
-        payload = "".join(data_lines).strip()
-        if not payload:
-            return {}
-        try:
-            parsed = json.loads(payload)
-            return parsed if isinstance(parsed, dict) else {"data": parsed}
-        except Exception:
-            return {"message": payload}
-
 
 class YRContext:
     def __init__(self, server_address, ds_address, user=None):
@@ -727,9 +714,9 @@ def decode_frontend_sandbox_instance_id(data):
     return instance_id if isinstance(instance_id, str) else ""
 
 
-sandbox_create_status_running = "running"
-sandbox_create_status_timeout = "timeout"
-sandbox_create_status_failed = "failed"
+SANDBOX_CREATE_STATUS_RUNNING = "running"
+SANDBOX_CREATE_STATUS_TIMEOUT = "timeout"
+SANDBOX_CREATE_STATUS_FAILED = "failed"
 
 
 def get_sandbox_create_timeout_seconds(explicit_create_timeout_seconds=None):
@@ -911,8 +898,8 @@ def create_sandbox_via_frontend(*args, **kwargs):
         data = resp["data"]
         if isinstance(data, dict):
             status = data.get("status", "")
-            if status in (sandbox_create_status_running, sandbox_create_status_timeout, sandbox_create_status_failed):
-                if status == sandbox_create_status_running:
+            if status in (SANDBOX_CREATE_STATUS_RUNNING, SANDBOX_CREATE_STATUS_TIMEOUT, SANDBOX_CREATE_STATUS_FAILED):
+                if status == SANDBOX_CREATE_STATUS_RUNNING:
                     return True, decode_frontend_sandbox_instance_id(data), data
                 return False, "", data
             instance_id = decode_frontend_sandbox_instance_id(data)
@@ -2386,11 +2373,9 @@ def token_require(tenant_id, ttl, role, frontend_address, operator_token):
         yrcli token-require --operator-token "$TOKEN0" --tenant-id user --ttl 3600
     """
     if not operator_token:
-        sys.stdout.write("Error: operator token is required.\n")
-        raise SystemExit(1)
+        raise click.ClickException("operator token is required")
     if role != "developer":
-        sys.stdout.write("Error: role must be developer.\n")
-        raise SystemExit(1)
+        raise click.ClickException("role must be developer")
     http_client = HTTPClient(timeout=30)
     url = f"http://{frontend_address}/auth/token/require"
     headers = {"X-Auth": operator_token, "X-Tenant-ID": tenant_id, "X-Role": role}
@@ -2402,7 +2387,7 @@ def token_require(tenant_id, ttl, role, frontend_address, operator_token):
     if resp["success"]:
         # Print token separately for easy copy
         if "X-Auth" in resp["headers"]:
-            print(f"Token: {resp['headers']['X-Auth']}")
+            click.echo(f"Token: {resp['headers']['X-Auth']}")
     else:
         raise click.ClickException(f"Token generation failed: {resp.get('error', 'Unknown error')}")
 
@@ -2428,8 +2413,7 @@ def token_abandon(tenant_id, frontend_address, operator_token):
     Example:
         yrcli token-abandon --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
     """
-    sys.stdout.write("Error: developer token abandon is not supported; token expiration depends on TTL.\n")
-    raise SystemExit(1)
+    raise click.ClickException("developer token abandon is not supported; token expiration depends on TTL")
 
 
 def main():

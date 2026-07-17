@@ -34,7 +34,7 @@ def load_json(path: pathlib.Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        fail(f"cannot read manifest JSON {path}: {exc}")
+        raise ValueError(f"cannot read manifest JSON {path}: {exc}") from exc
 
 
 def normalize_platform(platform: dict) -> str:
@@ -69,7 +69,7 @@ def validate_source(args: argparse.Namespace) -> None:
     if actual_platform != args.expected_platform:
         fail(f"{args.image} is {actual_platform}, expected {args.expected_platform}; refusing annotation")
     append_evidence(args.evidence, ["source", args.image, digest, actual_platform])
-    sys.stdout.write(f"{digest}\n")
+    print(digest)
 
 
 def validate_final(args: argparse.Namespace) -> None:
@@ -95,7 +95,7 @@ def validate_final(args: argparse.Namespace) -> None:
         args.evidence,
         ["final", args.image, final_digest, platforms, ",".join(source_digests)],
     )
-    sys.stdout.write(f"{final_digest}\n")
+    print(final_digest)
 
 
 def extract_push_digest(args: argparse.Namespace) -> None:
@@ -103,7 +103,7 @@ def extract_push_digest(args: argparse.Namespace) -> None:
     digests = re.findall(r"sha256:[0-9a-f]{64}", text)
     if not digests:
         fail(f"manifest push output {args.input} did not contain an immutable digest")
-    sys.stdout.write(f"{digests[-1]}\n")
+    print(digests[-1])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,7 +133,7 @@ def main() -> int:
     try:
         args.func(args)
     except ValueError as exc:
-        sys.stderr.write(f"manifest validation failed: {exc}\n")
+        print(f"manifest validation failed: {exc}", file=sys.stderr)
         return 1
     return 0
 

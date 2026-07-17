@@ -22,6 +22,8 @@ class TestCliScripts(unittest.TestCase):
         fake_click.version_option = lambda *args, **kwargs: lambda func: func
         fake_click.pass_context = lambda func: func
         fake_click.Choice = lambda *args, **kwargs: str
+        fake_click.ClickException = RuntimeError
+        fake_click.echo = print
 
         def group_decorator(*args, **kwargs):
             def decorate(func):
@@ -327,11 +329,8 @@ class TestCliScripts(unittest.TestCase):
     def test_token_require_rejects_missing_operator_token(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
 
-        with self.assertRaises(SystemExit) as ctx, redirect_stdout(io.StringIO()) as output:
+        with self.assertRaisesRegex(RuntimeError, "operator token is required"):
             scripts.token_require("tenant-a", None, "developer", "frontend.example", None)
-
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("operator token is required", output.getvalue())
 
     def test_token_require_rejects_non_developer_role_before_request(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -343,12 +342,9 @@ class TestCliScripts(unittest.TestCase):
             def request(self, url, data, method="POST", headers=None):
                 raise AssertionError("token_require should reject non-developer role locally")
 
-        with self.assertRaises(SystemExit) as ctx, mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), \
-                redirect_stdout(io.StringIO()) as output:
+        with self.assertRaisesRegex(RuntimeError, "role must be developer"), \
+                mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
             scripts.token_require("tenant-a", 3600, "admin", "frontend.example", "operator-token")
-
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("role must be developer", output.getvalue())
 
     def test_token_abandon_declares_unsupported(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -360,12 +356,9 @@ class TestCliScripts(unittest.TestCase):
             def request(self, url, data, method="POST", headers=None):
                 raise AssertionError("token_abandon should not call frontend")
 
-        with self.assertRaises(SystemExit) as ctx, mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), \
-                redirect_stdout(io.StringIO()) as output:
+        with self.assertRaisesRegex(RuntimeError, "developer token abandon is not supported"), \
+                mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
             scripts.token_abandon("tenant-a", "frontend.example", "operator-token")
-
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("developer token abandon is not supported", output.getvalue())
 
     def test_token_commands_default_frontend_address_from_server_address_env(self):
         scripts_path = Path(__file__).resolve().parents[1] / "cli" / "scripts.py"
@@ -504,7 +497,7 @@ class TestCliScripts(unittest.TestCase):
             def request(self, url, data, method="POST", headers=None):
                 return {
                     "success": True,
-                    "data": {"sandboxId": "tenant-a-box", "status": scripts.sandbox_create_status_running},
+                    "data": {"sandboxId": "tenant-a-box", "status": scripts.SANDBOX_CREATE_STATUS_RUNNING},
                 }
 
         with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
@@ -516,7 +509,7 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertTrue(supported)
         self.assertEqual(instance_id, "tenant-a-box")
-        self.assertEqual(data["status"], scripts.sandbox_create_status_running)
+        self.assertEqual(data["status"], scripts.SANDBOX_CREATE_STATUS_RUNNING)
 
     def test_create_sandbox_via_frontend_rejects_timeout_or_failed_status(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -529,7 +522,7 @@ class TestCliScripts(unittest.TestCase):
             def request(self, url, data, method="POST", headers=None):
                 return {
                     "success": True,
-                    "data": {"status": scripts.sandbox_create_status_timeout},
+                    "data": {"status": scripts.SANDBOX_CREATE_STATUS_TIMEOUT},
                 }
 
         with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
@@ -541,7 +534,7 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertFalse(supported)
         self.assertEqual(instance_id, "")
-        self.assertEqual(data["status"], scripts.sandbox_create_status_timeout)
+        self.assertEqual(data["status"], scripts.SANDBOX_CREATE_STATUS_TIMEOUT)
 
     def test_create_sandbox_via_frontend_requires_final_payload(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()

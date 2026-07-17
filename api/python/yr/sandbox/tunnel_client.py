@@ -103,7 +103,7 @@ def _patch_websockets_proxy_auth_unquote() -> None:
             )
         return prepare_connect_request(proxy, ws_uri, user_agent_header)
 
-    prepare_connect_request_unquote._yr_proxy_auth_unquote = True
+    setattr(prepare_connect_request_unquote, "_yr_proxy_auth_unquote", True)
     ws_client.prepare_connect_request = prepare_connect_request_unquote
 
 

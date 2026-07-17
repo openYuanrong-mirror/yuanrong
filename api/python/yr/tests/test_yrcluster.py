@@ -19,6 +19,8 @@ class TestYrCluster(unittest.TestCase):
         fake_click.option = lambda *args, **kwargs: lambda func: func
         fake_click.argument = lambda *args, **kwargs: lambda func: func
         fake_click.version_option = lambda *args, **kwargs: lambda func: func
+        fake_click.echo = print
+        fake_click.ClickException = RuntimeError
 
         def group_decorator(*args, **kwargs):
             def decorate(func):
