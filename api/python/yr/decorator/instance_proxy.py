@@ -468,6 +468,7 @@ class InstanceCreator:
 
     def _create_instance_inner(self, name, args, kwargs, invoke_options):
         """Serialize code, package args, create the instance, and return an InstanceProxy."""
+        is_sandbox = "rootfs" in invoke_options.custom_extensions
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         skip_serialize = getattr(invoke_options, "skip_serialize", False)
         code_missing = self._code_ref is None

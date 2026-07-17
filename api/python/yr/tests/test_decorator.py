@@ -368,10 +368,29 @@ class TestDecorator(TestCase):
         ConfigManager().bypass_datasystem = False
         creator = instance_proxy.InstanceCreator.create_from_user_class(
             Actor, InvokeOptions(skip_serialize=True, bypass_datasystem=True))
-        creator.invoke()
+        proxy = creator.invoke()
 
         opt = mock_runtime.create_instance.call_args.kwargs["opt"]
         self.assertFalse(opt.bypass_datasystem)
+        self.assertFalse(proxy._bypass_datasystem_default)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_sandbox_instance_defaults_to_bypass_datasystem(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "sandbox-instance-id"
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        opt = InvokeOptions(skip_serialize=True)
+        opt.custom_extensions["rootfs"] = "python:3.12-slim"
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+        proxy = creator.invoke()
+
+        create_opt = mock_runtime.create_instance.call_args.kwargs["opt"]
+        self.assertTrue(create_opt.bypass_datasystem)
+        self.assertTrue(proxy._bypass_datasystem_default)
 
     def test_config_manager_preserves_per_invoke_bypass_without_override(self):
         opt = InvokeOptions(bypass_datasystem=True)
