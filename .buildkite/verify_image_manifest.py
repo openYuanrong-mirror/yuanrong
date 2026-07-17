@@ -16,6 +16,7 @@
 
 import argparse
 import json
+import logging
 import pathlib
 import re
 import sys
@@ -24,6 +25,13 @@ from typing import Any
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 ARCH_ALIASES = {"x86_64": "amd64", "aarch64": "arm64"}
+LOGGER = logging.getLogger(__name__)
+OUTPUT_LOGGER = logging.getLogger(f"{__name__}.output")
+OUTPUT_HANDLER = logging.StreamHandler(sys.stdout)
+OUTPUT_HANDLER.setFormatter(logging.Formatter("%(message)s"))
+OUTPUT_LOGGER.addHandler(OUTPUT_HANDLER)
+OUTPUT_LOGGER.setLevel(logging.INFO)
+OUTPUT_LOGGER.propagate = False
 
 
 def fail(message: str) -> None:
@@ -69,7 +77,7 @@ def validate_source(args: argparse.Namespace) -> None:
     if actual_platform != args.expected_platform:
         fail(f"{args.image} is {actual_platform}, expected {args.expected_platform}; refusing annotation")
     append_evidence(args.evidence, ["source", args.image, digest, actual_platform])
-    print(digest)
+    OUTPUT_LOGGER.info("%s", digest)
 
 
 def validate_final(args: argparse.Namespace) -> None:
@@ -95,7 +103,7 @@ def validate_final(args: argparse.Namespace) -> None:
         args.evidence,
         ["final", args.image, final_digest, platforms, ",".join(source_digests)],
     )
-    print(final_digest)
+    OUTPUT_LOGGER.info("%s", final_digest)
 
 
 def extract_push_digest(args: argparse.Namespace) -> None:
@@ -103,7 +111,7 @@ def extract_push_digest(args: argparse.Namespace) -> None:
     digests = re.findall(r"sha256:[0-9a-f]{64}", text)
     if not digests:
         fail(f"manifest push output {args.input} did not contain an immutable digest")
-    print(digests[-1])
+    OUTPUT_LOGGER.info("%s", digests[-1])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,7 +141,7 @@ def main() -> int:
     try:
         args.func(args)
     except ValueError as exc:
-        print(f"manifest validation failed: {exc}", file=sys.stderr)
+        LOGGER.error("manifest validation failed: %s", exc)
         return 1
     return 0
 
