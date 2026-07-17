@@ -11,6 +11,7 @@ COMPILE_IMAGE="${YR_COMPILE_IMAGE:-yr-compile}"
 CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
 RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-aio-yr-runtime}"
 AIO_IMAGE="${YR_AIO_IMAGE:-aio-yr}"
+RUNTIME_BUNDLE_IMAGE="aio-yr-runtime"
 RUNTIME_TAR="${OUTPUT_DIR}/aio-yr-runtime.tar"
 DEPLOY_CONTEXT_DIR="${OUTPUT_DIR}/.yr-k8s-deploy"
 required_files=(
@@ -20,8 +21,11 @@ required_files=(
 resolve_single_file() {
     local pattern="$1"
     local matches=()
+    local match
 
-    mapfile -t matches < <(compgen -G "${pattern}" | sort -V)
+    while IFS= read -r match; do
+        matches+=("${match}")
+    done < <(compgen -G "${pattern}" | sort -V)
     if [ "${#matches[@]}" -eq 0 ]; then
         return 1
     fi
@@ -102,7 +106,10 @@ if ! resolve_single_file "${OUTPUT_DIR}/openyuanrong_sdk*.whl" >/dev/null; then
 fi
 
 sdk_wheel="$(resolve_single_file "${OUTPUT_DIR}/openyuanrong_sdk*.whl")"
-mapfile -t python_build_args < <(python_build_args_from_wheel "${sdk_wheel}")
+python_build_args=()
+while IFS= read -r build_arg; do
+    python_build_args+=("${build_arg}")
+done < <(python_build_args_from_wheel "${sdk_wheel}")
 python_version="${python_build_args[0]}"
 python_major_minor="${python_build_args[1]}"
 
@@ -136,7 +143,10 @@ DOCKER_BUILDKIT=1 docker build \
     -f "${SCRIPT_DIR}/Dockerfile.runtime" \
     -t "${RUNTIME_IMAGE}:latest" \
     "${OUTPUT_DIR}"
-docker save "${RUNTIME_IMAGE}:latest" -o "${RUNTIME_TAR}"
+if [ "${RUNTIME_IMAGE}" != "${RUNTIME_BUNDLE_IMAGE}" ]; then
+    docker tag "${RUNTIME_IMAGE}:latest" "${RUNTIME_BUNDLE_IMAGE}:latest"
+fi
+docker save "${RUNTIME_BUNDLE_IMAGE}:latest" -o "${RUNTIME_TAR}"
 DOCKER_BUILDKIT=1 docker build \
     --build-arg PYTHON_VERSION="${python_version}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \
