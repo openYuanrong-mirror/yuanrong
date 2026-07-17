@@ -132,8 +132,9 @@ func (as *WiseCloudScaler) DelNuwaPod(ins *types.Instance) error {
 
 }
 
-// TriggerScale will trigger scale
-func (as *WiseCloudScaler) TriggerScale() {
+// TriggerScale will trigger scale. WiseCloudScaler cold-starts on an empty pool and ignores the declared minimum
+// demand
+func (as *WiseCloudScaler) TriggerScale(_ int) {
 	as.logger.Infof("trigger scale, enablescale: %v, totalInsThdNum: %v", as.enableScale, as.totalInsThdNum)
 	if as.enableScale && as.totalInsThdNum == 0 {
 		select {

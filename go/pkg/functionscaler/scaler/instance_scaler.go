@@ -42,7 +42,10 @@ type ScaleDownHandler func(int, ScaleDownCallback)
 // InstanceScaler scales instance to meet certain need
 type InstanceScaler interface {
 	SetEnable(enable bool)
-	TriggerScale()
+	// TriggerScale triggers the scale up process. minConcurrency declares a
+	// lower-bound instance thread demand from external callers (e.g. a
+	// LiteScheduler scale hint); pass 0 on the legacy queue-driven path.
+	TriggerScale(minConcurrency int)
 	CheckScaling() bool
 	UpdateCreateMetrics(coldStartTime time.Duration)
 	HandleInsThdUpdate(inUseInsThdDiff, totalInsThdDiff int)

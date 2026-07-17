@@ -255,6 +255,10 @@ func TestRegisterToEtcdWithoutContend(t *testing.T) {
 		selfInstanceSpec = nil
 		SetSelfInstanceSpec(&commontypes.InstanceSpecification{RuntimeAddress: "127.0.0.1:0"})
 		convey.So(selfInstanceSpec.RuntimeAddress, convey.ShouldEqual, "127.0.0.1:8889")
+
+		selfInstanceSpec = nil
+		SetSelfInstanceSpec(&commontypes.InstanceSpecification{RuntimeAddress: "127.0.0.1:22771"})
+		convey.So(selfInstanceSpec.RuntimeAddress, convey.ShouldEqual, "127.0.0.1:8889")
 	})
 }
 

@@ -155,7 +155,7 @@ func NewFaaSScheduler(stopCh <-chan struct{}) *FaaSScheduler {
 		faasScheduler.liteScheduler = litescheduler.New(
 			selfregister.GlobalSchedulerProxy,
 			registry.GlobalRegistry.GetFuncSpec,
-			litescheduler.NewNoopSender(),
+			litescheduler.NewHTTPSender(selfregister.GlobalSchedulerProxy),
 			stopCh)
 		faasScheduler.liteScheduler.SubscribeAndLoop()
 		log.GetLogger().Infof("LiteScheduler enabled (allTenants=%v, tenants=%d, funcs=%d, acquireWaitMs=%d)",
@@ -587,6 +587,42 @@ func (fs *FaaSScheduler) handleQuerySession(targetName string, extraData []byte,
 		ErrorMessage:  constant.InsReqSuccessMessage,
 		SchedulerTime: time.Now().Sub(startTime).Seconds(),
 	}
+}
+
+// HandleScaleHint handles a cross-scheduler scale-up hint on the funcKey owner
+// scheduler (receiver of POST /scalehint). It re-validates ownership (the ring
+// may have changed between send and receive), then triggers the existing scale
+// pipeline for the function's default resKey queue. It answers immediately;
+// the created instance reaches the requesting session owner via the etcd
+// insSpec subscription.
+// Returns (accepted, errCode, ownerID): accepted reports whether the hint was
+// accepted and scale triggered. The caller answers 202 when accepted is true;
+// otherwise it answers HTTP 200 with a ScaleHintResponse body carrying errCode
+// and ownerID (errCode is 0 on success). ownerID carries the current owner's
+// instanceID only on the non-owner rejection, empty otherwise.
+func (fs *FaaSScheduler) HandleScaleHint(hint *litescheduler.ScaleHint, traceID string) (bool, int, string) {
+	if traceID == "" {
+		traceID = hint.TraceID
+	}
+	logger := log.GetLogger().With(zap.String("traceID", traceID), zap.String("funcKey", hint.FuncKey),
+		zap.String("srcScheduler", hint.SchedulerID), zap.String("sessionID", hint.SessionID),
+		zap.String("reason", hint.Reason))
+	ownerSchedulerInstanceId, ok := selfregister.GlobalSchedulerProxy.CheckFuncOwner(hint.FuncKey)
+	if !ok {
+		logger.Infof("non-owner faasscheduler for scaleHint, return owner: %s", ownerSchedulerInstanceId)
+		return false, statuscode.AcquireNonOwnerSchedulerErrorCode, ownerSchedulerInstanceId
+	}
+	if getFuncSpecFunc(registry.GlobalRegistry, hint.FuncKey) == nil {
+		logger.Errorf("scaleHint function %s doesn't exist", hint.FuncKey)
+		return false, statuscode.FuncMetaNotFoundErrCode, ""
+	}
+	if err := fs.PoolManager.TriggerScale(hint.FuncKey, hint.RequestedConcurrency); err != nil {
+		logger.Errorf("failed to trigger scale for function %s, error %s", hint.FuncKey, err.Error())
+		return false, statuscode.StatusInternalServerError, ""
+	}
+	logger.Infof("scaleHint accepted, scale triggered for function %s, minConcurrency %d", hint.FuncKey,
+		hint.RequestedConcurrency)
+	return true, 0, ""
 }
 
 func unmarshalExtraData(extraData []byte) (map[string][]byte, error) {

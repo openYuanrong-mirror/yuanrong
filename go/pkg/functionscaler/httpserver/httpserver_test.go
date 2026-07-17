@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,10 +38,12 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
 	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
+	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
 	commtls "yuanrong.org/kernel/pkg/common/faas_common/tls"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/pkg/functionscaler/litescheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
@@ -297,5 +300,90 @@ func Test_auth(t *testing.T) {
 			err := auth(ctx)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
+	})
+}
+
+func TestScaleHintHandler(t *testing.T) {
+	convey.Convey("shutdown returns ErrFinalized", t, func() {
+		isShutDown.Store(true)
+		defer isShutDown.Store(false)
+		ctx := &fasthttp.RequestCtx{}
+		body, _ := json.Marshal(litescheduler.ScaleHint{FuncKey: "t1/fA/v1"})
+		ctx.Request.SetBody(body)
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusOK)
+		convey.So(string(ctx.Response.Header.Peek(constant.HeaderInnerCode)),
+			convey.ShouldEqual, strconv.Itoa(statuscode.ErrFinalized))
+	})
+	convey.Convey("invalid body returns 400", t, func() {
+		ctx := &fasthttp.RequestCtx{}
+		ctx.Request.SetBody([]byte("not-json"))
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusBadRequest)
+	})
+	convey.Convey("empty funcKey returns 400", t, func() {
+		ctx := &fasthttp.RequestCtx{}
+		body, _ := json.Marshal(litescheduler.ScaleHint{FuncKey: ""})
+		ctx.Request.SetBody(body)
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusBadRequest)
+	})
+	convey.Convey("scheduler nil returns 500", t, func() {
+		patches := gomonkey.ApplyFunc(functionscaler.GetGlobalScheduler,
+			func() *functionscaler.FaaSScheduler { return nil })
+		defer patches.Reset()
+		ctx := &fasthttp.RequestCtx{}
+		body, _ := json.Marshal(litescheduler.ScaleHint{FuncKey: "t1/fA/v1"})
+		ctx.Request.SetBody(body)
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusInternalServerError)
+	})
+	convey.Convey("accepted returns 202", t, func() {
+		patches := gomonkey.ApplyFunc(functionscaler.GetGlobalScheduler,
+			func() *functionscaler.FaaSScheduler { return &functionscaler.FaaSScheduler{} })
+		defer patches.Reset()
+		mp := gomonkey.ApplyMethod(reflect.TypeOf(&functionscaler.FaaSScheduler{}), "HandleScaleHint",
+			func(_ *functionscaler.FaaSScheduler, _ *litescheduler.ScaleHint, _ string) (bool, int, string) {
+				return true, 0, ""
+			})
+		defer mp.Reset()
+		ctx := &fasthttp.RequestCtx{}
+		body, _ := json.Marshal(litescheduler.ScaleHint{FuncKey: "t1/fA/v1"})
+		ctx.Request.SetBody(body)
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusAccepted)
+	})
+	convey.Convey("non-owner returns 200 with 150464 body", t, func() {
+		patches := gomonkey.ApplyFunc(functionscaler.GetGlobalScheduler,
+			func() *functionscaler.FaaSScheduler { return &functionscaler.FaaSScheduler{} })
+		defer patches.Reset()
+		mp := gomonkey.ApplyMethod(reflect.TypeOf(&functionscaler.FaaSScheduler{}), "HandleScaleHint",
+			func(_ *functionscaler.FaaSScheduler, _ *litescheduler.ScaleHint, _ string) (bool, int, string) {
+				return false, statuscode.AcquireNonOwnerSchedulerErrorCode, "owner-id-9"
+			})
+		defer mp.Reset()
+		ctx := &fasthttp.RequestCtx{}
+		body, _ := json.Marshal(litescheduler.ScaleHint{FuncKey: "t1/fA/v1"})
+		ctx.Request.SetBody(body)
+		scaleHintHandler(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusOK)
+		var resp litescheduler.ScaleHintResponse
+		_ = json.Unmarshal(ctx.Response.Body(), &resp)
+		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		convey.So(resp.ErrorMessage, convey.ShouldEqual, "owner-id-9")
+	})
+}
+
+func TestRouteScaleHint(t *testing.T) {
+	convey.Convey("route dispatches /scalehint to scaleHintHandler", t, func() {
+		old := config.GlobalConfig.AuthenticationEnable
+		config.GlobalConfig.AuthenticationEnable = false
+		defer func() { config.GlobalConfig.AuthenticationEnable = old }()
+		ctx := &fasthttp.RequestCtx{}
+		ctx.Request.Header.SetMethod("POST")
+		ctx.Request.SetRequestURI("/scalehint")
+		ctx.Request.SetBody([]byte("not-json"))
+		route(ctx)
+		convey.So(ctx.Response.StatusCode(), convey.ShouldEqual, http.StatusBadRequest)
 	})
 }

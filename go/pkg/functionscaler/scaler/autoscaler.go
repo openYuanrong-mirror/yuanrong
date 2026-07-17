@@ -57,6 +57,10 @@ type AutoScaler struct {
 	// remainedInsThdReqNum stores this difference between pendingInsThdReqNum and scaleInsThdNum if scaleInsTheNum is
 	// less than pendingInsThdReqNum
 	remainedInsThdReqNum int
+	// minScaleDemand records the lower-bound instance thread demand declared by external scale hints (e.g. a
+	// LiteScheduler cold start). checkReqNumFunc only sees the legacy acquire queue, so hint-driven demand must be
+	// carried here, otherwise scaleUpLoop would pause without creating any instance
+	minScaleDemand int
 	// autoScaleUpFlag tells if auto scale up process is running
 	autoScaleUpFlag bool
 	// autoScaleDownFlag tells if auto scale up process is running
@@ -117,14 +121,24 @@ func (as *AutoScaler) SetEnable(enable bool) {
 	as.enable.Store(enable)
 }
 
-// TriggerScale will trigger scale
-func (as *AutoScaler) TriggerScale() {
+// TriggerScale will trigger scale. minConcurrency is a lower-bound instance thread demand declared by external
+// callers (e.g. a LiteScheduler scale hint); the legacy queue-driven path passes 0
+func (as *AutoScaler) TriggerScale(minConcurrency int) {
 	as.Lock()
+	if minConcurrency > as.minScaleDemand {
+		as.minScaleDemand = minConcurrency
+	}
 	if !as.autoScaleUpFlag {
 		as.autoScaleUpFlag = true
 		as.scaleUpTriggerCh <- struct{}{}
 	}
 	as.Unlock()
+}
+
+func (as *AutoScaler) getMinScaleDemand() int {
+	as.RLock()
+	defer as.RUnlock()
+	return as.minScaleDemand
 }
 
 // CheckScaling will check if scaler is scaling
@@ -208,7 +222,7 @@ func (as *AutoScaler) scaleUpLoop() {
 				return
 			}
 			insThdReq := as.checkReqNumFunc()
-			if insThdReq == 0 {
+			if insThdReq == 0 && as.getMinScaleDemand() == 0 {
 				as.pauseScale(ticker)
 				continue
 			}
@@ -298,7 +312,10 @@ func (as *AutoScaler) handlePendingInsNumDecrease(insDiff int) {
 func (as *AutoScaler) scaleUpInstances() {
 	as.Lock()
 	defer as.Unlock()
-	pendingInsThdReqNum := float64(as.checkReqNumFunc())
+	// fold the hint-declared minimum demand into this round's computation; any unfulfilled remainder is tracked by
+	// pendingInsThdNum / remainedInsThdReqNum, so the demand can be cleared once taken into account
+	pendingInsThdReqNum := math.Max(float64(as.checkReqNumFunc()), float64(as.minScaleDemand))
+	as.minScaleDemand = 0
 	if !as.metricsCollector.InvokeMetricsCollected() {
 		// fire at will if no metrics is ever collected for this function
 		scaleInsThdNum := pendingInsThdReqNum

@@ -81,8 +81,8 @@ func (rs *ReplicaScaler) SetEnable(enable bool) {
 	}
 }
 
-// TriggerScale will trigger scale
-func (rs *ReplicaScaler) TriggerScale() {
+// TriggerScale will trigger scale. ReplicaScaler is replica-driven and ignores the declared minimum demand
+func (rs *ReplicaScaler) TriggerScale(_ int) {
 	rs.RLock()
 	if !rs.enable {
 		rs.RUnlock()

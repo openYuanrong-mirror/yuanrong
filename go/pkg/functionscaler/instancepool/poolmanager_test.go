@@ -92,6 +92,7 @@ func (p *deleteOnlyPool) CleanOrphansInstanceQueue()  {}
 func (p *deleteOnlyPool) QuerySession(sessionID string) (string, error) {
 	return "", nil
 }
+func (p *deleteOnlyPool) TriggerScale(_ int) error { return nil }
 
 func TestNewPoolManager(t *testing.T) {
 	stopCh := make(<-chan struct{})
@@ -1248,4 +1249,47 @@ func TestPoolManagerDeleteInstance(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPoolManagerTriggerScale(t *testing.T) {
+	convey.Convey("trigger scale via pool manager", t, func() {
+		pm := NewPoolManager(make(chan struct{}))
+		funcSpec := &types.FunctionSpecification{
+			FuncKey: "t1/fA/v1",
+			FuncCtx: context.TODO(),
+			ResourceMetaData: commonTypes.ResourceMetaData{
+				CPU:    500,
+				Memory: 500,
+			},
+			InstanceMetaData: commonTypes.InstanceMetaData{
+				MaxInstance:   100,
+				MinInstance:   1,
+				ConcurrentNum: 1,
+			},
+		}
+		pool, err := NewGenericInstancePool(funcSpec, faasManagerInfo{})
+		convey.So(err, convey.ShouldBeNil)
+		pm.instancePool["t1/fA/v1"] = pool
+
+		convey.Convey("pool without scaled queue returns nil (skip)", func() {
+			convey.So(pm.TriggerScale("t1/fA/v1", 1), convey.ShouldBeNil)
+		})
+		convey.Convey("pool with scaled queue triggers scheduler", func() {
+			gi := pool.(*GenericInstancePool)
+			_, qErr := gi.acquireScaleInstanceQueue(gi.defaultResKey)
+			convey.So(qErr, convey.ShouldBeNil)
+			convey.So(pm.TriggerScale("t1/fA/v1", 1), convey.ShouldBeNil)
+		})
+		convey.Convey("static function triggers reserved queue", func() {
+			gi := pool.(*GenericInstancePool)
+			gi.FuncSpec.InstanceMetaData.ScalePolicy = types.InstanceScalePolicyStaticFunction
+			queue, queueType := gi.getScaleTriggerQueue()
+			convey.So(queue, convey.ShouldEqual, gi.reservedInstanceQueue[gi.defaultResKey])
+			convey.So(queue, convey.ShouldNotEqual, gi.scaledInstanceQueue[gi.defaultResKey])
+			convey.So(queueType, convey.ShouldEqual, types.InstanceTypeReserved)
+		})
+		convey.Convey("unknown funcKey returns error", func() {
+			convey.So(pm.TriggerScale("t1/missing/v1", 1), convey.ShouldNotBeNil)
+		})
+	})
 }

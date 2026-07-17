@@ -19,9 +19,8 @@ package selfregister
 
 import (
 	"encoding/json"
-	"fmt"
+	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -93,21 +92,36 @@ func SetSelfInstanceSpec(insSpec *types.InstanceSpecification) {
 			return
 		}
 
-		splits := strings.Split(insSpecCopy.RuntimeAddress, ":")
-		portStr := GetFaaSSchedulerHttpPort()
-		if len(splits) == 2 { // magic number
-			port, err := strconv.Atoi(splits[1]) // magic number
-			if err == nil && port > 0 {          // magic number
-				portStr = splits[1] // magic number
-			}
-		}
-		if len(splits) > 0 {
-			insSpecCopy.RuntimeAddress = fmt.Sprintf("%s:%s", splits[0], portStr)
-		}
+		insSpecCopy.RuntimeAddress = NormalizeSchedulerAddress(insSpecCopy.RuntimeAddress)
 	}
 	selfInstanceSpecLock.Lock()
 	selfInstanceSpec = insSpecCopy
 	selfInstanceSpecLock.Unlock()
+}
+
+// NormalizeSchedulerAddress converts an instance runtime address to the
+// scheduler HTTP endpoint used for internal dispatch (e.g. scaleHint). The
+// runtime's port belongs to libruntime and must never be advertised as the
+// scheduler HTTP port.
+func NormalizeSchedulerAddress(runtimeAddr string) string {
+	if runtimeAddr == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(runtimeAddr)
+	if err != nil {
+		host = strings.Trim(runtimeAddr, "[]")
+		if net.ParseIP(host) == nil {
+			if index := strings.LastIndex(runtimeAddr, ":"); index > 0 {
+				host = runtimeAddr[:index]
+			} else {
+				host = runtimeAddr
+			}
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	return net.JoinHostPort(host, GetFaaSSchedulerHttpPort())
 }
 
 func getSelfInstanceSpec() *types.InstanceSpecification {
@@ -187,30 +201,42 @@ func (sp *SchedulerProxy) IsFuncOwner(funcKey string) bool {
 	return ok
 }
 
-// CheckHashOwner determine if current scheduler is owner of the hashKey.
-// Generic owner check by arbitrary hash key (funcKey for legacy, tenantID/sessionID for LiteScheduler).
-func (sp *SchedulerProxy) CheckHashOwner(hashKey string) (string, bool) {
+// selectHashOwner selects the FaaSScheduler owning hashKey via the load balance
+// hash ring and returns its InstanceInfo, or nil when the ring is not ready or
+// the selected entry is invalid. Shared by CheckHashOwner and FindHashOwner.
+func (sp *SchedulerProxy) selectHashOwner(hashKey string) *types.InstanceInfo {
 	logger := log.GetLogger().With(zap.Any("hashKey", hashKey))
-	logger.Debugf("check which faas scheduler instance should process this hash key")
 	// select one FaaSScheduler by the hash key
 	next := sp.loadBalance.Next(hashKey, false)
 	faasSchedulerName, ok := next.(string)
 	if !ok {
 		logger.Errorf("failed to parse the result of load balance: %+v", next)
-		return "", false
+		return nil
 	}
 	if strings.TrimSpace(faasSchedulerName) == "" {
 		logger.Errorf("no available faas scheduler was found")
-		return "", false
+		return nil
 	}
 	faaSSchedulerData, ok := sp.FaaSSchedulers.Load(faasSchedulerName)
 	if !ok {
 		logger.Errorf("failed to get the faas scheduler named %s", faasSchedulerName)
-		return "", false
+		return nil
 	}
 	faaSScheduler, ok := faaSSchedulerData.(*types.InstanceInfo)
 	if !ok {
 		logger.Errorf("invalid faas scheduler named %s: %#v", faasSchedulerName, faaSSchedulerData)
+		return nil
+	}
+	return faaSScheduler
+}
+
+// CheckHashOwner determine if current scheduler is owner of the hashKey.
+// Generic owner check by arbitrary hash key (funcKey for legacy, tenantID/sessionID for LiteScheduler).
+func (sp *SchedulerProxy) CheckHashOwner(hashKey string) (string, bool) {
+	logger := log.GetLogger().With(zap.Any("hashKey", hashKey))
+	logger.Debugf("check which faas scheduler instance should process this hash key")
+	faaSScheduler := sp.selectHashOwner(hashKey)
+	if faaSScheduler == nil {
 		return "", false
 	}
 	if faaSScheduler.InstanceName != GetSchedulerProxyName() {
@@ -245,4 +271,37 @@ func (sp *SchedulerProxy) WaitForHash(num int) {
 		log.GetLogger().Infof("succeeded to create num: %d of hash ring node", num)
 		return
 	}
+}
+
+// FindHashOwner returns the full InstanceInfo of the scheduler owning hashKey,
+// and whether the owner is this scheduler. Returns (nil, false) when the ring
+// is not ready or the selected entry is invalid. It uses the extracted
+// selectHashOwner for hash selection and exposes the address for HTTP dispatch.
+func (sp *SchedulerProxy) FindHashOwner(hashKey string) (*types.InstanceInfo, bool) {
+	faaSScheduler := sp.selectHashOwner(hashKey)
+	if faaSScheduler == nil {
+		return nil, false
+	}
+	owned := faaSScheduler.InstanceName == GetSchedulerProxyName()
+	log.GetLogger().With(zap.Any("hashKey", hashKey)).Debugf(
+		"hash owner is %s (instanceID %s, address %s, self %v)",
+		faaSScheduler.InstanceName, faaSScheduler.InstanceID, faaSScheduler.Address, owned)
+	return faaSScheduler, owned
+}
+
+// FindByInstanceID returns the InstanceInfo of the scheduler with the given
+// InstanceID, or nil if not found. Used to resolve a redirected owner's address
+// after a non-owner error code response. Only the current-version ring
+// (FaaSSchedulers) is searched; Blue/Green maps are not included.
+func (sp *SchedulerProxy) FindByInstanceID(instanceID string) *types.InstanceInfo {
+	var found *types.InstanceInfo
+	sp.FaaSSchedulers.Range(func(_, v interface{}) bool {
+		info, ok := v.(*types.InstanceInfo)
+		if ok && info.InstanceID == instanceID {
+			found = info
+			return false
+		}
+		return true
+	})
+	return found
 }

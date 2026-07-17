@@ -316,7 +316,9 @@ func (scs *ScaledConcurrencyScheduler) PopInstance(force bool) *types.Instance {
 func (scs *ScaledConcurrencyScheduler) ConnectWithInstanceScaler(instanceScaler scaler.InstanceScaler) {
 	// check if instanceScaler is a concurrencyInstanceScaler type in future and return error if otherwise
 	scs.addObservers(scheduler.TriggerScaleTopic, func(data interface{}) {
-		instanceScaler.TriggerScale()
+		// legacy acquire publishes a nil payload; TriggerScale(minConcurrency) publishes the declared demand
+		minConcurrency, _ := data.(int)
+		instanceScaler.TriggerScale(minConcurrency)
 	})
 	scs.addObservers(scheduler.InUseInsThdTopic, func(data interface{}) {
 		inUsedInsThdDiff, ok := data.(int)

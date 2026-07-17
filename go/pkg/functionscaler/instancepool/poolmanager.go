@@ -310,6 +310,19 @@ func (pm *PoolManager) QuerySession(funcKey string, sessionID string) (string, e
 	return pool.QuerySession(sessionID)
 }
 
+// TriggerScale triggers the scale pipeline of the given function on this
+// scheduler. Used by the /scalehint endpoint after the funcKey ownership check.
+// minConcurrency carries the hint's lower-bound instance thread demand.
+func (pm *PoolManager) TriggerScale(funcKey string, minConcurrency int) error {
+	pm.RLock()
+	pool, exist := pm.instancePool[funcKey]
+	pm.RUnlock()
+	if !exist {
+		return fmt.Errorf("instance pool of function %s not found", funcKey)
+	}
+	return pool.TriggerScale(minConcurrency)
+}
+
 // ReleaseAbnormalInstance will release an abnormal instance of a specific function
 func (pm *PoolManager) ReleaseAbnormalInstance(instance *types.Instance, logger api.FormatLogger) {
 	pm.RLock()

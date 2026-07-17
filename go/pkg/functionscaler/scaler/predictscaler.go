@@ -76,6 +76,10 @@ type PredictScaler struct {
 	predictDownDiff      int
 	predictUpDiff        int
 	minRsvInsNum         int
+	// minScaleDemand records lower-bound instance thread demand carried by
+	// external scale hints. LiteScheduler bypasses the legacy acquire queue, so
+	// its demand must be retained separately until the passive scale-up round.
+	minScaleDemand       int
 	predictScaleUpFlag   bool
 	predictScaleDownFlag bool
 	predictUpChanFlag    bool
@@ -247,15 +251,25 @@ func groupQPSNumByPredictWindow(QPSNums []float64, predictWindow int64) []float6
 func (ps *PredictScaler) SetEnable(enable bool) {
 }
 
-// TriggerScale will trigger scale
-func (ps *PredictScaler) TriggerScale() {
+// TriggerScale triggers passive scale-up. minConcurrency carries demand from
+// callers such as LiteScheduler that do not enqueue a legacy acquire request.
+func (ps *PredictScaler) TriggerScale(minConcurrency int) {
 	ps.Lock()
+	if minConcurrency > ps.minScaleDemand {
+		ps.minScaleDemand = minConcurrency
+	}
 	// 实时租约触发实例扩容
 	if !ps.predictScaleUpFlag {
 		ps.predictScaleUpFlag = true
 		ps.scaleUpTriggerCh <- struct{}{}
 	}
 	ps.Unlock()
+}
+
+func (ps *PredictScaler) getMinScaleDemand() int {
+	ps.RLock()
+	defer ps.RUnlock()
+	return ps.minScaleDemand
 }
 
 // CheckScaling will check if scaler is scaling
@@ -387,9 +401,11 @@ func CalSleepTime(currentTimeStamp int64, coldStartTime time.Duration) time.Dura
 }
 
 func (ps *PredictScaler) getScaleUpInstancesNum() int {
-	pendingInsThdReqNum := float64(ps.checkReqNumFunc())
-	// fire at will if no metrics is ever collected for this function
+	queuedDemand := ps.checkReqNumFunc()
 	ps.Lock()
+	pendingInsThdReqNum := math.Max(float64(queuedDemand), float64(ps.minScaleDemand))
+	ps.minScaleDemand = 0
+	// fire at will if no metrics is ever collected for this function
 	scaleInsThdNum := math.Max(pendingInsThdReqNum-math.Max(float64(ps.pendingInsThdNum), 0), 0)
 	scaleInsNum := int(math.Ceil(scaleInsThdNum / float64(ps.concurrentNum)))
 	ps.Unlock()
@@ -462,7 +478,7 @@ func (ps *PredictScaler) scaleUp() {
 				return
 			}
 			insThdReq := ps.checkReqNumFunc()
-			if insThdReq == 0 {
+			if insThdReq == 0 && ps.getMinScaleDemand() == 0 {
 				ps.stopScale(ticker)
 				continue
 			}
@@ -473,11 +489,14 @@ func (ps *PredictScaler) scaleUp() {
 				ps.logger.Warnf("trigger channel is closed")
 				return
 			}
-			// Functions with long cold start times do not use passive scaleDown
-			if ps.coldStartTime > longColdStartTime {
+			hasExternalDemand := ps.getMinScaleDemand() > 0
+			// Preserve the existing long-cold-start and prediction guards for
+			// legacy queue signals, but an explicit external demand must still
+			// create capacity when prediction did not pre-warm the function.
+			if ps.coldStartTime > longColdStartTime && !hasExternalDemand {
 				continue
 			}
-			if ps.predictUpChanFlag || ps.predictDownChanFlag {
+			if (ps.predictUpChanFlag || ps.predictDownChanFlag) && !hasExternalDemand {
 				ps.logger.Warnf("It is handling predictive scaling, ignoring current signals")
 				continue
 			}

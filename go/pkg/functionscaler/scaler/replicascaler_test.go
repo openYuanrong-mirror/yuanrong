@@ -46,10 +46,10 @@ func TestReplicaScaler_TriggerScale(t *testing.T) {
 		p := gomonkey.ApplyFunc((*ReplicaScaler).handleScale, func() {
 			callCount++
 		})
-		rs.TriggerScale()
+		rs.TriggerScale(0)
 		convey.So(callCount, convey.ShouldEqual, 0)
 		rs.SetEnable(true)
-		rs.TriggerScale()
+		rs.TriggerScale(0)
 		convey.So(callCount, convey.ShouldEqual, 2)
 		p.Reset()
 	})

@@ -243,7 +243,9 @@ func (rs *RoundRobinScheduler) DelInstance(instance *types.Instance) error {
 func (rs *RoundRobinScheduler) ConnectWithInstanceScaler(instanceScaler scaler.InstanceScaler) {
 	rs.instanceScaler = instanceScaler
 	rs.addObservers(scheduler.TriggerScaleTopic, func(data interface{}) {
-		instanceScaler.TriggerScale()
+		// legacy acquire publishes a nil payload; TriggerScale(minConcurrency) publishes the declared demand
+		minConcurrency, _ := data.(int)
+		instanceScaler.TriggerScale(minConcurrency)
 	})
 	rs.addObservers(scheduler.TotalInsThdTopic, func(data interface{}) {
 		totalInsThdDiff, ok := data.(int)
@@ -528,4 +530,13 @@ func (rs *RoundRobinScheduler) addObservers(topic scheduler.InstanceTopic, callb
 
 // HandleFuncOwnerUpdate -
 func (rs *RoundRobinScheduler) HandleFuncOwnerUpdate(isFuncOwner bool) {
+}
+
+// TriggerScale publishes TriggerScaleTopic to notify the connected instanceScaler.
+// minConcurrency carries a lower-bound instance thread demand to the scaler (0 on
+// the legacy path).
+func (rs *RoundRobinScheduler) TriggerScale(minConcurrency int) {
+	log.GetLogger().With(zap.String("funcKeyWithRes", rs.funcKeyWithRes)).
+		Debugf("trigger scale, publish %s event", scheduler.TriggerScaleTopic)
+	rs.publishInsThdEvent(scheduler.TriggerScaleTopic, minConcurrency)
 }

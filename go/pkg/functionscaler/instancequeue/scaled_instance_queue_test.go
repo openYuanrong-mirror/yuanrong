@@ -116,6 +116,9 @@ func (f *fakeInstanceScheduler) ConnectWithInstanceScaler(instanceScaler scaler.
 	return
 }
 
+func (f *fakeInstanceScheduler) TriggerScale(_ int) {
+}
+
 func (f *fakeInstanceScheduler) HandleFuncSpecUpdate(funcSpec *types.FunctionSpecification) {
 }
 
@@ -147,7 +150,7 @@ func (f *fakeInstanceScaler) SetEnable(enable bool) {
 	f.enable = enable
 }
 
-func (f *fakeInstanceScaler) TriggerScale() {
+func (f *fakeInstanceScaler) TriggerScale(_ int) {
 }
 
 func (f *fakeInstanceScaler) CheckScaling() bool {

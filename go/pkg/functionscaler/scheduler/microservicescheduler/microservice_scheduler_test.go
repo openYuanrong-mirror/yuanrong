@@ -44,7 +44,7 @@ type fakeInstanceScaler struct {
 func (f *fakeInstanceScaler) SetEnable(enable bool) {
 }
 
-func (f *fakeInstanceScaler) TriggerScale() {
+func (f *fakeInstanceScaler) TriggerScale(_ int) {
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		f.scaleUpFunc()
