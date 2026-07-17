@@ -22,6 +22,7 @@ spec:
       annotations:
         checksum/components: {{ include (print $.Template.BasePath "/components-configmap.yaml") . | sha256sum }}
         checksum/services: {{ tpl .Values.global.services.servicesYaml . | sha256sum }}
+        checksum/system-functions: {{ include (print $.Template.BasePath "/system-functions-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ include "yr-k8s.serviceAccountName" (dict "root" . "component" "master" "values" .Values.master) }}
       containers:
@@ -45,6 +46,11 @@ spec:
                   fieldPath: status.hostIP
             - name: YR_ETCD_ADDR_LIST
               value: {{ include "yr-k8s.etcdAddrList" . | quote }}
+            - name: LITEBUS_DATA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "yr-k8s.fullname" . }}-runtime
+                  key: litebus-data-key
           ports:
             - name: master
               containerPort: {{ .Values.master.service.ports.master }}
@@ -75,6 +81,26 @@ spec:
               mountPath: /home/sn/service-config/services.yaml
               subPath: services.yaml
               readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/config/system-function-config.json
+              subPath: system-function-config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/payload/faasfrontend_config.json
+              subPath: faasfrontend_config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/payload/faasscheduler_config.json
+              subPath: faasscheduler_config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/system-function-meta/faasfrontend_meta.json
+              subPath: faasfrontend_meta.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/system-function-meta/faasscheduler_meta.json
+              subPath: faasscheduler_meta.json
+              readOnly: true
             - name: session-dir
               mountPath: {{ .Values.debug.sidecar.sessionDir }}
         - name: debug-busybox
@@ -93,6 +119,26 @@ spec:
               mountPath: /home/sn/service-config/services.yaml
               subPath: services.yaml
               readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/config/system-function-config.json
+              subPath: system-function-config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/payload/faasfrontend_config.json
+              subPath: faasfrontend_config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/payload/faasscheduler_config.json
+              subPath: faasscheduler_config.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/system-function-meta/faasfrontend_meta.json
+              subPath: faasfrontend_meta.json
+              readOnly: true
+            - name: system-functions
+              mountPath: /home/sn/function/system-function-meta/faasscheduler_meta.json
+              subPath: faasscheduler_meta.json
+              readOnly: true
             - name: session-dir
               mountPath: {{ .Values.debug.sidecar.sessionDir }}
       volumes:
@@ -105,6 +151,9 @@ spec:
             items:
               - key: services.yaml
                 path: services.yaml
+        - name: system-functions
+          configMap:
+            name: {{ include "yr-k8s.fullname" . }}-system-functions
         - name: session-dir
           emptyDir: {}
 {{- end }}

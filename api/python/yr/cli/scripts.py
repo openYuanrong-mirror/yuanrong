@@ -2329,33 +2329,41 @@ def token_auth(token, iam_address):
 
 @cli.command("token-require")
 @click.option(
-    "--tenant-id", required=False, type=str, help="Tenant ID for token generation"
+    "--tenant-id", required=True, type=str, help="Tenant ID for token generation"
 )
 @click.option("--ttl", required=False, type=int, help="Token time-to-live in seconds")
-@click.option("--role", required=False, type=str, help="Role for the token")
+@click.option("--role", required=False, type=str, default="developer", help="Role for the token")
 @click.option(
-    "--iam-address",
+    "--frontend-address",
     required=True,
     type=str,
-    envvar="YR_IAM_ADDRESS",
-    help="YuanRong IAM Server address",
+    envvar="YR_SERVER_ADDRESS",
+    help="YuanRong frontend address",
 )
-def token_require(tenant_id, ttl, role, iam_address):
-    """Request/generate a new JWT token
+@click.option(
+    "--operator-token",
+    required=True,
+    type=str,
+    help="System tenant 0 developer token used to authorize the request",
+)
+def token_require(tenant_id, ttl, role, frontend_address, operator_token):
+    """Request/generate a new developer JWT token through frontend
 
     Example:
-        yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id tenant_789 --role viewer
-        yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id user --ttl 3600 --role admin
+        yrcli token-require --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
+        yrcli token-require --operator-token "$TOKEN0" --tenant-id user --ttl 3600
     """
+    if not operator_token:
+        print("Error: operator token is required.")
+        sys.exit(1)
+    if role != "developer":
+        print("Error: role must be developer.")
+        sys.exit(1)
     http_client = HTTPClient(timeout=30)
-    url = f"http://{iam_address}/iam-server/v1/token/require"
-    headers = {}
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
+    url = f"http://{frontend_address}/auth/token/require"
+    headers = {"X-Auth": operator_token, "X-Tenant-ID": tenant_id, "X-Role": role}
     if ttl:
         headers["X-TTL"] = str(ttl)
-    if role:
-        headers["X-Role"] = role
 
     resp = http_client.request(url, {}, headers=headers, method="GET")
 
@@ -2369,35 +2377,28 @@ def token_require(tenant_id, ttl, role, iam_address):
 
 
 @cli.command("token-abandon")
-@click.option("--token", required=True, type=str, help="JWT token to abandon/revoke")
-@click.option("--tenant-id", required=False, type=str, help="Tenant ID")
+@click.option("--tenant-id", required=True, type=str, help="Tenant ID; abandon is currently unsupported")
 @click.option(
-    "--iam-address",
+    "--frontend-address",
     required=True,
     type=str,
-    envvar="YR_IAM_ADDRESS",
-    help="YuanRong IAM Server address",
+    envvar="YR_SERVER_ADDRESS",
+    help="YuanRong frontend address",
 )
-def token_abandon(token, tenant_id, iam_address):
-    """Abandon/revoke a JWT token
+@click.option(
+    "--operator-token",
+    required=True,
+    type=str,
+    help="System tenant 0 developer token used to authorize the request",
+)
+def token_abandon(tenant_id, frontend_address, operator_token):
+    """Declare that tenant developer token abandon is not supported.
 
     Example:
-        yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." --tenant-id user
+        yrcli token-abandon --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
     """
-    http_client = HTTPClient(timeout=30)
-    url = f"http://{iam_address}/iam-server/v1/token/abandon"
-    headers = {"X-Auth": token}
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
-
-    resp = http_client.request(url, {}, headers=headers, method="POST")
-
-    if resp["success"]:
-        print("Token successfully abandoned/revoked")
-    else:
-        print(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
-        sys.exit(1)
+    print("Error: developer token abandon is not supported; token expiration depends on TTL.")
+    sys.exit(1)
 
 
 def main():
