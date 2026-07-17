@@ -1597,7 +1597,9 @@ class YrK8sLayoutTests(unittest.TestCase):
             pipeline_step_container(bootstrap_steps["build-python314-builder-arm64"])["image"],
             standard_base,
         )
-        python314_builder = standard_base.replace(":v20260428_cmake33110", ":v20260714_py3146")
+        python314_builder = standard_base.replace(
+            ":v20260428_cmake33110", ":v20260717_py3146_obs"
+        )
         self.assertEqual(
             pipeline_step_container(product_steps["build-all-amd64"])["image"],
             python314_builder,
