@@ -110,7 +110,7 @@ RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 && \
 RUN for v in 3.9 3.10 3.11 3.12 3.13 3.14; do \
         pip_v=$(ls /opt/buildtools/python${v}/bin/pip${v}* 2>/dev/null | head -1); \
         ln -sf /opt/buildtools/python${v}/bin/python${v} /usr/local/bin/python${v}; \
-        [ -n "$pip_v" ] && $pip_v install --no-cache-dir setuptools wheel packaging; \
+        [ -n "$pip_v" ] && $pip_v install --no-cache-dir --break-system-packages setuptools wheel packaging esdk-obs-python; \
         echo "/opt/buildtools/python${v}/lib" > /etc/ld.so.conf.d/python${v}.conf; \
     done && ldconfig
 

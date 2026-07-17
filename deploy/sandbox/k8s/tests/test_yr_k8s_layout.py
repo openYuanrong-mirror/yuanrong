@@ -314,6 +314,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("--trusted-host mirrors.aliyun.com", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-frontend.sh", controlplane_dockerfile)
+        self.assertIn("{frontend_lease_bypass}", controlplane_dockerfile)
         self.assertIn("ARG BASE_IMAGE=yr-base", runtime_dockerfile)
         self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
@@ -382,6 +383,9 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "--port_policy FIX",
                 "--etcd_mode outter",
                 "--enable_runtime_launcher true",
+                "YR_MASTER_IP",
+                "resolve_ipv4",
+                "--master_ip",
             ],
         }
         for relative_path, tokens in expectations.items():
