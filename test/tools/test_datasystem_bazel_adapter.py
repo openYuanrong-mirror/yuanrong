@@ -11,6 +11,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATASYSTEM_ROOT = REPO_ROOT / "datasystem"
 ADAPTER = REPO_ROOT / "bazel" / "datasystem_build.bzl"
+DEPENDENCIES = REPO_ROOT / "bazel" / "datasystem_deps.bzl"
 
 
 class DataSystemBazelAdapterTest(unittest.TestCase):
@@ -40,6 +41,21 @@ class DataSystemBazelAdapterTest(unittest.TestCase):
         ]
 
         self.assertEqual([], missing_paths)
+
+    def test_brpc_compatibility_files_are_owned_by_superproject(self):
+        """Master-side BRPC deps must not rely on files absent from the sandbox gitlink."""
+        dependencies = DEPENDENCIES.read_text(encoding="utf-8")
+        adapter = ADAPTER.read_text(encoding="utf-8")
+        expected_labels = (
+            "@//bazel/datasystem:leveldb.BUILD",
+            "@//bazel/patches:brpc_avoid_glog_flag_conflicts.patch",
+            "@//bazel/patches:brpc_fix_boringssl_compat.patch",
+        )
+
+        for label in expected_labels:
+            self.assertIn(label, dependencies)
+        self.assertNotIn("third_party/patches/brpc/", adapter)
+        self.assertNotIn("third_party/leveldb.BUILD", adapter)
 
     def test_common_buffer_declares_generated_brpc_headers(self):
         """Sandboxed buffer compilation must see RPC headers included by client headers."""
