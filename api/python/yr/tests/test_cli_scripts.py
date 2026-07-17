@@ -418,6 +418,31 @@ class TestCliScripts(unittest.TestCase):
         self.assertIn("sandbox created, instance_id=default-name-id", output.getvalue())
         uuid4_mock.assert_called_once_with()
 
+    def test_get_sandbox_create_timeout_seconds_prefers_explicit_over_env_and_default(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        old_timeout_env = scripts.os.environ.get("YR_SANDBOX_CREATE_TIMEOUT")
+        scripts.os.environ.pop("YR_SANDBOX_CREATE_TIMEOUT", None)
+        self.assertEqual(
+            scripts.get_sandbox_create_timeout_seconds(),
+            scripts.DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(30), 30)
+
+        scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = "90"
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(), 90)
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(120), 120)
+
+        scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = "-1"
+        self.assertEqual(
+            scripts.get_sandbox_create_timeout_seconds(),
+            scripts.DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS,
+        )
+
+        if old_timeout_env is None:
+            scripts.os.environ.pop("YR_SANDBOX_CREATE_TIMEOUT", None)
+        else:
+            scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = old_timeout_env
+
     def test_sandbox_create_preserves_explicit_namespace_and_name(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")
