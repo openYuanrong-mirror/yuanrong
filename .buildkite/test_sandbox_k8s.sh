@@ -338,12 +338,12 @@ start_traefik_port_forward() {
 
 	printf 'Starting port-forward %s/%s --address %s %s:%s %s:%s\n' \
 		"${NAMESPACE}" "${TRAEFIK_SERVICE}" "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
-		"${TRAEFIK_ROUTER_PORT}" "${TRAEFIK_ROUTER_PORT}" \
+		"${TRAEFIK_ROUTER_PORT}" "${TRAEFIK_WEB_PORT}" \
 		"${TRAEFIK_WEB_PORT}" "${TRAEFIK_WEB_PORT}" >&2
 	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward \
 		--address "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
 		"svc/${TRAEFIK_SERVICE}" \
-		"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_ROUTER_PORT}" \
+		"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}" \
 		"${TRAEFIK_WEB_PORT}:${TRAEFIK_WEB_PORT}" \
 		>"${log_file}" 2>&1 &
 	PORT_FORWARD_PID="$!"

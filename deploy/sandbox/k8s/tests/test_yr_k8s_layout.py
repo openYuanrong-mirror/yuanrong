@@ -835,6 +835,48 @@ class YrK8sLayoutTests(unittest.TestCase):
                     [{"name": "swr-pull-secret"}],
                 )
 
+    def test_buildkite_smoke_uses_port_forward(self):
+        deploy_script = (ROOT.parents[2] / ".buildkite/test_sandbox_k8s.sh").read_text()
+
+        self.assertIn("values.buildkite-smoke.yaml", deploy_script)
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script)
+        self.assertIn("start_traefik_port_forward", deploy_script)
+        port_forward_cmd = '"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward'
+        self.assertIn(port_forward_cmd, deploy_script)
+        self.assertIn("TRAEFIK_WEB_ADDRESS", deploy_script)
+        self.assertIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
+        self.assertIn('TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"', deploy_script)
+        self.assertIn('"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}"', deploy_script)
+        self.assertIn('probe_sandbox_ready "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_idle_timeout_e2e "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
+        self.assertIn('run_rrt_direct_e2e "${smoke_server_address}" "${router_address}"', deploy_script)
+        self.assertNotIn('$(wait_for_traefik_address', deploy_script.split("bash deploy/sandbox/k8s/deploy.sh", 1)[1])
+        token_command = re.search(r'yr_token="\$\("\$\{py\}" -c \'([^\']+)\'\)"', deploy_script)
+        self.assertIsNotNone(token_command)
+        token = subprocess.check_output([str(PYTHON_BIN), "-c", token_command.group(1)], text=True).strip()
+        self.assertEqual(3, len(token.split(".")))
+
+    def test_buildkite_can_emit_k8s_test_only_pipeline(self):
+        env = dict(os.environ)
+        env["ENABLE_SANDBOX_K8S_TEST_ONLY"] = "true"
+        result = subprocess.run(
+            [str(BASH_BIN), ".buildkite/pipeline.dynamic.yml"],
+            cwd=ROOT.parents[2],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        pipeline = result.stdout
+
+        self.assertIn('key: "test-k8s"', pipeline)
+        self.assertIn("test_sandbox_k8s.sh", pipeline)
+        self.assertNotIn("Build X86", pipeline)
+        self.assertNotIn("Build Image", pipeline)
+        self.assertNotIn("publish-sandbox-release", pipeline)
+        self.assertNotIn('depends_on:', pipeline)
+
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
         bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
         pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()
