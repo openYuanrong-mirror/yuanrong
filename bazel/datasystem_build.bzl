@@ -17,6 +17,9 @@ exports_files([
     "third_party/patches/curl/8.8.0/Backport-CVE-2025-0725-fix-CVE-2025-0725-for-curl-8.8.0-c.patch",
     "third_party/patches/curl/8.8.0/support_old_cmake.patch",
     "third_party/patches/tbb/2020.3/soft-link.patch",
+    "third_party/patches/brpc/fix-boringssl-compat.patch",
+    "third_party/patches/brpc/avoid-glog-flag-conflicts.patch",
+    "third_party/leveldb.BUILD",
 ])
 
 # ============================================================================

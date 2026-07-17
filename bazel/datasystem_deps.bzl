@@ -116,7 +116,7 @@ def datasystem_deps():
             "https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz",
             "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/google/leveldb/1.23.tar.gz",
         ],
-        build_file = "@//bazel/datasystem:leveldb.BUILD",
+        build_file = "@datasystem_sdk//:third_party/leveldb.BUILD",
     )
 
     http_archive(
@@ -133,8 +133,8 @@ def datasystem_deps():
             "@openssl": "@boringssl",
         },
         patches = [
-            "@//bazel/patches:brpc_fix_boringssl_compat.patch",
-            "@//bazel/patches:brpc_avoid_glog_flag_conflicts.patch",
+            "@datasystem_sdk//:third_party/patches/brpc/fix-boringssl-compat.patch",
+            "@datasystem_sdk//:third_party/patches/brpc/avoid-glog-flag-conflicts.patch",
         ],
         patch_args = ["-p1"],
     )
