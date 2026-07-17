@@ -654,6 +654,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("TRAEFIK_WEB_ADDRESS", deploy_script)
         self.assertIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
         self.assertIn('TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"', deploy_script)
+        self.assertIn('"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}"', deploy_script)
         self.assertIn('probe_sandbox_ready "${smoke_server_address}"', deploy_script)
         self.assertIn('run_idle_timeout_e2e "${smoke_server_address}"', deploy_script)
         self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
