@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import importlib.util
 import json
 import sys
@@ -70,14 +84,14 @@ class TestFrontendInitArgsPatch(unittest.TestCase):
             self.assertFalse(config["leaseBypass"])
 
     def test_frontend_launcher_sets_default_lease_bypass(self):
-        FrontendLauncher = self.load_launcher_cls("api/python/yr/cli/component/frontend.py", "FrontendLauncher")
-        self.assert_patches_frontend_lease_bypass(FrontendLauncher, "frontend")
+        frontend_launcher_cls = self.load_launcher_cls("api/python/yr/cli/component/frontend.py", "FrontendLauncher")
+        self.assert_patches_frontend_lease_bypass(frontend_launcher_cls, "frontend")
 
     def test_faas_frontend_launcher_sets_default_lease_bypass(self):
-        FaaSFrontendLauncher = self.load_launcher_cls(
+        faas_frontend_launcher_cls = self.load_launcher_cls(
             "api/python/yr/cli/component/faas_frontend.py", "FaaSFrontendLauncher"
         )
-        self.assert_patches_frontend_lease_bypass(FaaSFrontendLauncher, "faas_frontend")
+        self.assert_patches_frontend_lease_bypass(faas_frontend_launcher_cls, "faas_frontend")
 
 
 if __name__ == "__main__":

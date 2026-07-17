@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Validate immutable image digests and registry manifest platforms."""
 
 import argparse
@@ -6,6 +19,7 @@ import json
 import pathlib
 import re
 import sys
+from typing import Any
 
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -16,7 +30,7 @@ def fail(message: str) -> None:
     raise ValueError(message)
 
 
-def load_json(path: pathlib.Path):
+def load_json(path: pathlib.Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -55,7 +69,7 @@ def validate_source(args: argparse.Namespace) -> None:
     if actual_platform != args.expected_platform:
         fail(f"{args.image} is {actual_platform}, expected {args.expected_platform}; refusing annotation")
     append_evidence(args.evidence, ["source", args.image, digest, actual_platform])
-    print(digest)
+    sys.stdout.write(f"{digest}\n")
 
 
 def validate_final(args: argparse.Namespace) -> None:
@@ -81,7 +95,7 @@ def validate_final(args: argparse.Namespace) -> None:
         args.evidence,
         ["final", args.image, final_digest, platforms, ",".join(source_digests)],
     )
-    print(final_digest)
+    sys.stdout.write(f"{final_digest}\n")
 
 
 def extract_push_digest(args: argparse.Namespace) -> None:
@@ -89,7 +103,7 @@ def extract_push_digest(args: argparse.Namespace) -> None:
     digests = re.findall(r"sha256:[0-9a-f]{64}", text)
     if not digests:
         fail(f"manifest push output {args.input} did not contain an immutable digest")
-    print(digests[-1])
+    sys.stdout.write(f"{digests[-1]}\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,7 +133,7 @@ def main() -> int:
     try:
         args.func(args)
     except ValueError as exc:
-        print(f"manifest validation failed: {exc}", file=sys.stderr)
+        sys.stderr.write(f"manifest validation failed: {exc}\n")
         return 1
     return 0
 

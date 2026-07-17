@@ -52,12 +52,12 @@ def token_require(tenant_id, ttl, role, iam_address):
     try:
         response = run_curl("GET", url, headers)
     except subprocess.CalledProcessError as exc:
-        print(f"Token generation failed: {exc}")
-        sys.exit(1)
+        sys.stdout.write(f"Token generation failed: {exc}\n")
+        raise SystemExit(1) from exc
 
     token = parse_header(response.stdout, "X-Auth")
     if token:
-        print(f"Token: {token}")
+        sys.stdout.write(f"Token: {token}\n")
 
 
 @cli.command("token-abandon")
@@ -81,10 +81,10 @@ def token_abandon(token, tenant_id, iam_address):
     try:
         run_curl("POST", url, headers)
     except subprocess.CalledProcessError as exc:
-        print(f"Token abandonment failed: {exc}")
-        sys.exit(1)
+        sys.stdout.write(f"Token abandonment failed: {exc}\n")
+        raise SystemExit(1) from exc
 
-    print("Token successfully abandoned/revoked")
+    sys.stdout.write("Token successfully abandoned/revoked\n")
 
 
 def run_curl(method, url, headers):

@@ -131,6 +131,13 @@ def flatten_pipeline_steps(document: dict) -> list[dict]:
     return result
 
 
+def index_pipeline_steps(document: dict) -> dict[str, dict]:
+    indexed = {}
+    for step in flatten_pipeline_steps(document):
+        indexed[step["key"]] = step
+    return indexed
+
+
 def pipeline_step_container(step: dict) -> dict:
     return step["plugins"][0]["kubernetes"]["podSpec"]["containers"][0]
 
@@ -1076,13 +1083,12 @@ class YrK8sLayoutTests(unittest.TestCase):
         check_tools = (repo / "check_tools.sh").read_text()
         build = (repo / "build.sh").read_text()
         install_tools = (repo / "install_tools.sh").read_text()
-        openeuler_dockerfiles = {
-            relative: (repo / relative).read_text()
-            for relative in (
-                "ci/openeuler/Dockerfile.x86_64",
-                "ci/openeuler/Dockerfile.aarch64",
-            )
-        }
+        openeuler_dockerfiles = {}
+        for relative in (
+            "ci/openeuler/Dockerfile.x86_64",
+            "ci/openeuler/Dockerfile.aarch64",
+        ):
+            openeuler_dockerfiles[relative] = (repo / relative).read_text()
         ubuntu = (repo / "ci/ubuntu/Dockerfile.ubuntu2004").read_text()
         compose = (repo / "ci/ubuntu/docker-compose.yml").read_text()
         macos = (repo / "scripts/ensure-macos-build-tools.sh").read_text()
@@ -1199,10 +1205,11 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('f"{base_name}_functionsystem==" + setup_spec.version', setup_py)
         self.assertIn('f"{base_name}_datasystem==" + setup_spec.version', setup_py)
         self.assertIn("optimize_wheel_files", setup_py)
-        self.assertIn(
-            'SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13 python3.14}"',
-            pipeline,
+        sdk_python_versions = (
+            'SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 '
+            'python3.11 python3.12 python3.13 python3.14}"'
         )
+        self.assertIn(sdk_python_versions, pipeline)
         self.assertIn(
             'SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"',
             pipeline,
@@ -1450,6 +1457,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('"${BASE_DIR}/metrics/lib"', build_sh)
         self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_sh)
         self.assertIn('${service_python_dir}/yr/$(basename "${member}")', build_sh)
+
     def test_test_pypi_publish_only_depends_on_emitted_sandbox_sdk_test(self):
         without_sandbox = emit_dynamic_pipeline(
             ENABLE_LINUX_ARM="false",
@@ -1460,9 +1468,7 @@ class YrK8sLayoutTests(unittest.TestCase):
             ENABLE_TEST_PYPI_PUBLISH="true",
             SDK_PYTHON_VERSIONS="python3.11",
         )
-        without_sandbox_steps = {
-            step["key"]: step for step in flatten_pipeline_steps(without_sandbox)
-        }
+        without_sandbox_steps = index_pipeline_steps(without_sandbox)
         self.assertNotIn("test-sandbox-sdk", without_sandbox_steps)
         self.assertEqual(
             without_sandbox_steps["publish-wheels-testpypi"]["env"][
@@ -1496,9 +1502,7 @@ class YrK8sLayoutTests(unittest.TestCase):
             ENABLE_TEST_PYPI_PUBLISH="true",
             SDK_PYTHON_VERSIONS="python3.11",
         )
-        with_sandbox_steps = {
-            step["key"]: step for step in flatten_pipeline_steps(with_sandbox)
-        }
+        with_sandbox_steps = index_pipeline_steps(with_sandbox)
         self.assertIn("test-sandbox-sdk", with_sandbox_steps)
         self.assertEqual(
             with_sandbox_steps["publish-wheels-testpypi"]["env"][
@@ -1510,6 +1514,7 @@ class YrK8sLayoutTests(unittest.TestCase):
             "test-sandbox-sdk",
             with_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
         )
+
     def test_python314_buildkite_execution_contract(self):
         packager = "registry.example.com/openyuanrong/sandbox-packager:test"
         bootstrap = emit_dynamic_pipeline(
@@ -1542,11 +1547,9 @@ class YrK8sLayoutTests(unittest.TestCase):
             SDK_PYTHON_VERSIONS="python3.14",
             SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="python3.14",
         )
-        bootstrap_steps = {step["key"]: step for step in flatten_pipeline_steps(bootstrap)}
-        product_steps = {step["key"]: step for step in flatten_pipeline_steps(product)}
-        amd64_cp314_steps = {
-            step["key"]: step for step in flatten_pipeline_steps(amd64_cp314_product)
-        }
+        bootstrap_steps = index_pipeline_steps(bootstrap)
+        product_steps = index_pipeline_steps(product)
+        amd64_cp314_steps = index_pipeline_steps(amd64_cp314_product)
         bootstrap_keys = {
             "build-python314-builder-amd64",
             "build-python314-builder-arm64",

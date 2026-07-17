@@ -2244,11 +2244,11 @@ def token_require(tenant_id, ttl, role, frontend_address, operator_token):
         yrcli token-require --operator-token "$TOKEN0" --tenant-id user --ttl 3600
     """
     if not operator_token:
-        print("Error: operator token is required.")
-        sys.exit(1)
+        sys.stdout.write("Error: operator token is required.\n")
+        raise SystemExit(1)
     if role != "developer":
-        print("Error: role must be developer.")
-        sys.exit(1)
+        sys.stdout.write("Error: role must be developer.\n")
+        raise SystemExit(1)
     http_client = HTTPClient(timeout=30)
     url = f"http://{frontend_address}/auth/token/require"
     headers = {"X-Auth": operator_token, "X-Tenant-ID": tenant_id, "X-Role": role}
@@ -2286,8 +2286,8 @@ def token_abandon(tenant_id, frontend_address, operator_token):
     Example:
         yrcli token-abandon --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
     """
-    print("Error: developer token abandon is not supported; token expiration depends on TTL.")
-    sys.exit(1)
+    sys.stdout.write("Error: developer token abandon is not supported; token expiration depends on TTL.\n")
+    raise SystemExit(1)
 
 
 def main():
