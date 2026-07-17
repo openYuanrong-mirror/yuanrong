@@ -472,8 +472,11 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$YR_BUILD_VERSION"
+      echo "Bazel build version: \$\$BAZEL_BUILD_VERSION"
       
       CACHE_BASE="/mnt/paas/build-cache"
       mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \
@@ -561,7 +564,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -574,17 +577,7 @@ cat << YAML
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
-      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
-      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
-      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
-      cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
-      cd ../..
+      echo "=== [3.1/6] Collect release artifacts from make all ==="
       cp datasystem/output/*.whl output/ 2>/dev/null || true
       cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
       cp functionsystem/output/*.whl output/ 2>/dev/null || true
@@ -774,6 +767,8 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
 
@@ -873,9 +868,12 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
+      echo "Bazel build version: \$\$BAZEL_BUILD_VERSION"
 
       CACHE_BASE="/mnt/paas/build-cache"
       mkdir -p \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/pip
@@ -1085,8 +1083,11 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$YR_BUILD_VERSION"
+      echo "Bazel build version: \$\$BAZEL_BUILD_VERSION"
 
       CACHE_BASE="/mnt/paas/build-cache"
       mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \
@@ -1155,7 +1156,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all BUILD_VERSION="\$\$YR_BUILD_VERSION" JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -1168,17 +1169,7 @@ cat << YAML
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
 
-      echo "=== [3.1/6] Repackage release artifacts (version=\$\$YR_BUILD_VERSION) ==="
-      export BUILD_VERSION="\$\$YR_BUILD_VERSION"
-      rm -f output/openyuanrong-*.tar.gz output/*.whl
-      bash scripts/package_yuanrong.sh -v "\$\$BUILD_VERSION"
-      cd api/python
-      for setup_type in "" dashboard faas sdk_cpp runtime full; do
-        rm -rf build/ dist/ *.egg-info
-        SETUP_TYPE="\$\$setup_type" PYTHON_RUNTIME_VERSION=python3.11 python3 setup.py bdist_wheel
-        cp -R dist/*whl ../../output/
-      done
-      cd ../..
+      echo "=== [3.1/6] Collect release artifacts from make all ==="
       cp datasystem/output/*.whl output/ 2>/dev/null || true
       cp datasystem/output/sdk/*.whl output/ 2>/dev/null || true
       cp functionsystem/output/*.whl output/ 2>/dev/null || true
@@ -1365,6 +1356,8 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
 
@@ -1465,9 +1458,12 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
+      echo "Bazel build version: \$\$BAZEL_BUILD_VERSION"
 
       CACHE_BASE="/mnt/paas/build-cache"
       mkdir -p \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/pip
@@ -1744,11 +1740,14 @@ cat << YAML
       TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
       case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      BAZEL_BUILD_VERSION="\$\${BAZEL_BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-\$\$(cat VERSION)}}"
+      export BAZEL_BUILD_VERSION
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSION}"
       unset REMOTE_CACHE
       echo "Package version: \$\$BUILD_VERSION"
+      echo "Bazel build version: \$\$BAZEL_BUILD_VERSION"
 
       echo "=== [2/4] Ensure macOS SDK toolchain ==="
       SKIP_BREW_UPDATE="\$\${SKIP_BREW_UPDATE:-1}" bash scripts/ensure-macos-build-tools.sh

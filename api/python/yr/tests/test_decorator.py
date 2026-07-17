@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import logging
+import threading
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 
@@ -379,6 +380,103 @@ class TestDecorator(TestCase):
 
         self.assertIs(overridden, opt)
         self.assertTrue(overridden.bypass_datasystem)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_get_if_exists_returns_existing_instance(self, get_runtime):
+        """get_if_exists=True should return the existing instance when found."""
+        mock_runtime = Mock()
+        mock_runtime.get_instance_by_name.return_value = FunctionMeta(
+            className="Actor", functionName="Actor", language=LanguageType.Python)
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", get_if_exists=True, skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+        instance_proxy.get_instance_by_name = Mock(return_value=Mock(is_activate=lambda: True))
+        instance = creator.invoke()
+
+        instance_proxy.get_instance_by_name.assert_called_once_with("named", "ns", 60)
+        mock_runtime.create_instance.assert_not_called()
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_get_if_exists_creates_when_not_found(self, get_runtime):
+        """get_if_exists=True should create the instance when get_instance_by_name raises."""
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "ns-named"
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", get_if_exists=True, skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+        instance_proxy.get_instance_by_name = Mock(side_effect=RuntimeError("not found"))
+        instance = creator.invoke()
+
+        instance_proxy.get_instance_by_name.assert_called_once_with("named", "ns", 60)
+        mock_runtime.create_instance.assert_called_once()
+        self.assertEqual(instance.instance_id, "ns-named")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_get_if_exists_concurrent_only_one_create(self, get_runtime):
+        """Multiple threads with get_if_exists=True should only create once."""
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "ns-named"
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        opt = InvokeOptions(name="race_actor", namespace="ns", get_if_exists=True, skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+
+        # First call raises (not found), subsequent calls succeed (found)
+        call_count = [0]
+
+        def mock_get_by_name(name, ns, timeout):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("not found")
+            return Mock(is_activate=lambda: True)
+
+        instance_proxy.get_instance_by_name = Mock(side_effect=mock_get_by_name)
+
+        results = [None] * 5
+        errors = [None] * 5
+
+        def worker(i):
+            try:
+                results[i] = creator.invoke()
+            except Exception as e:
+                errors[i] = e
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        for i, err in enumerate(errors):
+            self.assertIsNone(err, f"thread {i} failed: {err}")
+        # Only one create call should have happened
+        self.assertEqual(mock_runtime.create_instance.call_count, 1,
+                         f"expected 1 create call, got {mock_runtime.create_instance.call_count}")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_get_if_exists_without_name_raises(self, get_runtime):
+        """get_if_exists=True without a name should raise ValueError."""
+        mock_runtime = Mock()
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            pass
+
+        opt = InvokeOptions(get_if_exists=True, skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+        with self.assertRaisesRegex(ValueError, "get_if_exists"):
+            creator.invoke()
 
 
 if __name__ == "__main__":
