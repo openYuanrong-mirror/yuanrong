@@ -332,11 +332,14 @@ ${SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS}
         mkdir -p "artifacts/test-pypi-urls/\$\$step_key"
         buildkite-agent meta-data get "obs-urls.\$\$step_key" > "artifacts/test-pypi-urls/\$\$step_key/obs-urls.txt" || true
       done
+      set -- --pattern 'openyuanrong_sdk*.whl'
+      if [ -n "\$\$SANDBOX_SANDBOX_SDK_STEPS" ]; then
+        set -- "\$\$@" --pattern 'openyuanrong_sandbox*.whl'
+      fi
       python3 .buildkite/download_obs_artifacts.py \
         --urls-root artifacts/test-pypi-urls \
         --output-dir artifacts/test-pypi-wheels \
-        --pattern 'openyuanrong_sdk*.whl' \
-        --pattern 'openyuanrong_sandbox*.whl' \
+        "\$\$@" \
         --all
       find artifacts/test-pypi-wheels -type f \
         \( -name 'openyuanrong_sdk*.whl' -o -name 'openyuanrong_sandbox*.whl' \) \

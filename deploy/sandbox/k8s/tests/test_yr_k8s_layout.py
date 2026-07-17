@@ -1432,6 +1432,17 @@ class YrK8sLayoutTests(unittest.TestCase):
             "test-sandbox-sdk",
             without_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
         )
+        publish_command = without_sandbox_steps["publish-wheels-testpypi"]["command"]
+        self.assertIn('set -- --pattern \'openyuanrong_sdk*.whl\'', publish_command)
+        self.assertIn(
+            'if [ -n "$$SANDBOX_SANDBOX_SDK_STEPS" ]; then',
+            publish_command,
+        )
+        self.assertIn(
+            'set -- "$$@" --pattern \'openyuanrong_sandbox*.whl\'',
+            publish_command,
+        )
+        self.assertIn('"$$@"', publish_command)
 
         with_sandbox = emit_dynamic_pipeline(
             ENABLE_LINUX_ARM="false",
