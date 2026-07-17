@@ -133,7 +133,7 @@ if is_enabled "${ENABLE_LINUX_ARM}" && is_enabled "${ENABLE_RRT_ARM}"; then
 fi
 SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=""
 SANDBOX_TEST_PYPI_DEPENDS=""
-SANDBOX_SANDBOX_SDK_STEPS="test-sandbox-sdk"
+SANDBOX_SANDBOX_SDK_STEPS=""
 SANDBOX_SDK_STEPS=""
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
@@ -161,6 +161,7 @@ for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
   fi
 done
 if is_enabled "${ENABLE_SANDBOX_PACKAGE}"; then
+  SANDBOX_SANDBOX_SDK_STEPS="test-sandbox-sdk"
   SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
   SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
 fi

@@ -1159,6 +1159,12 @@ class YrK8sLayoutTests(unittest.TestCase):
             step["key"]: step for step in flatten_pipeline_steps(without_sandbox)
         }
         self.assertNotIn("test-sandbox-sdk", without_sandbox_steps)
+        self.assertEqual(
+            without_sandbox_steps["publish-wheels-testpypi"]["env"][
+                "SANDBOX_SANDBOX_SDK_STEPS"
+            ],
+            "",
+        )
         self.assertNotIn(
             "test-sandbox-sdk",
             without_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
@@ -1178,6 +1184,12 @@ class YrK8sLayoutTests(unittest.TestCase):
             step["key"]: step for step in flatten_pipeline_steps(with_sandbox)
         }
         self.assertIn("test-sandbox-sdk", with_sandbox_steps)
+        self.assertEqual(
+            with_sandbox_steps["publish-wheels-testpypi"]["env"][
+                "SANDBOX_SANDBOX_SDK_STEPS"
+            ],
+            "test-sandbox-sdk",
+        )
         self.assertIn(
             "test-sandbox-sdk",
             with_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
