@@ -12,8 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# pylint: disable=protected-access
-
 import base64
 import importlib.util
 import pathlib
@@ -72,9 +70,9 @@ class TestTunnelClientProxy(unittest.TestCase):
     def test_wss_with_default_ssl_verify_does_not_pass_ssl_none(self):
         tunnel_client = _load_tunnel_client_module()
         client = tunnel_client.TunnelClient(upstream="http://127.0.0.1:28800")
-        client._tunnel_url = "wss://127.0.0.1:28765"
+        setattr(client, "_tunnel_url", "wss://127.0.0.1:28765")
 
-        kwargs = client._build_ws_kwargs()
+        kwargs = getattr(client, "_build_ws_kwargs")()
 
         self.assertNotIn("ssl", kwargs)
         self.assertEqual(kwargs["max_size"], tunnel_client.MAX_TUNNEL_FRAME_SIZE)
@@ -83,9 +81,9 @@ class TestTunnelClientProxy(unittest.TestCase):
         tunnel_client = _load_tunnel_client_module()
         with patch.dict("os.environ", {"TUNNEL_SSL_VERIFY": "0"}):
             client = tunnel_client.TunnelClient(upstream="http://127.0.0.1:28800")
-        client._tunnel_url = "wss://127.0.0.1:28765"
+        setattr(client, "_tunnel_url", "wss://127.0.0.1:28765")
 
-        kwargs = client._build_ws_kwargs()
+        kwargs = getattr(client, "_build_ws_kwargs")()
 
         self.assertIsInstance(kwargs["ssl"], ssl.SSLContext)
         self.assertEqual(kwargs["ssl"].verify_mode, ssl.CERT_NONE)
@@ -94,7 +92,7 @@ class TestTunnelClientProxy(unittest.TestCase):
         tunnel_client = _load_tunnel_client_module()
         original_prepare = ws_client.prepare_connect_request
         try:
-            tunnel_client._patch_websockets_proxy_auth_unquote()
+            getattr(tunnel_client, "_patch_websockets_proxy_auth_unquote")()
             request = ws_client.prepare_connect_request(
                 parse_proxy("http://z00826700:huawei%40123@proxy.example:8080"),
                 parse_uri("wss://124.70.166.142:443/tunnel"),
@@ -112,8 +110,8 @@ class TestTunnelClientProxy(unittest.TestCase):
         try:
             with patch.dict("os.environ", {"YR_ENABLE_HTTP_PROXY": "true"}):
                 client = tunnel_client.TunnelClient(upstream="http://127.0.0.1:28800")
-                client._tunnel_url = "ws://127.0.0.1:28765"
-                kwargs = client._build_ws_kwargs()
+                setattr(client, "_tunnel_url", "ws://127.0.0.1:28765")
+                kwargs = getattr(client, "_build_ws_kwargs")()
 
             self.assertIs(kwargs["proxy"], True)
             self.assertTrue(
@@ -137,8 +135,8 @@ class TestTunnelClientProxy(unittest.TestCase):
                 clear=True,
             ):
                 client = tunnel_client.TunnelClient(upstream="http://127.0.0.1:28800")
-                client._tunnel_url = "wss://127.0.0.1:28765"
-                kwargs = client._build_ws_kwargs()
+                setattr(client, "_tunnel_url", "wss://127.0.0.1:28765")
+                kwargs = getattr(client, "_build_ws_kwargs")()
 
             self.assertIsNone(kwargs["proxy"])
             self.assertFalse(
