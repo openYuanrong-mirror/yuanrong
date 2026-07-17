@@ -160,8 +160,10 @@ for SDK_PYTHON_VERSION in ${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS}; do
     SANDBOX_MANIFEST_RUNTIME_DEPENDS="${SANDBOX_MANIFEST_RUNTIME_DEPENDS}"$'\n'"      - \"publish-runtime-arm64-${SDK_SUFFIX}\""
   fi
 done
-SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
-SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
+if is_enabled "${ENABLE_SANDBOX_PACKAGE}"; then
+  SANDBOX_MANIFEST_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
+  SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=$'\n'"      - \"test-sandbox-sdk\""
+fi
 
 SANDBOX_FINAL_PACKAGE_STEP="publish-sandbox-release-amd64"
 if is_enabled "${ENABLE_SANDBOX_PACKAGE}" && is_enabled "${ENABLE_LINUX_ARM}" && is_enabled "${ENABLE_SANDBOX_MANIFEST}"; then

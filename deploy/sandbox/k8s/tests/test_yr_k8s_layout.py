@@ -1408,7 +1408,43 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('"${BASE_DIR}/metrics/lib"', build_sh)
         self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_sh)
         self.assertIn('${service_python_dir}/yr/$(basename "${member}")', build_sh)
+    def test_test_pypi_publish_only_depends_on_emitted_sandbox_sdk_test(self):
+        without_sandbox = emit_dynamic_pipeline(
+            ENABLE_LINUX_ARM="false",
+            ENABLE_MACOS_SDK="false",
+            ENABLE_RUNTIME_X86="false",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="false",
+            ENABLE_TEST_PYPI_PUBLISH="true",
+            SDK_PYTHON_VERSIONS="python3.11",
+        )
+        without_sandbox_steps = {
+            step["key"]: step for step in flatten_pipeline_steps(without_sandbox)
+        }
+        self.assertNotIn("test-sandbox-sdk", without_sandbox_steps)
+        self.assertNotIn(
+            "test-sandbox-sdk",
+            without_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
+        )
 
+        with_sandbox = emit_dynamic_pipeline(
+            ENABLE_LINUX_ARM="false",
+            ENABLE_MACOS_SDK="false",
+            ENABLE_RUNTIME_X86="false",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="true",
+            ENABLE_SANDBOX_MANIFEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="true",
+            SDK_PYTHON_VERSIONS="python3.11",
+        )
+        with_sandbox_steps = {
+            step["key"]: step for step in flatten_pipeline_steps(with_sandbox)
+        }
+        self.assertIn("test-sandbox-sdk", with_sandbox_steps)
+        self.assertIn(
+            "test-sandbox-sdk",
+            with_sandbox_steps["publish-wheels-testpypi"]["depends_on"],
+        )
     def test_python314_buildkite_execution_contract(self):
         packager = "registry.example.com/openyuanrong/sandbox-packager:test"
         bootstrap = emit_dynamic_pipeline(
