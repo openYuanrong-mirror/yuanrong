@@ -290,7 +290,7 @@
           <li><span class="substep-num">[1/6]</span>环境初始化，设置 PATH 使用 <code>python3.11</code>，配置 Bazel 远程缓存</li>
           <li><span class="substep-num">[2/6]</span>同步 git submodule（datasystem / frontend / functionsystem）</li>
           <li><span class="substep-num">[3/6]</span>Bazel 全量构建：<code>make all</code>，输出二进制和 wheel</li>
-          <li><span class="substep-num">[3.1]</span>调用 <code>scripts/package_yuanrong.sh</code> 重新打包 whl（注入版本号）</li>
+          <li><span class="substep-num">[3.1]</span>复用 <code>make all</code> 已按版本号生成的 tar 和拆分 wheel，并汇总依赖组件 wheel</li>
           <li><span class="substep-num">[3.5]</span>校验 Go plugin ABI 兼容性</li>
           <li><span class="substep-num">[4/6]</span>打印 Bazel 远程缓存命中率报告</li>
           <li><span class="substep-num">[5/6]</span>收集 artifacts，上传 Buildkite packages</li>
