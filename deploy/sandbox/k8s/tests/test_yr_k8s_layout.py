@@ -341,7 +341,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("--trusted-host mirrors.aliyun.com", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY .yr-k8s-deploy/bin/start-frontend.sh", controlplane_dockerfile)
-        self.assertIn("{frontend_lease_bypass}", controlplane_dockerfile)
+        self.assertNotIn("patches = {", controlplane_dockerfile)
+        self.assertNotIn("HEALTH_CHECK_HANDLER", controlplane_dockerfile)
         self.assertIn("ARG BASE_IMAGE=yr-base", runtime_dockerfile)
         self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
@@ -523,7 +524,14 @@ class YrK8sLayoutTests(unittest.TestCase):
 
         self.assertIn('"frontend": ["function_proxy"]', registry_text)
         self.assertIn('SIGNAL_HANDLER="faasfrontend.SignalHandler"', config_template)
-        self.assertNotIn("HEALTH_CHECK_HANDLER", config_template)
+        self.assertEqual(config_template.count('HEALTH_CHECK_HANDLER="faasfrontend.HealthCheckHandler"'), 1)
+
+    def test_controlplane_image_does_not_patch_installed_wheels(self):
+        controlplane_dockerfile = (ROOT / "images/Dockerfile.controlplane-base").read_text()
+
+        self.assertNotIn("patches = {", controlplane_dockerfile)
+        self.assertNotIn("HEALTH_CHECK_HANDLER", controlplane_dockerfile)
+        self.assertNotIn("{frontend_lease_bypass}", controlplane_dockerfile)
 
     def test_current_yr_start_model_supports_function_proxy_merge_process(self):
         main_text = (ROOT.parents[2] / "api/python/yr/cli/main.py").read_text()
