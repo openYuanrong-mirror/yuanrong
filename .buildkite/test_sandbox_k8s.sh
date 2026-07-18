@@ -602,13 +602,14 @@ run_rrt_direct_e2e() {
 	# control-port-only auth policy. The router only structurally parses the JWT
 	# (Header.Payload.Signature, no signature check) and -- with validateIam off
 	# for this test deploy -- skips the IAM round-trip, so a structurally-valid
-	# unsigned JWT with a far-future exp authenticates the WS ?token= path. This
-	# lets reverse_tunnel exercise the real control-port auth instead of failing
-	# 401 on the old dummy "ci" string. An externally supplied YR_TOKEN (real IAM
-	# token) still takes precedence.
+	# unsigned developer JWT with a far-future exp authenticates the WS ?token=
+	# path and authorizes lifecycle cleanup through the frontend DELETE API. This
+	# lets the e2e exercise the real auth paths instead of failing on the old dummy
+	# "ci" string. An externally supplied YR_TOKEN (real IAM token) still takes
+	# precedence.
 	local yr_token="${YR_TOKEN:-}"
 	if [ -z "${yr_token}" ]; then
-		yr_token="$("${py}" -c 'import base64,json; b=lambda d: base64.urlsafe_b64encode(json.dumps(d,separators=(",",":")).encode()).rstrip(b"=").decode(); print("{}.{}.sig".format(b({"alg":"none","typ":"JWT"}), b({"sub":"default","role":"user","exp":4102444800})))')"
+		yr_token="$("${py}" -c 'import base64,json; b=lambda d: base64.urlsafe_b64encode(json.dumps(d,separators=(",",":")).encode()).rstrip(b"=").decode(); print("{}.{}.sig".format(b({"alg":"none","typ":"JWT"}), b({"sub":"default","role":"developer","exp":4102444800})))')"
 	fi
 	printf 'Running sandbox-sdk -> rrt direct e2e (frontend=%s path=/direct)\n' "${frontend_addr}" >&2
 	YR_SERVER_ADDRESS="${frontend_addr}" \

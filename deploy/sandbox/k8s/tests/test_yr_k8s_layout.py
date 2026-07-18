@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
 import json
 import os
 import pathlib
@@ -875,6 +876,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIsNotNone(token_command)
         token = subprocess.check_output([str(PYTHON_BIN), "-c", token_command.group(1)], text=True).strip()
         self.assertEqual(3, len(token.split(".")))
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        self.assertEqual("developer", json.loads(base64.urlsafe_b64decode(payload))["role"])
 
     def test_buildkite_can_emit_k8s_test_only_pipeline(self):
         env = dict(os.environ)
