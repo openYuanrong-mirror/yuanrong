@@ -3,27 +3,24 @@
 set -euo pipefail
 
 AIO_NODE_IP="$(hostname -i | awk '{print $1}')"
+ENABLE_TOKEN="${ENABLE_TOKEN:-false}"
 
 exec /usr/local/bin/yr start \
   --master \
   --block true \
-  --port_policy FIX \
-  --enable_faas_frontend=true \
-  --faas_frontend_http_port 8889 \
-  --enable_traefik_provider true \
-  --traefik_http_entry_point web \
-  --traefik_enable_tls false \
-  --enable_function_scheduler true \
-  --function_scheduler_lease_port 8890 \
-  --enable_meta_service true \
-  --enable_sandbox_router true \
-  --sandbox_router_listen_port 8080 \
-  --sandbox_router_rrt_port 50090 \
-  --sandbox_router_enable_jwt false \
-  --sandbox_router_validate_iam false \
-  --frontend_ssl_enable false \
-  --enable_iam_server "${ENABLE_TOKEN:-false}" \
-  --frontend_client_auth_type NoClientCert \
-  --enable_function_token_auth "${ENABLE_TOKEN:-false}" \
-  -a "${AIO_NODE_IP}" \
-  -p /openyuanrong/services.yaml
+  -s "values.host_ip=\"${AIO_NODE_IP}\"" \
+  -s 'function_master.args.services_path="/openyuanrong/services.yaml"' \
+  -s 'function_proxy.args.services_path="/openyuanrong/services.yaml"' \
+  -s 'function_master.args.enable_traefik_provider=true' \
+  -s 'function_master.args.traefik_http_entry_point="web"' \
+  -s 'function_master.args.traefik_enable_tls=false' \
+  -s 'function_master.args.traefik_forward_timeout_ms=3000' \
+  -s 'mode.master.frontend=true' \
+  -s 'frontend.port=8889' \
+  -s 'frontend.ssl_enable=false' \
+  -s 'frontend.client_auth_type="NoClientCert"' \
+  -s "values.frontend.enable_function_token_auth=${ENABLE_TOKEN}" \
+  -s 'mode.master.function_scheduler=true' \
+  -s 'values.function_scheduler.lease_port=8890' \
+  -s 'mode.master.meta_service=true' \
+  -s "mode.master.iam_server=${ENABLE_TOKEN}"
