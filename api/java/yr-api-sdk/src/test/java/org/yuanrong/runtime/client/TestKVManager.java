@@ -294,12 +294,12 @@ public class TestKVManager {
             @Override
             public void onComplete() {
             }
-        });
+        }).get();
         kvManager.del(arrayList);
         kvManager.del(arrayList, new KVCallback() {
             @Override
             public void onComplete() {
             }
-        });
+        }).get();
     }
 }
