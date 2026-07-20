@@ -1,8 +1,17 @@
 //! rrt-runtime binary: sandbox runtime-mode entrypoint.
 //! Start with `rrt-runtime`; runtime context comes from environment variables injected by functionsystem.
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Fork-based warm starts hold here until the child is ready. Refresh the
+    // restored environment before constructing Tokio or reading runtime args.
+    rrt_daemon::startup::prepare_runtime_environment()?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Isolated verification mode: start only the RRT atomic-operation HTTP server without the function-proxy worker.
     // RRT_HTTP_ONLY=1 RRT_HTTP_PORT=<port> [RRT_HTTP_TOKEN=<tok>] rrt-runtime
     if std::env::var("RRT_HTTP_ONLY").is_ok() {
