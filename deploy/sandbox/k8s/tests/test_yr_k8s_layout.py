@@ -900,6 +900,33 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertNotIn("publish-sandbox-release", pipeline)
         self.assertNotIn('depends_on:', pipeline)
 
+    def test_buildkite_enables_k8s_test_by_default(self):
+        env = dict(os.environ)
+        env.pop("ENABLE_SANDBOX_K8S_TEST", None)
+        env.pop("ENABLE_SANDBOX_BEIJING4_DEPLOY", None)
+        result = subprocess.run(
+            [str(BASH_BIN), ".buildkite/pipeline.dynamic.yml"],
+            cwd=ROOT.parents[2],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        steps = index_pipeline_steps(yaml.safe_load(result.stdout))
+        self.assertIn("test-k8s", steps)
+
+        env["ENABLE_SANDBOX_K8S_TEST"] = "false"
+        result = subprocess.run(
+            [str(BASH_BIN), ".buildkite/pipeline.dynamic.yml"],
+            cwd=ROOT.parents[2],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        steps = index_pipeline_steps(yaml.safe_load(result.stdout))
+        self.assertNotIn("test-k8s", steps)
+
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
         bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
         pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()

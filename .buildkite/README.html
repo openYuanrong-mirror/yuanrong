@@ -95,7 +95,7 @@
   Python 3.14 发布分两次 Buildkite 构建：先设置 <code>ENABLE_PYTHON314_BUILDER_BOOTSTRAP=true</code>
   发布 <code>v20260717_py3146_obs</code> standard builder 和 <code>v20260714_py3146</code> Rust builder，再用这些 builder 触发产品 package/image workflow。
   产品构建必须保留镜像输出，默认使用 C++ FunctionSystem（<code>ENABLE_RUST_FUNCTIONSYSTEM_ST=false</code>）；
-  在目标集群可用前保持 <code>ENABLE_SANDBOX_K8S_TEST=false</code>。
+  Kubernetes 测试默认开启（<code>ENABLE_SANDBOX_K8S_TEST=true</code>），仅在目标集群不可用或维护时显式关闭。
 </div>
 <div class="tip">
   cp314 SDK 输出覆盖 Linux amd64、Linux arm64 与 macOS arm64；Linux 同时生成产品包和必需的 sandbox/runtime 镜像。
@@ -695,7 +695,7 @@
       <li>两个 <code>build-images.sh</code> 将 <code>cp314</code> 严格映射为 Python <code>3.14.6</code> / minor <code>3.14</code></li>
       <li><code>verify_python314_sdk_wheel.sh</code> 校验 Python 版本、cp314 ABI、import/CLI 和 cp313 残留</li>
     </ol>
-    <div class="tip">默认产品矩阵保留 3.9–3.13，并追加 3.14；K8S 测试在本构建阶段保持关闭。</div>
+    <div class="tip">默认产品矩阵保留 3.9–3.13，并追加 3.14；K8S 测试默认开启。</div>
   </div>
 
   <div class="guide-card">
@@ -704,7 +704,7 @@
       <li>单独设置 <code>ENABLE_PYTHON314_BUILDER_BOOTSTRAP=true</code> 触发 bootstrap build。</li>
       <li>amd64/arm64 原生 agent 使用固定旧 builder，发布 <code>-amd64</code>/<code>-arm64</code> staging tag。</li>
       <li>manifest job 验证两个 digest 并发布正式 multi-arch tag；Rust builder 在 amd64 独立 smoke。</li>
-      <li>bootstrap 通过后，再以 <code>ENABLE_SANDBOX_PACKAGE=true</code>、<code>ENABLE_RUST_FUNCTIONSYSTEM_ST=false</code> 和 <code>ENABLE_SANDBOX_K8S_TEST=false</code> 触发产品 package/image 构建。</li>
+      <li>bootstrap 通过后，再以 <code>ENABLE_SANDBOX_PACKAGE=true</code> 和 <code>ENABLE_RUST_FUNCTIONSYSTEM_ST=false</code> 触发产品 package/image 构建；K8S 测试无需额外变量即可运行。</li>
     </ol>
     <div class="warning">bootstrap 与产品 jobs 互斥；不得让新 builder 循环启动自身，也不得在本机回退构建。</div>
   </div>
