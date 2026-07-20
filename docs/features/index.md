@@ -11,7 +11,9 @@
 - [IAM 认证与授权](./iam-auth.md) - Keycloak/Casdoor 集成
 - [Snapshot 与 Checkpoint](./snapshot-checkpoint.md) - 函数快照与实例恢复
 - [WebTerminal](./webterminal.md) - WebSocket 终端
-- [Sandbox 实现综述](./sandbox-implementation.md) - SDK、Frontend、FunctionSystem 协同链路
+- [Sandbox RESTful API](./sandbox-rest-api.md) - HTTP/WS 接口、action 词表、tunnel 协议、SDK 用法
+- [Sandbox Create SSE/Timeout Design](./sandbox-create-sse-timeout.md) - aligned create semantics, SSE result delivery, and timeout handling
+- [Rust Sandbox Runtime (rrt)](../rust-sandbox-runtime/README.md) - rrt-runtime 架构、接入、构建、部署、契约
 - [可观测性](./observability.md) - OpenTelemetry、Prometheus、Loki、Tempo
 - [Traefik 路由重构](./traefik-routing.md) - HTTP 路径路由
 - [Sandbox 外部认证](./iam-auth.md#sandbox-外部认证) - Sandbox 与 IAM 集成
@@ -24,7 +26,7 @@
 | 异步调用 | GA | yuanrong, frontend |
 | Oneshot 函数 | GA | functionsystem |
 | WebTerminal | GA | frontend, functionsystem |
-| Sandbox 实现综述 | GA | yuanrong, frontend, functionsystem |
+| Sandbox API / Rust Runtime (rrt) | GA | yuanrong, frontend, functionsystem |
 | OpenTelemetry | GA | functionsystem |
 | Prometheus/Loki/Tempo (日志/告警) | GA | functionsystem, frontend |
 | Traefik HTTP 路由 | GA | functionsystem |

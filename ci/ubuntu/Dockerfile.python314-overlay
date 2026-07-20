@@ -1,0 +1,21 @@
+# Buildkite bootstrap only: add Python 3.14 to an existing compile image.
+ARG BASE_IMAGE=swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
+FROM ${BASE_IMAGE}
+
+ARG PYTHON_VERSION=3.14.6
+ENV PYTHON_PATH_3146=/opt/buildtools/python3.14
+ENV PATH=/opt/buildtools/python3.14/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/buildtools/python3.14/lib:${LD_LIBRARY_PATH}
+
+RUN set -eux; \
+    tmp_dir="$(mktemp -d)"; cd "${tmp_dir}"; \
+    curl -fsSL "https://mirrors.huaweicloud.com/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz" -o python.tgz; \
+    tar -xzf python.tgz; cd "Python-${PYTHON_VERSION}"; \
+    ./configure --prefix=/opt/buildtools/python3.14 --enable-shared --with-openssl=/usr; \
+    make -j"$(nproc)"; make install; \
+    ln -sf /opt/buildtools/python3.14/bin/python3.14 /usr/local/bin/python3.14; \
+    ln -sf /opt/buildtools/python3.14/bin/python3.14 /opt/buildtools/python3.14/bin/python; \
+    ln -sf /opt/buildtools/python3.14/bin/pip3.14 /opt/buildtools/python3.14/bin/pip; \
+    printf '%s\n' /opt/buildtools/python3.14/lib >/etc/ld.so.conf.d/python3.14.conf; ldconfig; \
+    python3.14 -m pip install --no-cache-dir --upgrade setuptools packaging wheel; \
+    python3.14 --version | grep -F "Python ${PYTHON_VERSION}"; rm -rf "${tmp_dir}"

@@ -1981,6 +1981,8 @@ func cBaseInvokeOptions(invokeOpt api.InvokeOptions) C.CInvokeOptions {
 	return C.CInvokeOptions{
 		cpu:                       C.int(invokeOpt.Cpu),
 		memory:                    C.int(invokeOpt.Memory),
+		cpuLimit:                  C.int(invokeOpt.CpuLimit),
+		memoryLimit:               C.int(invokeOpt.MemoryLimit),
 		customResources:           cRes,
 		size_customResources:      cResLen,
 		customExtensions:          cExts,

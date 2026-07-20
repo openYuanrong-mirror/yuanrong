@@ -13,13 +13,17 @@ pid = "{{ pid }}"
 ld_library_path = "{{ ld_library_path }}"
 python_path = "{{ python_path }}"
 
+[values.metrics]
+metrics_config = ""
+metrics_config_file = "{{ values.yr_package_path }}/functionsystem/config/metrics/metrics_config.json"
+
 [values.meta_store]
 enable = false
 address = ""
 mode = "local"
 
 [values.fs]
-schedule_plugins = '''["Label", "ResourceSelector", "Default", "Heterogeneous", "NUMA"]'''
+schedule_plugins = '''["Label", "ResourceSelector", "Default", "Heterogeneous"]'''
 
 [values.fs.log]
 also_log_to_stderr = false
@@ -51,6 +55,7 @@ cache_storage_auth_type = "Noauth" # Noauth, ZMQ, AK/SK
 cache_storage_auth_enable = false
 
 [values.etcd]
+bin_path = "{{ values.yr_package_path }}/third_party/etcd/etcd"
 enable_multi_master = false
 auth_type = "Noauth"
 table_prefix = ""
@@ -69,18 +74,23 @@ peer_port = "{{ 32380|check_port() }}"
 port = "{{ 32379|check_port() }}"
 
 [values.ds_master]
+bin_path = "{{ values.yr_package_path }}/datasystem/datasystem_worker"
 ip = "{{ values.host_ip }}"
 port = "{{ 12123|check_port() }}"
 
 [values.ds_worker]
+bin_path = "{{ values.yr_package_path }}/datasystem/datasystem_worker"
 ip = "{{ values.host_ip }}"
 port = "{{ 31501|check_port() }}"
+spill = false
 
 [values.function_master]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_master"
 ip = "{{ values.host_ip }}"
 global_scheduler_port = "{{ 22770|check_port() }}"
 
 [values.function_proxy]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_proxy"
 ip = "{{ values.host_ip }}"
 port = "{{ 22772|check_port() }}"
 grpc_listen_port = "{{ 22773|check_port() }}"
@@ -96,11 +106,42 @@ docker_host = "unix:///var/run/docker.sock"
 default_write_mode = "NONE_L2_CACHE"
 
 [values.function_agent]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 ip = "{{ values.host_ip }}"
 port = "{{ 58866|check_port() }}"
 
+[values.frontend]
+bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
+ip = "{{ values.host_ip }}"
+port = "{{ 8888|check_port() }}"
+config_path = "{{ values.yr_package_path }}/faas/init_frontend_args.json"
+# sandboxRouter (rrt direct L7 reverse proxy). Enabled here so the full-feature
+# package's Test K8S exercises the akernel-sdk -> rrt direct path end to end.
+# (Production default is off; flip back to false to ship off-by-default.)
+sandbox_router_enable = true
+sandbox_router_listen_port = 8080
+sandbox_router_rrt_port = 50090
+sandbox_router_enable_jwt = true
+sandbox_router_validate_iam = true
+ssl_enable = false
+client_auth_type = "RequireAndVerifyClientCert"
+enable_function_token_auth = false
+
 [values.function_scheduler]
+bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
+ip = "{{ values.host_ip }}"
+config_path = "{{ values.yr_package_path }}/faas/init_scheduler_args.json"
 lease_port = "{{ 8889|check_port() }}"
+
+[values.meta_service]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/meta_service"
+ip = "{{ values.host_ip }}"
+port = "{{ 31182|check_port() }}"
+clusters = ""
+config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_config.json"
+log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_log_config.json"
+ssl_enable = false
+client_auth_type = "RequireAndVerifyClientCert"
 
 [values.lite_scheduler]
 enable = false
@@ -110,9 +151,11 @@ enabled_functions = []
 acquire_wait_timeout_ms = 3000
 
 [values.dashboard]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/dashboard"
 ip = "{{ values.host_ip }}"
 port = "{{ 9080|check_port() }}"
 grpc_port = "{{ 9081|check_port() }}"
+config_path = "{{ values.yr_package_path }}/dashboard/dashboard_config.json"
 
 [values.dashboard.auth]
 enable = false
@@ -129,26 +172,22 @@ ca_file = ""
 cert_file = ""
 key_file = ""
 
-[values.frontend]
-ssl_enable = false
-client_auth_type = "RequireAndVerifyClientCert"
-enable_function_token_auth = false
-
-[values.meta_service]
-ssl_enable = false
-client_auth_type = "RequireAndVerifyClientCert"
+[values.collector]
+bin_path = "{{ values.yr_package_path }}/functionsystem/bin/collector"
+ip = "{{ values.host_ip }}"
+port = "{{ 9082|check_port() }}"
 
 [values.iam_server]
 ip = "{{ values.host_ip }}"
 port = "{{ 31112|check_port() }}"
 
 [values.auth]
-provider = "casdoor"  # casdoor or keycloak
+provider = "casdoor" # casdoor or keycloak
 
 [values.auth.casdoor]
 enabled = false
 endpoint = "http://127.0.0.1:8000"
-public_endpoint = ""  # defaults to endpoint if empty
+public_endpoint = "" # defaults to endpoint if empty
 client_id = ""
 client_secret = ""
 organization = "yuanrong"
@@ -160,8 +199,8 @@ jwt_public_key = ""
 [values.auth.keycloak]
 enabled = false
 url = ""
-internal_url = ""  # defaults to url if empty
-issuer_url = ""    # defaults to url if empty
+internal_url = "" # defaults to url if empty
+issuer_url = "" # defaults to url if empty
 realm = "yuanrong"
 client_id = "frontend"
 client_secret = ""

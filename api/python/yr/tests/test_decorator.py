@@ -59,9 +59,10 @@ class TestDecorator(TestCase):
             Actor, InvokeOptions(need_order=True, concurrency=1))
         self.assertTrue(explicit_true_single_creator.__invoke_options__.need_order)
 
-        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor)
-        options_creator.options(InvokeOptions(need_order=False))
-        self.assertTrue(options_creator.__invoke_options__.need_order)
+        options_creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, InvokeOptions())
+        with patch.object(options_creator, "_invoke") as mock_invoke:
+            options_creator.options(InvokeOptions(need_order=False)).invoke()
+        self.assertFalse(mock_invoke.call_args.kwargs["invoke_options"].need_order)
 
         with self.assertRaises(ValueError):
             options_creator.options(InvokeOptions(need_order=True, concurrency=100))
@@ -359,18 +360,45 @@ class TestDecorator(TestCase):
     def test_instance_creator_respects_global_bypass_override(self, get_runtime):
         mock_runtime = Mock()
         mock_runtime.create_instance.return_value = "instance-id"
+        mock_runtime.invoke_instance.return_value = ["object-id"]
         get_runtime.return_value = mock_runtime
 
         class Actor:
-            pass
+            def ping(self):
+                return "pong"
 
         ConfigManager().bypass_datasystem = False
         creator = instance_proxy.InstanceCreator.create_from_user_class(
             Actor, InvokeOptions(skip_serialize=True, bypass_datasystem=True))
-        creator.invoke()
+        proxy = creator.invoke()
 
         opt = mock_runtime.create_instance.call_args.kwargs["opt"]
         self.assertFalse(opt.bypass_datasystem)
+        proxy.ping.invoke()
+        method_opt = mock_runtime.invoke_instance.call_args.kwargs["opt"]
+        self.assertFalse(method_opt.bypass_datasystem)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_sandbox_instance_defaults_to_bypass_datasystem(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "sandbox-instance-id"
+        mock_runtime.invoke_instance.return_value = ["object-id"]
+        get_runtime.return_value = mock_runtime
+
+        class Actor:
+            def ping(self):
+                return "pong"
+
+        opt = InvokeOptions(skip_serialize=True)
+        opt.custom_extensions["rootfs"] = "python:3.12-slim"
+        creator = instance_proxy.InstanceCreator.create_from_user_class(Actor, opt)
+        proxy = creator.invoke()
+
+        create_opt = mock_runtime.create_instance.call_args.kwargs["opt"]
+        self.assertTrue(create_opt.bypass_datasystem)
+        proxy.ping.invoke()
+        method_opt = mock_runtime.invoke_instance.call_args.kwargs["opt"]
+        self.assertTrue(method_opt.bypass_datasystem)
 
     def test_config_manager_preserves_per_invoke_bypass_without_override(self):
         opt = InvokeOptions(bypass_datasystem=True)

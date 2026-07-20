@@ -18,6 +18,14 @@
       cpu: 0
       memory: 0
       runtime: python3.12
+    py313:
+      cpu: 0
+      memory: 0
+      runtime: python3.13
+    py314:
+      cpu: 0
+      memory: 0
+      runtime: python3.14
     py39:
       cpu: 0
       memory: 0

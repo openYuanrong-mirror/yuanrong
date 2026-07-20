@@ -89,7 +89,17 @@
 <body>
 
 <h1>🏗️ Buildkite CI Pipeline</h1>
-<p class="subtitle">pipeline.dynamic.yml · feature/sandbox 分支 · 最后更新 2026-05-19</p>
+<p class="subtitle">pipeline.dynamic.yml · Python 3.14.6 / cp314 集成 · 最后更新 2026-07-14</p>
+
+<div class="tip">
+  Python 3.14 发布分两次 Buildkite 构建：先设置 <code>ENABLE_PYTHON314_BUILDER_BOOTSTRAP=true</code>
+  发布 <code>v20260717_py3146_obs</code> standard builder 和 <code>v20260714_py3146</code> Rust builder，再用这些 builder 触发产品 package/image workflow。
+  产品构建必须保留镜像输出，默认使用 C++ FunctionSystem（<code>ENABLE_RUST_FUNCTIONSYSTEM_ST=false</code>）；
+  在目标集群可用前保持 <code>ENABLE_SANDBOX_K8S_TEST=false</code>。
+</div>
+<div class="tip">
+  cp314 SDK 输出覆盖 Linux amd64、Linux arm64 与 macOS arm64；Linux 同时生成产品包和必需的 sandbox/runtime 镜像。
+</div>
 
 <!-- ── FLOW OVERVIEW ── -->
 <h2>总体流程</h2>
@@ -587,11 +597,32 @@
   </thead>
   <tbody>
     <tr>
+      <td class="var">PYTHON314_BUILDER_IMAGE</td>
+      <td><code>pipeline.dynamic.yml</code></td>
+      <td><code>compile-ubuntu2004:v20260717_py3146_obs</code></td>
+      <td>Python 3.14.6 standard builder 默认镜像；可直接覆盖，<code>BUILDER_IMAGE_OVERRIDE</code> 优先用于产品 job</td>
+      <td class="impact">bootstrap 成功后才可运行产品 package/image workflow</td>
+    </tr>
+    <tr>
+      <td class="var">RUST_BUILDER_IMAGE</td>
+      <td><code>pipeline.dynamic.yml</code></td>
+      <td><code>compile-ubuntu2004-rust:v20260507_x86_64</code></td>
+      <td>现有 Rust builder，仅供独立 <code>build-rrt-amd64</code> 使用</td>
+      <td class="impact">不会用于 C++ FunctionSystem、主包或 cp314 SDK；无需额外发布 Python 3.14 Rust builder</td>
+    </tr>
+    <tr>
       <td class="var">SDK_PYTHON_VERSIONS</td>
       <td><code>pipeline.dynamic.yml:20</code></td>
-      <td><code>3.9 3.10 3.11 3.12</code></td>
+      <td><code>python3.9 … python3.14</code></td>
       <td>构建 SDK wheel 的 Python 版本矩阵</td>
       <td class="impact">影响全部 Build SDK 和 Build Runtime step 数量</td>
+    </tr>
+    <tr>
+      <td class="var">ENABLE_PYTHON314_BUILDER_BOOTSTRAP</td>
+      <td><code>pipeline.dynamic.yml</code></td>
+      <td><code>false</code></td>
+      <td>仅生成 Python 3.14.6 builder bootstrap jobs</td>
+      <td class="impact">启用时不生成产品 package/image jobs；仅发布 native amd64/arm64 staging tag 和 multi-arch 标准 builder</td>
     </tr>
     <tr>
       <td class="var">SANDBOX_AMD64_SDK_STEP</td>
@@ -658,13 +689,24 @@
   </div>
 
   <div class="guide-card">
-    <h3>➕ 新增 SDK Python 版本（如加 3.13）</h3>
+    <h3>➕ Python 3.14 SDK 与 runtime 矩阵</h3>
     <ol>
-      <li>在 <code>sdk_python_suffix()</code>（L48）加入 <code>python3.13) printf 'cp313' ;;</code></li>
-      <li>在 <code>build-images.sh</code> 的 <code>python_build_args_from_wheel()</code> 加入 cp313 映射</li>
-      <li><code>SDK_PYTHON_VERSIONS</code> 默认值会自动展开矩阵，无需额外改动</li>
+      <li><code>sdk_python_suffix()</code> 将 <code>python3.14</code> 严格映射为 <code>cp314</code></li>
+      <li>两个 <code>build-images.sh</code> 将 <code>cp314</code> 严格映射为 Python <code>3.14.6</code> / minor <code>3.14</code></li>
+      <li><code>verify_python314_sdk_wheel.sh</code> 校验 Python 版本、cp314 ABI、import/CLI 和 cp313 残留</li>
     </ol>
-    <div class="tip">新增版本只影响 Build SDK 和 Build Runtime 矩阵，不影响主镜像版本</div>
+    <div class="tip">默认产品矩阵保留 3.9–3.13，并追加 3.14；K8S 测试在本构建阶段保持关闭。</div>
+  </div>
+
+  <div class="guide-card">
+    <h3>🏗️ 首次发布 Python 3.14 builders</h3>
+    <ol>
+      <li>单独设置 <code>ENABLE_PYTHON314_BUILDER_BOOTSTRAP=true</code> 触发 bootstrap build。</li>
+      <li>amd64/arm64 原生 agent 使用固定旧 builder，发布 <code>-amd64</code>/<code>-arm64</code> staging tag。</li>
+      <li>manifest job 验证两个 digest 并发布正式 multi-arch tag；Rust builder 在 amd64 独立 smoke。</li>
+      <li>bootstrap 通过后，再以 <code>ENABLE_SANDBOX_PACKAGE=true</code>、<code>ENABLE_RUST_FUNCTIONSYSTEM_ST=false</code> 和 <code>ENABLE_SANDBOX_K8S_TEST=false</code> 触发产品 package/image 构建。</li>
+    </ol>
+    <div class="warning">bootstrap 与产品 jobs 互斥；不得让新 builder 循环启动自身，也不得在本机回退构建。</div>
   </div>
 
   <div class="guide-card">

@@ -51,10 +51,11 @@ data:
 {{- end }}
 {{- end }}
 {{- end }}
-        frontend-direct:
+        direct-router:
           entryPoints:
-            - frontendDirect
-          rule: "PathPrefix(`/`)"
+            - web
+          rule: "PathPrefix(`/direct/`) || Path(`/direct`)"
+          priority: 100
           service: frontend
       services:
         frontend:

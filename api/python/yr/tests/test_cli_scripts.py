@@ -22,6 +22,8 @@ class TestCliScripts(unittest.TestCase):
         fake_click.version_option = lambda *args, **kwargs: lambda func: func
         fake_click.pass_context = lambda func: func
         fake_click.Choice = lambda *args, **kwargs: str
+        fake_click.ClickException = RuntimeError
+        fake_click.echo = print
 
         def group_decorator(*args, **kwargs):
             def decorate(func):
@@ -295,6 +297,91 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("invalid instances response: missing instances", output.getvalue())
 
+    def test_token_require_calls_frontend_proxy_with_operator_token(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                self.__class__.url = url
+                self.__class__.method = method
+                self.__class__.headers = headers
+                return {"success": True, "headers": {"X-Auth": "tenant-token"}}
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient), redirect_stdout(io.StringIO()) as output:
+            scripts.token_require("tenant-a", 3600, "developer", "frontend.example", "operator-token")
+
+        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/auth/token/require")
+        self.assertEqual(FakeHTTPClient.method, "GET")
+        self.assertEqual(
+            FakeHTTPClient.headers,
+            {
+                "X-Auth": "operator-token",
+                "X-Tenant-ID": "tenant-a",
+                "X-TTL": "3600",
+                "X-Role": "developer",
+            },
+        )
+        self.assertIn("Token: tenant-token", output.getvalue())
+
+    def test_token_require_rejects_missing_operator_token(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        with self.assertRaisesRegex(RuntimeError, "operator token is required"):
+            scripts.token_require("tenant-a", None, "developer", "frontend.example", None)
+
+    def test_token_require_rejects_non_developer_role_before_request(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                raise AssertionError("token_require should reject non-developer role locally")
+
+        with self.assertRaisesRegex(RuntimeError, "role must be developer"), \
+                mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            scripts.token_require("tenant-a", 3600, "admin", "frontend.example", "operator-token")
+
+    def test_token_abandon_declares_unsupported(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                raise AssertionError("token_abandon should not call frontend")
+
+        with self.assertRaisesRegex(RuntimeError, "developer token abandon is not supported"), \
+                mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            scripts.token_abandon("tenant-a", "frontend.example", "operator-token")
+
+    def test_token_commands_default_frontend_address_from_server_address_env(self):
+        scripts_path = Path(__file__).resolve().parents[1] / "cli" / "scripts.py"
+        module = ast.parse(scripts_path.read_text())
+
+        token_require_func = next(
+            node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "token_require"
+        )
+
+        frontend_option = None
+        for decorator in token_require_func.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not isinstance(decorator.func, ast.Attribute) or decorator.func.attr != "option":
+                continue
+            if any(isinstance(arg, ast.Constant) and arg.value == "--frontend-address" for arg in decorator.args):
+                frontend_option = decorator
+                break
+
+        self.assertIsNotNone(frontend_option)
+        envvar = next((keyword for keyword in frontend_option.keywords if keyword.arg == "envvar"), None)
+        self.assertEqual(envvar.value.value, "YR_SERVER_ADDRESS")
+
     def test_sandbox_create_uses_default_namespace_and_generates_missing_name(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__server_address", "frontend.example")
@@ -306,8 +393,17 @@ class TestCliScripts(unittest.TestCase):
 
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
-            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+        def fake_create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+            create_timeout_seconds=None,
+        ):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port, create_timeout_seconds))
             return f"{namespace}-{name}", None
 
         with (
@@ -319,10 +415,176 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(
             create_calls,
-            [(scripts.DEFAULT_SANDBOX_NAMESPACE, "name-id", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766)],
+            [(scripts.DEFAULT_SANDBOX_NAMESPACE, "name-id", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766, None)],
         )
         self.assertIn("sandbox created, instance_id=default-name-id", output.getvalue())
         uuid4_mock.assert_called_once_with()
+
+    def test_get_sandbox_create_timeout_seconds_prefers_explicit_over_env_and_default(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        old_timeout_env = scripts.os.environ.get("YR_SANDBOX_CREATE_TIMEOUT")
+        scripts.os.environ.pop("YR_SANDBOX_CREATE_TIMEOUT", None)
+        self.assertEqual(
+            scripts.get_sandbox_create_timeout_seconds(),
+            scripts.DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(30), 30)
+
+        scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = "90"
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(), 90)
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(120), 120)
+
+        scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = "-1"
+        self.assertEqual(
+            scripts.get_sandbox_create_timeout_seconds(),
+            scripts.DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS,
+        )
+
+        scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = "0"
+        self.assertEqual(scripts.get_sandbox_create_timeout_seconds(), scripts.DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS)
+
+        if old_timeout_env is None:
+            scripts.os.environ.pop("YR_SANDBOX_CREATE_TIMEOUT", None)
+        else:
+            scripts.os.environ["YR_SANDBOX_CREATE_TIMEOUT"] = old_timeout_env
+
+    def test_parse_event_stream_decodes_final_payload(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        class FakeResponse:
+            def __init__(self, lines):
+                self._lines = lines
+
+            def iter_lines(self, decode_unicode=True):
+                for line in self._lines:
+                    yield line
+
+        response = FakeResponse(
+            [
+                "event: heartbeat",
+                "data: {}",
+                "",
+                "event: final",
+                'data: {"sandboxId":"abc","status":"running"}',
+                "",
+            ]
+        )
+        self.assertEqual(
+            scripts.HTTPClient._parse_event_stream(response),
+            {"sandboxId": "abc", "status": "running"},
+        )
+
+    def test_decode_sse_data_returns_dict_or_message(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        self.assertEqual(
+            scripts.HTTPClient._decode_sse_data(['{"sandboxId":"abc","status":"running"}']),
+            {"sandboxId": "abc", "status": "running"},
+        )
+        self.assertEqual(
+            scripts.HTTPClient._decode_sse_data(["not-json"]),
+            {"message": "not-json"},
+        )
+
+    def test_create_sandbox_via_frontend_treats_running_status_as_success_and_parses_id(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        setattr(scripts, "__user", "tenant-a")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": True,
+                    "data": {"sandboxId": "tenant-a-box", "status": scripts.SANDBOX_CREATE_STATUS_RUNNING},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            supported, instance_id, data = scripts.create_sandbox_via_frontend(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+            )
+
+        self.assertTrue(supported)
+        self.assertEqual(instance_id, "tenant-a-box")
+        self.assertEqual(data["status"], scripts.SANDBOX_CREATE_STATUS_RUNNING)
+
+    def test_create_sandbox_via_frontend_rejects_timeout_or_failed_status(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": True,
+                    "data": {"status": scripts.SANDBOX_CREATE_STATUS_TIMEOUT},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            supported, instance_id, data = scripts.create_sandbox_via_frontend(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+            )
+
+        self.assertFalse(supported)
+        self.assertEqual(instance_id, "")
+        self.assertEqual(data["status"], scripts.SANDBOX_CREATE_STATUS_TIMEOUT)
+
+    def test_create_sandbox_via_frontend_requires_final_payload(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": True,
+                    "data": None,
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            supported, instance_id, data = scripts.create_sandbox_via_frontend(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+            )
+
+        self.assertFalse(supported)
+        self.assertEqual(instance_id, "")
+        self.assertIn("missing final result", data["error"])
+
+    def test_create_sandbox_via_frontend_requires_instance_id_when_status_missing(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": True,
+                    "data": {"status": "creating"},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            supported, instance_id, data = scripts.create_sandbox_via_frontend(
+                "tenant-a",
+                "box",
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+            )
+
+        self.assertFalse(supported)
+        self.assertEqual(instance_id, "")
+        self.assertIn("missing final result", data["error"])
 
     def test_sandbox_create_preserves_explicit_namespace_and_name(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -330,8 +592,17 @@ class TestCliScripts(unittest.TestCase):
 
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
-            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+        def fake_create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+            create_timeout_seconds=None,
+        ):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port, create_timeout_seconds))
             return f"{namespace}-{name}", None
 
         with (
@@ -341,7 +612,7 @@ class TestCliScripts(unittest.TestCase):
         ):
             scripts.sandbox_create("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME)
 
-        self.assertEqual(create_calls, [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766)])
+        self.assertEqual(create_calls, [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, None, (), None, 8766, None)])
         uuid4_mock.assert_not_called()
 
     def test_sandbox_create_passes_custom_image_to_create_flow(self):
@@ -349,8 +620,17 @@ class TestCliScripts(unittest.TestCase):
         setattr(scripts, "__server_address", "frontend.example")
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
-            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+        def fake_create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+            create_timeout_seconds=None,
+        ):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port, create_timeout_seconds))
             return f"{namespace}-{name}", None
 
         with (
@@ -361,7 +641,7 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(
             create_calls,
-            [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, "python:3.12-slim", (), None, 8766)],
+            [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME, "python:3.12-slim", (), None, 8766, None)],
         )
 
     def test_sandbox_create_passes_ports_and_tunnel_to_create_flow(self):
@@ -369,8 +649,17 @@ class TestCliScripts(unittest.TestCase):
         setattr(scripts, "__server_address", "frontend.example")
         create_calls = []
 
-        def fake_create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
-            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port))
+        def fake_create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+            create_timeout_seconds=None,
+        ):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port, create_timeout_seconds))
             return f"{namespace}-{name}", None
 
         with (
@@ -398,6 +687,57 @@ class TestCliScripts(unittest.TestCase):
                     ("8080", "udp:9090"),
                     "127.0.0.1:8000",
                     9000,
+                    None,
+                )
+            ],
+        )
+
+    def test_sandbox_create_passes_create_timeout_seconds_to_create_flow(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        create_calls = []
+
+        class FakeUUID:
+            def __init__(self, value):
+                self.hex = value
+
+        def fake_create_sandbox_auto(
+            namespace,
+            name,
+            runtime,
+            image=None,
+            ports=None,
+            upstream=None,
+            proxy_port=8766,
+            create_timeout_seconds=None,
+        ):
+            create_calls.append((namespace, name, runtime, image, ports, upstream, proxy_port, create_timeout_seconds))
+            return f"{namespace}-{name}", None
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto", fake_create_sandbox_auto),
+            mock.patch.object(scripts.uuid, "uuid4", return_value=FakeUUID("name-id")),
+            redirect_stdout(io.StringIO()),
+        ):
+            scripts.sandbox_create(
+                None,
+                None,
+                scripts.DEFAULT_SANDBOX_RUNTIME,
+                create_timeout_seconds=90,
+            )
+
+        self.assertEqual(
+            create_calls,
+            [
+                (
+                    scripts.DEFAULT_SANDBOX_NAMESPACE,
+                    "name-id",
+                    scripts.DEFAULT_SANDBOX_RUNTIME,
+                    None,
+                    (),
+                    None,
+                    8766,
+                    90,
                 )
             ],
         )
@@ -575,7 +915,7 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(instance_id, "actual-tenant-a-box")
         self.assertIsNone(data)
-        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/create")
+        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/v1/sandboxes")
         self.assertEqual(
             FakeHTTPClient.data,
             {
@@ -583,9 +923,13 @@ class TestCliScripts(unittest.TestCase):
                 "namespace": "tenant-a",
                 "runtime": "python3.10",
                 "rootfs": "python:3.12-slim",
+                "createTimeoutSeconds": 60,
             },
         )
-        self.assertEqual(FakeHTTPClient.headers, {"X-Tenant-ID": "tenant-a"})
+        self.assertEqual(
+            FakeHTTPClient.headers,
+            {"X-Tenant-ID": "tenant-a", "Accept": "text/event-stream"},
+        )
         self.assertEqual(FakeHTTPClient.method, "POST")
         sdk_create.assert_called_once_with(
             "tenant-a",
@@ -664,6 +1008,7 @@ class TestCliScripts(unittest.TestCase):
             ports=None,
             upstream=None,
             proxy_port=8766,
+            create_timeout_seconds=None,
         )
 
     def test_create_sandbox_via_frontend_passes_ports(self):
@@ -680,6 +1025,7 @@ class TestCliScripts(unittest.TestCase):
 
             def request(self, url, data, method="POST", headers=None):
                 self.__class__.data = data
+                self.__class__.headers = headers
                 return {"success": True, "data": {"data": encoded}}
 
         with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
@@ -695,7 +1041,17 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(data, {"data": encoded})
         self.assertEqual(
             FakeHTTPClient.data,
-            {"name": "box", "namespace": "tenant-a", "runtime": "python3.10", "ports": ["8080", "udp:9090"]},
+            {
+                "name": "box",
+                "namespace": "tenant-a",
+                "runtime": "python3.10",
+                "ports": ["8080", "udp:9090"],
+                "createTimeoutSeconds": 60,
+            },
+        )
+        self.assertEqual(
+            FakeHTTPClient.headers,
+            {"X-Tenant-ID": "tenant-a", "Accept": "text/event-stream"},
         )
 
     def test_create_sandbox_auto_does_not_fallback_for_duplicate_sdk_error(self):
@@ -755,12 +1111,14 @@ class TestCliScripts(unittest.TestCase):
                     {
                         "id": "tenant-a-box",
                         "tenantID": "tenant-a",
+                        "node_id": "node-a",
                         "status": "running",
                         "required_cpu": 500,
                         "required_mem": 1024,
-                        "required_gpu": 1,
-                        "required_npu": 0,
+                        "limit_cpu": 1000,
+                        "limit_mem": 2048,
                         "runtime_seconds": 125,
+                        "image": "s3://crfs-dev/rootfs.img",
                     },
                     {"id": "app-not-sandbox", "tenantID": "tenant-a", "status": "running"},
                 ]
@@ -772,8 +1130,8 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(
             output.getvalue().splitlines(),
             [
-                "INSTANCE_ID   TENANT_ID  STATUS   CPU  MEMORY  GPU  NPU  RUNTIME",
-                "tenant-a-box  tenant-a   running  500  1024    1    0    125s",
+                "INSTANCE_ID   TENANT_ID  NODE_ID  STATUS   IMAGE                     CPU_REQ  MEMORY_REQ  CPU_LIMIT  MEMORY_LIMIT  RUNTIME",
+                "tenant-a-box  tenant-a   node-a   running  s3://crfs-dev/rootfs.img  500      1024        1000       2048          125s",
             ],
         )
 

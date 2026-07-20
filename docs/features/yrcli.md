@@ -260,7 +260,7 @@ yrcli deploy-language-rt [OPTIONS]
 
 | 选项 | 说明 |
 |------|------|
-| `--runtime` | 运行时版本 (`python3.9`\|`python3.10`\|`python3.11`\|`python3.12`\|`python3.13`) |
+| `--runtime` | 运行时版本 (`python3.9`\|`python3.10`\|`python3.11`\|`python3.12`\|`python3.13`\|`python3.14`) |
 | `--sdk` | 部署为 SDK 运行时 |
 | `--no-rootfs` | 不使用 rootfs |
 | `--function-json` | 函数配置文件路径 |
@@ -292,35 +292,44 @@ yrcli token-auth --token <token> --iam-address <addr>
 yrcli token-auth --iam-address 127.0.0.1:31112 --token "eyJhbGciOi..."
 ```
 
-### token-require - 生成 Token
+### token-require - 通过 frontend 生成 developer Token
 
 ```bash
-yrcli token-require --iam-address <addr> [OPTIONS]
+yrcli token-require --operator-token <tenant0-token> --tenant-id <tenant-id> [OPTIONS]
 ```
+
+`yrcli token-require` 只访问 frontend `/auth/token/require`，不再直连 iam-server。调用方必须提供租户 0 的 developer token 作为 `--operator-token`；frontend 会校验该 token 后再转发到底层 iam-server。
 
 | 选项 | 说明 |
 |------|------|
-| `--tenant-id` | 租户 ID |
+| `--frontend-address` | frontend 地址；未传入时读取 `YR_SERVER_ADDRESS` |
+| `--operator-token` | 租户 0 的 developer token，用于授权本次操作 |
+| `--tenant-id` | 目标租户 ID |
 | `--ttl` | Token 有效期（秒） |
-| `--role` | Token 角色 |
+| `--role` | Token 角色，目前只支持 `developer`，默认值为 `developer` |
 
 **示例**：
 
 ```bash
-yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id tenant_789 --role viewer
-yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id user --ttl 3600 --role admin
+yrcli token-require --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
+YR_SERVER_ADDRESS=127.0.0.1:8888 yrcli token-require --operator-token "$TOKEN0" --tenant-id user --ttl 3600
 ```
 
-### token-abandon - 撤销 Token
+### token-abandon - 当前不支持废弃 developer Token
 
 ```bash
-yrcli token-abandon --token <token> --iam-address <addr> [OPTIONS]
+yrcli token-abandon --operator-token <tenant0-token> --tenant-id <tenant-id> [OPTIONS]
 ```
 
-**示例**：
+当前 frontend 不支持 abandon/revoke 已签发的 developer token。developer token 的失效依赖 token 自身 TTL；当前不承诺通过接口立即废弃已签发 token。
+
+### yrcluster - 集群内 IAM 运维入口
+
+`yrcluster` 是集群内运维脚本，用于在 master 容器中直接调用 iam-server。它不替代外部用户入口；外部 token 创建统一使用 `yrcli token-require` 访问 frontend。
 
 ```bash
-yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOi..."
+yrcluster token-require --iam-address 127.0.0.1:31112 --tenant-id user --role developer
+yrcluster token-abandon --iam-address 127.0.0.1:31112 --token "$TOKEN" --tenant-id user
 ```
 
 ## 实例执行

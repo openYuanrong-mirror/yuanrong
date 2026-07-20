@@ -36,6 +36,7 @@ global:
     cp311: {}
     cp312: {}
     cp313: {}
+    cp314: {}
   externalEtcd:
     addrList: ""
     metaStoreAddress: ""
@@ -89,6 +90,46 @@ global:
               type: path
               root: "/"
               entrypoint: "python -m yr.cli.scripts runtime_main"
+          py312:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.12
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp312") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          # rrt = dedicated Rust sandbox backend (native rrt-runtime), the k8s
+          # analog of the docker AIO rrt slot. The frontend create API selects
+          # the rrt slot directly; the runtime field is still propagated as
+          # YR_LANGUAGE for runtime-side language dispatch.
+          # rrt-runtime now ships in the openyuanrong_sdk wheel (at
+          # yr/sandbox/rrt-runtime), which Dockerfile.runtime installs — so the
+          # k8s runtime image carries it without extra baking.
+          # RRT_HTTP_PORT / RRT_TUNNEL_* are injected by frontend create when needed.
+          rrt:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: rust
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp310") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "set -e; exec \"$(python -c 'import openyuanrong_rrt;print(openyuanrong_rrt.runtime_path())')\""
           py313:
             timeout: 900
             cpu: 500
@@ -99,6 +140,22 @@ global:
               runtime: runc
               type: image
               imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp313") | quote }}
+              readonly: true
+              mountpoint: /mnt
+            bootstrap:
+              type: path
+              root: "/"
+              entrypoint: "python -m yr.cli.scripts runtime_main"
+          py314:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.14
+            concurrentNum: 20
+            rootfs:
+              runtime: runc
+              type: image
+              imageurl: {{ include "yr-k8s.runtimeImage" (dict "root" . "suffix" "cp314") | quote }}
               readonly: true
               mountpoint: /mnt
             bootstrap:
@@ -117,10 +174,25 @@ global:
             memory: 500
             runtime: cpp11
             concurrentNum: 20
+  systemFunctions:
+    faasFrontend:
+      cpu: 500
+      memory: 500
+      # The sandbox chart runs frontend as a component driver. Keep this at 0 so bootstrap restores function metadata
+      # without creating additional managed system-function instances.
+      instanceNum: 0
+    faasScheduler:
+      cpu: 500
+      memory: 500
+      # The sandbox chart runs scheduler as a component driver. Keep this at 0 so bootstrap restores function metadata
+      # without creating additional managed system-function instances.
+      instanceNum: 0
   secrets:
     s3AccessKey: ""
     s3SecretKey: ""
     curveSecret: ""
+    # Hex-encoded component data key used by iam-server to sign and verify internal JWT tokens.
+    litebusDataKey: ""
 
 etcd:
   enabled: true
@@ -198,8 +270,18 @@ frontend:
     type: ClusterIP
     port: 8888
     targetPort: 8888
+    # sandboxRouter listen port (init_frontend_args.json sandboxRouter.listenPort);
+    # frontend forwards /direct traffic from its 8888 handler to this local port.
+    routerPort: 8080
     annotations: {}
   iamServerAddress: ""
+  # sandboxRouter (akernel-sdk -> /direct RRT L7 proxy behind frontend). Enabled
+  # here so Test K8S exercises the rrt direct path; flip enabled=false to ship off-by-default.
+  sandboxRouter:
+    enabled: true
+    rrtPort: 50090
+    enableJwt: true
+    validateIam: true
   faasFrontend:
     httpPort: 8888
   envPorts:
@@ -276,15 +358,15 @@ traefik:
   entryPoints:
     web:
       address: ":8888"
-    frontendDirect:
-      address: ":18888"
-  etcd:
-    rootKey: traefik
+  httpProvider:
+    entryPoint: web
+    pollInterval: 5s
+    pollTimeout: 5s
+    masterForwardTimeoutMs: 3000
   service:
     type: LoadBalancer
     port: 8888
     targetPort: 8888
-    frontendDirectPort: 18888
     annotations: {}
   tls:
     entryPoint:

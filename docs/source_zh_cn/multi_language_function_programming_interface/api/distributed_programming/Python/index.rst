@@ -1,3 +1,17 @@
+.. Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+..
+.. Licensed under the Apache License, Version 2.0 (the "License");
+.. you may not use this file except in compliance with the License.
+.. You may obtain a copy of the License at
+..
+.. http://www.apache.org/licenses/LICENSE-2.0
+..
+.. Unless required by applicable law or agreed to in writing, software
+.. distributed under the License is distributed on an "AS IS" BASIS,
+.. WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.. See the License for the specific language governing permissions and
+.. limitations under the License.
+
 Python
 ==============================
 
@@ -170,6 +184,10 @@ Python
    :maxdepth: 1
 
    yr.exception.YRError
+   yr.exception.YRRuntimeError
+   yr.exception.YRTimeoutError
+   yr.exception.YRValueError
+   yr.exception.YRTypeError
    yr.exception.CancelError
    yr.exception.YRInvokeError
    yr.exception.YRequestError
@@ -441,7 +459,15 @@ KV 缓存 API
    :widths: 30 70
    
    * - :doc:`yr.exception.YRError`
-     - YR 模块中所有自定义异常的基类。
+     - YR 模块中所有自定义异常的基类，承载结构化错误信息。
+   * - :doc:`yr.exception.YRRuntimeError`
+     - 结构化运行时错误，兼容 Python 内置 RuntimeError 捕获。
+   * - :doc:`yr.exception.YRTimeoutError`
+     - 结构化超时错误，兼容 Python 内置 TimeoutError 捕获。
+   * - :doc:`yr.exception.YRValueError`
+     - 结构化参数取值错误，兼容 Python 内置 ValueError 捕获。
+   * - :doc:`yr.exception.YRTypeError`
+     - 结构化参数类型错误，兼容 Python 内置 TypeError 捕获。
    * - :doc:`yr.exception.CancelError`
      - 任务取消错误。
    * - :doc:`yr.exception.YRInvokeError`

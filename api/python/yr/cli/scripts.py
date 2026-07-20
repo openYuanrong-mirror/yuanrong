@@ -54,6 +54,8 @@ from yr.cli.exec import (
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
 SANDBOX_CREATE_HTTP_TIMEOUT = 180
+SANDBOX_CREATE_TIMEOUT_ENV_NAME = "YR_SANDBOX_CREATE_TIMEOUT"
+DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS = 60
 DEFAULT_SANDBOX_NAMESPACE = "default"
 DEFAULT_SANDBOX_RUNTIME = "python3.10"
 LOGGER = logging.getLogger(__name__)
@@ -90,20 +92,17 @@ class SandboxCreateOptions:
     ports: Any = None
     upstream: Any = None
     proxy_port: int = 8766
+    create_timeout_seconds: Any = None
 
     @classmethod
     def from_call(cls, *args, **kwargs):
-        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port", "create_timeout_seconds")
         values = dict(zip(fields, args))
         values.update(kwargs)
         return cls(
-            namespace=values["namespace"],
-            name=values["name"],
-            runtime=values["runtime"],
-            image=values.get("image"),
-            ports=values.get("ports"),
-            upstream=values.get("upstream"),
-            proxy_port=values.get("proxy_port", 8766),
+            values["namespace"], values["name"], values["runtime"], values.get("image"),
+            values.get("ports"), values.get("upstream"), values.get("proxy_port", 8766),
+            values.get("create_timeout_seconds"),
         )
 
 
@@ -167,6 +166,47 @@ class FunctionName:
         return "/".join([self.service, f"{self.name}:{self.version}"])
 
 
+def _decode_sse_data(data_lines):
+    payload = "".join(data_lines).strip()
+    if not payload:
+        return {}
+    try:
+        parsed = json.loads(payload)
+        return parsed if isinstance(parsed, dict) else {"data": parsed}
+    except (TypeError, ValueError):
+        return {"message": payload}
+
+
+def _parse_event_stream(response):
+    event_name = ""
+    data_lines = []
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if raw_line is None:
+            line = ""
+        elif isinstance(raw_line, bytes):
+            line = raw_line.decode("utf-8").strip()
+        else:
+            line = raw_line.strip()
+        if not line:
+            if event_name == "final" and data_lines:
+                return _decode_sse_data(data_lines)
+            event_name = ""
+            data_lines = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            event_name = line[len("event:"):].strip()
+            data_lines = []
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line[len("data:"):].strip())
+
+    if event_name == "final" and data_lines:
+        return _decode_sse_data(data_lines)
+    return None
+
+
 class HTTPClient:
     """HTTP client with TLS authentication support (mutual or one-way) and JWT token"""
 
@@ -191,6 +231,9 @@ class HTTPClient:
         self.jwt_token = jwt_token
         self.accept_status = accept_status
         self.verify = False
+
+    _parse_event_stream = staticmethod(_parse_event_stream)
+    _decode_sse_data = staticmethod(_decode_sse_data)
 
     def request(
         self,
@@ -225,6 +268,14 @@ class HTTPClient:
         logging.debug("headers: %s", json.dumps(default_headers, indent=2))
         logging.debug("body: %s", json.dumps(data, indent=2, ensure_ascii=False))
 
+        accept_event_stream = False
+        for value in default_headers.get("Accept", "").split(","):
+            normalized = value.strip().lower()
+            normalized_media_type = normalized.split(";", 1)[0].strip()
+            if normalized_media_type == "text/event-stream":
+                accept_event_stream = True
+                break
+
         # Configure certificates based on client_auth_type
         cert = None
         if self.client_auth_type == "mutual":
@@ -253,13 +304,18 @@ class HTTPClient:
             timeout=self.timeout,
             cert=cert,
             verify=verify,
+            stream=accept_event_stream,
         )
 
         try:
-            try:
-                result = response.json() if response.content else {}
-            except ValueError:
-                result = response.content
+            content_type = (response.headers.get("Content-Type") or "").lower()
+            if accept_event_stream and "text/event-stream" in content_type:
+                result = self._parse_event_stream(response)
+            else:
+                try:
+                    result = response.json() if response.content else {}
+                except ValueError:
+                    result = response.content
 
             logging.debug("response: %s\n%s", response.headers, result)
 
@@ -642,6 +698,9 @@ def decode_frontend_sandbox_instance_id(data):
         return ""
     if isinstance(data.get("instance_id"), str):
         return data["instance_id"]
+    sandbox_id = data.get("sandboxId")
+    if isinstance(sandbox_id, str):
+        return sandbox_id
     inner = data.get("data", "")
     if isinstance(inner, dict):
         instance_id = inner.get("instance_id", "")
@@ -654,6 +713,26 @@ def decode_frontend_sandbox_instance_id(data):
         return ""
     instance_id = decoded.get("instance_id", "")
     return instance_id if isinstance(instance_id, str) else ""
+
+
+SANDBOX_CREATE_STATUS_RUNNING = "running"
+SANDBOX_CREATE_STATUS_TIMEOUT = "timeout"
+SANDBOX_CREATE_STATUS_FAILED = "failed"
+
+
+def get_sandbox_create_timeout_seconds(explicit_create_timeout_seconds=None):
+    if explicit_create_timeout_seconds:
+        return explicit_create_timeout_seconds
+
+    env_timeout = os.environ.get(SANDBOX_CREATE_TIMEOUT_ENV_NAME)
+    if not env_timeout:
+        return DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
+
+    try:
+        value = int(env_timeout)
+    except ValueError:
+        return DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
+    return value if value > 0 else DEFAULT_SANDBOX_CREATE_TIMEOUT_SECONDS
 
 
 def should_fallback_to_sdk_for_sandbox_create(resp):
@@ -791,6 +870,7 @@ def create_sandbox_via_frontend(*args, **kwargs):
     image = options.image
     ports = options.ports
     upstream = options.upstream
+    create_timeout_seconds = options.create_timeout_seconds
     if upstream:
         return False, "", {"error": "frontend sandbox create fallback does not support --upstream tunnel"}
     http_client = HTTPClient(
@@ -802,11 +882,14 @@ def create_sandbox_via_frontend(*args, **kwargs):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__server_address}/api/sandbox/create"
+    url = f"http://{__server_address}/api/sandbox/v1/sandboxes"
     headers = {}
     if __user:
         headers["X-Tenant-ID"] = __user
+    headers["Accept"] = "text/event-stream"
     payload = {"name": name, "namespace": namespace, "runtime": runtime}
+    create_timeout_seconds = get_sandbox_create_timeout_seconds(create_timeout_seconds)
+    payload["createTimeoutSeconds"] = create_timeout_seconds
     if image:
         payload["rootfs"] = image
     if ports:
@@ -814,7 +897,20 @@ def create_sandbox_via_frontend(*args, **kwargs):
     resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         data = resp["data"]
-        return True, decode_frontend_sandbox_instance_id(data), data
+        if isinstance(data, dict):
+            status = data.get("status", "")
+            if status in (SANDBOX_CREATE_STATUS_RUNNING, SANDBOX_CREATE_STATUS_TIMEOUT, SANDBOX_CREATE_STATUS_FAILED):
+                if status == SANDBOX_CREATE_STATUS_RUNNING:
+                    return True, decode_frontend_sandbox_instance_id(data), data
+                return False, "", data
+            instance_id = decode_frontend_sandbox_instance_id(data)
+            if not instance_id:
+                return False, "", {"error": "frontend create response missing final result"}
+            return True, instance_id, data
+        if data is None:
+            return False, "", {"error": "frontend create response missing final result"}
+        instance_id = decode_frontend_sandbox_instance_id(data)
+        return True, instance_id, data
     if should_fallback_to_sdk_for_sandbox_create(resp):
         return False, "", resp
     raise RuntimeError(resp.get("error", resp))
@@ -903,6 +999,7 @@ def create_sandbox_auto(*args, **kwargs):
     ports = options.ports
     upstream = options.upstream
     proxy_port = options.proxy_port
+    create_timeout_seconds = options.create_timeout_seconds
     sdk_error = None
     try:
         instance_id, tunnel_info = create_sandbox_via_sdk(
@@ -937,6 +1034,7 @@ def create_sandbox_auto(*args, **kwargs):
         ports=ports,
         upstream=upstream,
         proxy_port=proxy_port,
+        create_timeout_seconds=create_timeout_seconds,
     )
     if supported:
         resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
@@ -1462,10 +1560,27 @@ def sandbox():
     show_default=True,
     help="HTTP proxy port inside sandbox when --upstream is set",
 )
+@click.option(
+    "--create-timeout-seconds",
+    required=False,
+    type=int,
+    default=None,
+    show_default=False,
+    help="Override sandbox create timeout in seconds (overrides YR_SANDBOX_CREATE_TIMEOUT)",
+)
 def sandbox_create(*args, **kwargs):
     """Create a detached sandbox instance."""
     if args:
-        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        fields = (
+            "namespace",
+            "name",
+            "runtime",
+            "image",
+            "ports",
+            "upstream",
+            "proxy_port",
+            "create_timeout_seconds",
+        )
         values = dict(zip(fields, args))
         values.update(kwargs)
     else:
@@ -1477,6 +1592,7 @@ def sandbox_create(*args, **kwargs):
     ports = values.get("ports", ())
     upstream = values.get("upstream")
     proxy_port = values.get("proxy_port", 8766)
+    create_timeout_seconds = values.get("create_timeout_seconds")
     if not __server_address:
         raise click.ClickException("server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
     if upstream and (proxy_port < 2 or proxy_port > 65535):
@@ -1493,6 +1609,7 @@ def sandbox_create(*args, **kwargs):
             ports=ports,
             upstream=upstream,
             proxy_port=proxy_port,
+            create_timeout_seconds=create_timeout_seconds,
         )
     except Exception as err:
         raise click.ClickException(
@@ -1555,11 +1672,13 @@ def sandbox_list(namespace):
         sandboxes.append((
             instance_id,
             tenant_id,
+            instance.get("node_id") or "N/A",
             get_sandbox_status(instance),
+            instance.get("image") or "N/A",
             format_resource_quota(instance.get("required_cpu")),
             format_resource_quota(instance.get("required_mem")),
-            format_resource_quota(instance.get("required_gpu")),
-            format_resource_quota(instance.get("required_npu")),
+            format_resource_quota(instance.get("limit_cpu")),
+            format_resource_quota(instance.get("limit_mem")),
             format_runtime_seconds(instance.get("runtime_seconds")),
         ))
 
@@ -1567,7 +1686,18 @@ def sandbox_list(namespace):
         print("no sandbox instance found")
         return
 
-    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS", "CPU", "MEMORY", "GPU", "NPU", "RUNTIME")
+    headers = (
+        "INSTANCE_ID",
+        "TENANT_ID",
+        "NODE_ID",
+        "STATUS",
+        "IMAGE",
+        "CPU_REQ",
+        "MEMORY_REQ",
+        "CPU_LIMIT",
+        "MEMORY_LIMIT",
+        "RUNTIME",
+    )
     widths = [
         max(len(header), *(len(str(row[index])) for row in sandboxes))
         for index, header in enumerate(headers)
@@ -1806,7 +1936,7 @@ def async_result(request_id, timeout):
 @click.option(
     "--runtime",
     required=False,
-    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13"]),
+    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13", "python3.14"]),
     help="Runtime language version",
 )
 @click.option(
@@ -2219,75 +2349,72 @@ def token_auth(token, iam_address):
 
 @cli.command("token-require")
 @click.option(
-    "--tenant-id", required=False, type=str, help="Tenant ID for token generation"
+    "--tenant-id", required=True, type=str, help="Tenant ID for token generation"
 )
 @click.option("--ttl", required=False, type=int, help="Token time-to-live in seconds")
-@click.option("--role", required=False, type=str, help="Role for the token")
+@click.option("--role", required=False, type=str, default="developer", help="Role for the token")
 @click.option(
-    "--iam-address",
+    "--frontend-address",
     required=True,
     type=str,
-    envvar="YR_IAM_ADDRESS",
-    help="YuanRong IAM Server address",
+    envvar="YR_SERVER_ADDRESS",
+    help="YuanRong frontend address",
 )
-def token_require(tenant_id, ttl, role, iam_address):
-    """Request/generate a new JWT token
+@click.option(
+    "--operator-token",
+    required=True,
+    type=str,
+    help="System tenant 0 developer token used to authorize the request",
+)
+def token_require(tenant_id, ttl, role, frontend_address, operator_token):
+    """Request/generate a new developer JWT token through frontend
 
     Example:
-        yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id tenant_789 --role viewer
-        yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id user --ttl 3600 --role admin
+        yrcli token-require --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
+        yrcli token-require --operator-token "$TOKEN0" --tenant-id user --ttl 3600
     """
+    if not operator_token:
+        raise click.ClickException("operator token is required")
+    if role != "developer":
+        raise click.ClickException("role must be developer")
     http_client = HTTPClient(timeout=30)
-    url = f"http://{iam_address}/iam-server/v1/token/require"
-    headers = {}
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
+    url = f"http://{frontend_address}/auth/token/require"
+    headers = {"X-Auth": operator_token, "X-Tenant-ID": tenant_id, "X-Role": role}
     if ttl:
         headers["X-TTL"] = str(ttl)
-    if role:
-        headers["X-Role"] = role
 
     resp = http_client.request(url, {}, headers=headers, method="GET")
 
     if resp["success"]:
         # Print token separately for easy copy
         if "X-Auth" in resp["headers"]:
-            print(f"Token: {resp['headers']['X-Auth']}")
+            click.echo(f"Token: {resp['headers']['X-Auth']}")
     else:
         raise click.ClickException(f"Token generation failed: {resp.get('error', 'Unknown error')}")
 
 
 @cli.command("token-abandon")
-@click.option("--token", required=True, type=str, help="JWT token to abandon/revoke")
-@click.option("--tenant-id", required=False, type=str, help="Tenant ID")
+@click.option("--tenant-id", required=True, type=str, help="Tenant ID; abandon is currently unsupported")
 @click.option(
-    "--iam-address",
+    "--frontend-address",
     required=True,
     type=str,
-    envvar="YR_IAM_ADDRESS",
-    help="YuanRong IAM Server address",
+    envvar="YR_SERVER_ADDRESS",
+    help="YuanRong frontend address",
 )
-def token_abandon(token, tenant_id, iam_address):
-    """Abandon/revoke a JWT token
+@click.option(
+    "--operator-token",
+    required=True,
+    type=str,
+    help="System tenant 0 developer token used to authorize the request",
+)
+def token_abandon(tenant_id, frontend_address, operator_token):
+    """Declare that tenant developer token abandon is not supported.
 
     Example:
-        yrcli token-abandon --iam-address 127.0.0.1:31112 \
-            --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        yrcli token-abandon --iam-address 127.0.0.1:31112 \
-            --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." --tenant-id user
+        yrcli token-abandon --frontend-address 127.0.0.1:8888 --operator-token "$TOKEN0" --tenant-id user
     """
-    http_client = HTTPClient(timeout=30)
-    url = f"http://{iam_address}/iam-server/v1/token/abandon"
-    headers = {"X-Auth": token}
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
-
-    resp = http_client.request(url, {}, headers=headers, method="POST")
-
-    if resp["success"]:
-        print("Token successfully abandoned/revoked")
-    else:
-        raise click.ClickException(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
+    raise click.ClickException("developer token abandon is not supported; token expiration depends on TTL")
 
 
 def main():

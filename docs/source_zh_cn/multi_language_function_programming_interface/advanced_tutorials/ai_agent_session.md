@@ -48,11 +48,11 @@ public Object handle(Context ctx, JsonObject input) {
         return "Notified";
     }
 
-    JsonObject userInput = sess.waitForNotify(60000); 
-    
+    JsonObject userInput = sess.waitForNotify(60000);
+
     if (userInput == null) return "Timeout";
     if (sess.getInterrupted()) return "Interrupted";
-    
+
     return "Got: " + userInput.toString();
 }
 ```

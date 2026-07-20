@@ -78,19 +78,19 @@ for path in "$@"; do
     if [ -d "${path}" ]; then
         while IFS= read -r -d '' file; do
             files+=("${file}")
-        done < <(find "${path}" -type f -name 'openyuanrong_sdk*.whl' -print0)
+        done < <(find "${path}" -type f \( -name 'openyuanrong_sdk*.whl' -o -name 'openyuanrong_sandbox*.whl' \) -print0)
         continue
     fi
     for file in ${path}; do
         [ -f "${file}" ] || continue
         case "$(basename "${file}")" in
-            openyuanrong_sdk*.whl) files+=("${file}") ;;
+            openyuanrong_sdk*.whl | openyuanrong_sandbox*.whl) files+=("${file}") ;;
         esac
     done
 done
 
 if [ "${#files[@]}" -eq 0 ]; then
-    printf 'No openyuanrong_sdk wheel files matched for TestPyPI upload.\n' >&2
+    printf 'No openyuanrong SDK wheel files matched for PyPI upload.\n' >&2
     exit 1
 fi
 

@@ -11,9 +11,10 @@ exec /usr/local/bin/yr start \
   -s "values.host_ip=\"${AIO_NODE_IP}\"" \
   -s 'function_master.args.services_path="/openyuanrong/services.yaml"' \
   -s 'function_proxy.args.services_path="/openyuanrong/services.yaml"' \
-  -s 'function_proxy.args.enable_traefik_registry=true' \
-  -s 'function_proxy.args.traefik_http_entrypoint="web"' \
-  -s 'function_proxy.args.traefik_enable_tls=false' \
+  -s 'function_master.args.enable_traefik_provider=true' \
+  -s 'function_master.args.traefik_http_entry_point="web"' \
+  -s 'function_master.args.traefik_enable_tls=false' \
+  -s 'function_master.args.traefik_forward_timeout_ms=3000' \
   -s 'mode.master.frontend=true' \
   -s 'frontend.port=8889' \
   -s 'frontend.ssl_enable=false' \

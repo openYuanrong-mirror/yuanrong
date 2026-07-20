@@ -68,6 +68,7 @@ local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
 max_priority:,enable_preemption:,enable_direct_routing:,force_low_reliability_instance:,kill_process_timeout_seconds:,\
+enable_sandbox_router:,sandbox_router_listen_port:,sandbox_router_rrt_port:,sandbox_router_enable_jwt:,sandbox_router_validate_iam:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
 prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
 dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
@@ -269,6 +270,13 @@ SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
 ENABLE_DIRECT_ROUTING=false
 FORCE_LOW_RELIABILITY_INSTANCE=false
+# sandboxRouter: frontend L7 reverse proxy for akernel-sdk -> rrt direct path.
+# Off by default; overridable via env (k8s pod env) or CLI flags below.
+ENABLE_SANDBOX_ROUTER="${ENABLE_SANDBOX_ROUTER:-false}"
+SANDBOX_ROUTER_LISTEN_PORT="${SANDBOX_ROUTER_LISTEN_PORT:-8080}"
+SANDBOX_ROUTER_RRT_PORT="${SANDBOX_ROUTER_RRT_PORT:-50090}"
+SANDBOX_ROUTER_ENABLE_JWT="${SANDBOX_ROUTER_ENABLE_JWT:-true}"
+SANDBOX_ROUTER_VALIDATE_IAM="${SANDBOX_ROUTER_VALIDATE_IAM:-true}"
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
 MAX_PRIORITY=0
 # Use snlib to adapt old or new runtime params
@@ -584,6 +592,11 @@ function usage() {
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
   echo -e "     --enable_direct_routing                             enable direct routing optimization to bypass proxy for same-node invocations (default false)"
   echo -e "     --force_low_reliability_instance                    force all instances to use low-reliability persistence semantics (default false)"
+  echo -e "     --enable_sandbox_router                             enable frontend L7 reverse proxy for akernel-sdk -> rrt direct path (default false)"
+  echo -e "     --sandbox_router_listen_port                        sandbox router listen port (default 8080)"
+  echo -e "     --sandbox_router_rrt_port                           sandbox router upstream rrt port (default 50090)"
+  echo -e "     --sandbox_router_enable_jwt                         sandbox router enable JWT auth, options:true/false (default true)"
+  echo -e "     --sandbox_router_validate_iam                       sandbox router validate IAM, options:true/false (default true)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
   echo -e "     --runtime_home_dir                                  runtime home dir(default is Home environment variable of the OpenYuanrong component deployment user)"
   echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
@@ -906,6 +919,11 @@ function parse_opt() {
     --enable_preemption) ENABLE_PREEMPTION=$2 && shift 2 ;;
     --enable_direct_routing) ENABLE_DIRECT_ROUTING=$2 && shift 2 ;;
     --force_low_reliability_instance) FORCE_LOW_RELIABILITY_INSTANCE=$2 && shift 2 ;;
+    --enable_sandbox_router) ENABLE_SANDBOX_ROUTER=$2 && shift 2 ;;
+    --sandbox_router_listen_port) SANDBOX_ROUTER_LISTEN_PORT=$2 && shift 2 ;;
+    --sandbox_router_rrt_port) SANDBOX_ROUTER_RRT_PORT=$2 && shift 2 ;;
+    --sandbox_router_enable_jwt) SANDBOX_ROUTER_ENABLE_JWT=$2 && shift 2 ;;
+    --sandbox_router_validate_iam) SANDBOX_ROUTER_VALIDATE_IAM=$2 && shift 2 ;;
     --kill_process_timeout_seconds) KILL_PROCESS_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
@@ -1283,6 +1301,12 @@ function check_input() {
     log_error "force_low_reliability_instance can only be 'true' or 'false'"
     return 1
   fi
+  for sandbox_router_bool in "${ENABLE_SANDBOX_ROUTER}" "${SANDBOX_ROUTER_ENABLE_JWT}" "${SANDBOX_ROUTER_VALIDATE_IAM}"; do
+    if [ "X${sandbox_router_bool}" != "Xtrue" ] && [ "X${sandbox_router_bool}" != "Xfalse" ]; then
+      log_error "enable_sandbox_router/sandbox_router_enable_jwt/sandbox_router_validate_iam can only be 'true' or 'false'"
+      return 1
+    fi
+  done
   if [ "X${ETCD_PROXY_ENABLE}" = "Xtrue" ] ; then
     ETCD_PROXY_ENABLE="TRUE"
   fi
@@ -1659,6 +1683,7 @@ function export_config() {
   export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
   export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING FORCE_LOW_RELIABILITY_INSTANCE KILL_PROCESS_TIMEOUT_SECONDS
+  export ENABLE_SANDBOX_ROUTER SANDBOX_ROUTER_LISTEN_PORT SANDBOX_ROUTER_RRT_PORT SANDBOX_ROUTER_ENABLE_JWT SANDBOX_ROUTER_VALIDATE_IAM
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
   export RUNTIME_USER_HOME_DIR CACHE_STORAGE_AUTH_TYPE CACHE_STORAGE_AUTH_ENABLE

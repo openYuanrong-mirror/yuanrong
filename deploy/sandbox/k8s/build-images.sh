@@ -111,6 +111,9 @@ python_build_args_from_wheel() {
     cp313)
       printf '%s\n' "3.13.2" "3.13"
       ;;
+    cp314)
+      printf '%s\n' "3.14.6" "3.14"
+      ;;
     *)
       printf 'Unsupported Python ABI tag in wheel: %s\n' "${python_tag}" >&2
       exit 1
@@ -122,6 +125,12 @@ set_python_build_args() {
   local sdk_wheel
   sdk_wheel="$(resolve_artifact_path "openyuanrong_sdk*.whl")"
   mapfile -t python_build_args < <(python_build_args_from_wheel "${sdk_wheel}")
+}
+
+stage_runtime_wheels() {
+  rm -rf "${OUTPUT_DIR}/rrt-wheels"
+  mkdir -p "${OUTPUT_DIR}/rrt-wheels"
+  find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'openyuanrong_rrt*.whl' -exec cp -af {} "${OUTPUT_DIR}/rrt-wheels/" \;
 }
 
 stage_deploy_context() {
@@ -176,6 +185,7 @@ main() {
   build_candidate_dirs
   validate_required_artifacts
   set_python_build_args
+  stage_runtime_wheels
   stage_deploy_context
 
   build_image "${BASE_IMAGE}" "${SANDBOX_DIR}/images/Dockerfile.base"

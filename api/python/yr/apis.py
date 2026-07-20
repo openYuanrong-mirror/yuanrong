@@ -73,6 +73,10 @@ Serialization = importlib.import_module("yr.serialization").Serialization
 _stream = importlib.import_module("yr.stream")
 ProducerConfig = _stream.ProducerConfig
 SubscriptionConfig = _stream.SubscriptionConfig
+_exception = importlib.import_module("yr.exception")
+raise_yr_runtime_error = _exception.raise_yr_runtime_error
+raise_yr_type_error = _exception.raise_yr_type_error
+raise_yr_value_error = _exception.raise_yr_value_error
 
 # Gradual migration: StatelessFunction is the new preferred name
 # FunctionProxy is kept for backward compatibility
@@ -118,7 +122,7 @@ def check_initialized(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         if not is_initialized():
-            raise RuntimeError("system not initialized")
+            raise_yr_runtime_error("system not initialized")
         return func(*args, **kwargs)
 
     return wrapper
@@ -381,10 +385,10 @@ def put(obj: object, create_param: CreateParam = CreateParam()) -> ObjectRef:
         >>> print(yr.get(obj_ref4))
     """
     if obj is None or (isinstance(obj, (bytes, bytearray, memoryview)) and len(obj) == 0):
-        raise ValueError("value is None or has zero length")
+        raise_yr_value_error("value is None or has zero length")
     # Make sure that the value is not an object ref.
     if isinstance(obj, ObjectRef):
-        raise TypeError(
+        raise_yr_type_error(
             "Calling 'put' on an ObjectRef is not allowed. If you really want to do this, "
             "you can wrap the ObjectRef in a list and call 'put' on it.")
     return ObjectRef(runtime_holder.global_runtime.get_runtime().put(obj, create_param), need_incre=False)
@@ -563,7 +567,7 @@ def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: Optional[int] = 
         obj_refs = [obj_refs]
     _check_object_ref(obj_refs)
     if len(obj_refs) != len(set(obj_refs)):
-        raise ValueError(
+        raise_yr_value_error(
             "obj_refs value error: duplicate obj_ref exists in the list")
 
     if wait_num is None:
@@ -572,18 +576,18 @@ def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: Optional[int] = 
         return [], obj_refs
 
     if not isinstance(wait_num, int):
-        raise TypeError(
+        raise_yr_type_error(
             f"'invalid wait_num type, actual: {type(wait_num)}, expect: <class 'int'>")
     if wait_num < 0 or wait_num > len(obj_refs):
-        raise ValueError(
+        raise_yr_value_error(
             f"invalid wait_num value, actual: {wait_num}, expect: [0, {len(obj_refs)}]")
 
     if timeout is not None:
         if not isinstance(timeout, int):
-            raise TypeError(
+            raise_yr_type_error(
                 f"invalid timeout type, actual: {type(timeout)}, expect: <class 'int'>")
         if timeout != -1 and timeout < 0 or timeout > _MAX_INT:
-            raise ValueError(f"invalid timeout value, actual: {timeout}, expect:None, -1, [0, {_MAX_INT}]")
+            raise_yr_value_error(f"invalid timeout value, actual: {timeout}, expect:None, -1, [0, {_MAX_INT}]")
     # deal with YRError
     ready_ids, _ = runtime_holder.global_runtime.get_runtime().wait(
         [obj_ref.id for obj_ref in obj_refs], wait_num, timeout)

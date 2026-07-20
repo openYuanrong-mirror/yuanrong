@@ -33,9 +33,6 @@ spec:
             - name: web
               containerPort: {{ .Values.traefik.service.targetPort }}
               protocol: TCP
-            - name: frontend-direct
-              containerPort: {{ .Values.traefik.service.frontendDirectPort }}
-              protocol: TCP
 {{- with .Values.traefik.probes.readiness }}
           readinessProbe:
 {{ toYaml . | nindent 12 }}

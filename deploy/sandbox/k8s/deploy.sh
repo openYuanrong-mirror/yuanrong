@@ -24,6 +24,7 @@ RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${RUNTIME_IMAGE_TAG}}
 RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${IMAGE_TAG}-cp311}"
 RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${IMAGE_TAG}-cp312}"
 RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${IMAGE_TAG}-cp313}"
+RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${IMAGE_TAG}-cp314}"
 PULL_SECRET_NAME="${YR_K8S_PULL_SECRET_NAME:-yr-swr-pull}"
 RESET_ETCD_STATE="${YR_K8S_RESET_ETCD_STATE:-true}"
 
@@ -251,6 +252,7 @@ helm_deploy() {
     --create-namespace \
     -f "${VALUES_FILE}" \
     --set fullnameOverride="${FULLNAME_OVERRIDE}" \
+    --set frontend.sandboxRouter.validateIam="${YR_K8S_VALIDATE_IAM:-true}" \
     --set global.namespace.create=false \
     --set global.namespace.name="${NAMESPACE}" \
     --set global.externalEtcd.addrList="${ETCD_ADDR_LIST}" \
@@ -267,6 +269,7 @@ helm_deploy() {
     --set global.runtimeImages.cp311.tag="${RUNTIME_IMAGE_TAG_CP311}" \
     --set global.runtimeImages.cp312.tag="${RUNTIME_IMAGE_TAG_CP312}" \
     --set global.runtimeImages.cp313.tag="${RUNTIME_IMAGE_TAG_CP313}" \
+    --set global.runtimeImages.cp314.tag="${RUNTIME_IMAGE_TAG_CP314}" \
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
@@ -578,14 +581,23 @@ prepull_runtime_image() {
     return 0
   fi
 
-  local pods pod username password runtime_image
-  local -a runtime_images=(
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP39}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP310}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP311}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP312}"
-    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP313}"
-  )
+  local pods pod username password runtime_image suffix tag
+  local -a runtime_images=()
+  for suffix in ${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp39 cp310 cp311 cp312 cp313 cp314}; do
+    case "${suffix}" in
+    cp39) tag="${RUNTIME_IMAGE_TAG_CP39}" ;;
+    cp310) tag="${RUNTIME_IMAGE_TAG_CP310}" ;;
+    cp311) tag="${RUNTIME_IMAGE_TAG_CP311}" ;;
+    cp312) tag="${RUNTIME_IMAGE_TAG_CP312}" ;;
+    cp313) tag="${RUNTIME_IMAGE_TAG_CP313}" ;;
+    cp314) tag="${RUNTIME_IMAGE_TAG_CP314}" ;;
+    *)
+      printf 'Unknown runtime pre-pull suffix: %s\n' "${suffix}" >&2
+      exit 1
+      ;;
+    esac
+    runtime_images+=("${REGISTRY_REPO}/yr-runtime:${tag}")
+  done
   pods="$(node_pods)"
   if [ -z "${pods}" ]; then
     printf 'No node pods found for release %s in namespace %s.\n' "${RELEASE_NAME}" "${NAMESPACE}" >&2

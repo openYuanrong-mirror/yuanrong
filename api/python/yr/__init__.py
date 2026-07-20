@@ -190,6 +190,15 @@ _LAZY_EXPORTS.update({
     "SessionService": ("yr.session_service", "SessionService"),
     "cluster_mode_runtime": ("yr.cluster_mode_runtime", None),
     "runtime_holder": ("yr.runtime_holder", None),
+    "YRError": ("yr.exception", "YRError"),
+    "YRRuntimeError": ("yr.exception", "YRRuntimeError"),
+    "YRTimeoutError": ("yr.exception", "YRTimeoutError"),
+    "YRValueError": ("yr.exception", "YRValueError"),
+    "YRTypeError": ("yr.exception", "YRTypeError"),
+    "YRInvokeError": ("yr.exception", "YRInvokeError"),
+    "YRequestError": ("yr.exception", "YRequestError"),
+    "CancelError": ("yr.exception", "CancelError"),
+    "GetTimeoutError": ("yr.exception", "GetTimeoutError"),
 })
 
 
@@ -239,4 +248,6 @@ __all__ = [
     "restore_from_checkpoint", "delete_checkpoint", "list_checkpoints",
     "SnapstartInfo", "SnapstartResponse", "ManagedSessionObj", "SessionService",
     "cluster_mode_runtime",
+    "YRError", "YRRuntimeError", "YRTimeoutError", "YRValueError", "YRTypeError",
+    "YRInvokeError", "YRequestError", "CancelError", "GetTimeoutError",
 ]

@@ -1,0 +1,467 @@
+//! CallReq dispatch: is_create returns a create ack; function calls route to akernel methods.
+
+use super::codec;
+use super::{call_result_msg, Args};
+use crate::posix::resources::MetaData;
+use crate::posix::runtime_rpc::StreamingMessage;
+use crate::posix::runtime_service::CallRequest;
+use prost::Message;
+use std::time::Instant;
+
+fn sanitize_log_field(value: &str) -> String {
+    let mut out = value.replace('\r', "\\r").replace('\n', "\\n");
+    const MAX_LOG_FIELD_LEN: usize = 512;
+    if out.len() > MAX_LOG_FIELD_LEN {
+        out.truncate(MAX_LOG_FIELD_LEN);
+        out.push_str("...");
+    }
+    out
+}
+
+pub(crate) fn access_command_summary(
+    method: &str,
+    kw: &std::collections::BTreeMap<String, rmpv::Value>,
+) -> String {
+    let cmd = match method {
+        "cmd_run" | "cmd_start" => {
+            codec::kw_str(kw, "cmd").or_else(|| codec::kw_str(kw, "command"))
+        }
+        "bash_submit" => codec::kw_str(kw, "command").or_else(|| codec::kw_str(kw, "cmd")),
+        "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_send_stdin" => kw
+            .get("pid")
+            .and_then(|v| v.as_i64())
+            .map(|pid| format!("pid={pid}")),
+        _ => None,
+    };
+    match cmd {
+        Some(cmd) if !cmd.is_empty() => format!("{method} {}", sanitize_log_field(&cmd)),
+        Some(cmd) => format!("{method} {}", sanitize_log_field(&cmd)),
+        None => method.to_string(),
+    }
+}
+
+pub(crate) fn access_trace_id(trace_id: &str, request_id: &str) -> String {
+    if !trace_id.is_empty() {
+        trace_id.to_string()
+    } else {
+        request_id.to_string()
+    }
+}
+
+pub(crate) fn log_access(trace_id: &str, command: &str, started: Instant) {
+    rrt_info!(
+        "[rrt-access] traceid={} command={} duration_ms={}",
+        sanitize_log_field(trace_id),
+        sanitize_log_field(command),
+        started.elapsed().as_millis()
+    );
+}
+
+/// Run one shell command and return `{stdout, stderr, exit_code}`, matching akernel cmd_run.
+fn run_command(cmd: &str, cwd: Option<&str>, envs: Option<&rmpv::Value>) -> rmpv::Value {
+    use std::process::{Command, Stdio};
+    let mut c = Command::new("/bin/sh");
+    c.arg("-c").arg(cmd).stdin(Stdio::null());
+    if let Some(d) = cwd {
+        if !d.is_empty() {
+            c.current_dir(d);
+        }
+    }
+    if let Some(rmpv::Value::Map(kvs)) = envs {
+        for (k, v) in kvs {
+            if let (Some(k), Some(v)) = (k.as_str(), v.as_str()) {
+                c.env(k, v);
+            }
+        }
+    }
+    match c.output() {
+        Ok(o) => codec::map_value(vec![
+            (
+                "stdout",
+                rmpv::Value::from(String::from_utf8_lossy(&o.stdout).into_owned()),
+            ),
+            (
+                "stderr",
+                rmpv::Value::from(String::from_utf8_lossy(&o.stderr).into_owned()),
+            ),
+            (
+                "exit_code",
+                rmpv::Value::from(o.status.code().unwrap_or(-1) as i64),
+            ),
+        ]),
+        Err(e) => codec::map_value(vec![
+            ("stdout", rmpv::Value::from("")),
+            ("stderr", rmpv::Value::from(e.to_string())),
+            ("exit_code", rmpv::Value::from(-1i64)),
+        ]),
+    }
+}
+
+/// yr cross-language serialization: `[16 zero bytes header][msgpack_data]`.
+/// split_buffer sees an all-zero header and infers CROSS_LANGUAGE, with msgpack_data = buffer[16:].
+fn yr_serialize<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    let mp = rmp_serde::to_vec_named(value).unwrap_or_default();
+    let mut buf = vec![0u8; 16];
+    buf.extend_from_slice(&mp);
+    buf
+}
+
+/// Extract method name from CallRequest: args[0] is MetaData and the method is functionMeta.functionName.
+fn method_name(call: &CallRequest) -> String {
+    call.args
+        .first()
+        .and_then(|a| MetaData::decode(a.value.as_slice()).ok())
+        .and_then(|m| m.function_meta)
+        .map(|fm| fm.function_name)
+        .unwrap_or_default()
+}
+
+fn value_map_to_kwargs(
+    value: Option<&rmpv::Value>,
+) -> std::collections::BTreeMap<String, rmpv::Value> {
+    let mut out = std::collections::BTreeMap::new();
+    if let Some(rmpv::Value::Map(kvs)) = value {
+        for (k, v) in kvs {
+            if let Some(key) = k.as_str() {
+                out.insert(key.to_string(), v.clone());
+            }
+        }
+    }
+    out
+}
+
+pub(crate) fn normalize_sandbox_action(action: &str) -> Option<&'static str> {
+    match action {
+        "cmd_run" | "exec" | "process.exec" | "process.run" | "cmd.run" => Some("cmd_run"),
+        "cmd_start" | "process.start" | "cmd.start" => Some("cmd_start"),
+        "cmd_poll" | "process.poll" | "cmd.poll" => Some("cmd_poll"),
+        "cmd_wait" | "process.wait" | "cmd.wait" => Some("cmd_wait"),
+        "cmd_kill" | "process.kill" | "cmd.kill" => Some("cmd_kill"),
+        "cmd_list" | "process.list" | "cmd.list" => Some("cmd_list"),
+        "cmd_send_stdin" | "process.stdin" | "process.send_stdin" | "cmd.send_stdin" => {
+            Some("cmd_send_stdin")
+        }
+        "fs_read" | "file.read" | "fs.read" => Some("fs_read"),
+        "fs_write" | "file.write" | "fs.write" => Some("fs_write"),
+        "fs_write_chunk" | "file.write_chunk" | "file.upload.chunk" | "fs.write_chunk" => {
+            Some("fs_write_chunk")
+        }
+        "fs_read_chunk" | "file.read_chunk" | "file.download.chunk" | "fs.read_chunk" => {
+            Some("fs_read_chunk")
+        }
+        "fs_list" | "file.list" | "fs.list" => Some("fs_list"),
+        "fs_exists" | "file.exists" | "fs.exists" => Some("fs_exists"),
+        "fs_remove" | "file.remove" | "fs.remove" => Some("fs_remove"),
+        "fs_rename" | "file.rename" | "fs.rename" => Some("fs_rename"),
+        "fs_make_dir" | "file.mkdir" | "file.make_dir" | "fs.mkdir" | "fs.make_dir" => {
+            Some("fs_make_dir")
+        }
+        "fs_get_info" | "file.stat" | "file.info" | "fs.stat" | "fs.get_info" => {
+            Some("fs_get_info")
+        }
+        "bash_init" | "shell.create" | "shell.init" => Some("bash_init"),
+        "bash_submit" | "shell.run" | "shell.submit" => Some("bash_submit"),
+        "bash_poll" | "shell.poll" => Some("bash_poll"),
+        "bash_destroy" | "shell.delete" | "shell.destroy" | "shell.close" => Some("bash_destroy"),
+        _ => None,
+    }
+}
+
+pub(crate) fn dispatch_runtime_action(
+    method: &str,
+    kw: &std::collections::BTreeMap<String, rmpv::Value>,
+) -> Option<rmpv::Value> {
+    match method {
+        "cmd_run" => {
+            let cmd = codec::kw_str(kw, "cmd")
+                .or_else(|| codec::kw_str(kw, "command"))
+                .unwrap_or_default();
+            let cwd = codec::kw_str(kw, "cwd").or_else(|| codec::kw_str(kw, "working_dir"));
+            let envs = kw.get("envs").or_else(|| kw.get("env"));
+            Some(run_command(&cmd, cwd.as_deref(), envs))
+        }
+        "fs_read" | "fs_write" | "fs_write_chunk" | "fs_read_chunk" | "fs_list" | "fs_exists"
+        | "fs_remove" | "fs_rename" | "fs_make_dir" | "fs_get_info" => Some(match method {
+            "fs_read" => super::fs::fs_read(kw),
+            "fs_write" => super::fs::fs_write(kw),
+            "fs_write_chunk" => super::fs::fs_write_chunk(kw),
+            "fs_read_chunk" => super::fs::fs_read_chunk(kw),
+            "fs_list" => super::fs::fs_list(kw),
+            "fs_exists" => super::fs::fs_exists(kw),
+            "fs_remove" => super::fs::fs_remove(kw),
+            "fs_rename" => super::fs::fs_rename(kw),
+            "fs_make_dir" => super::fs::fs_make_dir(kw),
+            _ => super::fs::fs_get_info(kw),
+        }),
+        "cmd_start" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list" | "cmd_send_stdin" => {
+            Some(match method {
+                "cmd_start" => super::cmd::cmd_start(kw),
+                "cmd_poll" => super::cmd::cmd_poll(kw),
+                "cmd_wait" => super::cmd::cmd_wait(kw),
+                "cmd_kill" => super::cmd::cmd_kill(kw),
+                "cmd_list" => super::cmd::cmd_list(kw),
+                _ => super::cmd::cmd_send_stdin(kw),
+            })
+        }
+        "bash_init" | "bash_submit" | "bash_poll" | "bash_destroy" => Some(match method {
+            "bash_init" => super::bash::bash_init(kw),
+            "bash_submit" => super::bash::bash_submit(kw),
+            "bash_poll" => super::bash::bash_poll(kw),
+            _ => super::bash::bash_destroy(kw),
+        }),
+        _ => None,
+    }
+}
+
+pub struct Ctx {
+    #[allow(dead_code)]
+    args: Args,
+    instance_id: String,
+}
+
+impl Ctx {
+    pub fn new(args: Args) -> Self {
+        let instance_id = args.instance_id.clone();
+        Ctx { args, instance_id }
+    }
+
+    /// Handle one CallReq and return the CallResult message to send back to proxy.
+    /// Synchronous blocking implementation because cmd/fs/bash are blocking calls; callers must run it in spawn_blocking,
+    /// otherwise long commands block the MessageStream receive loop and starve heartbeats.
+    pub fn handle_call(&self, call: CallRequest) -> StreamingMessage {
+        let oid = if !call.return_object_id.is_empty() {
+            call.return_object_id.clone()
+        } else {
+            call.return_object_i_ds.first().cloned().unwrap_or_default()
+        };
+        if super::debug_on() {
+            rrt_debug!(
+                "[rrt-runtime] returnObjectID={:?} returnObjectIDs={:?}",
+                call.return_object_id,
+                call.return_object_i_ds
+            );
+        }
+        // proto: CallRequest.senderID (caller) maps to CallResult.instanceID; proxy uses it to route results back to the caller.
+        let iid = if !call.sender_id.is_empty() {
+            call.sender_id.clone()
+        } else {
+            self.instance_id.clone()
+        };
+        if call.is_create {
+            return call_result_msg(call.request_id, iid, oid, 0, "created", Vec::new());
+        }
+        let method = method_name(&call);
+        if super::debug_on() {
+            rrt_debug!("[rrt-runtime] method={method} args={}", call.args.len());
+        }
+        match method.as_str() {
+            "ping" => {
+                let r = std::collections::BTreeMap::from([("status", "ok")]);
+                call_result_msg(call.request_id, iid, oid, 0, "ok", yr_serialize(&r))
+            }
+            "get_info" => {
+                let r = std::collections::BTreeMap::from([("state", "running")]);
+                call_result_msg(call.request_id, iid, oid, 0, "ok", yr_serialize(&r))
+            }
+            "sandbox_invoke" => {
+                let kw = codec::parse_kwargs(&call.args);
+                let action = codec::kw_str(&kw, "action").unwrap_or_default();
+                let args = value_map_to_kwargs(kw.get("args"));
+                let trace_id = access_trace_id(&call.trace_id, &call.request_id);
+                let started = Instant::now();
+                let normalized = normalize_sandbox_action(&action);
+                let command = normalized
+                    .map(|method| access_command_summary(method, &args))
+                    .unwrap_or_else(|| format!("sandbox_invoke action={action}"));
+                let result = normalized.and_then(|method| dispatch_runtime_action(method, &args));
+                log_access(&trace_id, &command, started);
+                match result {
+                    Some(r) => call_result_msg(
+                        call.request_id,
+                        iid,
+                        oid,
+                        0,
+                        "ok",
+                        codec::yr_serialize_value(&r),
+                    ),
+                    None => call_result_msg(
+                        call.request_id,
+                        iid,
+                        oid,
+                        1,
+                        &format!("unsupported sandbox action: {action}"),
+                        Vec::new(),
+                    ),
+                }
+            }
+            "cmd_run" => {
+                let kw = codec::parse_kwargs(&call.args);
+                let trace_id = access_trace_id(&call.trace_id, &call.request_id);
+                let started = Instant::now();
+                let command = access_command_summary("cmd_run", &kw);
+                let result = dispatch_runtime_action("cmd_run", &kw).unwrap_or_else(|| {
+                    codec::map_value(vec![
+                        ("stdout", rmpv::Value::from("")),
+                        ("stderr", rmpv::Value::from("failed to dispatch cmd_run")),
+                        ("exit_code", rmpv::Value::from(-1i64)),
+                    ])
+                });
+                log_access(&trace_id, &command, started);
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    0,
+                    "ok",
+                    codec::yr_serialize_value(&result),
+                )
+            }
+            "fs_read" | "fs_write" | "fs_write_chunk" | "fs_read_chunk" | "fs_list"
+            | "fs_exists" | "fs_remove" | "fs_rename" | "fs_make_dir" | "fs_get_info" => {
+                let kw = codec::parse_kwargs(&call.args);
+                let r = dispatch_runtime_action(method.as_str(), &kw).unwrap_or_else(|| {
+                    codec::map_value(vec![(
+                        "error",
+                        rmpv::Value::from(format!("unsupported method: {method}")),
+                    )])
+                });
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    0,
+                    "ok",
+                    codec::yr_serialize_value(&r),
+                )
+            }
+            "start_tunnel_server" => {
+                match super::tunnel::start_tunnel_server(&call.args, &self.args.deploy_dir) {
+                    Ok(r) => call_result_msg(
+                        call.request_id,
+                        iid,
+                        oid,
+                        0,
+                        "ok",
+                        codec::yr_serialize_value(&r),
+                    ),
+                    Err(e) => {
+                        rrt_error!("[rrt-runtime] start_tunnel_server failed: {e}");
+                        call_result_msg(call.request_id, iid, oid, 1, &e, Vec::new())
+                    }
+                }
+            }
+            "cmd_start" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list" | "cmd_send_stdin" => {
+                let kw = codec::parse_kwargs(&call.args);
+                let trace_id = access_trace_id(&call.trace_id, &call.request_id);
+                let started = Instant::now();
+                let command = access_command_summary(method.as_str(), &kw);
+                let r = dispatch_runtime_action(method.as_str(), &kw).unwrap_or_else(|| {
+                    codec::map_value(vec![(
+                        "error",
+                        rmpv::Value::from(format!("unsupported method: {method}")),
+                    )])
+                });
+                log_access(&trace_id, &command, started);
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    0,
+                    "ok",
+                    codec::yr_serialize_value(&r),
+                )
+            }
+            "bash_init" | "bash_submit" | "bash_poll" | "bash_destroy" => {
+                let kw = codec::parse_kwargs(&call.args);
+                let trace_id = access_trace_id(&call.trace_id, &call.request_id);
+                let started = Instant::now();
+                let command = access_command_summary(method.as_str(), &kw);
+                let r = dispatch_runtime_action(method.as_str(), &kw).unwrap_or_else(|| {
+                    codec::map_value(vec![(
+                        "error",
+                        rmpv::Value::from(format!("unsupported method: {method}")),
+                    )])
+                });
+                log_access(&trace_id, &command, started);
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    0,
+                    "ok",
+                    codec::yr_serialize_value(&r),
+                )
+            }
+            other => {
+                rrt_warn!("[rrt-runtime] unsupported method: {other}");
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    1,
+                    &format!("unsupported: {other}"),
+                    Vec::new(),
+                )
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn normalizes_public_sandbox_actions_to_rrt_methods() {
+        assert_eq!(normalize_sandbox_action("process.exec"), Some("cmd_run"));
+        assert_eq!(normalize_sandbox_action("file.read"), Some("fs_read"));
+        assert_eq!(normalize_sandbox_action("shell.run"), Some("bash_submit"));
+        assert_eq!(normalize_sandbox_action("unknown"), None);
+    }
+
+    #[test]
+    fn access_command_summary_includes_command_and_sanitizes_newlines() {
+        let mut kw = BTreeMap::new();
+        kw.insert(
+            "cmd".to_string(),
+            rmpv::Value::from("printf 'hello\nworld'"),
+        );
+        assert_eq!(
+            access_command_summary("cmd_run", &kw),
+            "cmd_run printf 'hello\\nworld'"
+        );
+    }
+
+    #[test]
+    fn access_trace_id_falls_back_to_request_id() {
+        assert_eq!(access_trace_id("trace-1", "req-1"), "trace-1");
+        assert_eq!(access_trace_id("", "req-1"), "req-1");
+    }
+
+    #[test]
+    fn dispatches_process_exec_action_args() {
+        let mut kw = BTreeMap::new();
+        kw.insert(
+            "cmd".to_string(),
+            rmpv::Value::from("printf sandbox-invoke"),
+        );
+        let result = dispatch_runtime_action("cmd_run", &kw).expect("cmd_run should dispatch");
+        if let rmpv::Value::Map(fields) = result {
+            let stdout = fields
+                .iter()
+                .find_map(|(k, v)| (k.as_str() == Some("stdout")).then_some(v.as_str()))
+                .flatten()
+                .unwrap_or_default();
+            let exit_code = fields
+                .iter()
+                .find_map(|(k, v)| (k.as_str() == Some("exit_code")).then_some(v.as_i64()))
+                .flatten()
+                .unwrap_or_default();
+            assert_eq!(stdout, "sandbox-invoke");
+            assert_eq!(exit_code, 0);
+        } else {
+            panic!("cmd_run should return a map");
+        }
+    }
+}

@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-# obs SDK (esdk-obs-python) is only installed in python3.9; use it explicitly
-# regardless of what python3 resolves to in the current PATH.
+# Prefer the build image's preinstalled OBS SDK. macOS agents do not provide it,
+# so bootstrap an isolated uploader environment below when needed.
 OBS_PYTHON="${OBS_PYTHON:-/opt/buildtools/python3.9/bin/python3}"
 
 OUTPUT_FILE=""
@@ -70,7 +70,19 @@ if [ -z "${OBS_ACCESS_KEY_ID:-}" ] || [ -z "${OBS_SECRET_ACCESS_KEY:-}" ]; then
     exit 1
 fi
 
-$OBS_PYTHON -c "from obs import ObsClient"
+OBS_VENV_ROOT=""
+if ! "${OBS_PYTHON}" -c "from obs import ObsClient" >/dev/null 2>&1; then
+    OBS_VENV_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/yr-obs-upload.XXXXXX")"
+    OBS_VENV="${OBS_VENV_ROOT}/venv"
+    trap 'rm -rf "${OBS_VENV_ROOT}"' EXIT
+    "${OBS_PYTHON}" -m venv "${OBS_VENV}"
+    "${OBS_VENV}/bin/python" -m pip install --upgrade \
+        --index-url "${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}" \
+        --trusted-host "${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}" \
+        esdk-obs-python
+    OBS_PYTHON="${OBS_VENV}/bin/python"
+fi
+"${OBS_PYTHON}" -c "from obs import ObsClient"
 mkdir -p "$(dirname "${OUTPUT_FILE}")"
 : >"${OUTPUT_FILE}"
 
@@ -80,7 +92,7 @@ for file in "$@"; do
     [ -f "${file}" ] || continue
     printf 'Uploading to OBS: %s\n' "${file}" >&2
     upload_cmd=(
-        $OBS_PYTHON tools/upload_build_artifact.py
+        "${OBS_PYTHON}" tools/upload_build_artifact.py
         --file "${file}"
         --kind build
         --channel "${CHANNEL}"

@@ -56,7 +56,7 @@ RUN cd /tmp/build && \
     rm -f go.tar.gz
 
 # ---------------------------------------------------------------------------
-# 4. Python 3.9 / 3.10 / 3.11 - 从源码构建
+# 4. Python 3.9 - 3.14 - 从源码构建
 # ---------------------------------------------------------------------------
 RUN cd /tmp/build && \
     wget -q "https://mirrors.huaweicloud.com/python/3.9.11/Python-3.9.11.tgz" -O py39.tar.gz && \
@@ -92,6 +92,13 @@ RUN cd /tmp/build && \
     ./configure --prefix=/opt/buildtools/python3.13 --enable-shared --with-openssl=/usr && \
     make -j$(nproc) && make install && \
     cd /tmp/build && rm -rf Python-3.13.2 py313.tar.gz
+
+RUN cd /tmp/build && \
+    wget -q "https://mirrors.huaweicloud.com/python/3.14.6/Python-3.14.6.tgz" -O py314.tar.gz && \
+    tar -xzf py314.tar.gz && cd Python-3.14.6 && \
+    ./configure --prefix=/opt/buildtools/python3.14 --enable-shared --with-openssl=/usr && \
+    make -j$(nproc) && make install && \
+    cd /tmp/build && rm -rf Python-3.14.6 py314.tar.gz
 
 # ---------------------------------------------------------------------------
 # 5. Bazel
@@ -136,13 +143,17 @@ RUN ln -sf /opt/buildtools/python3.9/bin/python3.9 /usr/local/bin/python3.9 && \
     ln -sf /opt/buildtools/python3.12/bin/pip3.12 /opt/buildtools/python3.12/bin/pip && \
     ln -sf /opt/buildtools/python3.13/bin/python3.13 /usr/local/bin/python3.13 && \
     ln -sf /opt/buildtools/python3.13/bin/python3.13 /opt/buildtools/python3.13/bin/python && \
-    ln -sf /opt/buildtools/python3.13/bin/pip3.13 /opt/buildtools/python3.13/bin/pip
+    ln -sf /opt/buildtools/python3.13/bin/pip3.13 /opt/buildtools/python3.13/bin/pip && \
+    ln -sf /opt/buildtools/python3.14/bin/python3.14 /usr/local/bin/python3.14 && \
+    ln -sf /opt/buildtools/python3.14/bin/python3.14 /opt/buildtools/python3.14/bin/python && \
+    ln -sf /opt/buildtools/python3.14/bin/pip3.14 /opt/buildtools/python3.14/bin/pip
 
 RUN echo "/opt/buildtools/python3.9/lib" > /etc/ld.so.conf.d/python3.9.conf && \
     echo "/opt/buildtools/python3.10/lib" > /etc/ld.so.conf.d/python3.10.conf && \
     echo "/opt/buildtools/python3.11/lib" > /etc/ld.so.conf.d/python3.11.conf && \
     echo "/opt/buildtools/python3.12/lib" > /etc/ld.so.conf.d/python3.12.conf && \
     echo "/opt/buildtools/python3.13/lib" > /etc/ld.so.conf.d/python3.13.conf && \
+    echo "/opt/buildtools/python3.14/lib" > /etc/ld.so.conf.d/python3.14.conf && \
     ldconfig
 
 ENV JAVA_HOME=/opt/buildtools/jdk8 \
@@ -157,11 +168,12 @@ ENV JAVA_HOME=/opt/buildtools/jdk8 \
     PYTHON_PATH_3114=/opt/buildtools/python3.11 \
     PYTHON_PATH_3129=/opt/buildtools/python3.12 \
     PYTHON_PATH_3132=/opt/buildtools/python3.13 \
+    PYTHON_PATH_3146=/opt/buildtools/python3.14 \
     LANG=C.UTF-8 \
     TMOUT=0
 
-ENV PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$GOROOT/bin:$GOPATH/bin:/opt/buildtools/nodejs/bin:$PYTHON_PATH_3911/bin:$PYTHON_PATH_3102/bin:$PYTHON_PATH_3114/bin:$PYTHON_PATH_3129/bin:$PYTHON_PATH_3132/bin:$HOME/.local/bin:$PATH \
-    LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib:$PYTHON_PATH_3102/lib:$PYTHON_PATH_3114/lib:$PYTHON_PATH_3129/lib:$PYTHON_PATH_3132/lib:/usr/lib:/usr/lib64:$LD_LIBRARY_PATH
+ENV PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$GOROOT/bin:$GOPATH/bin:/opt/buildtools/nodejs/bin:$PYTHON_PATH_3911/bin:$PYTHON_PATH_3102/bin:$PYTHON_PATH_3114/bin:$PYTHON_PATH_3129/bin:$PYTHON_PATH_3132/bin:$PYTHON_PATH_3146/bin:$HOME/.local/bin:$PATH \
+    LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib:$PYTHON_PATH_3102/lib:$PYTHON_PATH_3114/lib:$PYTHON_PATH_3129/lib:$PYTHON_PATH_3132/lib:$PYTHON_PATH_3146/lib:/usr/lib:/usr/lib64:$LD_LIBRARY_PATH
 
 RUN pip3.9 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
     pip3.9 config --user set global.trusted-host mirrors.huaweicloud.com && \
@@ -177,7 +189,10 @@ RUN pip3.9 config --user set global.index-url https://mirrors.huaweicloud.com/re
     pip3.12 install wheel==0.36.2 && \
     pip3.13 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
     pip3.13 config --user set global.trusted-host mirrors.huaweicloud.com && \
-    pip3.13 install wheel==0.36.2
+    pip3.13 install wheel==0.36.2 && \
+    pip3.14 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple && \
+    pip3.14 config --user set global.trusted-host mirrors.huaweicloud.com && \
+    pip3.14 install setuptools packaging wheel
 
 RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/ && \
     npm config set strict-ssl false

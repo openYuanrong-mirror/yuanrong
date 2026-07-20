@@ -77,3 +77,4 @@ go/pkg/mod/
 .specify/
 .agent-memory/
 .omx/
+.worktrees/

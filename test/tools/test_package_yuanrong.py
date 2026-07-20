@@ -19,6 +19,9 @@ PREPARE_ST_SCRIPT = REPO_ROOT / "test" / "st" / "prepare_and_start_yr.sh"
 ST_TEST_SCRIPT = REPO_ROOT / "test" / "st" / "test.sh"
 PYTHON_SETUP = REPO_ROOT / "api" / "python" / "setup.py"
 CPP_BUILD = REPO_ROOT / "api" / "cpp" / "BUILD.bazel"
+ROOT_BUILD = REPO_ROOT / "build.sh"
+SANDBOX_RELEASE_SCRIPT = REPO_ROOT / ".buildkite" / "package_sandbox_release.sh"
+CLI_VALUES = REPO_ROOT / "api" / "python" / "yr" / "cli" / "values.toml"
 SCRIPT_UTILS = REPO_ROOT / "scripts" / "utils.sh"
 
 
@@ -234,6 +237,58 @@ class PackageYuanrongLayoutTest(unittest.TestCase):
             'os.path.join(build_lib, "yr/runtime/service/python/yr")',
             python_setup,
         )
+
+    def test_build_stages_python_runtime_abi_extensions(self):
+        """Runtime staging must collect ABI extensions from SDK and component outputs."""
+        build_script = ROOT_BUILD.read_text(encoding="utf-8")
+
+        self.assertIn("function package_python_runtime_abi_extensions()", build_script)
+        self.assertIn("'yr/fnruntime*.so'", build_script)
+        self.assertIn("'yr/cpp/lib/libobservability-*-exporter.so'", build_script)
+        self.assertIn('"${BASE_DIR}/functionsystem/output/metrics/lib"', build_script)
+        for exporter in (
+            "libobservability-metrics-file-exporter.so",
+            "libobservability-prometheus-push-exporter.so",
+            "libobservability-prometheus-pull-exporter.so",
+        ):
+            self.assertIn(exporter, build_script)
+        self.assertIn(
+            'package_python_runtime_abi_extensions "$OUTPUT_BASE/runtime/service/python"',
+            build_script,
+        )
+
+    def test_sandbox_image_downloads_complete_split_wheel_set(self):
+        """Control-plane image assembly must download every required split wheel."""
+        package_script = SANDBOX_RELEASE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("CONTROLPLANE_WHEEL_PATTERNS=", package_script)
+        for wheel_pattern in (
+            "openyuanrong-*.whl",
+            "openyuanrong_runtime-*.whl",
+            "openyuanrong_faas-*.whl",
+            "openyuanrong_dashboard-*.whl",
+            "openyuanrong_cpp_sdk-*.whl",
+            "openyuanrong_functionsystem-*.whl",
+            "openyuanrong_datasystem-*.whl",
+        ):
+            self.assertIn(wheel_pattern, package_script)
+        self.assertIn('"${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"', package_script)
+        self.assertIn("download_obs_patterns", package_script)
+        self.assertIn("copy_artifacts", package_script)
+
+    def test_cli_values_expose_layout_specific_paths(self):
+        """CLI templates must receive paths resolved for split and full layouts."""
+        values = CLI_VALUES.read_text(encoding="utf-8")
+
+        self.assertIn('ds_bin = "{{ ds_bin }}"', values)
+        self.assertIn('faas_root = "{{ faas_root }}"', values)
+        self.assertIn('ld_library_path = "{{ ld_library_path }}"', values)
+        self.assertIn('python_path = "{{ python_path }}"', values)
+        self.assertIn("[values.fs.metrics]", values)
+        self.assertIn('exec_grpc_port = "{{ 22774|check_port() }}"', values)
+        self.assertIn("[values.runtime_launcher]", values)
+        self.assertIn("[values.auth.casdoor]", values)
+        self.assertIn("[values.auth.keycloak]", values)
 
     def test_runtime_datasystem_openssl_linker_symlinks_are_created(self):
         """Runtime datasystem libs must support consumers that link with -lssl/-lcrypto."""

@@ -18,13 +18,100 @@
 import cloudpickle
 
 from yr.common import utils
+from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 
 
 class YRError(Exception):
     """
     Base class for all custom exceptions in the YR module.
-    This is a base class and should not be instantiated directly.
     """
+    def __init__(
+            self,
+            code=ErrorCode.ERR_INNER_SYSTEM_ERROR,
+            module_code=ModuleCode.RUNTIME,
+            message: str = "",
+            error_info: ErrorInfo = None,
+            cause: Exception = None,
+            stack_trace_infos=None):
+        if isinstance(code, str) and message == "":
+            message = code
+            code = ErrorCode.ERR_INNER_SYSTEM_ERROR
+        if error_info is not None:
+            code = getattr(error_info, "error_code", code)
+            module_code = getattr(error_info, "module_code", module_code)
+            if not message:
+                message = getattr(error_info, "msg", message)
+            stack_trace_infos = getattr(error_info, "stack_trace_infos", stack_trace_infos)
+        self.code = code
+        self.module_code = module_code
+        self.message = message
+        self.error_info = error_info
+        self.cause = cause
+        self.stack_trace_infos = stack_trace_infos
+        super().__init__(message)
+
+    def __str__(self):
+        return str(self.message)
+
+    @classmethod
+    def from_error_info(cls, error_info: ErrorInfo, message_prefix: str = None, cause: Exception = None):
+        """Build a structured exception from ErrorInfo."""
+        message = getattr(error_info, "msg", "")
+        if message_prefix:
+            message = f"{message_prefix}, msg: {message}" if message else message_prefix
+        return cls(message=message, error_info=error_info, cause=cause)
+
+
+class YRRuntimeError(YRError, RuntimeError):
+    """Structured runtime error that remains compatible with RuntimeError."""
+
+
+class YRTimeoutError(YRRuntimeError, TimeoutError):
+    """Structured timeout error that remains compatible with TimeoutError."""
+
+
+class YRValueError(YRError, ValueError):
+    """Structured value error that remains compatible with ValueError."""
+
+
+class YRTypeError(YRError, TypeError):
+    """Structured type error that remains compatible with TypeError."""
+
+
+def raise_yr_runtime_error(
+        message: str,
+        code=ErrorCode.ERR_INNER_SYSTEM_ERROR,
+        module_code=ModuleCode.RUNTIME,
+        cause: Exception = None):
+    """Raise a structured runtime error."""
+    raise YRRuntimeError(code=code, module_code=module_code, message=message, cause=cause)
+
+
+def raise_yr_timeout_error(
+        message: str,
+        code=ErrorCode.ERR_GET_OPERATION_FAILED,
+        module_code=ModuleCode.RUNTIME,
+        cause: Exception = None):
+    """Raise a structured timeout error."""
+    raise YRTimeoutError(code=code, module_code=module_code, message=message, cause=cause)
+
+
+def raise_yr_value_error(
+        message: str,
+        code=ErrorCode.ERR_PARAM_INVALID,
+        module_code=ModuleCode.RUNTIME,
+        cause: Exception = None):
+    """Raise a structured value error."""
+    raise YRValueError(code=code, module_code=module_code, message=message, cause=cause)
+
+
+def raise_yr_type_error(
+        message: str,
+        code=ErrorCode.ERR_PARAM_INVALID,
+        module_code=ModuleCode.RUNTIME,
+        cause: Exception = None):
+    """Raise a structured type error."""
+    raise YRTypeError(code=code, module_code=module_code, message=message, cause=cause)
 
 
 class CancelError(YRError):
@@ -39,7 +126,7 @@ class CancelError(YRError):
         return f"stateless request has been cancelled: {self.__task_id}"
 
 
-class YRInvokeError(YRError):
+class YRInvokeError(YRRuntimeError):
     """
     Represents an error that occurred during an invocation.
 
@@ -150,31 +237,19 @@ def _cause_to_str(cause):
     return f"{cause_cls}: {cause_repr}"
 
 
-class YRequestError(YRError, RuntimeError):
+class YRequestError(YRRuntimeError):
     """Request failed error."""
-    __slots__ = ["__code", "__message", "__request_id"]
+    __slots__ = ["__request_id"]
 
     def __init__(self, code: int = 0, message: str = "", request_id=""):
-        self.__code = code
-        self.__message = message
         self.__request_id = request_id
-        super().__init__()
+        super().__init__(code=code, module_code=ModuleCode.RUNTIME, message=message)
 
     def __str__(self):
-        return str(f"failed to request, {self.__request_id} code: {self.__code}, message: {self.__message} ")
-
-    @property
-    def code(self) -> int:
-        """code"""
-        return self.__code
-
-    @property
-    def message(self) -> str:
-        """message"""
-        return self.__message
+        return str(f"failed to request, {self.__request_id} code: {self.code}, message: {self.message} ")
 
 
-class GetTimeoutError(YRError, TimeoutError):
+class GetTimeoutError(YRTimeoutError):
     """Indicates that a call to the worker timed out."""
     pass
 

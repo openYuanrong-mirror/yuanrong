@@ -427,6 +427,13 @@ class InstanceCreator:
     def _invoke(self, name=None, args=None, kwargs=None, invoke_options=None):
         if invoke_options is None:
             invoke_options = self.__invoke_options__
+        # rootfs (sandbox) instances run on runtimes without datasystem mounted,
+        # so results must be returned inline. Therefore create and later method
+        # calls default to bypass_datasystem; ConfigManager global overrides
+        # still take precedence.
+        is_sandbox = "rootfs" in invoke_options.custom_extensions
+        if is_sandbox and not invoke_options.bypass_datasystem:
+            invoke_options = replace(invoke_options, bypass_datasystem=True)
         invoke_options = ConfigManager().override_bypass_datasystem(invoke_options)
         if invoke_options.idle_timeout >= 0:
             # todo(Lwy_Robb): should be remove, refactor use dposix fileds to pass it
@@ -461,6 +468,7 @@ class InstanceCreator:
 
     def _create_instance_inner(self, name, args, kwargs, invoke_options):
         """Serialize code, package args, create the instance, and return an InstanceProxy."""
+        is_sandbox = "rootfs" in invoke_options.custom_extensions
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         skip_serialize = getattr(invoke_options, "skip_serialize", False)
         code_missing = self._code_ref is None
@@ -518,7 +526,8 @@ class InstanceCreator:
                              invoke_options.need_order, group_name,
                              self.__is_async__,
                              name if name is not None else invoke_options.name,
-                             invoke_options.namespace, self._code_ref)
+                             invoke_options.namespace, self._code_ref,
+                             bypass_datasystem_default=is_sandbox)
 
     def _options_wrapper(self, **actor_options):
         """
@@ -611,10 +620,14 @@ class InstanceProxy:
                  is_async=False,
                  instance_name=None,
                  namespace=None,
-                 code_ref=None):
+                 code_ref=None,
+                 bypass_datasystem_default=False):
         """
         Initialize the InstanceProxy instance.
         """
+        # Sandbox (rootfs) instance method calls default to bypass_datasystem:
+        # results are inline and the runtime has no datasystem.
+        self._bypass_datasystem_default = bypass_datasystem_default
         self._class_descriptor = class_descriptor
         self.instance_id = instance_id
         self._class_methods = class_methods
@@ -1135,8 +1148,11 @@ class MethodProxy:
         return self._invoke(args, kwargs, invoke_options=opts, ref_cls=ObjectRefDirect)
 
     def _invoke(self, args, kwargs, invoke_options=InvokeOptions(), ref_cls=None):
-        if not self._instance_ref().is_activate():
+        instance = self._instance_ref()
+        if not instance.is_activate():
             raise RuntimeError("this instance is terminated")
+        if getattr(instance, "_bypass_datasystem_default", False) and not invoke_options.bypass_datasystem:
+            invoke_options = replace(invoke_options, bypass_datasystem=True)
         invoke_options = ConfigManager().override_bypass_datasystem(invoke_options)
         if self._method_descriptor.target_language == LanguageType.Python:
             args_list = signature.package_args(self._signature, args, kwargs)

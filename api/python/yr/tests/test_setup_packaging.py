@@ -62,6 +62,15 @@ def load_setup_module(setup_type=""):
 
 
 class SetupPackagingTest(unittest.TestCase):
+    def test_runtime_bazel_package_includes_metrics_exporters(self):
+        build_rule = (REPO_ROOT / "api" / "python" / "BUILD.bazel").read_text()
+        package_rule_start = build_rule.index('name = "yr_python_pkg"')
+        package_inputs_end = build_rule.index('outs = ["yr_python_pkg.out"]', package_rule_start)
+        package_inputs = build_rule[package_rule_start:package_inputs_end]
+
+        self.assertIn("//src/utility/metrics:shared_exporters", package_inputs)
+        self.assertIn("libobservability-*.so|libobservability-*.dylib", build_rule)
+
     def test_package_import_does_not_require_fnruntime(self):
         code = f"""
 import ctypes

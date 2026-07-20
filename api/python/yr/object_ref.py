@@ -21,9 +21,10 @@ import importlib
 import json
 from concurrent.futures import Future
 import logging
+import threading
 from typing import Any, Union
 
-from yr.exception import YRInvokeError, YRError, GeneratorFinished
+from yr.exception import YRInvokeError, YRError, YRRuntimeError, GeneratorFinished, raise_yr_value_error
 from yr.err_type import ErrorInfo, ErrorCode
 from yr.libruntime_pb2 import FunctionMeta
 
@@ -32,10 +33,17 @@ from yr.common import constants
 from yr.ds_tensor_client_manager import get_tensor_client
 
 _logger = logging.getLogger(__name__)
+_runtime_holder_module = None
+_runtime_holder_lock = threading.Lock()
 
 
 def _get_runtime_holder():
-    return importlib.import_module("yr.runtime_holder")
+    global _runtime_holder_module
+    if _runtime_holder_module is None:
+        with _runtime_holder_lock:
+            if _runtime_holder_module is None:
+                _runtime_holder_module = importlib.import_module("yr.runtime_holder")
+    return _runtime_holder_module
 
 
 def _set_future_helper(
@@ -47,12 +55,11 @@ def _set_future_helper(
         return
 
     if isinstance(result, ErrorInfo):
-        if result.error_code == ErrorCode.ERR_GENERATOR_FINISHED.value:
+        if result.error_code in (ErrorCode.ERR_GENERATOR_FINISHED, ErrorCode.ERR_GENERATOR_FINISHED.value):
             f.set_exception(GeneratorFinished(""))
             return
-        if result.error_code != ErrorCode.ERR_OK.value:
-            f.set_exception(RuntimeError(
-                f"code: {result.error_code}, module code {result.module_code}, msg: {result.msg}"))
+        if result.error_code not in (ErrorCode.ERR_OK, ErrorCode.ERR_OK.value):
+            f.set_exception(YRRuntimeError.from_error_info(result))
     elif isinstance(result, YRInvokeError):
         f.set_exception(result.origin_error())
     elif isinstance(result, YRError):
@@ -258,7 +265,7 @@ class ObjectRef:
         """
         self.exception()
         if timeout <= constants.MIN_TIMEOUT_LIMIT and timeout != constants.NO_LIMIT:
-            raise ValueError("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
+            raise_yr_value_error("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
 
         runtime_holder = _get_runtime_holder()
         objects = runtime_holder.global_runtime.get_runtime().get([self.id], timeout, False)
