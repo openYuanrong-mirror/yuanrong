@@ -293,6 +293,56 @@ class SandboxInstance:
         except Exception as e:
             return {"returncode": -1, "stdout": "", "stderr": str(e)}
 
+    def read_file(self, path: str, mode: str = "rb"):
+        """
+        Read a file inside the sandbox using native Python I/O.
+
+        This method does NOT depend on container commands like tar/cat/sh,
+        making it suitable for Docker sandboxes with minimal images.
+
+        Args:
+            path (str): Absolute path of the file to read inside the sandbox.
+            mode (str): File open mode. "rb" for binary (default), "r" for text.
+
+        Returns:
+            bytes or str: File content (bytes for "rb", str for "r").
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            OSError: If the file cannot be read.
+
+        Examples:
+            >>> content = yr.get(sandbox.read_file.invoke("/sandbox/data.txt", mode="r"))
+            >>> print(content)
+        """
+        with open(path, mode) as f:
+            return f.read()
+
+    def write_file(self, path: str, data, mode: str = "wb") -> None:
+        """
+        Write data to a file inside the sandbox using native Python I/O.
+
+        This method does NOT depend on container commands like tar/tee/sh,
+        making it suitable for Docker sandboxes with minimal images.
+        Parent directories are created automatically.
+
+        Args:
+            path (str): Absolute path of the file to write inside the sandbox.
+            data (bytes or str): Data to write to the file.
+            mode (str): File open mode. "wb" for binary (default), "w" for text.
+
+        Raises:
+            OSError: If the file cannot be written.
+
+        Examples:
+            >>> yr.get(sandbox.write_file.invoke("/sandbox/output.txt", "hello", mode="w"))
+        """
+        parent_dir = os.path.dirname(path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        with open(path, mode) as f:
+            f.write(data)
+
     def get_working_dir(self) -> str:
         """
         Get the working directory of the sandbox.
@@ -340,6 +390,9 @@ class SandboxInstance:
 class SandboxCreateOptions:
     name: Optional[str] = None
     rootfs: Optional[str] = None
+    image: Optional[str] = None
+    host_dir: Optional[str] = None
+    workdir: Optional[str] = None
     env: Optional[Dict[str, str]] = None
     idle_timeout: int = 300
     working_dir: Optional[str] = None
@@ -358,6 +411,9 @@ def create(
     *args: str,
     name: Optional[str] = None,
     rootfs: Optional[str] = None,
+    image: Optional[str] = None,
+    host_dir: Optional[str] = None,
+    workdir: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     idle_timeout: int = 300,
     working_dir: Optional[str] = None,
@@ -383,6 +439,17 @@ def create(
             local service via http://127.0.0.1:{proxy_port}.
         proxy_port: Port B — the HTTP proxy port inside the sandbox
             (default 8766). Port A (WS tunnel) = proxy_port - 1.
+        sandbox_type (str): Type of sandbox executor.
+            Supported values:
+            - "": Use default executor (RUNTIME)
+            - "supervisor": Uses SUPERVISOR executor
+            - "docker": Uses DOCKER executor
+        image (Optional[str]): Docker image name (e.g., "python:3.12-slim").
+            Only effective when sandbox_type="docker".
+        host_dir (Optional[str]): Host directory to mount into the Docker sandbox.
+            Only effective when sandbox_type="docker".
+        workdir (Optional[str]): Working directory inside the Docker sandbox.
+            Only effective when sandbox_type="docker".
 
     Returns:
         Sandbox wrapper instance.
@@ -397,6 +464,11 @@ def create(
         >>> result = yr.get(sandbox.exec("pwd"))
         >>> print(result['stdout'])
         >>>
+        >>> # Create sandbox with docker executor
+        >>> sandbox = yr.sandbox.create(sandbox_type="docker", image="python:3.12-slim")
+        >>> result = yr.get(sandbox.exec("python --version"))
+        >>> print(result['stdout'])
+        >>>
         >>> sandbox.terminate()
         >>> yr.finalize()
     """
@@ -404,6 +476,9 @@ def create(
         return Sandbox(
             name=name,
             rootfs=rootfs,
+            image=image,
+            host_dir=host_dir,
+            workdir=workdir,
             cpu=cpu,
             memory=memory,
             idle_timeout=idle_timeout,
@@ -487,6 +562,9 @@ class Sandbox:
         checkpoint_id: Optional[str] = None,
         name: Optional[str] = None,
         rootfs: Optional[str] = None,
+        image: Optional[str] = None,
+        host_dir: Optional[str] = None,
+        workdir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         idle_timeout: int = 300,
         working_dir: Optional[str] = None,
@@ -517,6 +595,17 @@ class Sandbox:
             ports (Optional[List[str]]): Port forwarding configurations.
             upstream (Optional[str]): Local service address to tunnel to.
             proxy_port (int): HTTP proxy port inside the sandbox. Default 8766.
+            sandbox_type (str): Type of sandbox executor.
+                Supported values:
+                - "": Use default executor (RUNTIME)
+                - "supervisor": Uses SUPERVISOR executor
+                - "docker": Uses DOCKER executor
+            image (Optional[str]): Docker image name (e.g., "python:3.12-slim").
+                Only effective when sandbox_type="docker".
+            host_dir (Optional[str]): Host directory to mount into the Docker sandbox.
+                Only effective when sandbox_type="docker".
+            workdir (Optional[str]): Working directory inside the Docker sandbox.
+                Only effective when sandbox_type="docker".
             before_checkpoint_func (Optional[Callable]): Hook called before checkpoint.
             after_restore_func (Optional[Callable]): Hook called after restore.
         """
@@ -529,6 +618,9 @@ class Sandbox:
             self.create_new_instance(SandboxCreateOptions(
                 name=name,
                 rootfs=rootfs,
+                image=image,
+                host_dir=host_dir,
+                workdir=workdir,
                 env=env,
                 idle_timeout=idle_timeout,
                 working_dir=working_dir,
@@ -590,11 +682,15 @@ class Sandbox:
             sandbox_type (str): Type of sandbox executor.
                 Supported values:
                 - "supervisor": Uses SUPERVISOR executor
+                - "docker": Uses DOCKER executor
                 - "": Use default executor (RUNTIME)
         """
         # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         name = options.name
         rootfs = options.rootfs
+        image = options.image
+        host_dir = options.host_dir
+        workdir = options.workdir
         env = options.env
         idle_timeout = options.idle_timeout
         working_dir = options.working_dir
@@ -629,6 +725,17 @@ class Sandbox:
             opt.custom_extensions["extra_config"] = json.dumps(extra_config)
         if rootfs is not None:
             opt.custom_extensions["rootfs"] = rootfs
+        elif image is not None:
+            rootfs_config = {"type": "image", "imageurl": image}
+            if workdir is not None:
+                rootfs_config["workdir"] = workdir
+            if host_dir is not None:
+                rootfs_config["mounts"] = [{
+                    "source": host_dir,
+                    "target": workdir if workdir is not None else "/mnt/host",
+                    "readonly": True,
+                }]
+            opt.custom_extensions["rootfs"] = json.dumps(rootfs_config)
         if ports is not None:
             yr_port_forwardings = []
             for port_forward in ports:
@@ -772,6 +879,44 @@ class Sandbox:
             env=env,
             timeout=timeout,
         )
+
+    def read_file(self, path: str, mode: str = "rb"):
+        """
+        Read a file from the sandbox via RPC.
+
+        Uses native Python I/O inside the sandbox instance, so it works
+        even with minimal Docker images that lack tar/cat/sh.
+
+        Args:
+            path (str): Absolute path of the file inside the sandbox.
+            mode (str): "rb" for binary (default), "r" for text.
+
+        Returns:
+            bytes or str: File content.
+
+        Examples:
+            >>> content = sb.read_file("/sandbox/data.txt", mode="r")
+            >>> print(content)
+        """
+        return yr.get(self._instance.read_file.invoke(path, mode=mode))
+
+    def write_file(self, path: str, data, mode: str = "wb") -> None:
+        """
+        Write data to a file in the sandbox via RPC.
+
+        Uses native Python I/O inside the sandbox instance, so it works
+        even with minimal Docker images that lack tar/tee/sh.
+        Parent directories are created automatically.
+
+        Args:
+            path (str): Absolute path of the file inside the sandbox.
+            data (bytes or str): Data to write.
+            mode (str): "wb" for binary (default), "w" for text.
+
+        Examples:
+            >>> sb.write_file("/sandbox/output.txt", "hello world", mode="w")
+        """
+        return yr.get(self._instance.write_file.invoke(path, data, mode=mode))
 
     def get_working_dir(self):
         """Get the working directory of the sandbox."""
