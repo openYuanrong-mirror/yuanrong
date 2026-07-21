@@ -39,7 +39,7 @@ Options:
     -m mem limit(MB)
     -h usage.
     -j concurrency limit
-    -G enable gloo collective operations (default: enabled)
+    -G enable gloo collective operations (default: disabled)
     -U enable UCC collective operations (default: disabled)
 "
 
@@ -86,7 +86,7 @@ SANITIZER="off"
 BAZEL_OPTIONS_ENV=""
 SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
-ENABLE_GLOO="true"
+ENABLE_GLOO="false"
 ENABLE_UCC="false"
 ENABLE_DATASYSTEM="true"
 MACOS_DEPLOYMENT_TARGET=""
