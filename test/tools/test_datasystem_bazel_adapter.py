@@ -16,8 +16,10 @@ ADAPTER = REPO_ROOT / "bazel" / "datasystem_build.bzl"
 class DataSystemBazelAdapterTest(unittest.TestCase):
     @staticmethod
     def _target_block(adapter, target_name):
-        name_position = adapter.index(f'name = "{target_name}"')
-        block_start = adapter.rfind("cc_library(", 0, name_position)
+        block_start = adapter.index(
+            f'cc_library(\n    name = "{target_name}"'
+        )
+        name_position = adapter.index(f'name = "{target_name}"', block_start)
         block_end = adapter.index("\n)\n", name_position)
         return adapter[block_start:block_end]
 
@@ -61,6 +63,16 @@ class DataSystemBazelAdapterTest(unittest.TestCase):
         self.assertIn(
             '"src/datasystem/client/transport/rpc/client_request_auth.cpp"',
             client_library,
+        )
+
+    def test_cluster_topology_links_diagnostics_implementation(self):
+        """Topology users must link the implementation for diagnostic helpers."""
+        adapter = ADAPTER.read_text(encoding="utf-8")
+        cluster_topology = self._target_block(adapter, "cluster_topology")
+
+        self.assertIn(
+            '"src/datasystem/cluster/model/topology_diagnostics.cpp"',
+            cluster_topology,
         )
 
     def test_brpc_factory_implementation_is_linked(self):
