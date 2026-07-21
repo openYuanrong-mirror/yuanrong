@@ -735,20 +735,7 @@ cat << YAML
         fi
         ls -lh "\$\$_LOG_DIR" || true
       }
-      # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)
-      # Use bash /dev/tcp (built-in, no nc required) to test connectivity
-      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      echo "=== Configuring bazel-remote cache ==="
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
-        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
-        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
-      esac
-      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
-        echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
-        export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
-      else
-        echo "WARNING: bazel-remote disabled or not reachable, building without remote cache"
-      fi
+      . .buildkite/configure_bazel_remote_cache.sh
       
       echo "=== [2/3] Submodule Update ==="
       git submodule sync --recursive
@@ -1051,11 +1038,40 @@ cat << YAML
 YAML
 fi
 
+cat << YAML
+  - label: ":bazel: Prime SDK native cache X86"
+    key: "build-sdk-common-amd64"
+    command: |
+      bash .buildkite/prime_openyuanrong_sdk_cache.sh amd64
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$SDK_BUILDER_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "8", memory: "16Gi" }
+                  limits: { cpu: "8", memory: "16Gi" }
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 120
+YAML
+
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
 cat << YAML
   - label: ":snake: Build SDK X86 ${SDK_SUFFIX}"
     key: "build-sdk-amd64-${SDK_SUFFIX}"
+    depends_on: "build-sdk-common-amd64"
     command: |
       set -e
       export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
@@ -1086,14 +1102,7 @@ cat << YAML
       export BUILD_ARCH=amd64
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
-      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
-        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
-        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
-      esac
-      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
-        export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
-      fi
+      . .buildkite/configure_bazel_remote_cache.sh
 
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
@@ -1330,18 +1339,7 @@ cat << YAML
         fi
         ls -lh "\$\$_LOG_DIR" || true
       }
-      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      echo "=== Configuring bazel-remote cache ==="
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
-        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
-        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
-      esac
-      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
-        echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
-        export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
-      else
-        echo "WARNING: bazel-remote disabled or not reachable, building without remote cache"
-      fi
+      . .buildkite/configure_bazel_remote_cache.sh
 
       echo "=== [2/3] Submodule Update ==="
       git submodule sync --recursive
@@ -1628,11 +1626,42 @@ cat << YAML
 YAML
 fi
 
+cat << YAML
+  - label: ":bazel: Prime SDK native cache arm64"
+    key: "build-sdk-common-arm64"
+    command: |
+      bash .buildkite/prime_openyuanrong_sdk_cache.sh arm64
+    agents:
+      queue: "default"
+      os: "linux"
+      linux_arch: "arm64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            nodeSelector:
+              kubernetes.io/arch: arm64
+            containers:
+              - image: "$BUILDER_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "8", memory: "16Gi" }
+                  limits: { cpu: "8", memory: "16Gi" }
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 120
+YAML
+
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
 cat << YAML
   - label: ":snake: Build SDK arm ${SDK_SUFFIX}"
     key: "build-sdk-arm64-${SDK_SUFFIX}"
+    depends_on: "build-sdk-common-arm64"
     command: |
       set -e
       export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
@@ -1663,14 +1692,7 @@ cat << YAML
       export BAZEL_REPOSITORY_CACHE=\$\$CACHE_BASE/bazel-repository-cache/arm64
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
-      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
-        1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
-        *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
-      esac
-      if [ "\$\$_YR_BAZEL_REMOTE_ENABLED" = "1" ] && timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
-        export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
-      fi
+      . .buildkite/configure_bazel_remote_cache.sh
 
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
