@@ -118,6 +118,7 @@ html_extra_path = ["robots.txt"]
 html_css_files = [
     "custom.css",
     "css/dismissable-banner.css",
+    "css/custom-dropdown.css",
 ]
 html_js_files = [
     "language-switcher.js",

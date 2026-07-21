@@ -63,6 +63,28 @@ export BUILD_WITH_PACKAGE
 BASE_DIR=$(dirname "$(readlink -f "$0")")
 OUTPUT_DIR=${BASE_DIR}/../output
 
+# Patch Sphinx searchtools.js to fix CJK search limitations.
+# 1. Remove digit filter: Sphinx skips pure-digit query terms (e.g. "8080").
+# 2. Bypass Porter Stemmer for CJK: stemmer destroys Chinese characters.
+# 3. Relax length filter for CJK: allow single/double-char CJK terms in
+#    partial matching and filteredTermCount.
+# Each patch includes an idempotency guard: if already patched, skip.
+function patch_searchtools() {
+  local JS_FILE="$1"
+  # Remove digit filter (multiline: || spans two lines)
+  grep -q 'queryTerm\\.match.*\\\\d' "$JS_FILE" \
+    && sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "$JS_FILE"
+  # Bypass stemmer for CJK terms
+  grep -q '\\[\\\\u4e00-\\\\u9fff\\]' "$JS_FILE" \
+    || sed -i 's/let word = stemmer\.stemWord(queryTermLower);/let word = \/[\\u4e00-\\u9fff]\/.test(queryTermLower) ? queryTermLower : stemmer.stemWord(queryTermLower);/' "$JS_FILE"
+  # Relax length filter for CJK terms — parentheses ensure correct
+  # precedence if Sphinx later wraps these in && compound expressions.
+  # Idempotency: grep first, only patch if unpatched occurrences exist.
+  if grep -qE '(word|term)\.length > 2' "$JS_FILE" && ! grep -qE '\(word\.length > 2 ||' "$JS_FILE"; then
+    sed -i -E 's/(word|term)\.length > 2/(\1.length > 2 || \/[\\u4e00-\\u9fff]\/.test(\1))/g' "$JS_FILE"
+  fi
+}
+
 # Add noindex meta tag to all HTML files in a directory (for non-latest versions).
 # This prevents Google from indexing outdated documentation.
 function add_noindex() {
@@ -81,11 +103,7 @@ function build_zh_cn() {
   # disable configuration：SPHINXOPTS="-W --keep-going -n", enable it after all alarms are cleared.
   popd
 
-  # modify sphinx built-in search: allow numeric terms in search queries.
-  # Sphinx's searchtools.js skips words matching /^\d+$/ (pure digits).
-  # The || and queryTerm.match are on separate lines, so we need multiline sed.
-  # First join the lines, then remove the digit-match condition.
-  sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
+  patch_searchtools "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
 
   if [ "$BUILD_VERSION" = "latest" ]; then
     rm -rf "${OUTPUT_DIR}"/docs/zh-cn/latest && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn/latest
@@ -113,11 +131,7 @@ function build_en() {
   # disable configuration：SPHINXOPTS="-W --keep-going -n", enable it after all alarms are cleared.
   popd
 
-  # modify sphinx built-in search: allow numeric terms in search queries.
-  # Sphinx's searchtools.js skips words matching /^\d+$/ (pure digits).
-  # The || and queryTerm.match are on separate lines, so we need multiline sed.
-  # First join the lines, then remove the digit-match condition.
-  sed -i '/||$/{N;s/||\n\s*queryTerm\.match(\/\^\\d+\$\/)//;}' "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
+  patch_searchtools "${BASE_DIR}"/source_en/_build/html/_static/searchtools.js
 
   if [ "$BUILD_VERSION" = "latest" ]; then
     rm -rf "${OUTPUT_DIR}"/docs/en/latest && mkdir -p "${OUTPUT_DIR}"/docs/en/latest

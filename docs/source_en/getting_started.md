@@ -32,7 +32,7 @@ Using the multi-language function programming interface, only a few lines of cod
 Functions developed using Python, C++, and Java in single-machine programs can be converted into openYuanrong stateless functions for distributed parallel execution, and classes can be converted into openYuanrong stateful functions for distributed stateful computation, thus making it as easy to develop distributed jobs as developing single-machine programs.
 
 ::::::{dropdown} Parallelize Python, C++, Java Functions Using openYuanrong Stateless Functions
-:color: success
+:color: secondary
 :chevron: down-up
 :icon: chevron-down
 
@@ -190,7 +190,7 @@ Refer to [Stateless Function Example Project](example-project-stateless-function
 Stateless functions are suitable for handling applications that do not need to maintain state. For applications that need to maintain state, you can use openYuanrong stateful functions.
 
 ::::::{dropdown} Parallelize Python, C++, Java Classes Using openYuanrong Stateful Functions
-:color: success
+:color: secondary
 :chevron: down-up
 :icon: chevron-down
 
@@ -414,7 +414,7 @@ Refer to [Stateful Function Example Project](example-project-stateful-function) 
 openYuanrong provides function service capabilities, supporting hosting functions in the cluster, running as a service, and triggering calls through HTTP requests. Function services define function signatures in different development languages as request entry points, and implementing the function allows deployment as a Serverless service.
 
 ::::::{dropdown} Develop Serverless Services Using Python, C++, Java
-:color: success
+:color: secondary
 :chevron: down-up
 :icon: chevron-down
 
