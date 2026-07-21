@@ -303,7 +303,11 @@ pub(crate) fn activity_report_msg(instance_id: &str, payload: Vec<u8>) -> Stream
     }
 }
 
-fn shutdown_response_msg(request_id: String, code: crate::posix::common::ErrorCode, message: String) -> StreamingMessage {
+fn shutdown_response_msg(
+    request_id: String,
+    code: crate::posix::common::ErrorCode,
+    message: String,
+) -> StreamingMessage {
     StreamingMessage {
         message_id: request_id,
         meta_data: Default::default(),

@@ -33,6 +33,7 @@ pub mod port;
 pub mod process;
 pub mod pyval;
 pub mod runtime;
+pub mod startup;
 
 /// Serve on an already-bound listener; tests use this to obtain an ephemeral port.
 pub async fn serve_with_listener(listener: TcpListener) -> Result<(), Box<dyn std::error::Error>> {
