@@ -1412,6 +1412,7 @@ cc_library(
         "src/datasystem/cluster/executor/storage_scan_plan.cpp",
         "src/datasystem/cluster/executor/topology_task_executor.cpp",
         "src/datasystem/cluster/membership/membership_endpoint_view.cpp",
+        "src/datasystem/cluster/model/topology_diagnostics.cpp",
         "src/datasystem/cluster/model/topology_snapshot.cpp",
         "src/datasystem/cluster/repository/topology_repository.cpp",
         "src/datasystem/cluster/repository/topology_repository_codec.cpp",
