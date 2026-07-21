@@ -1057,7 +1057,7 @@ cat << YAML
                     mountPath: /mnt/paas
                 resources:
                   requests: { cpu: "8", memory: "16Gi" }
-                  limits: { cpu: "8", memory: "16Gi" }
+                  limits: { cpu: "16", memory: "32Gi" }
             volumes:
               - name: build-cache
                 hostPath:
@@ -1647,7 +1647,7 @@ cat << YAML
                     mountPath: /mnt/paas
                 resources:
                   requests: { cpu: "8", memory: "16Gi" }
-                  limits: { cpu: "8", memory: "16Gi" }
+                  limits: { cpu: "16", memory: "32Gi" }
             volumes:
               - name: build-cache
                 hostPath:
