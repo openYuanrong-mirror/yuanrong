@@ -48,7 +48,7 @@ enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_f
 lite_scheduler_enable:,lite_scheduler_enable_all_tenants:,lite_scheduler_enabled_tenants:,lite_scheduler_enabled_functions:,lite_scheduler_acquire_wait_timeout_ms:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
-function_agent_port:,function_proxy_port:,\
+function_agent_port:,function_proxy_port:,ssh_enable:,ssh_backend_public_key_dir:,frontend_ssh_max_connections:,tcp_tunnel_port:,tcp_tunnel_max_connections:,\
 function_proxy_grpc_port:,global_scheduler_port:,runtime_init_port:,\
 function_agent_litebus_thread:,function_master_litebus_thread:,function_proxy_litebus_thread:,\
 meta_store_mode:,\
@@ -249,6 +249,11 @@ DASHBOARD_SSL_KEY_FILE="server.key"
 METRICS_COLLECTOR_TYPE="proc"
 MERGE_PROCESS_ENABLE="true"
 FUNCTION_PROXY_MERGE_PROCESS_ENABLE="false"
+SSH_ENABLE="false"
+YR_SSH_BACKEND_PUBLIC_KEY_DIR=""
+FRONTEND_SSH_MAX_CONNECTIONS=1024
+TCP_TUNNEL_PORT=22775
+TCP_TUNNEL_MAX_CONNECTIONS=1024
 RUNTIME_HEARTBEAT_ENABLE=true
 RUNTIME_HEARTBEAT_TIMEOUT_MS=100000
 RUNTIME_MAX_HEARTBEAT_TIMEOUT_TIMES=18
@@ -521,6 +526,11 @@ function usage() {
   echo -e "     --function_agent_port                               function agent port (default 58866)"
   echo -e "     --function_proxy_port                               function proxy port (default 22772)"
   echo -e "     --function_proxy_grpc_port                          function proxy port for driver (default 22773)"
+  echo -e "     --ssh_enable                                        enable frontend SSH and function proxy tunnel (default false)"
+  echo -e "     --ssh_backend_public_key_dir                        host directory containing authorized_keys for sandbox mounts"
+  echo -e "     --frontend_ssh_max_connections                      frontend concurrent SSH connection limit (default 1024)"
+  echo -e "     --tcp_tunnel_port                                   function proxy TCP tunnel port (default 22775)"
+  echo -e "     --tcp_tunnel_max_connections                        function proxy concurrent TCP tunnel connection limit (default 1024)"
   echo -e "     --function_proxy_exec_grpc_port                     session gRPC port for ExecStream (default 22774)"
   echo -e "     --global_scheduler_port                             global scheduler port (default 22770)"
   echo -e "     --runtime_init_port                                 runtime init port (default 21006)"
@@ -802,6 +812,11 @@ function parse_opt() {
     --function_agent_port) FUNCTION_AGENT_PORT=$2 && port_policy_table["function_agent_port"]="FIX" && shift 2 ;;
     --function_proxy_port) FUNCTION_PROXY_PORT=$2 && port_policy_table["function_proxy_port"]="FIX" && shift 2 ;;
     --function_proxy_grpc_port) FUNCTION_PROXY_GRPC_PORT=$2 && port_policy_table["function_proxy_grpc_port"]="FIX" && shift 2 ;;
+    --ssh_enable) SSH_ENABLE=$2 && shift 2 ;;
+    --ssh_backend_public_key_dir) YR_SSH_BACKEND_PUBLIC_KEY_DIR=$(readlink -m "$2") && shift 2 ;;
+    --frontend_ssh_max_connections) FRONTEND_SSH_MAX_CONNECTIONS=$2 && shift 2 ;;
+    --tcp_tunnel_port) TCP_TUNNEL_PORT=$2 && port_policy_table["tcp_tunnel_port"]="FIX" && shift 2 ;;
+    --tcp_tunnel_max_connections) TCP_TUNNEL_MAX_CONNECTIONS=$2 && shift 2 ;;
     --function_proxy_exec_grpc_port) FUNCTION_PROXY_EXEC_GRPC_PORT=$2 && port_policy_table["function_proxy_exec_grpc_port"]="FIX" && shift 2 ;;
     --runtime_init_port) RUNTIME_INIT_PORT=$2 && port_policy_table["runtime_init_port"]="FIX" && shift 2 ;;
     --global_scheduler_port) GLOBAL_SCHEDULER_PORT=$2 && port_policy_table["global_scheduler_port"]="FIX" && shift 2 ;;
@@ -1032,6 +1047,15 @@ function check_port_range() {
   fi
 }
 
+function check_connection_limit() {
+  local param_name=$1
+  local param_value=$2
+  if ! [[ "${param_value}" =~ ^[1-9][0-9]*$ ]] || [[ ${param_value} -gt 65535 ]]; then
+    log_error "${param_name} should be in range [1-65535], please check your input"
+    return 1
+  fi
+}
+
 function check_number_input() {
   check_greater_equal_zero "cpu_reserved" $CPU_RESERVED_FOR_DS_WORKER
   check_greater_equal_zero "min_instance_cpu_size" $MIN_INSTANCE_CPU_SIZE
@@ -1081,6 +1105,7 @@ function check_number_input() {
   check_port_range "function_agent_port" $FUNCTION_AGENT_PORT
   check_port_range "function_proxy_port" $FUNCTION_PROXY_PORT
   check_port_range "function_proxy_grpc_port" $FUNCTION_PROXY_GRPC_PORT
+  check_port_range "tcp_tunnel_port" $TCP_TUNNEL_PORT
   check_port_range "function_proxy_exec_grpc_port" $FUNCTION_PROXY_EXEC_GRPC_PORT
   check_port_range "global_scheduler_port" $GLOBAL_SCHEDULER_PORT
   check_port_range "ds_master_port" $DS_MASTER_PORT
@@ -1116,6 +1141,16 @@ function check_number_input() {
 }
 
 function check_tls_config() {
+  # The global SSL switch covers the built-in etcd as well. Keep the etcd
+  # server and all component clients on the same trust chain unless an
+  # explicit etcd TLS directory was provided.
+  if [ "X${SSL_ENABLE}" == "Xtrue" ]; then
+    ETCD_AUTH_TYPE="TLS"
+    ENABLE_ETCD_AUTH="true"
+    if [ "X${ETCD_SSL_BASE_PATH}" == "X" ]; then
+      ETCD_SSL_BASE_PATH="${SSL_BASE_PATH}"
+    fi
+  fi
   if [ "X${CURVE_KEY_PATH}" != "X" ]; then
     if ! [[ "${CURVE_KEY_PATH}" = /* ]]; then
       log_error "curve key path '${CURVE_KEY_PATH}' is not an absolute path, please check and retry"
@@ -1343,6 +1378,22 @@ function check_input() {
   if [ "X${ENABLE_METRICS}" != "Xtrue" ] && [ "X${ENABLE_METRICS}" != "Xfalse" ]; then
      log_error "enable_metrics can only be 'true' or 'false'"
      return 1
+  fi
+  if [ "X${SSH_ENABLE}" != "Xtrue" ] && [ "X${SSH_ENABLE}" != "Xfalse" ]; then
+     log_error "ssh_enable can only be 'true' or 'false'"
+     return 1
+  fi
+  check_connection_limit "frontend_ssh_max_connections" "${FRONTEND_SSH_MAX_CONNECTIONS}" || return 1
+  check_connection_limit "tcp_tunnel_max_connections" "${TCP_TUNNEL_MAX_CONNECTIONS}" || return 1
+  if [ "X${SSH_ENABLE}" == "Xtrue" ]; then
+    if [ ! -d "${YR_SSH_BACKEND_PUBLIC_KEY_DIR}" ]; then
+      log_error "ssh_backend_public_key_dir must be an existing directory when ssh_enable=true"
+      return 1
+    fi
+    if [ ! -r "${YR_SSH_BACKEND_PUBLIC_KEY_DIR}/authorized_keys" ]; then
+      log_error "${YR_SSH_BACKEND_PUBLIC_KEY_DIR}/authorized_keys must be readable"
+      return 1
+    fi
   fi
   if [ "X${IS_SCHEDULE_TOLERATE_ABNORMAL}" != "Xtrue" ] && [ "X${IS_SCHEDULE_TOLERATE_ABNORMAL}" != "Xfalse" ]; then
        log_error "is_schedule_tolerate_abnormal can only be 'true' or 'false'"
@@ -1709,7 +1760,9 @@ function export_config() {
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
   export ENABLE_RUNTIME_LAUNCHER RUNTIME_LAUNCHER_SOCK
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
-  export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
+  export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE SSH_ENABLE
+  export FRONTEND_SSH_MAX_CONNECTIONS TCP_TUNNEL_PORT TCP_TUNNEL_MAX_CONNECTIONS
+  export YR_SSH_BACKEND_PUBLIC_KEY_DIR
   export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE
   export GLOBAL_SCHEDULER_PORT METRICS_COLLECTOR_TYPE ETCD_PROXY_ENABLE
   export RUNTIME_METRICS_CONFIG RUNTIME_METRICS_CONFIG_FILE YR_DATASYSTEM_DEFAULT_WRITE_MODE
