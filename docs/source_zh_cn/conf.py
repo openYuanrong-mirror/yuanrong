@@ -116,10 +116,13 @@ html_extra_path = ["robots.txt"]
 html_css_files = [
     "custom.css",
     "css/dismissable-banner.css",
+    "css/custom-dropdown.css",
 ]
 html_js_files = [
     "language-switcher.js",
     "js/dismissable-banner.js",
+    "search_cjk_dict.js",
+    "search_cjk_split.js",
 ]
 #   确保末尾加上斜杠
 html_baseurl = "https://docs.openyuanrong.org/zh-cn/latest/"
@@ -211,3 +214,65 @@ html_context = {
             <meta name="keywords" content="openYuanrong, 分布式计算引擎, AI推理, Serverless">
         """
 }
+
+
+def setup(app):
+    """构建时从 searchindex.js 提取 CJK 词表，输出为 JS 词典文件。
+
+    前端 search_cjk_split.js 使用此词典做最大前向匹配分词，
+    将连续中文查询（如"分布式计算引擎"）拆分为 ["分布式","计算","引擎"]，
+    与 jieba 索引词精确匹配。字典文件由 build-finished 事件自动生成，
+    覆盖 _static/search_cjk_dict.js 占位文件。
+    """
+
+    def _build_cjk_dict(app, exception):
+        if exception:
+            return
+        outdir = app.outdir
+        index_path = os.path.join(outdir, "searchindex.js")
+        if not os.path.isfile(index_path):
+            return
+
+        import re
+        import json
+        with open(index_path, "r", encoding="utf-8") as f:
+            raw = f.read()
+
+        # 从 Search.setIndex({...}) 中提取 terms 字典
+        # Sphinx 格式: "Search.setIndex({...});" — 剥离前缀和分号后解析 JSON
+        prefix = "Search.setIndex("
+        suffix = ");"
+        start = raw.find(prefix)
+        if start == -1:
+            logging.warning("Search: searchindex.js format unrecognized, CJK dict not generated")
+            return
+        json_str = raw[start + len(prefix):].rstrip()
+        if json_str.endswith(suffix):
+            json_str = json_str[:-len(suffix)]
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            logging.warning("Search: searchindex.js JSON parse failed, CJK dict not generated")
+            return
+
+        # 收集 ≥2 字的纯 CJK 索引词。
+        # 仅收集纯汉字词（如 "分布式"、"计算"），不收集中英混合词（如 "AI推理"）。
+        # 中英混合查询由前端 search_cjk_split.js 的 extractCJKParts 处理：
+        # "AI推理" → ["AI", "推理"]，其中 "推理" 在词典中可精确匹配。
+        # 单字不在词典中时，退化为部分匹配（如 "式" → term.match("式") 命中 "分布式"）。
+        words = sorted(
+            k for k in data.get("terms", {})
+            if re.match(r"^[\u4e00-\u9fff]{2,}$", k)
+        )
+
+        # 写入 JS 词典文件（覆盖构建时的占位文件）
+        dict_path = os.path.join(outdir, "_static", "search_cjk_dict.js")
+        os.makedirs(os.path.dirname(dict_path), exist_ok=True)
+        with open(dict_path, "w", encoding="utf-8") as f:
+            f.write("var SEARCH_CJK_DICT = ")
+            json.dump(words, f, ensure_ascii=False)
+            f.write(";\n")
+
+        logging.info(f"Search: generated CJK dict ({len(words)} words)")
+
+    app.connect("build-finished", _build_cjk_dict)

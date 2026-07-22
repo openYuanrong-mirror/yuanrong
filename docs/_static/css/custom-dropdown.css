@@ -1,0 +1,24 @@
+/* Custom dropdown gray color - only affects dropdown with :color: secondary,
+   does not override the theme's global secondary (purple) color */
+
+/* Light mode: gray dropdown header */
+details.sd-dropdown summary.sd-card-header.sd-bg-secondary {
+    --pst-sd-dropdown-color: #6B7280;
+    --pst-sd-dropdown-bg-color: #F3F4F6;
+}
+
+details.sd-dropdown summary.sd-card-header.sd-bg-secondary+div.sd-summary-content {
+    --pst-sd-dropdown-color: #6B7280;
+    --pst-sd-dropdown-bg-color: #F3F4F6;
+}
+
+/* Dark mode: darker gray dropdown header */
+[data-theme="dark"] details.sd-dropdown summary.sd-card-header.sd-bg-secondary {
+    --pst-sd-dropdown-color: #9CA3AF;
+    --pst-sd-dropdown-bg-color: #374151;
+}
+
+[data-theme="dark"] details.sd-dropdown summary.sd-card-header.sd-bg-secondary+div.sd-summary-content {
+    --pst-sd-dropdown-color: #9CA3AF;
+    --pst-sd-dropdown-bg-color: #374151;
+}
