@@ -88,7 +88,6 @@ genrule(
         "@etcd_source//:etcd",
         "@etcd_source//:etcdctl",
         ":libruntime_proto_py",
-        ":sync_libruntime_proto_workspace",
     ] + select({
         "//:disable_observability": [],
         "//conditions:default": [
@@ -108,15 +107,7 @@ genrule(
         chmod +w $$PYTHON_CODE_DIR/yr &&
         chmod +w $$PYTHON_SERVICE_DIR/ &&
         if [[ "$$(uname)" != "Darwin" ]]; then chrpath -r '$$ORIGIN' $(location py_strip) 2>/dev/null || true; fi &&
-        PYTHON3_BIN_PATH=$${PYTHON3_BIN_PATH:-python3}
-        PYTHON_VERSION=$$($$PYTHON3_BIN_PATH --version 2>&1) &&
-        echo $$PYTHON_VERSION > $@
-        EXT_SUFFIX=$$($$PYTHON3_BIN_PATH - <<'PY'
-import sysconfig
-print(sysconfig.get_config_var("EXT_SUFFIX") or ".so")
-PY
-        ) &&
-        cp -L $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime$$EXT_SUFFIX &&
+        echo "python ABI extension is staged by build.sh" > $@ &&
         mkdir -p $$PYTHON_CODE_DIR/yr/third_party/etcd &&
         cp -f $(location @etcd_source//:etcd) $$PYTHON_CODE_DIR/yr/third_party/etcd/ &&
         cp -f $(location @etcd_source//:etcdctl) $$PYTHON_CODE_DIR/yr/third_party/etcd/ &&
@@ -148,31 +139,6 @@ genrule(
     """,
     local = 1,
     tags = ["no-cache"],
-)
-
-genrule(
-    name = "sync_libruntime_proto_workspace",
-    srcs = [
-        ":libruntime_proto_py",
-        "//:WORKSPACE",
-    ],
-    outs = ["libruntime_proto_workspace_sync.out"],
-    cmd = """
-        PYTHON3_BIN_PATH=$${PYTHON3_BIN_PATH:-python3}
-        WORKSPACE_DIR=$$($$PYTHON3_BIN_PATH -c 'import os,sys; print(os.path.dirname(os.path.realpath(sys.argv[1])))' "$(location //:WORKSPACE)")
-        mkdir -p "$$WORKSPACE_DIR/api/python/yr"
-        rm -f "$$WORKSPACE_DIR/api/python/yr/libruntime_pb2.py"
-        install -m 0644 "$(location :libruntime_proto_py)" "$$WORKSPACE_DIR/api/python/yr/libruntime_pb2.py"
-        date > "$@"
-    """,
-    local = 1,
-    stamp = 1,
-    tags = [
-        "local",
-        "no-cache",
-        "no-sandbox",
-        "no-remote",
-    ],
 )
 
 py_library(

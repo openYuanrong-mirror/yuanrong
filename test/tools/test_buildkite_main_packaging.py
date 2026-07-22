@@ -8,6 +8,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIPELINE = REPO_ROOT / ".buildkite" / "pipeline.dynamic.yml"
+CACHE_CONFIG_SCRIPT = REPO_ROOT / ".buildkite" / "configure_bazel_remote_cache.sh"
 BUILD_SCRIPT = REPO_ROOT / "build.sh"
 COMPILE_IMAGE = REPO_ROOT / "ci" / "ubuntu" / "Dockerfile.ubuntu2004"
 
@@ -15,14 +16,19 @@ COMPILE_IMAGE = REPO_ROOT / "ci" / "ubuntu" / "Dockerfile.ubuntu2004"
 class BuildkiteMainPackagingTest(unittest.TestCase):
     def test_linux_bazel_remote_cache_is_enabled_by_default(self):
         pipeline = PIPELINE.read_text(encoding="utf-8")
+        cache_config = CACHE_CONFIG_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertEqual(
-            pipeline.count("YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true"),
+        self.assertGreaterEqual(
+            pipeline.count(". .buildkite/configure_bazel_remote_cache.sh"),
             4,
+        )
+        self.assertIn(
+            "YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true",
+            cache_config,
         )
         self.assertNotIn(
             "YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false",
-            pipeline,
+            cache_config,
         )
 
     def test_python314_builder_installs_obs_sdk_for_every_python(self):

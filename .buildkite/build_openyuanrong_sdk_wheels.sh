@@ -21,6 +21,7 @@ BUILD_VERSION="${BUILD_VERSION:-$(cat "${ROOT_DIR}/VERSION")}"
 BOOST_VERSION="${BOOST_VERSION:-1.87.0}"
 SDK_BAZEL_JOBS="${SDK_BAZEL_JOBS:-8}"
 SDK_BAZEL_BUILD_ROOT="${SDK_BAZEL_BUILD_ROOT:-${ROOT_DIR}/build/sdk-${BUILDKITE_JOB_ID:-local}}"
+SDK_BUILD_MODE="${SDK_BUILD_MODE:-wheel}"
 
 case "${OUTPUT_DIR}" in
     /*) ;;
@@ -97,6 +98,7 @@ build_sdk_wheel() {
     # arch), so the per-cp SDK build skips the Rust target instead of recompiling
     # it once per Python version.
     BUILD_SKIP_RUST=1 \
+        BUILD_SDK_WHEEL_ONLY=1 \
         BAZEL_OUTPUT_USER_ROOT="${output_root}" \
         BAZEL_OUTPUT_BASE="${output_root}/output" \
         bash "${ROOT_DIR}/build.sh" -p "${python_bin}" -v "${BUILD_VERSION}" -j "${SDK_BAZEL_JOBS}"
@@ -115,11 +117,34 @@ build_sdk_wheel() {
     fi
 }
 
+build_sdk_common() {
+    local py_version="$1"
+    local python_bin="$2"
+    local output_root="${SDK_BAZEL_BUILD_ROOT}/common"
+
+    printf 'Priming shared SDK native Bazel actions with %s (%s)\n' "${py_version}" "${python_bin}" >&2
+    BUILD_SKIP_RUST=1 \
+        BUILD_SDK_COMMON_ONLY=1 \
+        BAZEL_OUTPUT_USER_ROOT="${output_root}" \
+        BAZEL_OUTPUT_BASE="${output_root}/output" \
+        bash "${ROOT_DIR}/build.sh" -p "${python_bin}" -v "${BUILD_VERSION}" -j "${SDK_BAZEL_JOBS}"
+}
+
 main() {
     local py_version
     local python_bin
 
     mkdir -p "${OUTPUT_DIR}"
+    if [ "${SDK_BUILD_MODE}" = "common" ]; then
+        py_version="${SDK_COMMON_PYTHON_VERSION:-${SDK_PYTHON_VERSIONS%% *}}"
+        python_bin="$(resolve_sdk_python "${py_version}")"
+        build_sdk_common "${py_version}" "${python_bin}"
+        return
+    fi
+    if [ "${SDK_BUILD_MODE}" != "wheel" ]; then
+        printf 'Unsupported SDK_BUILD_MODE: %s (expected common or wheel)\n' "${SDK_BUILD_MODE}" >&2
+        exit 1
+    fi
     for py_version in ${SDK_PYTHON_VERSIONS}; do
         python_bin="$(resolve_sdk_python "${py_version}")"
         printf 'Building openyuanrong-sdk for %s with %s\n' "${py_version}" "${python_bin}" >&2

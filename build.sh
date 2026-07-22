@@ -55,6 +55,10 @@ BUILD_VERSION="v0.0.1"
 BAZEL_OPTIONS="--experimental_cc_shared_library=true --verbose_failures --strategy=CcStrip=standalone --@opentelemetry_cpp//api:with_abseil=true"
 BAZEL_OPTIONS_CONFIG=" --config=release "
 BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg //api/go:yr_go_pkg //api/rust:yr_rust_pkg"
+SDK_COMMON_BAZEL_TARGETS="//api/cpp:cpp_strip"
+SDK_WHEEL_BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/python:yr_python_pkg"
+BUILD_SDK_COMMON_ONLY="${BUILD_SDK_COMMON_ONLY:-0}"
+BUILD_SDK_WHEEL_ONLY="${BUILD_SDK_WHEEL_ONLY:-0}"
 
 # On macOS, check for Java availability and adjust targets
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -74,6 +78,15 @@ if [ "${BUILD_SKIP_RUST}" = "1" ]; then
 elif ! command -v cargo >/dev/null 2>&1; then
 	echo "Warning: cargo not available, skipping //api/rust:yr_rust_pkg"
 	BAZEL_TARGETS="${BAZEL_TARGETS// \/\/api\/rust:yr_rust_pkg/}"
+fi
+
+# Buildkite SDK jobs use a native cache-prime phase followed by one ABI wheel
+# phase per interpreter. The default target set remains unchanged for Jenkins
+# and all existing build.sh callers.
+if [ "${BUILD_SDK_COMMON_ONLY}" = "1" ]; then
+	BAZEL_TARGETS="${SDK_COMMON_BAZEL_TARGETS}"
+elif [ "${BUILD_SDK_WHEEL_ONLY}" = "1" ]; then
+	BAZEL_TARGETS="${SDK_WHEEL_BAZEL_TARGETS}"
 fi
 
 BAZEL_PRE_OPTIONS="--output_user_root=${BUILD_BASE} --output_base=${OUTPUT_BASE}"
@@ -361,6 +374,21 @@ PY
     echo "[PACKAGE_TIMER] python-sdk-assembly-total python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_total_start))s"
 }
 
+function stage_python_bazel_outputs() {
+    if [ "${BAZEL_COMMAND}" != "build" ]; then
+        return
+    fi
+
+    local generated_proto="${BASE_DIR}/bazel-bin/api/python/yr/libruntime_pb2.py"
+    local workspace_proto="${BASE_DIR}/api/python/yr/libruntime_pb2.py"
+    if [ ! -f "${generated_proto}" ]; then
+        log_fatal "generated Python runtime proto not found: ${generated_proto}"
+    fi
+    mkdir -p "$(dirname "${workspace_proto}")"
+    cp -f "${generated_proto}" "${workspace_proto}"
+    chmod 0644 "${workspace_proto}"
+}
+
 function install_python_requirements() {
 	local pip_flag
 	pip_flag="$(pip_flags_for_python "${PYTHON3_BIN_PATH}")"
@@ -476,6 +504,13 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
 	esac
 done
 
+if [ "${BUILD_SDK_COMMON_ONLY}" = "1" ] && [ "${BUILD_SDK_WHEEL_ONLY}" = "1" ]; then
+	log_fatal "BUILD_SDK_COMMON_ONLY and BUILD_SDK_WHEEL_ONLY are mutually exclusive"
+fi
+if [ "${BUILD_SDK_COMMON_ONLY}" = "1" ] && [ "${PACKAGE_ALL}" = "true" ]; then
+	log_fatal "BUILD_SDK_COMMON_ONLY cannot be combined with -P"
+fi
+
 # Support remote cache via environment variable REMOTE_CACHE
 # Command-line -r takes precedence; falls back to env var
 if [ -n "${REMOTE_CACHE}" ]; then
@@ -554,7 +589,9 @@ fi
 
 	ensure_datasystem_submodule
 
-	# - action_env: for genrules (e.g. Python suffix rename and C++ version generation)
+# Python is intentionally not an action_env: making it global invalidates
+# Python-independent C++/proto/runtime actions for every CPython ABI. The
+# repository environment still selects matching headers for fnruntime only.
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
 export GOPATH="$(go env GOPATH)"
 export GOMODCACHE="$(go env GOMODCACHE)"
@@ -563,7 +600,7 @@ export GOFLAGS="$(go env GOFLAGS)"
 export GOEXPERIMENT="$(go env GOEXPERIMENT)"
 export GOCACHE="$(go env GOCACHE)"
 	BAZEL_BUILD_VERSION="${BAZEL_BUILD_VERSION:-${BUILD_VERSION}}"
-	BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH --action_env=GOMODCACHE --action_env=GOENV --action_env=GOFLAGS --action_env=GOEXPERIMENT --action_env=GOCACHE --action_env=CARGO_HOME --action_env=CARGO_TARGET_DIR --action_env=BUILD_VERSION=${BAZEL_BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
+	BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH --action_env=GOMODCACHE --action_env=GOENV --action_env=GOFLAGS --action_env=GOEXPERIMENT --action_env=GOCACHE --action_env=CARGO_HOME --action_env=CARGO_TARGET_DIR --action_env=BUILD_VERSION=${BAZEL_BUILD_VERSION} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
 if [[ -n "${MACOS_DEPLOYMENT_TARGET}" ]]; then
 	BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET} --repo_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET}"
 fi
@@ -581,7 +618,10 @@ bazel ${BAZEL_PRE_OPTIONS} ${BAZEL_COMMAND} ${BAZEL_OPTIONS} -- ${BAZEL_TARGETS}
 echo "[PACKAGE_TIMER] bazel-build python=${PYTHON3_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
 
 PYTHON3_SDK_BIN_PATH=$PYTHON3_BIN_PATH
-build_python_sdk
+if [ "${BUILD_SDK_COMMON_ONLY}" != "1" ]; then
+	stage_python_bazel_outputs
+	build_python_sdk
+fi
 
 if [ "$BAZEL_COMMAND" == "coverage" ]; then
 	lcov -q -r ${BASE_DIR}/bazel-out/_coverage/_coverage_report.dat '*python*' '*.pb.*' '*test*' -o ${BASE_DIR}/bazel-out/_coverage/_coverage_report.info
@@ -603,7 +643,7 @@ if [ "$BAZEL_COMMAND" == "clean" ]; then
 	rm -rf "${BASE_DIR}/api/rust/target"
 fi
 
-if [ "$BAZEL_COMMAND" == "build" ]; then
+if [ "$BAZEL_COMMAND" == "build" ] && [ "${BUILD_SDK_COMMON_ONLY}" != "1" ] && [ "${BUILD_SDK_WHEEL_ONLY}" != "1" ]; then
     mkdir -p ${OUTPUT_DIR}
     runtime_tree_kib=$(du -sk "${OUTPUT_BASE}/runtime" | awk '{print $1}')
     echo "[PACKAGE_SIZE] runtime-tree python=${PYTHON3_BIN_PATH} kib=${runtime_tree_kib}"
