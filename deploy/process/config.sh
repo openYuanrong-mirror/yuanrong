@@ -45,6 +45,7 @@ ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
 enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,quota_config_file:,\
+lite_scheduler_enable:,lite_scheduler_enable_all_tenants:,lite_scheduler_enabled_tenants:,lite_scheduler_enabled_functions:,lite_scheduler_acquire_wait_timeout_ms:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
@@ -225,6 +226,11 @@ ENABLE_DPOSIX_UDS=false
 DPOSIX_UDS_PATH=""
 GLOBAL_SCHEDULER_PORT=22770
 FUNCTION_SCHEDULER_LEASE_PORT=8889
+LITE_SCHEDULER_ENABLE="false"
+LITE_SCHEDULER_ENABLE_ALL_TENANTS="false"
+LITE_SCHEDULER_ENABLED_TENANTS="[]"
+LITE_SCHEDULER_ENABLED_FUNCTIONS="[]"
+LITE_SCHEDULER_ACQUIRE_WAIT_TIMEOUT_MS=3000
 RUNTIME_INIT_PORT=21006
 DASHBOARD_PORT=9080
 DASHBOARD_GRPC_PORT=9081
@@ -583,6 +589,11 @@ function usage() {
   echo -e "     --faas_frontend_grpc_port                           faas frontend grpc port (default 31223)"
   echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
   echo -e "     --function_scheduler_lease_port                     function scheduler lease http port (default 8889)"
+  echo -e "     --lite_scheduler_enable                             enable LiteScheduler, options:true/false (default false)"
+  echo -e "     --lite_scheduler_enable_all_tenants                 enable LiteScheduler for all tenants, options:true/false (default false)"
+  echo -e "     --lite_scheduler_enabled_tenants                    JSON array of tenants enabled for LiteScheduler (default [])"
+  echo -e "     --lite_scheduler_enabled_functions                  JSON array of functions enabled for LiteScheduler (default [])"
+  echo -e "     --lite_scheduler_acquire_wait_timeout_ms            LiteScheduler acquire wait timeout in milliseconds (default 3000)"
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
   echo -e "     --quota_config_file                                 path to quota config JSON file; empty string disables quota enforcement (default \"\")"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
@@ -771,6 +782,11 @@ function parse_opt() {
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
     --function_scheduler_lease_port) FUNCTION_SCHEDULER_LEASE_PORT=$2 && shift 2 ;;
+    --lite_scheduler_enable) LITE_SCHEDULER_ENABLE=$2 && shift 2 ;;
+    --lite_scheduler_enable_all_tenants) LITE_SCHEDULER_ENABLE_ALL_TENANTS=$2 && shift 2 ;;
+    --lite_scheduler_enabled_tenants) LITE_SCHEDULER_ENABLED_TENANTS=$2 && shift 2 ;;
+    --lite_scheduler_enabled_functions) LITE_SCHEDULER_ENABLED_FUNCTIONS=$2 && shift 2 ;;
+    --lite_scheduler_acquire_wait_timeout_ms) LITE_SCHEDULER_ACQUIRE_WAIT_TIMEOUT_MS=$2 && shift 2 ;;
     --enable_function_token_auth) ENABLE_FUNCTION_TOKEN_AUTH=$2 && shift 2 ;;
     --quota_config_file) QUOTA_CONFIG_FILE=$2 && shift 2 ;;
     --enable_meta_service) ENABLE_META_SERVICE=$2 && shift 2 ;;
@@ -982,6 +998,31 @@ function check_greater_equal_zero() {
   fi
 }
 
+function normalize_json_string_array() {
+  local param_name=$1
+  local variable_name=$2
+  local param_value=${!variable_name}
+  local normalized_value
+  if ! normalized_value=$(python3 - "${param_value}" <<'PY'
+import json
+import sys
+
+try:
+    value = json.loads(sys.argv[1])
+except (TypeError, json.JSONDecodeError):
+    sys.exit(1)
+if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+    sys.exit(1)
+print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+PY
+  )
+  then
+    log_error "${param_name} should be a JSON array of strings, please check your input"
+    return 1
+  fi
+  printf -v "${variable_name}" '%s' "${normalized_value}"
+}
+
 function check_port_range() {
   local param_name=$1
   local param_value=$2
@@ -1175,7 +1216,21 @@ function check_runtime_oom_kill_config() {
 }
 
 function check_input() {
+  if ! [[ "${LITE_SCHEDULER_ACQUIRE_WAIT_TIMEOUT_MS}" =~ ^[1-9][0-9]*$ ]]; then
+    log_error "lite_scheduler_acquire_wait_timeout_ms should be a positive integer, please check your input"
+    return 1
+  fi
   check_number_input
+  if [ "X${LITE_SCHEDULER_ENABLE}" != "Xtrue" ] && [ "X${LITE_SCHEDULER_ENABLE}" != "Xfalse" ]; then
+    log_error "lite_scheduler_enable can only be 'true' or 'false'"
+    return 1
+  fi
+  if [ "X${LITE_SCHEDULER_ENABLE_ALL_TENANTS}" != "Xtrue" ] && [ "X${LITE_SCHEDULER_ENABLE_ALL_TENANTS}" != "Xfalse" ]; then
+    log_error "lite_scheduler_enable_all_tenants can only be 'true' or 'false'"
+    return 1
+  fi
+  normalize_json_string_array "lite_scheduler_enabled_tenants" LITE_SCHEDULER_ENABLED_TENANTS || return 1
+  normalize_json_string_array "lite_scheduler_enabled_functions" LITE_SCHEDULER_ENABLED_FUNCTIONS || return 1
   CPU4COMP=${CPU_ALL}
   MEM4COMP=$((MEM_ALL - MEM_RESERVED))
   if [ "X${ENABLE_MASTER}" = "Xtrue" ]; then
@@ -1699,6 +1754,7 @@ function export_config() {
   export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
   export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS QUOTA_CONFIG_FILE
+  export LITE_SCHEDULER_ENABLE LITE_SCHEDULER_ENABLE_ALL_TENANTS LITE_SCHEDULER_ENABLED_TENANTS LITE_SCHEDULER_ENABLED_FUNCTIONS LITE_SCHEDULER_ACQUIRE_WAIT_TIMEOUT_MS
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration
