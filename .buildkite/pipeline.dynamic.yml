@@ -739,7 +739,7 @@ cat << YAML
       # Use bash /dev/tcp (built-in, no nc required) to test connectivity
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true}" in
         1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
         *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
       esac
@@ -1087,7 +1087,7 @@ cat << YAML
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true}" in
         1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
         *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
       esac
@@ -1332,7 +1332,7 @@ cat << YAML
       }
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
       echo "=== Configuring bazel-remote cache ==="
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true}" in
         1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
         *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
       esac
@@ -1664,7 +1664,7 @@ cat << YAML
       bash .buildkite/prepare_sdk_thirdparty_cache.sh "\$\$CACHE_BASE"
       export SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1
       BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
-      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false}" in
+      case "\$\${YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true}" in
         1|true|TRUE|yes|YES|on|ON) _YR_BAZEL_REMOTE_ENABLED=1 ;;
         *) _YR_BAZEL_REMOTE_ENABLED=0 ;;
       esac

@@ -13,6 +13,18 @@ COMPILE_IMAGE = REPO_ROOT / "ci" / "ubuntu" / "Dockerfile.ubuntu2004"
 
 
 class BuildkiteMainPackagingTest(unittest.TestCase):
+    def test_linux_bazel_remote_cache_is_enabled_by_default(self):
+        pipeline = PIPELINE.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            pipeline.count("YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true"),
+            4,
+        )
+        self.assertNotIn(
+            "YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-false",
+            pipeline,
+        )
+
     def test_python314_builder_installs_obs_sdk_for_every_python(self):
         pipeline = PIPELINE.read_text(encoding="utf-8")
         dockerfile = COMPILE_IMAGE.read_text(encoding="utf-8")
