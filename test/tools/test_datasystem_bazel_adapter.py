@@ -88,6 +88,18 @@ class DataSystemBazelAdapterTest(unittest.TestCase):
             target = self._target_block(adapter, target_name)
             self.assertIn('":brpc_factory"', target)
 
+    def test_common_rpc_zmq_client_links_api_deadline_helpers(self):
+        """RPC client users must link the split API deadline helpers."""
+        adapter = ADAPTER.read_text(encoding="utf-8")
+        common_rpc_zmq_client = self._target_block(
+            adapter, "common_rpc_zmq_client"
+        )
+
+        self.assertIn(
+            '"src/datasystem/common/rpc/api_deadline_helpers.cpp"',
+            common_rpc_zmq_client,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

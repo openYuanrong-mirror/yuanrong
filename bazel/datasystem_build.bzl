@@ -1203,6 +1203,7 @@ cc_library(
     name = "common_rpc_zmq_client",
     srcs = [
         "src/datasystem/common/rpc/api_deadline.cpp",
+        "src/datasystem/common/rpc/api_deadline_helpers.cpp",
         "src/datasystem/common/rpc/brpc_stream_close_helper.cpp",
         "src/datasystem/common/rpc/network_latency_estimator.cpp",
         "src/datasystem/common/rpc/rpc_auth_key_manager.cpp",
