@@ -363,43 +363,240 @@ class TestSandboxFileReadWrite(TestCase):
         with open(filepath, "r") as f:
             self.assertEqual(f.read(), "data")
 
+    def test_write_file_append_mode(self):
+        """Test that write_file with mode='a' appends to existing content."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        filepath = os.path.join(self._tmpdir, "append.txt")
+        instance.write_file(filepath, "line1\n", mode="w")
+        instance.write_file(filepath, "line2\n", mode="a")
+        content = instance.read_file(filepath, mode="r")
+        self.assertEqual(content, "line1\nline2\n")
 
-class TestSandboxReadWriteProxy(TestCase):
-    """Test Sandbox.read_file / write_file proxy methods via RPC."""
 
-    def test_read_file_proxy_calls_invoke(self):
+class TestSandboxListFiles(TestCase):
+    """Test SandboxInstance.list_files local behavior."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp(prefix="yr_test_listfiles_")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_list_files_non_recursive(self):
+        """Test listing files in non-recursive mode."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        os.makedirs(os.path.join(self._tmpdir, "testdir"))
+        for name in ["a.txt", "b.py", "c.log"]:
+            with open(os.path.join(self._tmpdir, "testdir", name), "w") as f:
+                f.write("x")
+        os.makedirs(os.path.join(self._tmpdir, "testdir", "sub"))
+
+        items = instance.list_files(os.path.join(self._tmpdir, "testdir"))
+        names = [item["name"] for item in items]
+        self.assertIn("a.txt", names)
+        self.assertIn("b.py", names)
+        self.assertIn("c.log", names)
+        self.assertIn("sub", names)
+
+    def test_list_files_recursive(self):
+        """Test listing files recursively."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "rectest")
+        os.makedirs(os.path.join(base, "sub"))
+        with open(os.path.join(base, "top.txt"), "w") as f:
+            f.write("top")
+        with open(os.path.join(base, "sub", "deep.txt"), "w") as f:
+            f.write("deep")
+
+        items = instance.list_files(base, recursive=True)
+        paths = [item["path"] for item in items]
+        self.assertTrue(any("top.txt" in p for p in paths))
+        self.assertTrue(any("deep.txt" in p for p in paths))
+
+    def test_list_files_max_depth(self):
+        """Test max_depth limits recursion."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "depthtest")
+        os.makedirs(os.path.join(base, "l1", "l2", "l3"))
+        for name, path in [("f0.txt", base), ("f1.txt", os.path.join(base, "l1")),
+                           ("f2.txt", os.path.join(base, "l1", "l2")),
+                           ("f3.txt", os.path.join(base, "l1", "l2", "l3"))]:
+            with open(os.path.join(path, name), "w") as f:
+                f.write("x")
+
+        items = instance.list_files(base, recursive=True, max_depth=1)
+        names = [item["name"] for item in items]
+        self.assertIn("f0.txt", names)
+        self.assertIn("f1.txt", names)
+        self.assertIn("f2.txt", names)  # depth 1 reaches l2
+        self.assertNotIn("f3.txt", names)  # depth 1 does NOT reach l3
+
+    def test_list_files_include_files_false(self):
+        """Test include_files=False returns only directories."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "dirsonly")
+        os.makedirs(base)
+        os.makedirs(os.path.join(base, "subdir"))
+        with open(os.path.join(base, "file.txt"), "w") as f:
+            f.write("x")
+
+        items = instance.list_files(base, include_files=False, include_dirs=True)
+        names = [item["name"] for item in items]
+        self.assertIn("subdir", names)
+        self.assertNotIn("file.txt", names)
+
+    def test_list_files_item_format(self):
+        """Test that each item has all required keys matching jiuwenbox API."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "fmttest")
+        os.makedirs(base)
+        with open(os.path.join(base, "test.txt"), "w") as f:
+            f.write("hello")
+
+        items = instance.list_files(base)
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["name"], "test.txt")
+        self.assertIn("path", item)
+        self.assertEqual(item["size"], 5)
+        self.assertFalse(item["is_directory"])
+        self.assertIn("modified_time", item)
+        self.assertEqual(item["type"], ".txt")
+
+
+class TestSandboxSearchFiles(TestCase):
+    """Test SandboxInstance.search_files local behavior."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp(prefix="yr_test_searchfiles_")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_search_files_by_pattern(self):
+        """Test searching files by glob pattern."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "searchtest")
+        os.makedirs(os.path.join(base, "sub"))
+        for name in ["a.txt", "b.py", "c.txt"]:
+            with open(os.path.join(base, name), "w") as f:
+                f.write("x")
+        with open(os.path.join(base, "sub", "d.txt"), "w") as f:
+            f.write("x")
+
+        items = instance.search_files(base, "*.txt")
+        names = sorted(item["name"] for item in items)
+        self.assertEqual(names, ["a.txt", "c.txt", "d.txt"])
+
+    def test_search_files_with_exclude(self):
+        """Test searching files with exclude_patterns."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "excludetest")
+        os.makedirs(base)
+        for name in ["keep.txt", "skip.bak", "keep.py"]:
+            with open(os.path.join(base, name), "w") as f:
+                f.write("x")
+
+        items = instance.search_files(base, "*", exclude_patterns=["*.bak"])
+        names = sorted(item["name"] for item in items)
+        self.assertIn("keep.txt", names)
+        self.assertIn("keep.py", names)
+        self.assertNotIn("skip.bak", names)
+
+    def test_search_files_no_match(self):
+        """Test searching with a pattern that matches nothing."""
+        from yr.sandbox.sandbox import SandboxInstance
+        instance = SandboxInstance(working_dir=self._tmpdir)
+        base = os.path.join(self._tmpdir, "nomatchtest")
+        os.makedirs(base)
+        with open(os.path.join(base, "a.txt"), "w") as f:
+            f.write("x")
+
+        items = instance.search_files(base, "*.nonexistent")
+        self.assertEqual(len(items), 0)
+
+
+class TestSandboxFileRpc(TestCase):
+    """Test Sandbox.read_file / write_file / list_files / search_files"""
+
+    def test_read_file_invokes_rpc(self):
         """Test that Sandbox.read_file calls self._instance.read_file.invoke()."""
-        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls:
+        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls, \
+             patch('yr.get', return_value=b"content") as mock_get:
             mock_instance = MagicMock()
             mock_instance_cls.options.return_value = mock_instance
             mock_instance.get_name.invoke.return_value = MagicMock()
-            yr.get.return_value = "test-id"
 
             sandbox = yr.sandbox.Sandbox()
-            mock_instance.read_file.invoke.return_value = MagicMock()
-            yr.get.return_value = b"file content"
-
             result = sandbox.read_file("/sandbox/data.bin")
             mock_instance.read_file.invoke.assert_called_once_with(
                 "/sandbox/data.bin", mode="rb"
             )
+            mock_get.assert_called_once()
+            self.assertEqual(result, b"content")
 
-    def test_write_file_proxy_calls_invoke(self):
+    def test_write_file_invokes_rpc(self):
         """Test that Sandbox.write_file calls self._instance.write_file.invoke()."""
-        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls:
+        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls, \
+             patch('yr.get', return_value=None) as mock_get:
             mock_instance = MagicMock()
             mock_instance_cls.options.return_value = mock_instance
             mock_instance.get_name.invoke.return_value = MagicMock()
-            yr.get.return_value = "test-id"
 
             sandbox = yr.sandbox.Sandbox()
-            mock_instance.write_file.invoke.return_value = MagicMock()
-            yr.get.return_value = None
-
             sandbox.write_file("/sandbox/output.txt", "hello", mode="w")
             mock_instance.write_file.invoke.assert_called_once_with(
                 "/sandbox/output.txt", "hello", mode="w"
             )
+            mock_get.assert_called_once()
+
+    def test_list_files_invokes_rpc(self):
+        """
+        Test that Sandbox.list_files calls self._instance.list_files.invoke()
+        and wraps result in {"items": [...]}.
+        """
+        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls, \
+             patch('yr.get', return_value=[{"name": "a.txt"}]) as mock_get:
+            mock_instance = MagicMock()
+            mock_instance_cls.options.return_value = mock_instance
+            mock_instance.get_name.invoke.return_value = MagicMock()
+
+            sandbox = yr.sandbox.Sandbox()
+            result = sandbox.list_files("/tmp", recursive=True)
+            mock_instance.list_files.invoke.assert_called_once()
+            call_kwargs = mock_instance.list_files.invoke.call_args
+            self.assertTrue(call_kwargs[1]["recursive"])
+            mock_get.assert_called_once()
+            self.assertEqual(result, {"items": [{"name": "a.txt"}]})
+
+    def test_search_files_invokes_rpc(self):
+        """
+        Test that Sandbox.search_files calls self._instance.search_files.invoke()
+        and wraps result in {"items": [...]}.
+        """
+        with patch('yr.sandbox.sandbox.SandboxInstance') as mock_instance_cls, \
+             patch('yr.get', return_value=[{"name": "a.py"}]) as mock_get:
+            mock_instance = MagicMock()
+            mock_instance_cls.options.return_value = mock_instance
+            mock_instance.get_name.invoke.return_value = MagicMock()
+
+            sandbox = yr.sandbox.Sandbox()
+            result = sandbox.search_files("/tmp", "*.py", exclude_patterns=["*.pyc"])
+            mock_instance.search_files.invoke.assert_called_once_with(
+                "/tmp", "*.py", exclude_patterns=["*.pyc"]
+            )
+            mock_get.assert_called_once()
+            self.assertEqual(result, {"items": [{"name": "a.py"}]})
 
 
 if __name__ == "__main__":

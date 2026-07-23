@@ -199,6 +199,114 @@ class SandboxInstance:
         """
         return os.environ.get("INSTANCE_ID", "")
 
+    @staticmethod
+    def read_file(path: str, mode: str = "rb"):
+        """
+        Read a file inside the sandbox using native Python I/O.
+
+        This method does NOT depend on container commands like tar/cat/sh,
+        making it suitable for Docker sandboxes with minimal images.
+
+        Args:
+            path (str): Absolute path of the file to read inside the sandbox.
+            mode (str): File open mode. "rb" for binary (default), "r" for text.
+
+        Returns:
+            bytes or str: File content (bytes for "rb", str for "r").
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            OSError: If the file cannot be read.
+
+        Examples:
+            >>> content = yr.get(sandbox.read_file.invoke("/sandbox/data.txt", mode="r"))
+            >>> print(content)
+        """
+        from yr.sandbox.filesystem import _read_file_impl
+        return _read_file_impl(path, mode)
+
+    @staticmethod
+    def write_file(path: str, data, mode: str = "wb") -> None:
+        """
+        Write data to a file inside the sandbox using native Python I/O.
+
+        This method does NOT depend on container commands like tar/tee/sh,
+        making it suitable for Docker sandboxes with minimal images.
+        Parent directories are created automatically.
+
+        Args:
+            path (str): Absolute path of the file to write inside the sandbox.
+            data (bytes or str): Data to write to the file.
+            mode (str): File open mode. "wb" for binary (default), "w" for text,
+                        "a"/"ab" for append.
+
+        Raises:
+            OSError: If the file cannot be written.
+
+        Examples:
+            >>> yr.get(sandbox.write_file.invoke("/sandbox/output.txt", "hello", mode="w"))
+        """
+        from yr.sandbox.filesystem import _write_file_impl
+        return _write_file_impl(path, data, mode)
+
+    @staticmethod
+    def list_files(
+            path: str,
+            recursive: bool = False,
+            max_depth: Optional[int] = None,
+            include_files: bool = True,
+            include_dirs: bool = True,
+    ) -> List[Dict]:
+        """
+        List files and directories inside the sandbox using native Python I/O.
+
+        Args:
+            path (str): Absolute path of the directory to list.
+            recursive (bool): Whether to list recursively. Default False.
+            max_depth (Optional[int]): Maximum recursion depth. None = unlimited.
+            include_files (bool): Include files in result. Default True.
+            include_dirs (bool): Include directories in result. Default True.
+
+        Returns:
+            List[Dict]: List of item dicts with keys: name, path, size,
+                        is_directory, modified_time, type.
+
+        Raises:
+            FileNotFoundError: If the directory does not exist.
+            OSError: If the path cannot be accessed.
+        """
+        from yr.sandbox.filesystem import _list_files_impl
+        return _list_files_impl(path, recursive=recursive, max_depth=max_depth,
+                                include_files=include_files, include_dirs=include_dirs)
+
+    @staticmethod
+    def search_files(
+            path: str,
+            pattern: str,
+            exclude_patterns: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """
+        Search files inside the sandbox by glob pattern using native Python I/O.
+
+        Recursively searches under ``path`` for files matching ``pattern``,
+        excluding any path matching ``exclude_patterns``.
+
+        Args:
+            path (str): Absolute path of the search root directory.
+            pattern (str): Glob pattern to match file names (e.g. "*.txt").
+            exclude_patterns (Optional[List[str]]): Glob patterns to exclude.
+
+        Returns:
+            List[Dict]: List of item dicts with keys: name, path, size,
+                        is_directory, modified_time, type.
+
+        Raises:
+            FileNotFoundError: If the search root does not exist.
+            OSError: If the path cannot be accessed.
+        """
+        from yr.sandbox.filesystem import _search_files_impl
+        return _search_files_impl(path, pattern, exclude_patterns=exclude_patterns)
+
     def execute(
         self,
         command: Union[str, List[str]],
@@ -281,7 +389,7 @@ class SandboxInstance:
             )
             return {
                 "returncode": result.returncode,
-                "stdout": sys.version + '\n' + result.stdout,
+                "stdout": result.stdout,
                 "stderr": result.stderr,
             }
         except subprocess.TimeoutExpired as e:
@@ -292,56 +400,6 @@ class SandboxInstance:
             }
         except Exception as e:
             return {"returncode": -1, "stdout": "", "stderr": str(e)}
-
-    def read_file(self, path: str, mode: str = "rb"):
-        """
-        Read a file inside the sandbox using native Python I/O.
-
-        This method does NOT depend on container commands like tar/cat/sh,
-        making it suitable for Docker sandboxes with minimal images.
-
-        Args:
-            path (str): Absolute path of the file to read inside the sandbox.
-            mode (str): File open mode. "rb" for binary (default), "r" for text.
-
-        Returns:
-            bytes or str: File content (bytes for "rb", str for "r").
-
-        Raises:
-            FileNotFoundError: If the file does not exist.
-            OSError: If the file cannot be read.
-
-        Examples:
-            >>> content = yr.get(sandbox.read_file.invoke("/sandbox/data.txt", mode="r"))
-            >>> print(content)
-        """
-        with open(path, mode) as f:
-            return f.read()
-
-    def write_file(self, path: str, data, mode: str = "wb") -> None:
-        """
-        Write data to a file inside the sandbox using native Python I/O.
-
-        This method does NOT depend on container commands like tar/tee/sh,
-        making it suitable for Docker sandboxes with minimal images.
-        Parent directories are created automatically.
-
-        Args:
-            path (str): Absolute path of the file to write inside the sandbox.
-            data (bytes or str): Data to write to the file.
-            mode (str): File open mode. "wb" for binary (default), "w" for text.
-
-        Raises:
-            OSError: If the file cannot be written.
-
-        Examples:
-            >>> yr.get(sandbox.write_file.invoke("/sandbox/output.txt", "hello", mode="w"))
-        """
-        parent_dir = os.path.dirname(path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
-        with open(path, mode) as f:
-            f.write(data)
 
     def get_working_dir(self) -> str:
         """
@@ -889,7 +947,7 @@ class Sandbox:
 
         Args:
             path (str): Absolute path of the file inside the sandbox.
-            mode (str): "rb" for binary (default), "r" for text.
+            mode (str): Python open mode. "rb" for binary (default), "r" for text.
 
         Returns:
             bytes or str: File content.
@@ -911,12 +969,75 @@ class Sandbox:
         Args:
             path (str): Absolute path of the file inside the sandbox.
             data (bytes or str): Data to write.
-            mode (str): "wb" for binary (default), "w" for text.
+            mode (str): Python open mode. "wb" for binary (default), "w" for
+                        text, "a"/"ab" for append.
 
         Examples:
             >>> sb.write_file("/sandbox/output.txt", "hello world", mode="w")
         """
         return yr.get(self._instance.write_file.invoke(path, data, mode=mode))
+
+    def list_files(
+        self,
+        path: str,
+        recursive: bool = False,
+        max_depth: Optional[int] = None,
+        include_files: bool = True,
+        include_dirs: bool = True,
+    ) -> Dict:
+        """
+        List files and directories in the sandbox via RPC.
+
+        Args:
+            path (str): Absolute path of the directory to list.
+            recursive (bool): Whether to list recursively. Default False.
+            max_depth (Optional[int]): Maximum recursion depth. None = unlimited.
+            include_files (bool): Include files in result. Default True.
+            include_dirs (bool): Include directories in result. Default True.
+
+        Returns:
+            Dict: ``{"items": [{name, path, size, is_directory, modified_time, type}, ...]}``
+
+        Examples:
+            >>> result = sb.list_files("/tmp", recursive=True, max_depth=2)
+            >>> for item in result["items"]:
+            ...     print(item["name"], item["size"])
+        """
+        items = yr.get(self._instance.list_files.invoke(
+            path,
+            recursive=recursive,
+            max_depth=max_depth,
+            include_files=include_files,
+            include_dirs=include_dirs,
+        ))
+        return {"items": items}
+
+    def search_files(
+        self,
+        path: str,
+        pattern: str,
+        exclude_patterns: Optional[List[str]] = None,
+    ) -> Dict:
+        """
+        Search files in the sandbox by glob pattern via RPC.
+
+        Args:
+            path (str): Absolute path of the search root directory.
+            pattern (str): Glob pattern to match file names (e.g. "*.txt").
+            exclude_patterns (Optional[List[str]]): Glob patterns to exclude.
+
+        Returns:
+            Dict: ``{"items": [{name, path, size, is_directory, modified_time, type}, ...]}``
+
+        Examples:
+            >>> result = sb.search_files("/tmp", "*.py", exclude_patterns=["*.pyc"])
+        """
+        items = yr.get(self._instance.search_files.invoke(
+            path,
+            pattern,
+            exclude_patterns=exclude_patterns,
+        ))
+        return {"items": items}
 
     def get_working_dir(self):
         """Get the working directory of the sandbox."""
