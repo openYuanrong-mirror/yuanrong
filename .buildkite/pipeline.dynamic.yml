@@ -860,6 +860,12 @@ cat << YAML
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
       cp output/*.whl artifacts/release/ 2>/dev/null || true
+
+      echo "=== [5.5/6] Build language-runtime-free core wheel ==="
+      python3 .buildkite/package_core_wheel.py \
+        --input-dir output \
+        --output-dir artifacts/release
+      find artifacts/release -maxdepth 1 -name 'openyuanrong_core-*.whl' -print -quit | grep -q .
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
@@ -1443,6 +1449,12 @@ cat << YAML
       mkdir -p artifacts/release
       cp output/openyuanrong-*.tar.gz artifacts/release/ 2>/dev/null || true
       cp output/*.whl artifacts/release/ 2>/dev/null || true
+
+      echo "=== [5.5/6] Build language-runtime-free core wheel ==="
+      python3 .buildkite/package_core_wheel.py \
+        --input-dir output \
+        --output-dir artifacts/release
+      find artifacts/release -maxdepth 1 -name 'openyuanrong_core-*.whl' -print -quit | grep -q .
       ls -lh artifacts/release/
       bash .buildkite/upload_buildkite_packages.sh artifacts/release/*.whl
 
