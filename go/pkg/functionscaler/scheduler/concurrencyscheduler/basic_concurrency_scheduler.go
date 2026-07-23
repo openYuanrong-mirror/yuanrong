@@ -1166,9 +1166,6 @@ func (bcs *basicConcurrencyScheduler) acquireSessionThread(designateThreadID str
 			bcs.funcKeyWithRes)
 		return nil, scheduler.ErrInternal
 	}
-	if len(record.availThdMap) == 0 {
-		return nil, ErrNoInsThdAvail
-	}
 	expiring, _ := record.expiring.Load().(bool)
 	if expiring {
 		select {
@@ -1177,6 +1174,9 @@ func (bcs *basicConcurrencyScheduler) acquireSessionThread(designateThreadID str
 		}
 	}
 	record.ttl = time.Duration(sessionConfig.SessionTTL) * time.Second
+	if len(record.availThdMap) == 0 {
+		return nil, ErrNoInsThdAvail
+	}
 	// 指定租约id时，需要替换allocThdMap中的id
 	threadID, err := record.GetOrReplaceDesignateThreadFromAvailThdMap(designateThreadID)
 	if err != nil {
