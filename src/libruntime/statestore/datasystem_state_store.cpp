@@ -370,7 +370,9 @@ ErrorInfo DSCacheStateStore::HealthCheck()
 {
     STATE_STORE_INIT_ONCE();
     auto status = dsStateClient->HealthCheck();
-    if (!status.OK()) {
+    if (!status.IsOk()) {
+        YRLOG_ERROR("datasystem client is not healthy, code:{}, msg:{}", fmt::underlying(status.GetCode()),
+                    status.GetMsg());
         return ErrorInfo(ErrorCode::ERR_CONNECTION_FAILED, "datasystem client is not healthy");
     }
     return ErrorInfo();
