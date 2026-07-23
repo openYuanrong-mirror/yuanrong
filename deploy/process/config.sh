@@ -48,7 +48,9 @@ enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_f
 lite_scheduler_enable:,lite_scheduler_enable_all_tenants:,lite_scheduler_enabled_tenants:,lite_scheduler_enabled_functions:,lite_scheduler_acquire_wait_timeout_ms:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
-function_agent_port:,function_proxy_port:,ssh_enable:,ssh_backend_public_key_dir:,frontend_ssh_max_connections:,tcp_tunnel_port:,tcp_tunnel_max_connections:,\
+function_agent_port:,function_proxy_port:,ssh_enable:,ssh_backend_public_key_dir:,frontend_ssh_auth_enable:,frontend_ssh_address:,\
+frontend_ssh_host_key:,frontend_ssh_authorized_keys:,frontend_ssh_backend_key:,frontend_ssh_max_connections:,\
+tcp_tunnel_port:,tcp_tunnel_max_connections:,\
 function_proxy_grpc_port:,global_scheduler_port:,runtime_init_port:,\
 function_agent_litebus_thread:,function_master_litebus_thread:,function_proxy_litebus_thread:,\
 meta_store_mode:,\
@@ -251,6 +253,11 @@ MERGE_PROCESS_ENABLE="true"
 FUNCTION_PROXY_MERGE_PROCESS_ENABLE="false"
 SSH_ENABLE="false"
 YR_SSH_BACKEND_PUBLIC_KEY_DIR=""
+FRONTEND_SSH_AUTH_ENABLE="true"
+FRONTEND_SSH_ADDRESS=":2222"
+FRONTEND_SSH_HOST_KEY=""
+FRONTEND_SSH_AUTHORIZED_KEYS=""
+FRONTEND_SSH_BACKEND_KEY=""
 FRONTEND_SSH_MAX_CONNECTIONS=1024
 TCP_TUNNEL_PORT=22775
 TCP_TUNNEL_MAX_CONNECTIONS=1024
@@ -528,6 +535,11 @@ function usage() {
   echo -e "     --function_proxy_grpc_port                          function proxy port for driver (default 22773)"
   echo -e "     --ssh_enable                                        enable frontend SSH and function proxy tunnel (default false)"
   echo -e "     --ssh_backend_public_key_dir                        host directory containing authorized_keys for sandbox mounts"
+  echo -e "     --frontend_ssh_auth_enable                          authenticate external SSH clients with authorized_keys (default true)"
+  echo -e "     --frontend_ssh_address                              frontend SSH listen address (default :2222)"
+  echo -e "     --frontend_ssh_host_key                             frontend SSH server host private key file"
+  echo -e "     --frontend_ssh_authorized_keys                      authorized public keys for external SSH clients"
+  echo -e "     --frontend_ssh_backend_key                          private key used by frontend to access instance sshd"
   echo -e "     --frontend_ssh_max_connections                      frontend concurrent SSH connection limit (default 1024)"
   echo -e "     --tcp_tunnel_port                                   function proxy TCP tunnel port (default 22775)"
   echo -e "     --tcp_tunnel_max_connections                        function proxy concurrent TCP tunnel connection limit (default 1024)"
@@ -814,6 +826,11 @@ function parse_opt() {
     --function_proxy_grpc_port) FUNCTION_PROXY_GRPC_PORT=$2 && port_policy_table["function_proxy_grpc_port"]="FIX" && shift 2 ;;
     --ssh_enable) SSH_ENABLE=$2 && shift 2 ;;
     --ssh_backend_public_key_dir) YR_SSH_BACKEND_PUBLIC_KEY_DIR=$(readlink -m "$2") && shift 2 ;;
+    --frontend_ssh_auth_enable) FRONTEND_SSH_AUTH_ENABLE=$2 && shift 2 ;;
+    --frontend_ssh_address) FRONTEND_SSH_ADDRESS=$2 && shift 2 ;;
+    --frontend_ssh_host_key) FRONTEND_SSH_HOST_KEY=$(readlink -m "$2") && shift 2 ;;
+    --frontend_ssh_authorized_keys) FRONTEND_SSH_AUTHORIZED_KEYS=$(readlink -m "$2") && shift 2 ;;
+    --frontend_ssh_backend_key) FRONTEND_SSH_BACKEND_KEY=$(readlink -m "$2") && shift 2 ;;
     --frontend_ssh_max_connections) FRONTEND_SSH_MAX_CONNECTIONS=$2 && shift 2 ;;
     --tcp_tunnel_port) TCP_TUNNEL_PORT=$2 && port_policy_table["tcp_tunnel_port"]="FIX" && shift 2 ;;
     --tcp_tunnel_max_connections) TCP_TUNNEL_MAX_CONNECTIONS=$2 && shift 2 ;;
@@ -1052,6 +1069,15 @@ function check_connection_limit() {
   local param_value=$2
   if ! [[ "${param_value}" =~ ^[1-9][0-9]*$ ]] || [[ ${param_value} -gt 65535 ]]; then
     log_error "${param_name} should be in range [1-65535], please check your input"
+    return 1
+  fi
+}
+
+function check_readable_file() {
+  local param_name=$1
+  local file_path=$2
+  if [ ! -f "${file_path}" ] || [ ! -r "${file_path}" ]; then
+    log_error "${param_name} must be an existing readable file"
     return 1
   fi
 }
@@ -1383,6 +1409,14 @@ function check_input() {
      log_error "ssh_enable can only be 'true' or 'false'"
      return 1
   fi
+  if [ "X${FRONTEND_SSH_AUTH_ENABLE}" != "Xtrue" ] && [ "X${FRONTEND_SSH_AUTH_ENABLE}" != "Xfalse" ]; then
+    log_error "frontend_ssh_auth_enable can only be 'true' or 'false'"
+    return 1
+  fi
+  if [ -z "${FRONTEND_SSH_ADDRESS}" ]; then
+    log_error "frontend_ssh_address cannot be empty"
+    return 1
+  fi
   check_connection_limit "frontend_ssh_max_connections" "${FRONTEND_SSH_MAX_CONNECTIONS}" || return 1
   check_connection_limit "tcp_tunnel_max_connections" "${TCP_TUNNEL_MAX_CONNECTIONS}" || return 1
   if [ "X${SSH_ENABLE}" == "Xtrue" ]; then
@@ -1393,6 +1427,13 @@ function check_input() {
     if [ ! -r "${YR_SSH_BACKEND_PUBLIC_KEY_DIR}/authorized_keys" ]; then
       log_error "${YR_SSH_BACKEND_PUBLIC_KEY_DIR}/authorized_keys must be readable"
       return 1
+    fi
+    if [ "X${ENABLE_FAAS_FRONTEND}" == "Xtrue" ] || [ "X${ENABLE_FAAS_FRONTEND}" == "XTRUE" ]; then
+      check_readable_file "frontend_ssh_host_key" "${FRONTEND_SSH_HOST_KEY}" || return 1
+      check_readable_file "frontend_ssh_backend_key" "${FRONTEND_SSH_BACKEND_KEY}" || return 1
+      if [ "X${FRONTEND_SSH_AUTH_ENABLE}" == "Xtrue" ]; then
+        check_readable_file "frontend_ssh_authorized_keys" "${FRONTEND_SSH_AUTHORIZED_KEYS}" || return 1
+      fi
     fi
   fi
   if [ "X${IS_SCHEDULE_TOLERATE_ABNORMAL}" != "Xtrue" ] && [ "X${IS_SCHEDULE_TOLERATE_ABNORMAL}" != "Xfalse" ]; then
@@ -1761,7 +1802,8 @@ function export_config() {
   export ENABLE_RUNTIME_LAUNCHER RUNTIME_LAUNCHER_SOCK
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE SSH_ENABLE
-  export FRONTEND_SSH_MAX_CONNECTIONS TCP_TUNNEL_PORT TCP_TUNNEL_MAX_CONNECTIONS
+  export FRONTEND_SSH_AUTH_ENABLE FRONTEND_SSH_ADDRESS FRONTEND_SSH_HOST_KEY FRONTEND_SSH_AUTHORIZED_KEYS
+  export FRONTEND_SSH_BACKEND_KEY FRONTEND_SSH_MAX_CONNECTIONS TCP_TUNNEL_PORT TCP_TUNNEL_MAX_CONNECTIONS
   export YR_SSH_BACKEND_PUBLIC_KEY_DIR
   export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE
   export GLOBAL_SCHEDULER_PORT METRICS_COLLECTOR_TYPE ETCD_PROXY_ENABLE
