@@ -40,7 +40,6 @@ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "new_git_repository")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 load("//bazel:host_platform_repo.bzl", "host_platform_repo")
-load("//bazel:platform_local_repository.bzl", "platform_local_repository")
 
 host_platform_repo(name = "host_platform")
 
@@ -401,19 +400,21 @@ http_archive(
     build_file = "@//bazel:yaml_cpp.BUILD",
 )
 
-# DataSystem SDK - use stub targets on macOS where the native SDK is disabled
-platform_local_repository(
-    name = "datasystem_sdk",
-    build_file = "@//bazel:datasystem_build.bzl",
+# DataSystem owns the Bazel 6 source SDK integration. This bootstrap repository
+# only makes its WORKSPACE macro available to the parent build.
+local_repository(
+    name = "datasystem_sdk_config",
     path = "datasystem",
-    stub_build_file = "@//bazel:stub_datasystem.bzl",
 )
 
-# DataSystem SDK source build external dependencies
+load("@datasystem_sdk_config//bazel/sdk:workspace.bzl", "datasystem_source_sdk")
 load("@host_platform//:defs.bzl", "IS_MACOS")
-load("//bazel:maybe_datasystem_deps.bzl", "maybe_datasystem_deps")
 
-maybe_datasystem_deps(not IS_MACOS)
+datasystem_source_sdk(
+    name = "datasystem_sdk",
+    path = "datasystem",
+    enabled = not IS_MACOS,
+)
 
 load("@bazel_tools//tools/jdk:remote_java_repository.bzl", "remote_java_repository")
 

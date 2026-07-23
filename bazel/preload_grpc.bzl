@@ -66,7 +66,8 @@ def preload_grpc():
         ],
         patches = [
             "@//patch:grpc_1.65.patch",
-            "@//patch:grpc_1_65_4_gcc_7_3.patch"
+            "@//patch:grpc_1_65_4_gcc_7_3.patch",
+            "@//patch:grpc_1_65_4_external_repo.patch",
         ]
     )
 

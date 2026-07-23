@@ -285,6 +285,8 @@ TEST_F(RTDirectCallTest, FunctionProxyDisconnectedTest)
 
 TEST_F(RTDirectCallTest, TestWhenMessageTooLarge)
 {
+    auto originalMaxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE();
+    Config::Instance().YR_MAX_GRPC_SIZE() = 10;
     DirectInvoke();
     uint32_t SIZE_IN_BYTES = 11 * YR::Libruntime::SIZE_MEGA_BYTES;
     char *buffer = static_cast<char *>(malloc(SIZE_IN_BYTES));
@@ -313,6 +315,7 @@ TEST_F(RTDirectCallTest, TestWhenMessageTooLarge)
     auto ret = pro.get_future().get();
     EXPECT_EQ(ret.code(), ERR_PARAM_INVALID);
     free(buffer);
+    Config::Instance().YR_MAX_GRPC_SIZE() = originalMaxGrpcSize;
 }
 
 }  // namespace test

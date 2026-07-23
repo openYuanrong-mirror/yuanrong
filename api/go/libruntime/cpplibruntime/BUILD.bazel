@@ -11,7 +11,7 @@ cc_library(
         "@securec//:securec",
     ] + select({
         "//:disable_datasystem": [],
-        "//conditions:default": ["@datasystem_sdk//:datasystem_client_lib"],
+        "//conditions:default": ["@datasystem_sdk//bazel/sdk:client"],
     }),
     hdrs = [
         "clibruntime.h",

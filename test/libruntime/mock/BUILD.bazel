@@ -18,6 +18,6 @@ cc_library(
         "@gtest//:gtest_main",
     ] + select({
         "//:disable_datasystem": [],
-        "//conditions:default": ["@datasystem_sdk//:public_hdrs"],
+        "//conditions:default": ["@datasystem_sdk//bazel/sdk:headers"],
     })
 )
