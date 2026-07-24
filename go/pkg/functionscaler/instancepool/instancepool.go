@@ -207,6 +207,11 @@ type InstancePool interface {
 	handleRatioChange(ratio int)
 	CleanOrphansInstanceQueue()
 	QuerySession(sessionID string) (string, error)
+	// TriggerScale triggers the scale pipeline of the default resKey's scaled
+	// instance queue. Called on the funcKey owner scheduler when a
+	// cross-scheduler ScaleHint arrives. minConcurrency carries the hint's
+	// lower-bound instance thread demand. Pools without a scale pipeline no-op.
+	TriggerScale(minConcurrency int) error
 }
 
 // GenericInstancePool is a generic instance pool to manage instances of a specific function
@@ -1400,6 +1405,39 @@ func (gi *GenericInstancePool) QuerySession(sessionID string) (string, error) {
 	}
 
 	return "", fmt.Errorf("session %s not found", sessionID)
+}
+
+func (gi *GenericInstancePool) getScaleTriggerQueue() (*instancequeue.ScaledInstanceQueue, types.InstanceType) {
+	gi.RLock()
+	defer gi.RUnlock()
+	insQueue := gi.scaledInstanceQueue[gi.defaultResKey]
+	queueType := types.InstanceTypeScaled
+	if gi.FuncSpec.InstanceMetaData.ScalePolicy == types.InstanceScalePolicyStaticFunction {
+		insQueue = gi.reservedInstanceQueue[gi.defaultResKey]
+		queueType = types.InstanceTypeReserved
+	}
+	return insQueue, queueType
+}
+
+// TriggerScale triggers the elastic queue for the default resKey. Static
+// functions cold-start through the reserved queue's WiseCloudScaler; other
+// functions use the scaled queue. minConcurrency carries the hint's lower-bound
+// instance thread demand down to the scaler.
+func (gi *GenericInstancePool) TriggerScale(minConcurrency int) error {
+	insQueue, queueType := gi.getScaleTriggerQueue()
+	if insQueue == nil {
+		log.GetLogger().With(zap.String("funcKey", gi.FuncSpec.FuncKey)).
+			Errorf("%s instance queue of default resKey not found", queueType)
+		return fmt.Errorf("%s instance queue of default resKey not found", queueType)
+	}
+	insScheduler := insQueue.GetInstanceScheduler()
+	if insScheduler == nil {
+		log.GetLogger().With(zap.String("funcKey", gi.FuncSpec.FuncKey)).
+			Errorf("instance scheduler of default resKey %s queue is nil", queueType)
+		return fmt.Errorf("instance scheduler of default resKey %s queue is nil", queueType)
+	}
+	insScheduler.TriggerScale(minConcurrency)
+	return nil
 }
 
 func generateInstanceConfig(insConf *instanceconfig.Configuration) *instanceconfig.Configuration {

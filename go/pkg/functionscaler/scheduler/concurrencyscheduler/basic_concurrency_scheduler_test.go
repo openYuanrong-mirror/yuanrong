@@ -79,6 +79,7 @@ type fakeInstanceScaler struct {
 	scaling         bool
 	scaleUpFunc     func()
 	targetRsvInsNum int
+	triggerCount    int
 }
 
 func (f *fakeInstanceScaler) SetFuncOwner(isManaged bool) {
@@ -87,7 +88,8 @@ func (f *fakeInstanceScaler) SetFuncOwner(isManaged bool) {
 func (f *fakeInstanceScaler) SetEnable(enable bool) {
 }
 
-func (f *fakeInstanceScaler) TriggerScale() {
+func (f *fakeInstanceScaler) TriggerScale(_ int) {
+	f.triggerCount++
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		if f.scaleUpFunc != nil {

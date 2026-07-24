@@ -295,3 +295,9 @@ func (ms *MicroServiceScheduler) selectInstanceWithRR() (*types.Instance, error)
 // HandleFuncOwnerUpdate -
 func (ms *MicroServiceScheduler) HandleFuncOwnerUpdate(isFuncOwner bool) {
 }
+
+// TriggerScale is a no-op: microservice scheduler has no elastic scale pipeline.
+func (ms *MicroServiceScheduler) TriggerScale(_ int) {
+	log.GetLogger().With(zap.String("funcKeyWithRes", ms.funcKeyWithRes)).
+		Debugf("trigger scale is no-op for microservice scheduler")
+}

@@ -46,6 +46,7 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/instancepool"
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
+	"yuanrong.org/kernel/pkg/functionscaler/litescheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/state"
@@ -1784,5 +1785,77 @@ func TestAcquireNonOwnerSchedulerErrorCode(t *testing.T) {
 		if ok {
 			convey.So(resp1.InstanceAllocFailed[targetName].ErrorCode, convey.ShouldNotEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 		}
+	})
+}
+
+func TestFaaSScheduler_HandleScaleHint(t *testing.T) {
+	convey.Convey("non-owner rejects with ownerID", t, func() {
+		fs := &FaaSScheduler{}
+		patches := ApplyMethod(reflect.TypeOf(selfregister.GlobalSchedulerProxy), "CheckFuncOwner",
+			func(_ *selfregister.SchedulerProxy, funcKey string) (string, bool) {
+				return "owner-id-9", false
+			})
+		defer patches.Reset()
+		accepted, code, ownerID := fs.HandleScaleHint(&litescheduler.ScaleHint{FuncKey: "t1/fA/v1"}, "tr")
+		convey.So(accepted, convey.ShouldBeFalse)
+		convey.So(code, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		convey.So(ownerID, convey.ShouldEqual, "owner-id-9")
+	})
+	convey.Convey("funcSpec missing returns FuncMetaNotFound", t, func() {
+		fs := &FaaSScheduler{}
+		patches := ApplyMethod(reflect.TypeOf(selfregister.GlobalSchedulerProxy), "CheckFuncOwner",
+			func(_ *selfregister.SchedulerProxy, funcKey string) (string, bool) { return "self", true })
+		defer patches.Reset()
+		oldGet := getFuncSpecFunc
+		getFuncSpecFunc = func(_ *registry.Registry, _ string) *types.FunctionSpecification { return nil }
+		defer func() { getFuncSpecFunc = oldGet }()
+		accepted, code, _ := fs.HandleScaleHint(&litescheduler.ScaleHint{FuncKey: "t1/fA/v1"}, "tr")
+		convey.So(accepted, convey.ShouldBeFalse)
+		convey.So(code, convey.ShouldEqual, statuscode.FuncMetaNotFoundErrCode)
+	})
+	convey.Convey("owner triggers scale and accepts", t, func() {
+		fs := &FaaSScheduler{PoolManager: instancepool.NewPoolManager(make(chan struct{}))}
+		patches := ApplyMethod(reflect.TypeOf(selfregister.GlobalSchedulerProxy), "CheckFuncOwner",
+			func(_ *selfregister.SchedulerProxy, funcKey string) (string, bool) { return "self", true })
+		defer patches.Reset()
+		oldGet := getFuncSpecFunc
+		getFuncSpecFunc = func(_ *registry.Registry, _ string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{FuncKey: "t1/fA/v1"}
+		}
+		defer func() { getFuncSpecFunc = oldGet }()
+		triggered := false
+		gotMinConcurrency := 0
+		pmPatches := ApplyMethod(reflect.TypeOf(fs.PoolManager), "TriggerScale",
+			func(_ *instancepool.PoolManager, funcKey string, minConcurrency int) error {
+				triggered = true
+				gotMinConcurrency = minConcurrency
+				return nil
+			})
+		defer pmPatches.Reset()
+		accepted, code, _ := fs.HandleScaleHint(&litescheduler.ScaleHint{FuncKey: "t1/fA/v1",
+			RequestedConcurrency: 2}, "tr")
+		convey.So(accepted, convey.ShouldBeTrue)
+		convey.So(code, convey.ShouldEqual, 0)
+		convey.So(triggered, convey.ShouldBeTrue)
+		convey.So(gotMinConcurrency, convey.ShouldEqual, 2)
+	})
+	convey.Convey("trigger scale error returns internal error", t, func() {
+		fs := &FaaSScheduler{PoolManager: instancepool.NewPoolManager(make(chan struct{}))}
+		patches := ApplyMethod(reflect.TypeOf(selfregister.GlobalSchedulerProxy), "CheckFuncOwner",
+			func(_ *selfregister.SchedulerProxy, funcKey string) (string, bool) { return "self", true })
+		defer patches.Reset()
+		oldGet := getFuncSpecFunc
+		getFuncSpecFunc = func(_ *registry.Registry, _ string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{FuncKey: "t1/fA/v1"}
+		}
+		defer func() { getFuncSpecFunc = oldGet }()
+		pmPatches := ApplyMethod(reflect.TypeOf(fs.PoolManager), "TriggerScale",
+			func(_ *instancepool.PoolManager, funcKey string, minConcurrency int) error {
+				return fmt.Errorf("pool not found")
+			})
+		defer pmPatches.Reset()
+		accepted, code, _ := fs.HandleScaleHint(&litescheduler.ScaleHint{FuncKey: "t1/fA/v1"}, "tr")
+		convey.So(accepted, convey.ShouldBeFalse)
+		convey.So(code, convey.ShouldEqual, statuscode.StatusInternalServerError)
 	})
 }

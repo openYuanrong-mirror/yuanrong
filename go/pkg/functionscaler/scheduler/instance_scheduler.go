@@ -83,6 +83,12 @@ type InstanceScheduler interface {
 	DelInstance(instance *types.Instance) error
 	PopInstance(force bool) *types.Instance
 	ConnectWithInstanceScaler(instanceScaler scaler.InstanceScaler)
+	// TriggerScale notifies the connected instanceScaler to evaluate scale-up.
+	// It is the same entry used by the cold-start acquire path; implementations
+	// without an elastic scale pipeline may no-op. minConcurrency carries a
+	// lower-bound instance thread demand (e.g. from a LiteScheduler scale hint);
+	// the legacy acquire path passes 0.
+	TriggerScale(minConcurrency int)
 	HandleFuncSpecUpdate(funcSpec *types.FunctionSpecification)
 	HandleInstanceUpdate(instance *types.Instance)
 	HandleFuncOwnerUpdate(isFuncOwner bool)

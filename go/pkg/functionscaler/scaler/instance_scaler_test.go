@@ -284,6 +284,25 @@ func TestTriggerScale(t *testing.T) {
 	})
 }
 
+func TestPredictScalerTriggerScaleWithMinDemand(t *testing.T) {
+	ps := &PredictScaler{
+		logger:           log.GetLogger(),
+		concurrentNum:    2,
+		checkReqNumFunc:  func() int { return 0 },
+		scaleUpTriggerCh: make(chan struct{}, 1),
+	}
+
+	ps.TriggerScale(3)
+	ps.TriggerScale(1)
+
+	convey.Convey("external demand is retained without a legacy queued request", t, func() {
+		convey.So(ps.predictScaleUpFlag, convey.ShouldBeTrue)
+		convey.So(ps.getMinScaleDemand(), convey.ShouldEqual, 3)
+		convey.So(ps.getScaleUpInstancesNum(), convey.ShouldEqual, 2)
+		convey.So(ps.getMinScaleDemand(), convey.ShouldEqual, 0)
+	})
+}
+
 func TestCalSleepTime(t *testing.T) {
 	config.GlobalConfig.PredictGroupWindow = 15 * 60 * 1000
 	convey.Convey("CalSleepTime", t, func() {
@@ -409,7 +428,7 @@ func TestPredictScalerProcess(t *testing.T) {
 		ps.totalInsThdNum = 4
 		ps.concurrentNum = 1
 		ps.HandleInsThdUpdate(1, 0)
-		ps.TriggerScale()
+		ps.TriggerScale(0)
 
 		ps.pendingInsThdNum = 2
 		ps.predictDownDiff = 1

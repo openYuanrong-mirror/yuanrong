@@ -1743,3 +1743,12 @@ func (bcs *basicConcurrencyScheduler) createOverAcqThread(record *sessionRecord,
 
 	return insAlloc, nil
 }
+
+// TriggerScale publishes TriggerScaleTopic to notify the connected instanceScaler
+// to evaluate scale-up. Same entry as the cold-start acquire path. minConcurrency
+// carries a lower-bound instance thread demand to the scaler (0 on the legacy path).
+func (bcs *basicConcurrencyScheduler) TriggerScale(minConcurrency int) {
+	log.GetLogger().With(zap.String("funcKeyWithRes", bcs.funcKeyWithRes)).
+		Debugf("trigger scale, publish %s event", scheduler.TriggerScaleTopic)
+	bcs.publishInsThdEvent(scheduler.TriggerScaleTopic, minConcurrency)
+}

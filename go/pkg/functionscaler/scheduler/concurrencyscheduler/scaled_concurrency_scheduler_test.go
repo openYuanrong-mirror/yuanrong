@@ -372,3 +372,15 @@ func Test_instanceQueueWithBuffer_DelByID(t *testing.T) {
 	})
 
 }
+
+func TestScaledConcurrencySchedulerTriggerScale(t *testing.T) {
+	convey.Convey("TriggerScale notifies connected instanceScaler via TriggerScaleTopic", t, func() {
+		funcSpec := &types.FunctionSpecification{FuncKey: "t1/fA/v1"}
+		reqQueue := requestqueue.NewInsAcqReqQueue("t1/fA/v1-", time.Second)
+		s := NewScaledConcurrencyScheduler(funcSpec, resspeckey.ResSpecKey{}, reqQueue)
+		fake := &fakeInstanceScaler{}
+		s.ConnectWithInstanceScaler(fake)
+		s.TriggerScale(1)
+		convey.So(fake.triggerCount, convey.ShouldEqual, 1)
+	})
+}

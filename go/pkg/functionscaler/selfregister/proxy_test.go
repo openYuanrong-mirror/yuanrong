@@ -17,6 +17,7 @@
 package selfregister
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -153,5 +154,81 @@ func TestCheckHashOwnerEquivalentToCheckFuncOwner(t *testing.T) {
 		_, okSession := sp.CheckHashOwner("tenant1/sessionXYZ")
 		_ = okFunc
 		_ = okSession
+	})
+}
+
+func TestSchedulerProxyFindHashOwner(t *testing.T) {
+	convey.Convey("single node ring returns self as owner", t, func() {
+		proxy := NewSchedulerProxy(loadbalance.NewCHGeneric())
+		proxy.Add(&types.InstanceInfo{
+			InstanceName: "sched-1",
+			InstanceID:   "id-1",
+			Address:      "10.0.0.1:8080",
+		}, "", "", true)
+		oldSelf := SelfInstanceID
+		SelfInstanceID = "sched-1"
+		defer func() { SelfInstanceID = oldSelf }()
+
+		info, owned := proxy.FindHashOwner("tenantA/fA/v1")
+		convey.So(info, convey.ShouldNotBeNil)
+		convey.So(info.Address, convey.ShouldEqual, "10.0.0.1:8080")
+		convey.So(owned, convey.ShouldBeTrue)
+	})
+	convey.Convey("empty ring returns nil", t, func() {
+		proxy := NewSchedulerProxy(loadbalance.NewCHGeneric())
+		info, owned := proxy.FindHashOwner("tenantA/fA/v1")
+		convey.So(info, convey.ShouldBeNil)
+		convey.So(owned, convey.ShouldBeFalse)
+	})
+	convey.Convey("remote owner returns its address with owned=false", t, func() {
+		proxy := NewSchedulerProxy(loadbalance.NewCHGeneric())
+		proxy.Add(&types.InstanceInfo{
+			InstanceName: "sched-1",
+			InstanceID:   "id-1",
+			Address:      "10.0.0.1:8080",
+		}, "", "", true)
+		proxy.Add(&types.InstanceInfo{
+			InstanceName: "sched-2",
+			InstanceID:   "id-2",
+			Address:      "10.0.0.2:8080",
+		}, "", "", true)
+		oldSelf := SelfInstanceID
+		SelfInstanceID = "sched-1"
+		defer func() { SelfInstanceID = oldSelf }()
+
+		var info *types.InstanceInfo
+		var owned bool
+		var hitKey string
+		for i := 0; i < 100; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			info, owned = proxy.FindHashOwner(key)
+			convey.So(info, convey.ShouldNotBeNil)
+			if info.InstanceName == "sched-2" {
+				hitKey = key
+				break
+			}
+		}
+		convey.So(hitKey, convey.ShouldNotEqual, "")
+		convey.So(owned, convey.ShouldBeFalse)
+		convey.So(info.Address, convey.ShouldEqual, "10.0.0.2:8080")
+
+		// cross-check consistency with CheckHashOwner for the same hash key
+		ownerID, checkOwned := proxy.CheckHashOwner(hitKey)
+		convey.So(ownerID, convey.ShouldEqual, info.InstanceID)
+		convey.So(checkOwned, convey.ShouldEqual, owned)
+	})
+}
+
+func TestSchedulerProxyFindByInstanceID(t *testing.T) {
+	convey.Convey("find by instance id", t, func() {
+		proxy := NewSchedulerProxy(loadbalance.NewCHGeneric())
+		proxy.Add(&types.InstanceInfo{InstanceName: "sched-1", InstanceID: "id-1",
+			Address: "10.0.0.1:8080"}, "", "", true)
+		proxy.Add(&types.InstanceInfo{InstanceName: "sched-2", InstanceID: "id-2",
+			Address: "10.0.0.2:8080"}, "", "", true)
+		info := proxy.FindByInstanceID("id-2")
+		convey.So(info, convey.ShouldNotBeNil)
+		convey.So(info.Address, convey.ShouldEqual, "10.0.0.2:8080")
+		convey.So(proxy.FindByInstanceID("id-x"), convey.ShouldBeNil)
 	})
 }

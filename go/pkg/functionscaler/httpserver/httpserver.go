@@ -41,6 +41,7 @@ import (
 	commonTls "yuanrong.org/kernel/pkg/common/faas_common/tls"
 	"yuanrong.org/kernel/pkg/functionscaler"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/pkg/functionscaler/litescheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 )
 
@@ -51,6 +52,7 @@ const (
 	defaultMaxRequestBodySize = 1 * 1024 * 1024
 	defaultServerTimeout      = 900 * time.Second
 	invokePath                = "/invoke"
+	scaleHintPath             = "/scalehint"
 )
 
 // SetShutDownStatus -
@@ -144,6 +146,8 @@ func route(ctx *fasthttp.RequestCtx) {
 	switch path {
 	case invokePath:
 		invokeHandler(ctx)
+	case scaleHintPath:
+		scaleHintHandler(ctx)
 	default:
 		ctx.SetStatusCode(http.StatusInternalServerError)
 		log.GetLogger().Errorf("unsupported http request path %s", path)
@@ -189,6 +193,53 @@ func invokeHandler(ctx *fasthttp.RequestCtx) {
 	if err != nil {
 		ctx.SetStatusCode(http.StatusInternalServerError)
 		logger.Errorf("marshl response body, err %s", err.Error())
+		return
+	}
+	ctx.SetStatusCode(http.StatusOK)
+	ctx.Response.SetBody(respBody)
+}
+
+// scaleHintHandler receives cross-scheduler scale-up hints (LiteScheduler cold
+// start). Auth runs in route() before dispatch, same as /invoke. Success is
+// answered 202 immediately; a non-owner rejection is answered 200 with a
+// ScaleHintResponse body carrying the non-owner error code + the owner
+// InstanceID so the sender can reroute, mirroring the legacy acquire
+// convention.
+func scaleHintHandler(ctx *fasthttp.RequestCtx) {
+	traceID := string(ctx.Request.Header.Peek(constant.HeaderTraceID))
+	logger := log.GetLogger().With(zap.String("traceID", traceID))
+	if isShutDown.Load() {
+		ctx.SetStatusCode(http.StatusOK)
+		ctx.Response.Header.Set(constant.HeaderInnerCode, strconv.Itoa(statuscode.ErrFinalized))
+		logger.Errorf("reject scaleHint: scheduler is in shutdown phase")
+		return
+	}
+	var hint litescheduler.ScaleHint
+	if err := json.Unmarshal(ctx.Request.Body(), &hint); err != nil {
+		ctx.SetStatusCode(http.StatusBadRequest)
+		logger.Errorf("unmarshal scaleHint body error, err %s", err.Error())
+		return
+	}
+	if hint.FuncKey == "" {
+		ctx.SetStatusCode(http.StatusBadRequest)
+		logger.Errorf("scaleHint funcKey is empty")
+		return
+	}
+	fs := functionscaler.GetGlobalScheduler()
+	if fs == nil {
+		ctx.SetStatusCode(http.StatusInternalServerError)
+		logger.Errorf("scheduler is nil")
+		return
+	}
+	accepted, errCode, ownerID := fs.HandleScaleHint(&hint, traceID)
+	if accepted {
+		ctx.SetStatusCode(http.StatusAccepted)
+		return
+	}
+	respBody, err := json.Marshal(litescheduler.ScaleHintResponse{ErrorCode: errCode, ErrorMessage: ownerID})
+	if err != nil {
+		ctx.SetStatusCode(http.StatusInternalServerError)
+		logger.Errorf("marshal scaleHint response error, err %s", err.Error())
 		return
 	}
 	ctx.SetStatusCode(http.StatusOK)

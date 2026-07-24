@@ -72,7 +72,7 @@ func (f *fakeInstanceScaler) SetFuncOwner(isManaged bool) {
 func (f *fakeInstanceScaler) SetEnable(enable bool) {
 }
 
-func (f *fakeInstanceScaler) TriggerScale() {
+func (f *fakeInstanceScaler) TriggerScale(_ int) {
 	f.triggerCount++
 	if f.scaleUpFunc == nil {
 		return
@@ -580,4 +580,12 @@ func TestRoundRobinScheduler_CheckInstanceExist(t *testing.T) {
 				"CheckInstanceExist() result mismatch for case: %s", tt.name)
 		})
 	}
+}
+
+func TestRoundRobinSchedulerTriggerScale(t *testing.T) {
+	s := NewRoundRobinScheduler("t1/fA/v1-", false, time.Second)
+	fs := &fakeInstanceScaler{}
+	s.ConnectWithInstanceScaler(fs)
+	s.TriggerScale(0)
+	assert.Equal(t, 1, fs.triggerCount)
 }

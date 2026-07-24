@@ -465,3 +465,10 @@ func (op *OneShotInstancePool) handleRatioChange(ratio int) {
 func (op *OneShotInstancePool) CleanOrphansInstanceQueue() {
 	log.GetLogger().Infof("cleaning orphan instance queue for one-shot pool %s (no-op)", op.funcSpec.FuncKey)
 }
+
+// TriggerScale is a no-op for one-shot pools: they manage a single pre-created
+// instance and have no scale pipeline.
+func (op *OneShotInstancePool) TriggerScale(_ int) error {
+	log.GetLogger().Debugf("trigger scale is no-op for one-shot pool %s", op.funcSpec.FuncKey)
+	return nil
+}

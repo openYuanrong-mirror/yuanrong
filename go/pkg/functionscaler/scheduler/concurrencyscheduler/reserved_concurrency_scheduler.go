@@ -177,7 +177,9 @@ func (rcs *ReservedConcurrencyScheduler) PopInstance(force bool) *types.Instance
 // ConnectWithInstanceScaler connects instanceScheduler with an instanceScaler
 func (rcs *ReservedConcurrencyScheduler) ConnectWithInstanceScaler(instanceScaler scaler.InstanceScaler) {
 	rcs.addObservers(scheduler.TriggerScaleTopic, func(data interface{}) {
-		instanceScaler.TriggerScale()
+		// legacy acquire publishes a nil payload; TriggerScale(minConcurrency) publishes the declared demand
+		minConcurrency, _ := data.(int)
+		instanceScaler.TriggerScale(minConcurrency)
 	})
 	// check if instanceScaler is a concurrencyInstanceScaler type in future and return error if otherwise
 	rcs.instanceScaler = instanceScaler

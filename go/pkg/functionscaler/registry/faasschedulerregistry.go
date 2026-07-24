@@ -276,6 +276,7 @@ func (fsr *FaasSchedulerRegistry) handleModuleSchedulerUpdate(event *etcd3.Event
 		}
 		instanceName = insInfo.InstanceName
 		insInfo.InstanceID = insSpec.InstanceID
+		insInfo.Address = selfregister.NormalizeSchedulerAddress(insSpec.RuntimeAddress)
 		adaptedInstanceName = fmt.Sprintf("%s-%s", eventTokenType, instanceName)
 		fsr.Lock()
 		fsr.moduleScheduler.schedulerInsInfos[adaptedInstanceName] = insInfo
@@ -327,6 +328,7 @@ func (fsr *FaasSchedulerRegistry) handleFunctionSchedulerUpdate(event *etcd3.Eve
 	exclusivity := ""
 	if insSpec != nil {
 		insInfo.InstanceID = insSpec.InstanceID
+		insInfo.Address = selfregister.NormalizeSchedulerAddress(insSpec.RuntimeAddress)
 		if insSpec.CreateOptions != nil {
 			exclusivity = insSpec.CreateOptions[constant.SchedulerExclusivityKey]
 		}

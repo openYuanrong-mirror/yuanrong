@@ -69,7 +69,7 @@ func TestNewWiseCloudScaler(t *testing.T) {
 		InvokeLabel:         "label1222",
 	}, true, nil)
 	scaler.SetEnable(true)
-	scaler.TriggerScale()
+	scaler.TriggerScale(0)
 	select {
 	case <-done:
 	case <-time.After(1 * time.Second):
@@ -120,7 +120,7 @@ func TestNewWiseCloudScalerSuccess(t *testing.T) {
 		InvokeLabel:         "label1",
 	}, true, nil)
 	scaler.SetEnable(true)
-	scaler.TriggerScale()
+	scaler.TriggerScale(0)
 	select {
 	case <-done:
 	case <-time.After(1 * time.Second):
