@@ -59,9 +59,13 @@ def print_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
     if not value or ctx.resilient_parsing:
         return
 
-    from importlib.metadata import version
+    from importlib.metadata import PackageNotFoundError, version
 
-    print_logger.info(f"yr version: {version('openyuanrong')}")
+    try:
+        package_version = version("openyuanrong")
+    except PackageNotFoundError:
+        package_version = version("openyuanrong-core")
+    print_logger.info(f"yr version: {package_version}")
     ctx.exit(0)
 
 

@@ -3,6 +3,7 @@
 """Regression tests for Buildkite main-build artifact reuse."""
 
 import pathlib
+import subprocess
 import unittest
 
 
@@ -14,6 +15,38 @@ COMPILE_IMAGE = REPO_ROOT / "ci" / "ubuntu" / "Dockerfile.ubuntu2004"
 
 
 class BuildkiteMainPackagingTest(unittest.TestCase):
+    def test_core_wheel_is_only_wired_into_buildkite(self):
+        def tracked_references(needle):
+            result = subprocess.run(
+                [
+                    "git",
+                    "grep",
+                    "-l",
+                    "-F",
+                    needle,
+                    "--",
+                    ".",
+                    ":(exclude)test/**",
+                    ":(exclude).buildkite/package_core_wheel.py",
+                ],
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode not in (0, 1):
+                result.check_returncode()
+            return result.stdout.splitlines()
+
+        self.assertEqual(
+            tracked_references(".buildkite/package_core_wheel.py"),
+            [".buildkite/pipeline.dynamic.yml"],
+        )
+        self.assertEqual(
+            tracked_references("scripts/trim.sh"),
+            [],
+        )
+
     def test_linux_bazel_remote_cache_is_enabled_by_default(self):
         pipeline = PIPELINE.read_text(encoding="utf-8")
         cache_config = CACHE_CONFIG_SCRIPT.read_text(encoding="utf-8")
@@ -71,6 +104,22 @@ class BuildkiteMainPackagingTest(unittest.TestCase):
             pipeline.count("find output -maxdepth 1 -name 'openyuanrong-*.whl'"),
             2,
         )
+        self.assertEqual(
+            pipeline.count("python3 .buildkite/package_core_wheel.py"),
+            2,
+        )
+        self.assertEqual(
+            pipeline.count(
+                "find artifacts/release -maxdepth 1 "
+                "-name 'openyuanrong_core-*.whl'"
+            ),
+            2,
+        )
+        self.assertNotIn(
+            "package_core_release.sh",
+            pipeline,
+        )
+        self.assertNotIn("*-core.tar.gz", pipeline)
         self.assertEqual(pipeline.count("Verify Go plugin ABI"), 2)
 
     def test_validation_package_version_does_not_invalidate_all_bazel_actions(self):

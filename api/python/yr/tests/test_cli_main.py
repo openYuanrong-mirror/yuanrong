@@ -17,6 +17,7 @@
 import importlib.util
 import io
 import logging
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import sys
 import types
@@ -113,6 +114,29 @@ class TestCliMain(unittest.TestCase):
             main.main(["-h"])
 
         click_main.assert_called_once_with(args=["-h"], prog_name="yr", standalone_mode=True)
+
+    def test_version_falls_back_to_core_distribution(self):
+        main = self.load_cli_main_with_stubbed_deps()
+        runner = CliRunner()
+
+        with (
+            mock.patch(
+                "importlib.metadata.version",
+                side_effect=[
+                    PackageNotFoundError("openyuanrong"),
+                    "0.7.0+core",
+                ],
+            ) as package_version,
+            mock.patch.object(main.print_logger, "info") as print_version,
+        ):
+            result = runner.invoke(main.cli, ["--version"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        print_version.assert_called_once_with("yr version: 0.7.0+core")
+        self.assertEqual(
+            [call.args[0] for call in package_version.call_args_list],
+            ["openyuanrong", "openyuanrong-core"],
+        )
 
     def test_start_master_address_uses_service_discovery(self):
         main = self.load_cli_main_with_stubbed_deps()
