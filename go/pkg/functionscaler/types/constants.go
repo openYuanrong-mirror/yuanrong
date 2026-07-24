@@ -52,6 +52,8 @@ const (
 	ResourceSpecNote = "RESOURCE_SPEC_NOTE"
 	// SchedulerIDNote - is used to decribe the schedulerID
 	SchedulerIDNote = "SCHEDULER_ID_NOTE"
+	// SchedulerManagedNote controls whether faasscheduler manages the instance lifecycle.
+	SchedulerManagedNote = "SCHEDULER_MANAGED"
 	// InstanceTypeNote - is used to decribe the instance type: "scaled", "reserved", "state"
 	InstanceTypeNote = "INSTANCE_TYPE_NOTE"
 	// InstanceLabelNode -

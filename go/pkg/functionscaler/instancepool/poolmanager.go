@@ -451,6 +451,10 @@ func (pm *PoolManager) HandleInstanceEvent(eventType registry.EventType, insSpec
 	}
 	logger := log.GetLogger().With(zap.Any("InstanceID", insSpec.InstanceID))
 	logger.Infof("handling instance event, type %v, status %+v", eventType, insSpec.InstanceStatus)
+	if !isSchedulerManaged(insSpec.CreateOptions) {
+		logger.Infof("ignore externally managed instance")
+		return
+	}
 	pm.Lock()
 	pool, exist := pm.instancePool[insSpec.CreateOptions[types.FunctionKeyNote]]
 	if !exist {
@@ -477,6 +481,10 @@ func (pm *PoolManager) HandleInstanceEvent(eventType registry.EventType, insSpec
 	}
 	pm.updateStateLeaseMgrForHandleInstanceEvent(eventType, instance)
 	pool.HandleInstanceEvent(eventType, instance)
+}
+
+func isSchedulerManaged(createOptions map[string]string) bool {
+	return !strings.EqualFold(strings.TrimSpace(createOptions[types.SchedulerManagedNote]), "false")
 }
 
 func (pm *PoolManager) updateStateLeaseMgrForHandleInstanceEvent(eventType registry.EventType,

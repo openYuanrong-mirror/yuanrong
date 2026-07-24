@@ -563,6 +563,50 @@ func TestHandleInstanceEvent(t *testing.T) {
 		pm.HandleInstanceEvent(registry.SubEventTypeUpdate, testInsSpec)
 		convey.So(getIns.InstanceID, convey.ShouldEqual, "testIns123")
 	})
+
+	convey.Convey("externally managed instance is not sent to an existing pool", t, func() {
+		insPool := &GenericInstancePool{
+			FuncSpec: &types.FunctionSpecification{FuncKey: "123456/0-system-testFunc/$latest"},
+		}
+		pm := &PoolManager{instancePool: map[string]InstancePool{
+			"123456/0-system-testFunc/$latest": insPool,
+		}}
+		called := false
+		defer gomonkey.ApplyMethod(reflect.TypeOf(insPool), "HandleInstanceEvent",
+			func(_ *GenericInstancePool, _ registry.EventType, _ *types.Instance) {
+				called = true
+			}).Reset()
+
+		pm.HandleInstanceEvent(registry.SubEventTypeUpdate, &commonTypes.InstanceSpecification{
+			Function:   "123456/0-system-testFunc/$latest",
+			InstanceID: "external-agent",
+			CreateOptions: map[string]string{
+				types.FunctionKeyNote:      "123456/0-system-testFunc/$latest",
+				types.SchedulerManagedNote: "false",
+			},
+		})
+		convey.So(called, convey.ShouldBeFalse)
+	})
+}
+
+func TestIsSchedulerManaged(t *testing.T) {
+	tests := []struct {
+		name          string
+		createOptions map[string]string
+		want          bool
+	}{
+		{name: "missing options", want: true},
+		{name: "missing marker", createOptions: map[string]string{}, want: true},
+		{name: "explicit true", createOptions: map[string]string{types.SchedulerManagedNote: "true"}, want: true},
+		{name: "invalid value", createOptions: map[string]string{types.SchedulerManagedNote: "invalid"}, want: true},
+		{name: "explicit false", createOptions: map[string]string{types.SchedulerManagedNote: "false"}, want: false},
+		{name: "case and whitespace", createOptions: map[string]string{types.SchedulerManagedNote: " FALSE "}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSchedulerManaged(tt.createOptions))
+		})
+	}
 }
 
 func TestReportMetrics(t *testing.T) {
