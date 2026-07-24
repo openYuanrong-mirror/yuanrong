@@ -26,8 +26,10 @@ layer is not duplicated:
 
 import asyncio
 import os
+import fnmatch
+from datetime import datetime
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from yr.sandbox.sandbox import Sandbox
@@ -42,6 +44,122 @@ class CpDirection(Enum):
 
     UPLOAD = "upload"
     DOWNLOAD = "download"
+
+
+# ── Filesystem I/O implementations ──
+# These functions contain the actual file operation logic and are called
+# by SandboxInstance inside the sandbox. They are placed here (not in
+# sandbox.py) so that all filesystem logic is co-located.
+
+def _build_fs_item(entry_path: str) -> Dict:
+    """Build a filesystem item dict matching jiuwenbox API format.
+
+    Fields: name, path, size, is_directory, modified_time, type
+    """
+    entry_name = os.path.basename(entry_path)
+    is_dir = os.path.isdir(entry_path)
+    try:
+        size = os.path.getsize(entry_path) if not is_dir else 0
+    except OSError:
+        size = 0
+    try:
+        mtime = datetime.fromtimestamp(
+            os.path.getmtime(entry_path)
+        ).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    except OSError:
+        mtime = None
+    if is_dir:
+        item_type = None
+    else:
+        _, ext = os.path.splitext(entry_name)
+        item_type = ext if ext else None
+    return {
+        "name": entry_name,
+        "path": entry_path,
+        "size": size,
+        "is_directory": is_dir,
+        "modified_time": mtime,
+        "type": item_type,
+    }
+
+
+def _read_file_impl(path: str, mode: str = "rb"):
+    """Read a file using native Python I/O."""
+    with open(path, mode) as f:
+        return f.read()
+
+
+def _write_file_impl(path: str, data, mode: str = "wb") -> None:
+    """Write data to a file using native Python I/O.
+
+    Parent directories are created automatically.
+    """
+    parent_dir = os.path.dirname(path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+    with open(path, mode) as f:
+        f.write(data)
+
+
+def _list_files_impl(
+    path: str,
+    recursive: bool = False,
+    max_depth: Optional[int] = None,
+    include_files: bool = True,
+    include_dirs: bool = True,
+) -> List[Dict]:
+    """List files and directories using native os.listdir."""
+    result: List[Dict] = []
+
+    def _scan(dir_path: str, current_depth: int) -> None:
+        try:
+            entries = os.listdir(dir_path)
+        except OSError:
+            return
+        for entry in entries:
+            entry_path = os.path.join(dir_path, entry)
+            is_dir = os.path.isdir(entry_path)
+            if is_dir:
+                if include_dirs:
+                    result.append(_build_fs_item(entry_path))
+                if recursive:
+                    if max_depth is None or current_depth < max_depth:
+                        _scan(entry_path, current_depth + 1)
+            else:
+                if include_files:
+                    result.append(_build_fs_item(entry_path))
+
+    _scan(path, 0)
+    return result
+
+
+def _search_files_impl(
+    path: str,
+    pattern: str,
+    exclude_patterns: Optional[List[str]] = None,
+) -> List[Dict]:
+    """Search files by glob pattern using fnmatch."""
+    excludes = exclude_patterns or []
+    result: List[Dict] = []
+
+    def _is_excluded(entry_name: str) -> bool:
+        return any(fnmatch.fnmatch(entry_name, pat) for pat in excludes)
+
+    def _search(dir_path: str) -> None:
+        try:
+            entries = os.listdir(dir_path)
+        except OSError:
+            return
+        for entry in entries:
+            entry_path = os.path.join(dir_path, entry)
+            if os.path.isdir(entry_path):
+                _search(entry_path)
+            else:
+                if fnmatch.fnmatch(entry, pattern) and not _is_excluded(entry):
+                    result.append(_build_fs_item(entry_path))
+
+    _search(path)
+    return result
 
 
 def _get_gateway_host() -> str:
