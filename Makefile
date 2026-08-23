@@ -91,6 +91,8 @@ help:
 	@echo "                      Example: make all FUNCTIONSYSTEM_JOBS=6"
 	@echo "  DATASYSTEM_JAVA    - Build datasystem Java SDK jar; defaults to on"
 	@echo "                      Example: make datasystem DATASYSTEM_JAVA=off"
+	@echo "  BUILD_VERSION      - Version shared by native and Python artifacts"
+	@echo "                      Example: make all BUILD_VERSION=0.10.0"
 	@echo "  LOCAL_CACHE_ROOT   - Enable the opt-in local developer cache"
 	@echo "  LOCAL_CACHE_PROFILE - Cache profile: release or ut (required with root)"
 	@echo "  LOCAL_CACHE_WRAPPER - Path to the wrapper supplied by the yr-dev skill"
@@ -220,7 +222,7 @@ sandbox-sdk:
 		exit 1; \
 	fi
 	@mkdir -p output
-	@$(LOCAL_CACHE_RUN) bash sandbox-sdk/build.sh "$(CURDIR)/output"
+	@BUILD_VERSION="$(BUILD_VERSION)" $(LOCAL_CACHE_RUN) bash sandbox-sdk/build.sh "$(CURDIR)/output"
 
 pkg:
 	@echo "Copying packages to example/aio/pkg/..."
