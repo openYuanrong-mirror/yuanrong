@@ -1,16 +1,16 @@
 [submodule "frontend"]
 	path = frontend
 	url = ../yuanrong-frontend.git
-	branch = master
+	branch = agentos_b050
 [submodule "datasystem"]
 	path = datasystem
 	url = ../yuanrong-datasystem.git
-	branch = master
+	branch = agentos_b050
 [submodule "functionsystem"]
 	path = functionsystem
 	url = ../yuanrong-functionsystem.git
-	branch = master
+	branch = agentos_b050
 [submodule "sandbox-sdk"]
 	path = sandbox-sdk
 	url = ../yuanrong-sandbox-sdk.git
-	branch = master
+	branch = agentos_b050
