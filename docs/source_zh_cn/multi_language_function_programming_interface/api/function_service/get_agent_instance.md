@@ -53,8 +53,8 @@
 | rootfs | Object | rootfs 详情。见 rootfs 对象。未配置时缺省不返回。 |
 | ports | array | 端口转发标签，格式 `<proto>:<port>`（如 `tcp:22`），来自 createOptions["network"]。未配置时缺省不返回。 |
 | env_vars | map | 注入容器的动态环境变量，来自 createOptions["DELEGATE_ENV_VAR"]。未配置时缺省不返回。 |
-| resources | map | 资源用量（标量值）。`CPU` 单位 `1/1000` 核；`storage` 内部按字节存储，对外折算为 MiB（`bytes ÷ (1024×1024)`）。 |
-| start_time | String | 实例启动时间（RFC3339，来自 service 端）。service 端缺失时回退为 watcher 首次观测到 RUNNING 的本地时间。 |
+| resources | map | 资源用量（标量值）。`CPU` 单位 `1/1000` 核；`storage` 内部按字节存储，对外按浮点除法折算为 MiB（`bytes ÷ (1024×1024)`，保留小数，小于 1 MiB 不归零）。 |
+| start_time | String | 实例启动时间（RFC3339，来自 service 端）。service 端缺失时回退为 watcher 首次观测到 RUNNING 的本地时间，此回退值晚于真实启动时刻且可能存在时区/时钟偏差，仅作排障参考。 |
 
 #### rootfs 对象
 

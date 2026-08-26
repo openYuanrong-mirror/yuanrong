@@ -53,8 +53,8 @@ The response body's `code` field `200` means success; the detailed instance info
 | rootfs | Object | rootfs detail. See rootfs object. Omitted when unconfigured. |
 | ports | array | Port forwarding labels, format `<proto>:<port>` (e.g. `tcp:22`), from createOptions["network"]. Omitted when unconfigured. |
 | env_vars | map | Dynamic env vars injected into the container, from createOptions["DELEGATE_ENV_VAR"]. Omitted when unconfigured. |
-| resources | map | Resource usage (scalar values). `CPU` is in `1/1000` core units; `storage` is stored internally in bytes and converted to MiB for the public API (`bytes ÷ (1024×1024)`). |
-| start_time | String | Instance start time (RFC3339, from the service side). Falls back to the watcher's local first-observed-RUNNING timestamp when the service-side value is missing. |
+| resources | map | Resource usage (scalar values). `CPU` is in `1/1000` core units; `storage` is stored internally in bytes and converted to MiB by floating-point division (`bytes ÷ (1024×1024)`, decimals kept, values under 1 MiB are not zeroed). |
+| start_time | String | Instance start time (RFC3339, from the service side). Falls back to the watcher's local first-observed-RUNNING timestamp when the service-side value is missing; this fallback is later than the real start moment and may carry timezone/clock skew — use it only as a troubleshooting hint. |
 
 #### rootfs object
 
