@@ -117,6 +117,9 @@ cdef extern from "src/libruntime/err_type.h" nogil:
         ERR_DATASYSTEM_FAILED "YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED"
         ERR_GENERATOR_FINISHED "YR::Libruntime::ErrorCode::ERR_GENERATOR_FINISHED"
         ERR_CLIENT_TERMINAL_KILLED "YR::Libruntime::ErrorCode::ERR_CLIENT_TERMINAL_KILLED"
+        ERR_HEALTH_CHECK_HEALTHY "YR::Libruntime::ErrorCode::ERR_HEALTH_CHECK_HEALTHY"
+        ERR_HEALTH_CHECK_FAILED "YR::Libruntime::ErrorCode::ERR_HEALTH_CHECK_FAILED"
+        ERR_HEALTH_CHECK_SUBHEALTH "YR::Libruntime::ErrorCode::ERR_HEALTH_CHECK_SUBHEALTH"
 
     cdef cppclass CErrorInfo "YR::Libruntime::ErrorInfo":
         CErrorInfo()
@@ -219,6 +222,7 @@ cdef extern from "src/libruntime/libruntime_options.h" nogil:
         (CErrorInfo()) snapStartedCallback
         (void()) refreshEnvCallback
         (CErrorInfo(int sigNo, shared_ptr[CBuffer] & payload)) signalCallback
+        (CErrorInfo()) healthCheckCallback
         (CErrorInfo(const CAccelerateMsgQueueHandle & intputHandle, CAccelerateMsgQueueHandle & outputHandle)) accelerateCallback
 
 cdef extern from "src/libruntime/libruntime_config.h":

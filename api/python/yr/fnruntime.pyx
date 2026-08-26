@@ -944,6 +944,20 @@ cdef void refresh_env_callback() noexcept nogil:
         except Exception as e:
             _logger.error(f"Failed to refresh environment variables: {e}")
 
+cdef CErrorInfo health_check_callback() noexcept nogil:
+    with gil:
+        try:
+            from yr.agentexecutor.probe import probe_liveness
+            aggregate = probe_liveness()
+            if aggregate == "HEALTHY" or aggregate == "DISABLED":
+                return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_HEALTHY, CModuleCode.RUNTIME, b"")
+            if aggregate == "FAILED":
+                return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_FAILED, CModuleCode.RUNTIME, b"")
+            return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_SUBHEALTH, CModuleCode.RUNTIME, b"")
+        except Exception as e:
+            _logger.debug("health check callback failed: %s", e)
+            return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_SUBHEALTH, CModuleCode.RUNTIME, b"")
+
 cdef CErrorInfo build_invoke_arg(arg, vector[CInvokeArg]& invokeArgs, string tenantId):
     cdef:
         CInvokeArg c_arg
@@ -1390,6 +1404,8 @@ cdef class Fnruntime:
         config.libruntimeOptions.snapStartedCallback = snap_started_callback
         config.libruntimeOptions.refreshEnvCallback = refresh_env_callback
         config.libruntimeOptions.accelerateCallback = accelerate_execute_callback
+        if os.environ.get("YR_RUNTIME_BOOTSTRAP_PROBE", ""):
+            config.libruntimeOptions.healthCheckCallback = health_check_callback
         config.functionSystemIpAddr = functionSystemIpAddr
         config.functionSystemPort = functionSystemPort
         config.functionSystemRtServerIpAddr = functionSystemRtServerIpAddr
