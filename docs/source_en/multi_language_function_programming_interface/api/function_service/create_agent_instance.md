@@ -38,6 +38,7 @@ Both modes coexist: a request with `runtime_spec` uses inline, with `urn` uses r
 - inline mode requires `runtime_spec`, with both `runtime` and `rootfs.imageurl` non-empty.
 - **registered mode requires registering the function first, then create**: first call [Register Function](./register_function.md) (`POST /serverless/v1/functions`, `kind` set to `agent`) to register the agent function, confirm the registration succeeded (response contains `functionVersionUrn`), then call create with that `functionVersionUrn` as `urn`. registered mode must carry `urn` pointing to that registered `kind=agent` function; an `urn` pointing to an unregistered or non-existent function returns 500 `failed to create agent`.
 - `workspace` is optional: when non-empty it is bind mounted to `/home/<rootfs.user>` (`/workspace` when user is empty); when empty no mount is added. bind mount `source` (both `workspace` and `mounts[].source`) must be an absolute host path; `/`, `/etc`, `/proc`, `/sys`, `/dev`, `/boot`, `docker.sock`, and paths containing `..` are rejected. `mounts[].target` (in-container path) is not validated; the caller must ensure it does not overwrite sensitive in-container paths (e.g. `/etc/passwd`, `/proc`, `/sys`, `/dev`).
+- **inline mode code placement**: `runtime_spec.codePath` is only an identifier for "the target path of the code directory inside the sandbox/container"; frontend does not mount or copy code. The caller must provide a mount in `mounts` whose `target` strictly equals this `codePath` (`source` being the real host code directory) so the code directory appears at the `codePath` path visible to the runtime process; a missing or misaligned mount makes the instance fail to find the module at startup load. Whether `codePath`/`handler` are complete is not validated at create; a missing one is surfaced by the runtime as an explicit error at [invoke](./invoke_agent_instance.md) time (missing `handler` reports `empty user call code`, missing `codePath` reports module load failure).
 - **Auth**: `/api/agent` goes through frontend's global `GlobalJWTAuthMiddleware`, consistent with other cluster REST APIs. When `enable_func_token_auth` is off it is allowed by default (caller trusted); when on a valid JWT must be carried.
 
 ## URI
@@ -72,6 +73,11 @@ Both modes coexist: a request with `runtime_spec` uses inline, with `urn` uses r
 | runtime_spec | Object | inline required | inline container config. |
 | runtime_spec.runtime | String | inline required | Real language, mapped to faasExecutor. Values see Runtime Types. |
 | runtime_spec.sandbox_type | String | No | executor dispatch. Values: `docker`, `supervisor`; empty falls to default RuntimeExecutor. |
+| runtime_spec.codePath | String | No | Target path of the user code package directory inside the sandbox/container (e.g. `/opt/mycode/service`). The runtime process locates the code directory by this. **frontend does not mount or copy code**; the caller must provide a mount in `mounts` whose `target` strictly equals this `codePath` (`source` being the real host code directory) to place the code. |
+| runtime_spec.handler | String | No | call entry symbol, format `module.function` (e.g. `demo.handler`). Loaded when the instance is [invoked](./invoke_agent_instance.md). |
+| runtime_spec.extendedHandler | Object | No | init / pre_stop entry symbols. |
+| runtime_spec.extendedHandler.initializer | String | No | init entry symbol `module.function` (e.g. `demo.init`), executed once at instance startup. |
+| runtime_spec.extendedHandler.pre_stop | String | No | pre_stop entry symbol `module.function` (e.g. `demo.pre_stop`), executed at instance destruction. |
 | runtime_spec.rootfs | Object | inline required | Container rootfs config. |
 | runtime_spec.rootfs.imageurl | String | inline required | docker image reference (e.g. `yr-docker-runtime:v0`). |
 | runtime_spec.rootfs.user | String | No | Container run-as user (must exist in image). Empty runs as root — **high security risk** (in-container process has maximum privileges); production use should explicitly specify a non-root user. |
@@ -121,12 +127,17 @@ curl -X POST http://{frontend}:8888/api/agent -H "Content-Type: application/json
   "name": "agent-001", "namespace": "dev",
   "runtime_spec": {
     "runtime": "python3.11", "sandbox_type": "docker",
+    "codePath": "/opt/mycode/service", "handler": "demo.handler",
+    "extendedHandler": {"initializer": "demo.init", "pre_stop": "demo.pre_stop"},
     "rootfs": {"imageurl": "yr-docker-runtime:v0", "user": "agentos", "ports": ["tcp:22"]},
     "cpu": 600, "memory": 512
   },
   "workspace": "/home/snuser/workspaceA",
   "env_vars": {"AGENT_MODE": "prod", "userid": "u-9f3a"},
-  "mounts": [{"source": "/home/snuser/workspaceB", "target": "/mnt/workspaceB", "readonly": false}]
+  "mounts": [
+    {"source": "/home/snuser/mycode", "target": "/opt/mycode/service", "readonly": false},
+    {"source": "/home/snuser/workspaceB", "target": "/mnt/workspaceB", "readonly": false}
+  ]
 }'
 ```
 
