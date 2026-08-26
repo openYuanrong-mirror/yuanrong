@@ -19,7 +19,7 @@
   - inline 模式（不注册函数，bypass meta_service）：`yr start --master -s 'mode.master.frontend=true'`
   - registered 模式（需先注册函数）：`yr start --master -s 'mode.master.frontend=true' -s 'mode.master.meta_service=true'`
 - **docker / supervisor 服务由用户自行准备**：openYuanrong 不代管 docker daemon 或 supervisor 进程。`sandbox_type=docker` 时宿主须有可用的 docker daemon（镜像已 pull 或可拉取）；`sandbox_type=supervisor` 时宿主须有 supervisor 进程。服务不可用会导致 create 失败（如 `no Docker image specified`、容器拉起失败）。
-- **镜像要求**：docker executor 对 python runtime 启动时插入 `yr_runtime_main.py` 作启动命令，镜像须安装 `openyuanrong` sdk whl 包（自带 `yr_runtime_main.py`、faas_executor、yr runtime），装在镜像默认 python 的 site-packages 下。
+- **镜像要求**：镜像须安装 `openyuanrong` sdk whl 包（自带 `yr_runtime_main.py`、faas_executor、yr runtime），装在镜像默认 python 的 site-packages 下。**inline 模式不填 `handler`、执行Agent Executor 自身代码时**，镜像还须预装Agent Executor（adx）包，否则实例启动时找不到入口模块而失败。
 - **workspace 与 UID 对齐**（提供 `workspace` 时）：`workspace` 是宿主机上的目录，系统自动 bind mount 到容器内 `/home/<rootfs.user>`（`rootfs.user` 为空时落 `/workspace`），用户只需提供宿主路径，无需指定容器内挂载点。bind mount 按数字 UID 校验权限（不认用户名），容器内 `rootfs.user` 的 UID 必须与宿主 workspace 目录属主的 UID 一致，否则容器进程读 workspace 会 `Permission denied`。例如 `rootfs.user=agentos`：
 
   ```bash
@@ -38,7 +38,10 @@
 - inline 模式必须带 `runtime_spec`，且 `runtime` 与 `rootfs.imageurl` 都非空。
 - **registered 模式必须先注册函数再 create**：先调 [注册函数](./register_function.md)（`POST /serverless/v1/functions`，`kind` 填 `agent`）注册 agent 函数，确认注册成功（响应含 `functionVersionUrn`）后，将该 `functionVersionUrn` 作为本接口的 `urn` 调 create。registered 模式必须带 `urn`，指向该已注册的 `kind=agent` 函数；`urn` 指向未注册或不存在的函数时返回 500 `failed to create agent`。
 - `workspace` 可选：非空时 bind mount 到 `/home/<rootfs.user>`（`user` 空时落 `/workspace`），为空则不挂载。bind mount 的 `source`（含 `workspace` 与 `mounts[].source`）须为宿主机绝对路径，经安全校验拒绝 `/`、`/etc`、`/proc`、`/sys`、`/dev`、`/boot`、`docker.sock`、含 `..` 的路径。`mounts[].target`（容器内路径）不做校验，由调用方自行确保不覆盖容器内敏感路径（如 `/etc/passwd`、`/proc`、`/sys`、`/dev`）。
-- **鉴权**：`/api/agent` 经 frontend 全局 `GlobalJWTAuthMiddleware` 中间件，与集群其它 REST 接口一致。`enable_func_token_auth` 关时默认放行（信任调用方），开时须携带有效 JWT。
+- **inline 模式代码就位**：`runtime_spec.codePath` 是「代码目录在容器内的目标路径」。系统不代为挂载或拷贝代码，调用方须在 `mounts` 里给一条 `target` 等于该 `codePath` 的挂载（`source` 为宿主上的真实代码目录），代码才会出现在容器内该路径上；缺失或不对齐会导致实例启动时找不到模块而失败。
+- **`handler` 不填则执行Agent Executor**：inline 模式下若不填 `runtime_spec.handler`（无论 `codePath` 填否），实例不会执行用户代码，而是执行镜像内预装的Agent Executor（adx）自身的代码。此用法要求 `runtime` 为 `python3.9` / `python3.10` / `python3.11`，否则 create 返回 400。若同时填了 `codePath`，该 `codePath` 会被Agent Executor 当作用户代码目录/工作目录使用（而非当作入口模块加载），调用方应明确意图。
+- **`storageType` 与 `codePath` 成对**（inline 模式）：`runtime_spec.storageType` 与 `codePath` 必须同时填或同时不填，只填一个 create 返回 400。`storageType` 不填时按 `s3` 处理——因此走 `local` 场景务必显式填 `"local"`。
+- **鉴权**：`/api/agent` 经 frontend 全局鉴权中间件，与集群其它 REST 接口一致。`enable_func_token_auth` 关时默认放行（信任调用方），开时须携带有效 JWT。
 
 ## URI
 
@@ -72,6 +75,12 @@
 | runtime_spec | Object | inline 必选 | inline 容器配置。 |
 | runtime_spec.runtime | String | inline 必选 | 真实语言，映射 faasExecutor。取值见 Runtime 类型。 |
 | runtime_spec.sandbox_type | String | 否 | executor dispatch。取值：`docker`、`supervisor`；空则落默认 RuntimeExecutor。 |
+| runtime_spec.codePath | String | 否 | 用户代码目录在容器内的目标路径（如 `/opt/mycode/service`），`storageType=working_dir` 时填资源 URI（如 `file:///path/code.zip`）。须与 `storageType` 成对（都填或都不填，只填一个 create 返回 400）。`storageType=local` 时须在 `mounts` 给一条 `target` 等于该 `codePath` 的挂载使代码就位。 |
+| runtime_spec.storageType | String | 否 | 代码就位方式。取值：`local`（容器内目标路径，调用方自行挂载就位）、`working_dir`（系统从 `codePath` 给的资源 URI 拉取并解压）、`s3`、`copy` 等。不填时按 `s3` 处理——走 `local` 场景务必显式填 `"local"`。须与 `codePath` 成对。 |
+| runtime_spec.handler | String | 否 | call 入口符号，格式 `module.function`（如 `demo.handler`），实例被 [驱动执行](./invoke_agent_instance.md) 时加载该入口。不填时实例执行镜像内预装的Agent Executor（adx）自身代码而非用户代码，详见「接口约束」。 |
+| runtime_spec.extendedHandler | Object | 否 | init / pre_stop 入口符号。 |
+| runtime_spec.extendedHandler.initializer | String | 否 | init 入口符号 `module.function`（如 `demo.init`），实例启动时执行一次。 |
+| runtime_spec.extendedHandler.pre_stop | String | 否 | pre_stop 入口符号 `module.function`（如 `demo.pre_stop`），实例销毁时执行。 |
 | runtime_spec.rootfs | Object | inline 必选 | 容器 rootfs 配置。 |
 | runtime_spec.rootfs.imageurl | String | inline 必选 | docker 镜像引用（如 `yr-docker-runtime:v0`）。 |
 | runtime_spec.rootfs.user | String | 否 | 容器 run-as 用户（镜像内须存在）。空时以 root 运行，**安全风险高**（容器内进程具备最高权限），生产环境建议显式指定非 root 用户。 |
@@ -121,12 +130,17 @@ curl -X POST http://{frontend}:8888/api/agent -H "Content-Type: application/json
   "name": "agent-001", "namespace": "dev",
   "runtime_spec": {
     "runtime": "python3.11", "sandbox_type": "docker",
+    "codePath": "/opt/mycode/service", "handler": "demo.handler",
+    "extendedHandler": {"initializer": "demo.init", "pre_stop": "demo.pre_stop"},
     "rootfs": {"imageurl": "yr-docker-runtime:v0", "user": "agentos", "ports": ["tcp:22"]},
     "cpu": 600, "memory": 512
   },
   "workspace": "/home/snuser/workspaceA",
   "env_vars": {"AGENT_MODE": "prod", "userid": "u-9f3a"},
-  "mounts": [{"source": "/home/snuser/workspaceB", "target": "/mnt/workspaceB", "readonly": false}]
+  "mounts": [
+    {"source": "/home/snuser/mycode", "target": "/opt/mycode/service", "readonly": false},
+    {"source": "/home/snuser/workspaceB", "target": "/mnt/workspaceB", "readonly": false}
+  ]
 }'
 ```
 
@@ -135,6 +149,30 @@ curl -X POST http://{frontend}:8888/api/agent -H "Content-Type: application/json
 ```json
 {"code":200,"instance_id":"0b6c6322-6533-4901-8000-00000000bb0b"}
 ```
+
+### inline 模式（不填 handler，执行Agent Executor 自身代码）
+
+`runtime_spec` 不带 `handler` 时，实例不执行用户代码，而是执行镜像内预装的Agent Executor（adx）自身的代码。此用法要求 `runtime` 为 `python3.9`/`python3.10`/`python3.11`，否则返回 400。
+
+```bash
+curl -X POST http://{frontend}:8888/api/agent -H "Content-Type: application/json" -d '{
+  "name": "agent-adx", "namespace": "dev",
+  "runtime_spec": {
+    "runtime": "python3.11", "sandbox_type": "supervisor",
+    "rootfs": {"imageurl": "yr-docker-runtime:v0", "user": "agentos"},
+    "cpu": 600, "memory": 512
+  },
+  "workspace": "/home/snuser/workspaceA"
+}'
+```
+
+响应：
+
+```json
+{"code":200,"instance_id":"0b6c6322-6533-4901-8000-00000000bb0b"}
+```
+
+> 此时 [驱动执行](./invoke_agent_instance.md) 实例跑的是Agent Executor 的代码，而非用户 handler。若同时填了 `codePath`，该 `codePath` 会被Agent Executor 当作用户代码目录/工作目录使用（而非当作入口模块加载）。
 
 ### registered 模式
 
@@ -197,5 +235,5 @@ registered 模式先调 `POST /serverless/v1/functions`（详见 [注册函数](
 
 | **HTTP 状态** | **描述** |
 | -------- | -------- |
-| 400 | 错误的请求（Bad Request）。`message` 含具体原因：`either runtime_spec (inline) or urn (registered) is required`（既无 `runtime_spec` 又无 `urn`）、`invalid request body`（缺必填字段）、`... must be an absolute path` / `unsafe ...`（workspace/mount source 不合法）。 |
+| 400 | 错误的请求（Bad Request）。`message` 含具体原因：既无 `runtime_spec` 又无 `urn`、请求体缺必填字段、`handler` 为空时 `runtime` 非 python3.9/3.10/3.11（不填 `handler` 走Agent Executor，要求受支持的 Python 运行时）、`storageType` 与 `codePath` 只填了一个（必须成对）、workspace/mount source 路径不合法。 |
 | 500 | 内部服务器错误（Internal Server Error）。`message` 形如 `failed to create agent: <原因>`：`invalid function`（proxy 找不到 faasExecutor funcMeta，runtime 不在映射表或 executor-meta 未预加载）、`no Docker image specified`（`rootfs.imageurl` 未透传）、`deploy dir is empty`（faasExecutor funcMeta 的 code_path 不存在）。registered 模式下 `urn` 指向未注册或不存在的函数时，funcMeta 缓存未命中，最终也经此路径返回 500。 |
