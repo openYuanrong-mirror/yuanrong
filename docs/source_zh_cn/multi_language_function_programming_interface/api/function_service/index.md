@@ -28,6 +28,8 @@
 
    create_agent_instance
    delete_agent_instance
+   get_agent_instance
+   list_agent_instance
    agent_invoke_channels
 ```
 
@@ -66,4 +68,6 @@
 
 - [创建 Agent 实例](./create_agent_instance.md)
 - [删除 Agent 实例](./delete_agent_instance.md)
+- [查询单个 Agent 实例](./get_agent_instance.md)
+- [查询 Agent 实例列表](./list_agent_instance.md)
 - [Agent 实例协议调用通道](./agent_invoke_channels.md)

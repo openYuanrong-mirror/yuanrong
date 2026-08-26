@@ -28,6 +28,8 @@
 
    create_agent_instance
    delete_agent_instance
+   get_agent_instance
+   list_agent_instance
    agent_invoke_channels
 ```
 
@@ -66,4 +68,6 @@ This section introduces the Function Service API for developing, managing, and i
 
 - [Create Agent Instance](./create_agent_instance.md)
 - [Delete Agent Instance](./delete_agent_instance.md)
+- [Get Single Agent Instance](./get_agent_instance.md)
+- [List Agent Instances](./list_agent_instance.md)
 - [Agent Instance Protocol Invocation Channels](./agent_invoke_channels.md)
