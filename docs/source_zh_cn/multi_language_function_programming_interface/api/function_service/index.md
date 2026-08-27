@@ -29,6 +29,7 @@
    create_agent_instance
    delete_agent_instance
    agent_invoke_channels
+   agent_file_operations
 ```
 
 本节向您介绍函数服务 API，用于开发、管理 Serverless 服务类应用。
@@ -67,3 +68,4 @@
 - [创建 Agent 实例](./create_agent_instance.md)
 - [删除 Agent 实例](./delete_agent_instance.md)
 - [Agent 实例协议调用通道](./agent_invoke_channels.md)
+- [Agent 实例文件操作](./agent_file_operations.md)
