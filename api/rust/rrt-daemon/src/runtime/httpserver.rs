@@ -209,8 +209,8 @@ async fn handle_conn(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let _active = super::activity::enter(); // Count the HTTP atomic-operation connection as busy.
-                                            // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
+    let mut active = Some(super::activity::enter());
+    // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
     let mut tmp = [0u8; IO_BUFFER_SIZE];
     let header_end = loop {
@@ -305,6 +305,12 @@ async fn handle_conn(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    if action == "process.poll" {
+        // The launched process already owns an activity guard until exit.
+        // Counting its blocking poll as another busy unit can deadlock the
+        // checkpoint caller against the activity drain.
+        drop(active.take());
+    }
     let kw = json_args_to_kwargs(parsed.get("args"));
     let request_id = request_id_from(&head, &parsed);
 
@@ -1400,6 +1406,7 @@ pub(crate) async fn invoke_checkpoint_handler(
     tx: mpsc::Sender<StreamingMessage>,
     coordinator: CheckpointRequestCoordinator,
 ) -> CheckpointHttpResponse {
+    let _active = super::activity::enter();
     let message = super::checkpoint_request_msg(instance_id);
     let request_id = message.message_id.clone();
     let completion = match coordinator.begin(request_id.clone()) {
@@ -1649,6 +1656,7 @@ mod tests {
 
     use std::ffi::OsStr;
     use std::path::PathBuf;
+    use std::process::Command;
 
     use crate::posix::runtime_rpc::streaming_message;
     use crate::startup::CheckpointOutcome;
@@ -1687,6 +1695,22 @@ mod tests {
 
     #[tokio::test]
     async fn checkpoint_endpoint_waits_for_proxy_ack_handoff_and_snap_started() {
+        const ISOLATED_ENV: &str = "YR_RRT_CHECKPOINT_ACTIVITY_TEST_ISOLATED";
+        if std::env::var_os(ISOLATED_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().expect("current test executable"))
+                .arg(
+                    "runtime::httpserver::tests::checkpoint_endpoint_waits_for_proxy_ack_handoff_and_snap_started",
+                )
+                .arg("--exact")
+                .arg("--test-threads=1")
+                .env(ISOLATED_ENV, "1")
+                .status()
+                .expect("run isolated checkpoint activity test");
+            assert!(status.success(), "isolated checkpoint activity test failed");
+            return;
+        }
+
+        let baseline = super::super::activity::active_count();
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
         let coordinator = CheckpointRequestCoordinator::default();
 
@@ -1697,6 +1721,7 @@ mod tests {
         ));
 
         let message = rx.recv().await.expect("checkpoint signal");
+        assert_eq!(super::super::activity::active_count(), baseline + 1);
         assert!(!request.is_finished(), "HTTP completed before proxy ACK");
         coordinator.record_proxy_ack(
             &message.message_id,
@@ -1721,6 +1746,7 @@ mod tests {
             String::new(),
         );
         let response = request.await.expect("checkpoint HTTP task");
+        assert_eq!(super::super::activity::active_count(), baseline);
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body, r#"{"status":"completed"}"#);
@@ -1743,5 +1769,82 @@ mod tests {
             checkpoint_socket_path_from_control_directory(Some(OsStr::new(""))),
             None,
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn process_poll_does_not_duplicate_launched_process_activity() {
+        const ISOLATED_ENV: &str = "YR_RRT_HTTP_POLL_ACTIVITY_TEST_ISOLATED";
+        if std::env::var_os(ISOLATED_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().expect("current test executable"))
+                .arg(
+                    "runtime::httpserver::tests::process_poll_does_not_duplicate_launched_process_activity",
+                )
+                .arg("--exact")
+                .arg("--test-threads=1")
+                .env(ISOLATED_ENV, "1")
+                .status()
+                .expect("run isolated process poll activity test");
+            assert!(
+                status.success(),
+                "isolated process poll activity test failed"
+            );
+            return;
+        }
+
+        let baseline = super::super::activity::active_count();
+        let mut start = std::collections::BTreeMap::new();
+        start.insert("cmd".to_string(), rmpv::Value::from("sleep 2"));
+        let started = super::super::cmd::cmd_start(&start);
+        let pid = started
+            .as_map()
+            .and_then(|entries| {
+                entries.iter().find_map(|(key, value)| {
+                    (key.as_str() == Some("pid"))
+                        .then(|| value.as_i64())
+                        .flatten()
+                })
+            })
+            .expect("started process pid");
+        assert_eq!(super::super::activity::active_count(), baseline + 1);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test HTTP listener");
+        let address = listener.local_addr().expect("test listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept test request");
+            super::handle_conn(&mut stream, None)
+                .await
+                .expect("serve process.poll request");
+        });
+
+        let body = format!(
+            r#"{{"action":"process.poll","args":{{"pid":{pid},"wait_timeout":1}},"requestId":"poll-activity-test"}}"#
+        );
+        let request = format!(
+            "POST /invoke HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let mut client = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("connect test HTTP listener");
+        tokio::io::AsyncWriteExt::write_all(&mut client, request.as_bytes())
+            .await
+            .expect("send process.poll request");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert_eq!(
+            super::super::activity::active_count(),
+            baseline + 1,
+            "process.poll observes the launched process and must not add another busy unit"
+        );
+
+        let mut response = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut client, &mut response)
+            .await
+            .expect("read process.poll response");
+        server.await.expect("process.poll server task");
+        assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
     }
 }
