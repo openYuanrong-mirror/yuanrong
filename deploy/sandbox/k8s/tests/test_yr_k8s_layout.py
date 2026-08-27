@@ -151,6 +151,80 @@ def pipeline_step_container(step: dict) -> dict:
     return step["plugins"][0]["kubernetes"]["podSpec"]["containers"][0]
 
 
+def write_smoke_script_library(temp_root: pathlib.Path) -> pathlib.Path:
+    script = REPO_ROOT / ".buildkite/test_sandbox_k8s.sh"
+    script_library = temp_root / "test_sandbox_k8s.sh"
+    script_library.write_text(script.read_text().rsplit('\nmain "$@"', 1)[0] + "\n")
+    return script_library
+
+
+def resolve_smoke_image_tags(metadata: dict) -> tuple[str, str, str]:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = pathlib.Path(temp_dir)
+        script_library = write_smoke_script_library(temp_root)
+        metadata_file = temp_root / "sandbox-release.json"
+        metadata_file.write_text(json.dumps(metadata))
+        env = dict(os.environ)
+        for name in (
+            "YR_K8S_IMAGE_TAG",
+            "YR_K8S_RUNTIME_IMAGE_TAG",
+            "YR_K8S_RUNTIME_IMAGE_TAG_CP311",
+        ):
+            env.pop(name, None)
+        result = subprocess.run(
+            [
+                str(BASH_BIN),
+                "-c",
+                "source \"$1\"; "
+                "SANDBOX_METADATA=\"$2\"; "
+                "configure_image_tags; "
+                "printf '%s\\n%s\\n%s\\n' \"$YR_K8S_IMAGE_TAG\" "
+                "\"$YR_K8S_RUNTIME_IMAGE_TAG\" \"$YR_K8S_RUNTIME_IMAGE_TAG_CP311\"",
+                "bash",
+                str(script_library),
+                str(metadata_file),
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    return tuple(result.stdout.splitlines())
+
+
+def smoke_metadata_get_args(source_build_id=None) -> str:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = pathlib.Path(temp_dir)
+        script_library = write_smoke_script_library(temp_root)
+        fake_bin = temp_root / "bin"
+        fake_bin.mkdir()
+        buildkite_agent = fake_bin / "buildkite-agent"
+        buildkite_agent.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
+        buildkite_agent.chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{fake_bin}:{env['PATH']}"
+        if source_build_id is None:
+            env.pop("YR_K8S_SOURCE_BUILD_ID", None)
+        else:
+            env["YR_K8S_SOURCE_BUILD_ID"] = source_build_id
+        result = subprocess.run(
+            [
+                str(BASH_BIN),
+                "-c",
+                'source "$1"; buildkite_metadata_get sandbox-release.publish-sandbox-release-amd64',
+                "bash",
+                str(script_library),
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    return result.stdout.strip()
+
+
 def render_chart(*extra_args: str) -> list[dict]:
     result = subprocess.run(
         [
@@ -1161,6 +1235,45 @@ class YrK8sLayoutTests(unittest.TestCase):
         payload += "=" * (-len(payload) % 4)
         self.assertEqual("developer", json.loads(base64.urlsafe_b64decode(payload))["role"])
 
+    def test_buildkite_smoke_uses_the_tag_that_the_release_actually_pushed(self):
+        single_arch = {
+            "image_tag": "snapshot-266",
+            "pushed_image_tag": "snapshot-266-amd64",
+            "images": [
+                "registry.example/yr-controlplane:snapshot-266-amd64",
+                "registry.example/yr-node:snapshot-266-amd64",
+                "registry.example/yr-runtime:snapshot-266-amd64",
+            ],
+        }
+        multi_arch = {
+            "image_tag": "snapshot-266",
+            "runtime_image_tag": "snapshot-266-cp310",
+            "images": [
+                "registry.example/yr-controlplane:snapshot-266",
+                "registry.example/yr-node:snapshot-266",
+                "registry.example/yr-runtime:snapshot-266-cp310",
+            ],
+        }
+
+        self.assertEqual(
+            resolve_smoke_image_tags(single_arch),
+            ("snapshot-266-amd64", "snapshot-266-amd64", "snapshot-266-amd64-cp311"),
+        )
+        self.assertEqual(
+            resolve_smoke_image_tags(multi_arch),
+            ("snapshot-266", "snapshot-266-cp310", "snapshot-266-amd64-cp311"),
+        )
+
+    def test_buildkite_smoke_can_read_artifact_metadata_from_an_existing_build(self):
+        self.assertEqual(
+            smoke_metadata_get_args(None),
+            "meta-data get sandbox-release.publish-sandbox-release-amd64",
+        )
+        self.assertEqual(
+            smoke_metadata_get_args("build-uuid-226"),
+            "meta-data get sandbox-release.publish-sandbox-release-amd64 --build build-uuid-226",
+        )
+
     def test_buildkite_can_emit_k8s_test_only_pipeline(self):
         env = dict(os.environ)
         env["ENABLE_SANDBOX_K8S_TEST_ONLY"] = "true"
@@ -1301,9 +1414,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('cp314) tag="${RUNTIME_IMAGE_TAG_CP314}"', deploy_script_k8s)
         self.assertIn("docker pull", deploy_script_k8s)
         self.assertIn("run_off_cluster_test.sh", deploy_script)
-        self.assertIn('buildkite-agent meta-data get "sandbox-release.${PACKAGE_STEP_KEY}"', deploy_script)
-        self.assertIn('buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}"', deploy_script)
-        self.assertIn('buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}"', deploy_script)
+        self.assertIn('buildkite_metadata_get "sandbox-release.${PACKAGE_STEP_KEY}"', deploy_script)
+        self.assertIn('buildkite_metadata_get "obs-urls.${BUILD_STEP_KEY}"', deploy_script)
+        self.assertIn('buildkite_metadata_get "obs-urls.${SDK_STEP_KEY}"', deploy_script)
         self.assertIn(".buildkite/download_obs_artifacts.py", deploy_script)
         self.assertIn("openyuanrong-*.whl openyuanrong_runtime-*.whl", deploy_script)
         self.assertIn('SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-', deploy_script)
