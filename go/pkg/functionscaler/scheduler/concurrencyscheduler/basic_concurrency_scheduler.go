@@ -819,6 +819,24 @@ func (bcs *basicConcurrencyScheduler) acquireInstanceInternal(instanceQueue queu
 	if insAcqReq.DesignateInstanceID != "" {
 		insAlloc, acqErr = bcs.acquireDesignateInstance(instanceQueue, insAcqReq)
 		if acqErr == scheduler.ErrInsNotExist && len(insAcqReq.InstanceSession.SessionID) != 0 {
+			// CONTRACT: acquireDesignateInstance intentionally does NOT call delSession
+			// when the designate instance is absent from the queue (see its comment).
+			// It relies on THIS fallback to clear DesignateInstanceID and dispatch to
+			// acquireSessionInstance. isSessionExist() detects that the bound instance
+			// is gone and does a LOCAL-ONLY cleanup (deleteLocalSession): the stale
+			// local record is removed so acquireSessionInstance rebinds a fresh
+			// instance, and so a later acquire—after the original instance returns—
+			// re-binds via the designate path instead of reusing a stale insElem (see
+			// acquireSessionThread: record.insElem.instance). The external record is
+			// PRESERVED so the binding can be lazily recovered if the instance comes
+			// back: addSession overwrites it only when rebind succeeds; on failure the
+			// record stays, and the next acquire re-resolves from the store. This
+			// closes the "transient absence + no spare capacity → permanent affinity
+			// loss" gap that an eager delSession in isSessionExist would reintroduce.
+			// Do NOT change this fallback to merely propagate the error: doing so
+			// would leave stale bindings un-cleaned and cause every subsequent
+			// acquire for the same session to re-enter acquireDesignateInstance with
+			// the same dead DesignateInstanceID and fail again (rebind loop).
 			insAcqReq.DesignateInstanceID = ""
 			insAlloc, acqErr = bcs.acquireSessionInstance(instanceQueue, insAcqReq)
 		}
@@ -955,10 +973,16 @@ func (bcs *basicConcurrencyScheduler) isSessionExist(instanceQueue queue.Queue,
 	cacheKey := bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID, insAcqReq.SessionCtxID)
 	record, exist := bcs.sessionManager.getSession(cacheKey)
 	if exist {
-		// 缓存中有session但是instance已经被删除时，更新缓存
+		// 缓存命中但绑定实例已不在队列时，只清本地陈旧记录，保留外部记录。
+		// 实例缺失可能是瞬时的（事件未排空 / 缩容中短暂移除后重加）：若像过去
+		// 那样调 delSession 连外部记录一起删，一旦重绑失败（无替代容量），亲和性
+		// 将永久丢失——后续 acquire 即使原实例回来也无法恢复。删本地是必须的：
+		// 既让 acquireSessionInstance 重绑新实例，也避免实例回来后 designate 路径
+		// 在 :1028 命中陈旧 record、跳过 bindThdWithSession、复用陈旧 insElem。
+		// 外部记录的清理交给后续 addSession 覆盖（重绑成功）或 session TTL 物理过期。
 		obj := instanceQueue.GetByID(record.insElem.instance.InstanceID)
 		if obj == nil {
-			bcs.sessionManager.delSession(cacheKey)
+			bcs.sessionManager.deleteLocalSession(cacheKey)
 			exist = false
 		}
 	}
@@ -975,10 +999,16 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 	)
 	obj := instanceQueue.GetByID(insAcqReq.DesignateInstanceID)
 	if obj == nil {
-		if len(insAcqReq.InstanceSession.SessionID) != 0 {
-			bcs.sessionManager.delSession(bcs.getSessionCacheKey(insAcqReq.InstanceSession.SessionID,
-				insAcqReq.SessionCtxID))
-		}
+		// Designate instance absent from the queue. This may be transient (instance
+		// event not yet drained at startup, briefly removed during evict/scale-down
+		// and re-added) or permanent (instance truly deleted). Either way, do NOT
+		// call delSession here: deleting the local + external record is destructive
+		// and prevents any subsequent acquire from lazily recovering the binding.
+		// Instead return ErrInsNotExist and let acquireInstanceInternal clear
+		// DesignateInstanceID and fall through to acquireSessionInstance, which
+		// re-selects an instance and overwrites the old binding via addSession.
+		// If the original instance comes back later, a future acquire can still
+		// recover via the external store record (which we deliberately left intact).
 		return nil, scheduler.ErrInsNotExist
 	}
 	insElem, ok := obj.(*instanceElement)

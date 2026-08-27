@@ -1668,9 +1668,9 @@ func TestLocalMissStoreHitLazyRecoversAndRefreshes(t *testing.T) {
 	assert.Equal(t, 100*time.Second, rec.ttl, "ttl from request (not overwritten by store)")
 }
 
-// TestLocalMissStoreHitInstanceGoneDeletesAndRebinds: 本地 miss + 外部 hit 但实例已不在
-// 任何队列 → 删除外部旧记录并回退到新 session 绑定到可用实例。
-func TestLocalMissStoreHitInstanceGoneDeletesAndRebinds(t *testing.T) {
+// TestLocalMissStoreHitInstanceGoneOverwritesAndRebinds: 本地 miss + 外部 hit 但实例已不在
+// 任何队列 → 用新绑定覆盖外部旧记录（不显式删除，删除交由 etcd 事件处理），并回退到新 session 绑定到可用实例。
+func TestLocalMissStoreHitInstanceGoneOverwritesAndRebinds(t *testing.T) {
 	store := newFakeSessionStore()
 	sessionKey := "s1"
 	_ = store.Save(sessionKey, session.StoreRecord{
@@ -1686,12 +1686,83 @@ func TestLocalMissStoreHitInstanceGoneDeletesAndRebinds(t *testing.T) {
 	assert.Equal(t, "instance1", acqIns.Instance.InstanceID)
 	assert.Equal(t, 1, store.getCount(), "must query store on local miss")
 	bcs.sessionManager.coord.Drain(time.Second)
-	assert.Equal(t, 1, store.delCount(), "stale store record must be deleted")
+	assert.Equal(t, 0, store.delCount(), "stale store record must not be deleted before etcd event processed")
 	assert.Equal(t, 1, store.saveCount(), "new binding must save")
 	// 外部记录应被新绑定覆盖
 	rec, _ := store.Get(sessionKey)
 	assert.NotNil(t, rec)
 	assert.Equal(t, "instance1", rec.InstanceID)
+}
+
+// TestLocalHitInstanceGoneNoCapacityPreservesStoreRecord: 本地命中 + 绑定实例瞬时缺失
+// + 无替代容量 → acquire 失败，但外部记录必须保留，本地陈旧记录清掉。
+// 覆盖 isSessionExist 改 deleteLocalSession 的核心场景：急切 delSession 会在
+// 这种情况下永久丢失亲和（实例回来也无法恢复）；deleteLocalSession 保留外部记录，
+// 实例恢复后再次 acquire 能经懒恢复重新绑定。
+func TestLocalHitInstanceGoneNoCapacityPreservesStoreRecord(t *testing.T) {
+	defer gomonkey.ApplyFunc((*lease.GenericInstanceLeaseManager).CreateInstanceLease,
+		func(_ *lease.GenericInstanceLeaseManager,
+			insAlloc *types.InstanceAllocation, interval time.Duration, callback func()) (types.InstanceLease, error) {
+			return nil, nil
+		}).Reset()
+	store := newFakeSessionStore()
+	bcs := newBcsWithStore(store)
+	addTestInstance(&bcs, "instance1", 4)
+
+	// 1) 首次 acquire：绑定 session s1 → instance1，写本地 + 外部记录
+	acqIns, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{SessionID: "s1", Concurrency: 2},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "instance1", acqIns.Instance.InstanceID)
+	bcs.sessionManager.coord.Drain(time.Second)
+	assert.Equal(t, 1, store.saveCount(), "initial binding must save to store")
+	rec, _ := store.Get("s1")
+	assert.NotNil(t, rec)
+	assert.Equal(t, "instance1", rec.InstanceID)
+
+	// 2) 模拟实例瞬时缺失（缩容 / 事件未排空），队列变空
+	err = bcs.DelInstance(&types.Instance{
+		InstanceID: "instance1",
+		ResKey:     resspeckey.ResSpecKey{},
+	})
+	assert.NoError(t, err)
+
+	// 3) 再次 acquire：peekLocalSession 本地命中 → DesignateInstanceID=instance1
+	//    → acquireDesignateInstance 发现实例不在队列 → ErrInsNotExist
+	//    → 回退 acquireSessionInstance → isSessionExist 删本地（不删外部）→ 重绑失败
+	acqIns2, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{SessionID: "s1", Concurrency: 2},
+	})
+	assert.Error(t, err, "no available instance, acquire must fail")
+	assert.Nil(t, acqIns2)
+
+	// 关键断言：外部记录保留（亲和未丢失），本地陈旧记录已清
+	assert.Equal(t, 0, store.delCount(), "external record must be preserved for recovery")
+	rec, _ = store.Get("s1")
+	assert.NotNil(t, rec, "external record must still exist")
+	assert.Equal(t, "instance1", rec.InstanceID, "preserved record still points to original instance")
+	_, exist := bcs.sessionManager.getSession("s1")
+	assert.False(t, exist, "local stale record must be cleaned to avoid stale insElem reuse")
+
+	// 4) 实例恢复，再次 acquire：本地 miss → 外部命中 → 懒恢复重新绑定到 instance1
+	addTestInstance(&bcs, "instance1", 4)
+	store.getCnt = 0 // 重置，观测懒恢复的外部查询
+	acqIns3, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{SessionID: "s1", Concurrency: 2},
+	})
+	assert.NoError(t, err, "recovery acquire must succeed after instance returns")
+	assert.Equal(t, "instance1", acqIns3.Instance.InstanceID, "rebound to the recovered instance")
+	assert.Equal(t, 1, store.getCount(), "local miss must lazy-recover from store")
+	bcs.sessionManager.coord.Drain(time.Second)
+	// 外部记录被新绑定覆盖（仍是 instance1，无 stale insElem 复用）
+	rec2, _ := store.Get("s1")
+	assert.NotNil(t, rec2)
+	assert.Equal(t, "instance1", rec2.InstanceID)
+	// 本地记录已重建
+	rec3, exist := bcs.sessionManager.getSession("s1")
+	assert.True(t, exist, "local record rebuilt after recovery")
+	assert.Equal(t, "instance1", rec3.insElem.instance.InstanceID)
 }
 
 // TestSessionExpireDeletesStoreRecord: session 正常过期解绑时删除外部记录。

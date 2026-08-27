@@ -196,6 +196,19 @@ func (sm *sessionManager) delSession(sessionID string) {
 	sm.deleteSessionFromStore(sessionID)
 }
 
+// deleteLocalSession 仅删除本地 sessionMap 记录，不删外部存储。
+// 用于 isSessionExist 发现绑定实例已不在队列时的本地陈旧记录清理：
+// 实例缺失可能是瞬时的（事件未排空 / 缩容中短暂移除后重加），若像 delSession
+// 那样连外部记录一起删，一旦重绑失败（无替代容量），亲和性将永久丢失——后续
+// acquire 即使原实例回来也无法经外部记录懒恢复。保留外部记录后，重绑成功由
+// addSession 覆盖，重绑失败则留待实例恢复时重新绑定；外部记录的最终清理交给
+// session TTL 物理过期。delSession 仍用于显式销毁绑定（过期解绑 / sessionCtx 不匹配）。
+func (sm *sessionManager) deleteLocalSession(sessionID string) {
+	sm.Lock()
+	delete(sm.sessionMap, sessionID)
+	sm.Unlock()
+}
+
 // getSessionFromStore 本地 miss 后按 session cache key 查询外部记录（singleflight 去重）。
 // 返回 (nil,nil) 表示外部 miss；返回 error 表示存储异常，调用方 fail-open 按新 session 处理。
 // 不在 bcs 锁内调用（存储 I/O）。

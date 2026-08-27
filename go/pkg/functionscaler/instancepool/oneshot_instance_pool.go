@@ -374,6 +374,14 @@ func (op *OneShotInstancePool) HandleFaaSSchedulerEvent() {
 
 // HandleInstanceEvent handles instance event
 func (op *OneShotInstancePool) HandleInstanceEvent(eventType registry.EventType, instance *types.Instance) {
+	// SubEventTypeSynced is a control signal with no instance payload. Early-filter
+	// it before accessing instance.InstanceID below to avoid nil-deref panic—
+	// PoolManager.HandleInstanceEvent passes nil for Synced events (mirrors the
+	// nil-safe guard in GenericInstancePool.HandleInstanceEvent). OneShot pool has
+	// no per-sync work to do.
+	if eventType == registry.SubEventTypeSynced {
+		return
+	}
 	logger := log.GetLogger().With(zap.Any("funcKey", op.funcSpec.FuncKey),
 		zap.Any("instanceID", instance.InstanceID),
 		zap.Any("eventType", eventType))

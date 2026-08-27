@@ -31,7 +31,7 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/crypto"
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
 	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
-	"yuanrong.org/kernel/pkg/common/faas_common/redisclient"
+	"yuanrong.org/kernel/pkg/common/faas_common/redisclient/v6"
 	"yuanrong.org/kernel/pkg/common/faas_common/resspeckey"
 	"yuanrong.org/kernel/pkg/common/faas_common/sts/raw"
 	"yuanrong.org/kernel/pkg/common/faas_common/tls"
@@ -123,9 +123,9 @@ type DataSystemConfig struct {
 //
 // backend 留空时由 config 加载期校验函数兜底填为 datasystem。
 type SessionStoreConfig struct {
-	Backend           string             `json:"backend,omitempty" valid:",optional"`
-	RedisConfig       redisclient.Config `json:"redisConfig,omitempty" valid:",optional"`
-	BackendTTLSeconds int                `json:"backendTTLSeconds,omitempty" valid:",optional"`
+	Backend           string    `json:"backend,omitempty" valid:",optional"`
+	RedisConfig       v6.Config `json:"redisConfig,omitempty" valid:",optional"`
+	BackendTTLSeconds int       `json:"backendTTLSeconds,omitempty" valid:",optional"`
 }
 
 // ScaleRetryConfig -

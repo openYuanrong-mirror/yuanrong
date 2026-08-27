@@ -105,6 +105,14 @@ func main() {
 		logAndPrintError(errMessage)
 		return
 	}
+	// Cold-start path: ensure the instance pool is fully populated before the HTTP
+	// server starts serving acquire requests. The recover path calls fs.Recover()
+	// (which internally invokes WaitReadyForAcquire); the cold-start path previously
+	// skipped this barrier, so acquire could arrive while insSpecCh was still being
+	// drained by processInstanceSubscription, triggering fallback churn at startup.
+	if scheduler := functionscaler.GetGlobalScheduler(); scheduler != nil {
+		scheduler.WaitReadyForAcquire()
+	}
 	registry.StartRegistry()
 	config.ClearSensitiveInfo()
 	errChan := make(chan error, errChanSize)

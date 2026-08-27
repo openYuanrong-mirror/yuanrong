@@ -67,6 +67,26 @@ type LiteScheduler struct {
 	schedulerCh     chan registry.SubEvent
 	idleOnce        sync.Once
 	idleHTTP        *idleReporter
+	// insSyncedOnce/insSyncedDone: closed after processInstanceEvents has drained
+	// the initial etcd instance list (SubEventTypeSynced processed). LiteScheduler
+	// subscribes to InsSpec independently of FaaSScheduler (separate channel), so it
+	// needs its own barrier. FaaSScheduler.Recover() waits on InsSyncedDone() to
+	// guarantee the lite pool is fully populated before acquire requests arrive.
+	insSyncedOnce sync.Once
+	insSyncedDone chan struct{}
+	// funcSpecSyncedOnce/funcSpecSyncedDone: closed after processFuncSpecEvents
+	// has observed the SubEventTypeSynced event from the function registry.
+	// processInstanceEvents waits on this barrier before consuming any instance
+	// event to guarantee every initial funcSpec has been upserted into a pool
+	// before any instance event is dispatched, preventing the pool==nil drop
+	// path in processInstanceEvents from silently losing instances whose
+	// funcSpec was still queued in funcSpecCh. This mirrors the
+	// drain-funcSpecCh-before-instance-events protection that
+	// FaaSScheduler.Recover() gives the legacy pool, but localized inside
+	// LiteScheduler because its funcSpecCh is consumed by its own goroutine
+	// independent of fs.funcSpecCh.
+	funcSpecSyncedOnce sync.Once
+	funcSpecSyncedDone chan struct{}
 	// expiryWheel is the time wheel that drives automatic lease expiry. Each
 	// allocation is registered as a task; when the wheel fires, the expiry
 	// callback reaps the allocation and decrements InUse. retain calls
@@ -93,13 +113,15 @@ func New(ownerProxy *selfregister.SchedulerProxy,
 	funcSpecGetter func(string) *types.FunctionSpecification,
 	scaleHintSender ScaleHintSender, stopCh <-chan struct{}) *LiteScheduler {
 	result := &LiteScheduler{
-		pools:           make(map[string]*LiteFunctionPool),
-		allocations:     make(map[string]*Allocation),
-		ownerProxy:      ownerProxy,
-		funcSpecGetter:  funcSpecGetter,
-		scaleHintSender: scaleHintSender,
-		stopCh:          stopCh,
-		expiryWheel:     timewheel.NewSimpleTimeWheel(liteExpiryScanPace, liteExpiryScanSlots),
+		pools:              make(map[string]*LiteFunctionPool),
+		allocations:        make(map[string]*Allocation),
+		ownerProxy:         ownerProxy,
+		funcSpecGetter:     funcSpecGetter,
+		scaleHintSender:    scaleHintSender,
+		stopCh:             stopCh,
+		insSyncedDone:      make(chan struct{}),
+		funcSpecSyncedDone: make(chan struct{}),
+		expiryWheel:        timewheel.NewSimpleTimeWheel(liteExpiryScanPace, liteExpiryScanSlots),
 	}
 	// Build the Prometheus collector WITHOUT registering it with the default
 	// prometheus registry. Registration is a separate InitMetric step owned by the
@@ -127,6 +149,18 @@ func (ls *LiteScheduler) Pools() map[string]*LiteFunctionPool {
 // production construction, but callers must nil-check).
 func (ls *LiteScheduler) Metrics() *LiteCollector {
 	return ls.metrics
+}
+
+// InsSyncedDone returns a channel that is closed after processInstanceEvents has
+// drained the initial etcd instance list (SubEventTypeSynced processed).
+// LiteScheduler subscribes to InsSpec via its own channel independent of
+// FaaSScheduler.insSpecCh, so FaaSScheduler.Recover() must wait on this
+// separately to guarantee the lite pool is fully populated before acquire
+// requests arrive. If SubscribeAndLoop() is never called, the channel is never
+// closed; callers MUST guard with select+timeout (see FaaSScheduler.Recover())
+// to avoid blocking forever.
+func (ls *LiteScheduler) InsSyncedDone() <-chan struct{} {
+	return ls.insSyncedDone
 }
 
 // isFuncEnabled checks the three-tier whitelist (read live from config).

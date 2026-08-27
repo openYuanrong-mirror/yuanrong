@@ -30,6 +30,16 @@ import (
 
 const defaultChanSize = 1000
 
+// liteFuncSpecBarrierTimeout is the safety-net timeout for processInstanceEvents
+// to wait on funcSpecSyncedDone. The funcSpec Synced event is published during
+// ProcessETCDList (startup), so it normally arrives within seconds; this timeout
+// guards against a stuck funcSpec etcd watcher or a processFuncSpecEvents exit
+// so the lite path can degrade to serving with a potentially incomplete pool
+// rather than blocking forever. It is shorter than instanceSyncedWaitTimeout
+// (1m in the functionscaler package) so WaitReadyForAcquire's lite instance
+// barrier still has room to close before its own timeout fires.
+const liteFuncSpecBarrierTimeout = 30 * time.Second
+
 // SubscribeAndLoop registers three independent registry subscriptions and starts event loops.
 // It reads ls.stopCh (populated by New) to signal the three loops to exit; the registry
 // does not close subscription channels, so without stopCh the loops would leak for the
@@ -50,6 +60,12 @@ func (ls *LiteScheduler) SubscribeAndLoop() {
 
 func (ls *LiteScheduler) processFuncSpecEvents() {
 	logger := log.GetLogger()
+	// Best-effort close funcSpecSyncedDone on every exit path. funcSpecSyncedOnce
+	// makes this idempotent with the explicit close on SubEventTypeSynced below.
+	// Without this defer, a closed funcSpecCh would leave funcSpecSyncedDone open
+	// and processInstanceEvents would block for the full liteFuncSpecBarrierTimeout
+	// on the barrier select before degrading.
+	defer ls.funcSpecSyncedOnce.Do(func() { close(ls.funcSpecSyncedDone) })
 	for {
 		select {
 		case <-ls.stopCh:
@@ -60,6 +76,21 @@ func (ls *LiteScheduler) processFuncSpecEvents() {
 				logger.Warn("lite funcSpec channel closed, event loop exiting")
 				return
 			}
+			// SubEventTypeSynced is a control signal with an empty FuncKey
+			// payload (&types.FunctionSpecification{}). Handle it before the
+			// isFuncEnabled check so the barrier is closed regardless of the
+			// whitelist config (otherwise EnableAllTenants=false would skip
+			// the empty FuncKey and the barrier would never close), and before
+			// upsertPool so no phantom pool with an empty FuncKey is created.
+			// Closing funcSpecSyncedDone unblocks processInstanceEvents which
+			// waits on it before consuming any instance event, guaranteeing
+			// every initial funcSpec has been upserted into a pool before any
+			// instance event is dispatched.
+			if event.EventType == registry.SubEventTypeSynced {
+				ls.funcSpecSyncedOnce.Do(func() { close(ls.funcSpecSyncedDone) })
+				logger.Info("lite funcSpec subscription synced, lite pools ready for instance events")
+				continue
+			}
 			funcSpec, ok := event.EventMsg.(*types.FunctionSpecification)
 			if !ok {
 				logger.Warnf("lite funcSpec event type assertion failed, skip")
@@ -69,7 +100,7 @@ func (ls *LiteScheduler) processFuncSpecEvents() {
 				continue
 			}
 			switch event.EventType {
-			case registry.SubEventTypeUpdate, registry.SubEventTypeSynced:
+			case registry.SubEventTypeUpdate:
 				ls.upsertPool(funcSpec)
 			case registry.SubEventTypeDelete:
 				logger.Infof("lite funcSpec delete: drop pool %s", funcSpec.FuncKey)
@@ -81,6 +112,36 @@ func (ls *LiteScheduler) processFuncSpecEvents() {
 
 func (ls *LiteScheduler) processInstanceEvents() {
 	logger := log.GetLogger()
+	// Best-effort close insSyncedDone on every exit path (barrier-timeout exit,
+	// stopCh, channel closed). insSyncedOnce makes this idempotent with the
+	// explicit close on SubEventTypeSynced below. Without this defer, an exit
+	// before the synced event arrives would leave insSyncedDone open forever
+	// and FaaSScheduler.WaitReadyForAcquire would block for the full deadline.
+	defer ls.insSyncedOnce.Do(func() { close(ls.insSyncedDone) })
+	// Wait for the funcSpec barrier before consuming any instance event.
+	// processFuncSpecEvents and this loop run as independent goroutines; without
+	// this wait, an instance event whose funcSpec is still queued in funcSpecCh
+	// would hit pool==nil below and be silently dropped (no replay), permanently
+	// losing the instance from the lite pool. The instance registry publishes
+	// its initial list only after the function registry's initial list has been
+	// published (ProcessETCDList is serial), so the funcSpec Synced event is
+	// already in funcSpecCh by the time instance events arrive here. The timeout
+	// is a safety net for environments where the Synced event never arrives
+	// (e.g. funcSpec etcd watcher stuck or processFuncSpecEvents exited); in
+	// that case we serve with a potentially incomplete pool rather than
+	// blocking forever, matching WaitReadyForAcquire's degradation contract.
+	timer := time.NewTimer(liteFuncSpecBarrierTimeout)
+	select {
+	case <-ls.funcSpecSyncedDone:
+		logger.Info("lite funcSpec barrier satisfied, start consuming instance events")
+	case <-timer.C:
+		logger.Warnf("lite funcSpec barrier timeout, consuming instance events with potentially incomplete pools")
+	case <-ls.stopCh:
+		logger.Info("lite instance event loop exiting before funcSpec barrier satisfied")
+		timer.Stop()
+		return
+	}
+	timer.Stop()
 	for {
 		select {
 		case <-ls.stopCh:
@@ -90,6 +151,17 @@ func (ls *LiteScheduler) processInstanceEvents() {
 			if !ok {
 				logger.Warn("lite instance channel closed, event loop exiting")
 				return
+			}
+			// SubEventTypeSynced is a control signal with no payload dependency.
+			// Early-filter it before the type assertion so a malformed or nil
+			// EventMsg on the synced event cannot skip close(ls.insSyncedDone),
+			// which would leave FaaSScheduler.Recover() waiting the full timeout.
+			// LiteScheduler subscribes to InsSpec via its own channel, so it
+			// needs its own barrier independent of FaaSScheduler.insSyncedDone.
+			if event.EventType == registry.SubEventTypeSynced {
+				ls.insSyncedOnce.Do(func() { close(ls.insSyncedDone) })
+				logger.Info("lite instance subscription synced, lite pool ready for acquire")
+				continue
 			}
 			insSpec, ok := event.EventMsg.(*commonTypes.InstanceSpecification)
 			if !ok {
