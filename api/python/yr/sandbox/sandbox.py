@@ -807,6 +807,8 @@ class Sandbox:
         if options.user is not None:
             opt.custom_extensions["host_user"] = options.user
 
+        opt.recover_retry_times = 3
+
         if name is not None:
             opt.name = name
         if cpu is not None:
