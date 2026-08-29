@@ -132,6 +132,7 @@ bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 ip = "{{ values.host_ip }}"
 port = "{{ 58866|check_port() }}"
 data_system_enable = false
+snapshot_storage_mode = "local_only"
 
 [values.frontend]
 bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"

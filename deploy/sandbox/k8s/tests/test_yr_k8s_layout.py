@@ -748,6 +748,18 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('checkpoint_dir="/home/sn/checkpoints"', chart_config_template)
         self.assertGreaterEqual(chart_config_template.count('checkpoint_dir="/home/sn/checkpoints"'), 3)
 
+    def test_cli_snapshot_storage_mode_is_explicitly_configured(self):
+        config_template = (ROOT.parents[2] / "api/python/yr/cli/config.toml.jinja").read_text()
+        values_template = (ROOT.parents[2] / "api/python/yr/cli/values.toml").read_text()
+
+        self.assertIn('snapshot_storage_mode = "local_only"', values_template)
+        self.assertEqual(
+            config_template.count(
+                'snapshot_storage_mode = "{{ values.function_agent.snapshot_storage_mode }}"'
+            ),
+            2,
+        )
+
     def test_datasystem_client_log_dir_is_explicitly_configured(self):
         process_config = (ROOT.parents[2] / "deploy/process/config.sh").read_text()
         process_log_env = 'DATASYSTEM_CLIENT_LOG_DIR="${FS_LOG_PATH}"'
