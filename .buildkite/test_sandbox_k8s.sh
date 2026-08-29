@@ -18,6 +18,7 @@ KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 HELM_BIN="${HELM_BIN:-helm}"
 KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"
 NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
+RELEASE_NAME="${YR_K8S_RELEASE_NAME:-yr-k8s}"
 TRAEFIK_SERVICE="${YR_K8S_TRAEFIK_SERVICE:-yr-traefik}"
 SMOKE_LOG_DIR="${ROOT_DIR}/artifacts/sandbox-smoke"
 TOOL_DIR="${ROOT_DIR}/.buildkite/tools/bin"
@@ -409,21 +410,26 @@ dump_k8s_diagnostics() {
 		return 0
 	fi
 	printf '\n=== K8S diagnostics (%s) namespace=%s ===\n' "${reason}" "${NAMESPACE}" >&2
-	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pod,svc,deploy,statefulset,daemonset -o wide >&2 || true
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pod,svc,deploy,replicaset,statefulset,daemonset -o wide >&2 || true
+	printf '\n--- frontend workload details ---\n' >&2
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" describe deployment,replicaset,pod \
+		-l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=frontend >&2 || true
 	printf '\n--- pod image IDs ---\n' >&2
 	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods \
 		-o jsonpath='{range .items[*]}POD={.metadata.name}{"\n"}{range .spec.containers[*]}  SPEC {.name} image={.image}{"\n"}{end}{range .status.containerStatuses[*]}  STATUS {.name} image={.image} imageID={.imageID}{"\n"}{end}{"\n"}{end}' >&2 || true
-	if command -v helm >/dev/null 2>&1; then
+	if command -v "${HELM_BIN}" >/dev/null 2>&1; then
 		printf '\n--- helm release history ---\n' >&2
-		helm -n "${NAMESPACE}" history yr-k8s >&2 || true
+		"${HELM_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" history "${RELEASE_NAME}" >&2 || true
 		printf '\n--- helm current values ---\n' >&2
-		helm -n "${NAMESPACE}" get values yr-k8s -o yaml >&2 || true
+		"${HELM_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get values "${RELEASE_NAME}" -o yaml >&2 || true
 	fi
 	printf '\n--- recent events ---\n' >&2
 	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get events --sort-by=.lastTimestamp 2>/dev/null | tail -80 >&2 || true
 	for pod in $("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods -o name 2>/dev/null | grep -E 'pod/(yr-master|yr-node|yr-frontend|yr-traefik)' || true); do
 		printf '\n--- logs %s (all containers, tail=200, since=30m) ---\n' "${pod}" >&2
 		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" --all-containers=true --tail=200 --since=30m --prefix >&2 || true
+		printf '\n--- previous logs %s (all containers, tail=200) ---\n' "${pod}" >&2
+		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" --all-containers=true --previous --tail=200 --prefix >&2 || true
 	done
 	printf '=== end K8S diagnostics (%s) ===\n\n' "${reason}" >&2
 }
@@ -733,10 +739,10 @@ main() {
 	export YR_K8S_PREPULL_RUNTIME_SUFFIXES="${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp311}"
 	export YR_K8S_EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.buildkite-smoke.yaml}"
 	trap cleanup_port_forward EXIT
-
-	bash deploy/sandbox/k8s/deploy.sh
 	trap 'dump_k8s_diagnostics "error"' ERR
 	trap on_k8s_test_term TERM INT
+
+	bash deploy/sandbox/k8s/deploy.sh
 	smoke_server_address="${YR_K8S_SMOKE_SERVER_ADDRESS:-}"
 	router_address="${YR_K8S_ROUTER_ADDRESS:-}"
 	if [ -z "${smoke_server_address}" ] || [ -z "${router_address}" ]; then

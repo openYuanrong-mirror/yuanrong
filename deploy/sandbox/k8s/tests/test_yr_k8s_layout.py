@@ -1321,6 +1321,24 @@ class YrK8sLayoutTests(unittest.TestCase):
         steps = index_pipeline_steps(yaml.safe_load(result.stdout))
         self.assertNotIn("test-k8s", steps)
 
+    def test_k8s_rollout_failure_collects_frontend_diagnostics(self):
+        deploy_script = (ROOT.parents[2] / ".buildkite/test_sandbox_k8s.sh").read_text()
+        deploy_script_k8s = (ROOT / "deploy.sh").read_text()
+
+        self.assertLess(
+            deploy_script.index('trap \'dump_k8s_diagnostics "error"\' ERR'),
+            deploy_script.index("bash deploy/sandbox/k8s/deploy.sh"),
+        )
+        self.assertIn("--previous", deploy_script)
+        frontend_rollout = re.search(
+            r"wait_for_frontend_rollout\(\) \{.*?^\}",
+            deploy_script_k8s,
+            re.M | re.S,
+        )
+        self.assertIsNotNone(frontend_rollout)
+        self.assertIn('describe_rollout_failure "${deployment}"', frontend_rollout.group(0))
+        self.assertIn("--previous", deploy_script_k8s)
+
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
         bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
         pipeline = (ROOT.parents[2] / ".buildkite/pipeline.dynamic.yml").read_text()

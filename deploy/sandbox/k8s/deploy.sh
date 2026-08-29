@@ -563,9 +563,12 @@ wait_for_frontend_rollout() {
 
   deployment="${deployments}"
   printf 'Waiting for frontend rollout after master rollout is ready: %s\n' "${deployment}" >&2
-  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${deployment}" \
+  if ! "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${deployment}" \
     --namespace "${NAMESPACE}" \
-    --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"
+    --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"; then
+    describe_rollout_failure "${deployment}"
+    exit 1
+  fi
 }
 
 node_pods() {
@@ -645,6 +648,15 @@ describe_rollout_failure() {
     -l app.kubernetes.io/instance="${RELEASE_NAME}" \
     --all-containers=true \
     --tail=120 \
+    --prefix=true >&2 || true
+
+  printf '\nPrevious release pod logs:\n' >&2
+  "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" logs \
+    --namespace "${NAMESPACE}" \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}" \
+    --all-containers=true \
+    --previous \
+    --tail=200 \
     --prefix=true >&2 || true
 
   collect_session_logs
