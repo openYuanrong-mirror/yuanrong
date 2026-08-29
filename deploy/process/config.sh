@@ -177,7 +177,7 @@ YR_DATASYSTEM_DEFAULT_WRITE_MODE="NONE_L2_CACHE"
 STATE_STORAGE_TYPE="datasystem"
 ENABLE_SANDBOX_PAUSE_RESUME="false"
 SNAPSHOT_STORAGE_BACKEND=""
-SNAPSHOT_STORAGE_MODE="distributed_cache"
+SNAPSHOT_STORAGE_MODE="local_only"
 CHECKPOINT_DIR=""
 PULL_RESOURCE_INTERVAL=1000
 BLOCK=false
@@ -595,7 +595,7 @@ function usage() {
   echo -e "     --function_agent_alias                              function agent alias(default empty)"
   echo -e "     --function_proxy_merge_process_enable               enable function proxy merge process mode(default false)"
   echo -e "     --data_system_enable                                enable FunctionAgent DataSystem KV client (default false)"
-  echo -e "     --snapshot_storage_mode                             snapshot storage mode: distributed_cache, distributed_only, or local_only (default distributed_cache)"
+  echo -e "     --snapshot_storage_mode                             snapshot storage mode: distributed_cache, distributed_only, or local_only (default local_only)"
   echo -e "     --enable_print_perf                                 function proxy enable to print perf info"
   echo -e "     --enable_dashboard                                  for to enable dashboard(default false)"
   echo -e "     --enable_collector                                  for to enable collector(default false)"
