@@ -155,14 +155,9 @@ pub fn active_count() -> i64 {
 /// Wait until all in-flight RuntimeRPC/HTTP/tunnel requests and launched
 /// processes finish.
 pub async fn wait_until_idle(timeout: std::time::Duration) -> bool {
-    wait_until_at_most(0, timeout).await
-}
-
-/// Wait until no more than `maximum` tracked requests remain active.
-pub async fn wait_until_at_most(maximum: i64, timeout: std::time::Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if is_within_limit(active_count(), maximum) {
+        if active_count() <= 0 {
             return true;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -170,10 +165,6 @@ pub async fn wait_until_at_most(maximum: i64, timeout: std::time::Duration) -> b
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-}
-
-fn is_within_limit(active: i64, maximum: i64) -> bool {
-    active <= maximum
 }
 
 /// Report only when the global active counter crosses the zero boundary.
@@ -206,12 +197,6 @@ mod tests {
             assert_eq!(active_count(), base + 1);
         }
         assert_eq!(active_count(), base);
-    }
-
-    #[test]
-    fn checkpoint_drain_allows_request_and_caller_process() {
-        assert!(is_within_limit(2, 2));
-        assert!(!is_within_limit(3, 2));
     }
 
     #[test]

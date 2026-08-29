@@ -1615,46 +1615,6 @@ async fn handle_prepare_snap_request(
     response_tx: &mpsc::Sender<StreamingMessage>,
     checkpoint_control: Option<&httpserver::CheckpointServerControl>,
 ) -> bool {
-    const CHECKPOINT_DRAIN_TIMEOUT: Duration = Duration::from_secs(60);
-    handle_prepare_snap_request_with_timeout(
-        message_id,
-        response_tx,
-        CHECKPOINT_DRAIN_TIMEOUT,
-        checkpoint_control,
-    )
-    .await
-}
-
-async fn handle_prepare_snap_request_with_timeout(
-    message_id: String,
-    response_tx: &mpsc::Sender<StreamingMessage>,
-    drain_timeout: Duration,
-    checkpoint_control: Option<&httpserver::CheckpointServerControl>,
-) -> bool {
-    // The in-sandbox /checkpoint request and the process waiting for its HTTP
-    // response both remain tracked until handoff completes. Drain everything
-    // else while allowing those two parts of the caller itself.
-    if !activity::wait_until_at_most(2, drain_timeout).await {
-        let response = StreamingMessage {
-            message_id,
-            meta_data: Default::default(),
-            body: Some(streaming_message::Body::PrepareSnapRsp(
-                crate::posix::runtime_service::PrepareSnapResponse {
-                    code: crate::posix::common::ErrorCode::ErrInstanceBusy as i32,
-                    message: format!(
-                        "PrepareSnap rejected: {} in-flight request(s) after {}s",
-                        activity::active_count(),
-                        drain_timeout.as_secs()
-                    ),
-                },
-            )),
-        };
-        let sent = response_tx.send(response).await.is_ok();
-        if let Some(control) = checkpoint_control {
-            control.record_handoff_error("PrepareSnap activity drain timed out".to_string());
-        }
-        return sent;
-    }
     // Open before acknowledging PrepareSnap. gVisor binds an open descriptor
     // to the next checkpoint generation; opening after the response would race
     // sandboxd completing the checkpoint before the runtime starts waiting.
@@ -1679,17 +1639,15 @@ mod checkpoint_prepare_tests {
     use super::*;
 
     #[tokio::test]
-    async fn checkpoint_prepare_rejects_when_activity_does_not_drain() {
-        let caller_request = activity::enter();
-        let caller_process = activity::enter();
-        let other_process = activity::enter();
+    async fn checkpoint_prepare_does_not_wait_for_activity() {
+        let active = activity::enter();
         let (tx, mut rx) = mpsc::channel(1);
 
         assert!(
-            handle_prepare_snap_request_with_timeout(
+            handle_prepare_snap_request_with_handoff(
                 "prepare-checkpoint".to_string(),
                 &tx,
-                Duration::from_millis(1),
+                None,
                 None,
             )
             .await
@@ -1701,56 +1659,9 @@ mod checkpoint_prepare_tests {
         };
         assert_eq!(
             response.code,
-            crate::posix::common::ErrorCode::ErrInstanceBusy as i32
+            crate::posix::common::ErrorCode::ErrInnerSystemError as i32
         );
-        drop(other_process);
-        drop(caller_process);
-        drop(caller_request);
-    }
-
-    #[tokio::test]
-    async fn checkpoint_prepare_allows_its_request_and_caller_process() {
-        const ISOLATED_ENV: &str = "YR_RRT_CHECKPOINT_ACTIVITY_TEST_ISOLATED";
-        if std::env::var_os(ISOLATED_ENV).is_none() {
-            let status = std::process::Command::new(
-                std::env::current_exe().expect("current test executable"),
-            )
-            .arg(
-                "runtime::checkpoint_prepare_tests::checkpoint_prepare_allows_its_request_and_caller_process",
-            )
-            .arg("--exact")
-            .arg("--test-threads=1")
-            .env(ISOLATED_ENV, "1")
-            .status()
-            .expect("run isolated checkpoint activity test");
-            assert!(status.success(), "isolated checkpoint activity test failed");
-            return;
-        }
-
-        let caller_request = activity::enter();
-        let caller_process = activity::enter();
-        let (tx, mut rx) = mpsc::channel(1);
-
-        assert!(
-            handle_prepare_snap_request_with_timeout(
-                "prepare-checkpoint".to_string(),
-                &tx,
-                Duration::from_millis(1),
-                None,
-            )
-            .await
-        );
-
-        let response = rx.recv().await.expect("PrepareSnap response");
-        let Some(streaming_message::Body::PrepareSnapRsp(response)) = response.body else {
-            panic!("unexpected PrepareSnap response body")
-        };
-        assert_ne!(
-            response.code,
-            crate::posix::common::ErrorCode::ErrInstanceBusy as i32
-        );
-        drop(caller_process);
-        drop(caller_request);
+        drop(active);
     }
 }
 
