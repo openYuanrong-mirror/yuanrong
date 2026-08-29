@@ -297,7 +297,7 @@ Master→Proxy 的 `RestoreSnapshotResponse` 直接复用已有 `core_service.Sn
 
 ## 配置、升级与回滚
 
-- `enable_sandbox_pause_resume` 默认关闭，组件应整组升级后再开启。
+- 不设置全局 Pause/Resume 开关；请求是否可执行由 sandboxd capability 决定。
 - FunctionAgent 获得 snapshot backend、Secret 和 checkpoint volume；FunctionProxy 不获得这些能力。
 - RRT 和 sandboxd 必须使用支持 checkpoint/restore 与端口物理事实的新版本。
 - 先在 standalone/x86 RRT 环境验证，再进入 K8s 单节点、跨节点和故障注入矩阵。
