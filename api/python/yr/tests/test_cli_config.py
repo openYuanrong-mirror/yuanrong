@@ -18,6 +18,7 @@ import socket
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 try:
@@ -26,6 +27,7 @@ except ImportError:
     import tomli as tomllib
 
 from yr.cli.config import ConfigResolver, render_user_config_template
+from yr.cli.component.base import ComponentLauncher
 
 
 class FixedRuntimeConfigResolver(ConfigResolver):
@@ -216,6 +218,19 @@ class TestCliConfig(unittest.TestCase):
             self._resolve_real_config(
                 '[values.function_agent]\ndata_system_enable = "false"\n'
             )
+
+    def test_snapshot_storage_mode_defaults_reach_proxy_and_agent_commands(self):
+        config = self._resolve_real_config("")
+        resolver = SimpleNamespace(rendered_config=config)
+
+        for component in ("function_proxy", "function_agent"):
+            with self.subTest(component=component):
+                self.assertEqual(
+                    config[component]["args"]["snapshot_storage_mode"],
+                    "local_only",
+                )
+                command = ComponentLauncher(component, resolver).prepare_command()
+                self.assertIn("--snapshot_storage_mode=local_only", command)
 
     def test_sandbox_capability_override_is_independent_from_agent_client(self):
         config = self._resolve_real_config(
