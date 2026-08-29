@@ -59,7 +59,7 @@ genrule(
         if [[ "$$(uname)" == "Darwin" ]]; then
             CGO_ENABLED=1 go build -buildmode=pie -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
         else
-            LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
+            CGO_LDFLAGS="-L$$GO_OUT_DIR" LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go
         fi &&
         cd $$BASE_DIR &&
         chmod -R 750 $$GO_OUT_DIR &&
