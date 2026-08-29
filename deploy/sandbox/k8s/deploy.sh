@@ -689,7 +689,7 @@ collect_session_logs() {
         for dir in /tmp/yr_sessions/*; do
           [ -d "$dir" ] || continue
           echo "=== $dir ==="
-          find "$dir" -maxdepth 2 -type f \( -name "deploy_std.log" -o -name "*.log" -o -name "*.info" \) -print | sort |
+          find "$dir" -maxdepth 5 -type f \( -name "deploy_std.log" -o -name "*.log" -o -name "*.info" \) -print | sort |
             while IFS= read -r file; do
               echo "--- $file ---"
               tail -n "${YR_K8S_SESSION_LOG_TAIL:-200}" "$file" 2>/dev/null || true

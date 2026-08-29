@@ -431,7 +431,34 @@ dump_k8s_diagnostics() {
 		printf '\n--- previous logs %s (all containers, tail=200) ---\n' "${pod}" >&2
 		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" --all-containers=true --previous --tail=200 --prefix >&2 || true
 	done
+	dump_frontend_daemon_logs
 	printf '=== end K8S diagnostics (%s) ===\n\n' "${reason}" >&2
+}
+
+dump_frontend_daemon_logs() {
+	local pod
+	local session_dir
+	local session_dirs
+	for pod in $("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods \
+		-l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=frontend \
+		-o name 2>/dev/null || true); do
+		session_dirs="$({
+			"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" -c frontend --tail=200 2>/dev/null || true
+			"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" -c frontend --previous --tail=200 2>/dev/null || true
+		} | sed -n 's#.*Check \(/tmp/yr_sessions/[^ ]*/logs/function_system\).*#\1#p' | sort -u)"
+		while IFS= read -r session_dir; do
+			[ -n "${session_dir}" ] || continue
+			printf '\n--- daemon session logs %s:%s ---\n' "${pod}" "${session_dir}" >&2
+			"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" exec \
+				"${pod}" -c debug-busybox -- sh -c '
+					find "$1" -maxdepth 4 -type f -print | sort |
+						while IFS= read -r file; do
+							echo "--- $file ---"
+							tail -n "${YR_K8S_SESSION_LOG_TAIL:-300}" "$file" 2>/dev/null || true
+						done
+				' sh "${session_dir}" >&2 || true
+		done <<<"${session_dirs}"
+	done
 }
 
 on_k8s_test_term() {
@@ -721,6 +748,12 @@ main() {
 		printf 'Missing target kubeconfig: %s\n' "${KUBECONFIG_PATH}" >&2
 		exit 1
 	fi
+	case "${YR_K8S_DIAGNOSTICS_ONLY:-false}" in
+	1 | true | TRUE | yes | YES | on | ON)
+		dump_k8s_diagnostics "requested diagnostics-only run"
+		return 0
+		;;
+	esac
 
 	download_artifacts
 	export YR_K8S_KUBECONFIG="${KUBECONFIG_PATH}"

@@ -1330,6 +1330,9 @@ class YrK8sLayoutTests(unittest.TestCase):
             deploy_script.index("bash deploy/sandbox/k8s/deploy.sh"),
         )
         self.assertIn("--previous", deploy_script)
+        self.assertIn("YR_K8S_DIAGNOSTICS_ONLY", deploy_script)
+        self.assertIn("dump_frontend_daemon_logs", deploy_script)
+        self.assertIn("daemon session logs", deploy_script)
         frontend_rollout = re.search(
             r"wait_for_frontend_rollout\(\) \{.*?^\}",
             deploy_script_k8s,
@@ -1338,6 +1341,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIsNotNone(frontend_rollout)
         self.assertIn('describe_rollout_failure "${deployment}"', frontend_rollout.group(0))
         self.assertIn("--previous", deploy_script_k8s)
+        self.assertIn("-maxdepth 5", deploy_script_k8s)
 
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
         bootstrap_pipeline = (ROOT.parents[2] / ".buildkite/pipeline.yml").read_text()
