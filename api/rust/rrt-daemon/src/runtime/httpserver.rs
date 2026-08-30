@@ -1351,6 +1351,15 @@ impl CheckpointRequestCoordinator {
         let Ok(mut pending) = self.pending.lock() else {
             return;
         };
+        // A restored runtime inherits the request that initiated the source
+        // checkpoint. The target must still complete its own SnapStarted
+        // handshake, but the source request's KillRsp/proxy ACK is not
+        // replayed to the target. Drop that copied request so it cannot leave
+        // the restored coordinator permanently busy.
+        if outcome == crate::startup::CheckpointOutcome::Restore {
+            pending.take();
+            return;
+        }
         let should_complete = if let Some(request) = pending.as_mut() {
             request.handoff_complete = true;
             request.proxy_acked && request.snap_started
@@ -1756,6 +1765,48 @@ mod tests {
         assert_eq!(kill.instance_id, "sandbox-a");
         assert_eq!(kill.signal, 24);
         assert!(!kill.request_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn restored_runtime_discards_source_checkpoint_request() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let coordinator = CheckpointRequestCoordinator::default();
+        let source_request = tokio::spawn(invoke_checkpoint_handler(
+            "sandbox-source",
+            tx.clone(),
+            coordinator.clone(),
+        ));
+
+        rx.recv().await.expect("source checkpoint signal");
+        coordinator.record_handoff(CheckpointOutcome::Restore);
+        let source_response = source_request.await.expect("source checkpoint HTTP task");
+        assert_eq!(source_response.status, 500);
+        coordinator.record_snap_started(
+            crate::posix::common::ErrorCode::ErrNone as i32,
+            "restored runtime SnapStarted completed".to_string(),
+        );
+
+        let restored_request = tokio::spawn(invoke_checkpoint_handler(
+            "sandbox-restored",
+            tx,
+            coordinator.clone(),
+        ));
+        let restored_message = rx.recv().await.expect("restored checkpoint signal");
+        coordinator.record_proxy_ack(
+            &restored_message.message_id,
+            crate::posix::common::ErrorCode::ErrNone as i32,
+            String::new(),
+        );
+        coordinator.record_handoff(CheckpointOutcome::Resume);
+        coordinator.record_snap_started(
+            crate::posix::common::ErrorCode::ErrNone as i32,
+            String::new(),
+        );
+        let restored_response = restored_request
+            .await
+            .expect("restored checkpoint HTTP task");
+        assert_eq!(restored_response.status, 200);
+        assert_eq!(restored_response.body, r#"{"status":"completed"}"#);
     }
 
     #[test]
