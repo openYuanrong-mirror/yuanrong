@@ -27,6 +27,7 @@
    delete_reserve_instance
 
    create_agent_instance
+   invoke_agent_instance
    delete_agent_instance
    agent_invoke_channels
    agent_file_operations
@@ -66,6 +67,7 @@ This section introduces the Function Service API for developing, managing, and i
 ## Agent Instance Management
 
 - [Create Agent Instance](./create_agent_instance.md)
+- [Invoke Agent Instance](./invoke_agent_instance.md)
 - [Delete Agent Instance](./delete_agent_instance.md)
 - [Agent Instance Protocol Invocation Channels](./agent_invoke_channels.md)
 - [Agent Instance File Operations](./agent_file_operations.md)
