@@ -29,6 +29,8 @@
    create_agent_instance
    invoke_agent_instance
    delete_agent_instance
+   get_agent_instance
+   list_agent_instance
    agent_invoke_channels
    agent_file_operations
 ```
@@ -69,5 +71,7 @@
 - [创建 Agent 实例](./create_agent_instance.md)
 - [驱动 Agent 实例执行](./invoke_agent_instance.md)
 - [删除 Agent 实例](./delete_agent_instance.md)
+- [查询单个 Agent 实例](./get_agent_instance.md)
+- [查询 Agent 实例列表](./list_agent_instance.md)
 - [Agent 实例协议调用通道](./agent_invoke_channels.md)
 - [Agent 实例文件操作](./agent_file_operations.md)
