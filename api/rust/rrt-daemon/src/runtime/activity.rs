@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in this repository for the complete license text.
 
-//! Local busy/idle tracking for the HTTP atomic-operation server, tunnel WS, and RuntimeRPC call handling.
+//! Local busy/idle tracking for the HTTP atomic-operation server, tunnel WS,
+//! RuntimeRPC call handling, and processes launched through `process.start`.
 //! The active counter reports via `KillRequest(signal=23)` only on `0 -> 1` / `1 -> 0` transitions,
 //! letting function-proxy reuse IdleMgr to start or stop the idle timer.
 
@@ -146,12 +147,13 @@ pub fn current_state() -> &'static str {
     }
 }
 
-/// Current number of active connections/calls.
+/// Current number of active connections, calls, and launched processes.
 pub fn active_count() -> i64 {
     ACTIVE.load(Ordering::SeqCst)
 }
 
-/// Wait until all in-flight RuntimeRPC/HTTP/tunnel requests finish.
+/// Wait until all in-flight RuntimeRPC/HTTP/tunnel requests and launched
+/// processes finish.
 pub async fn wait_until_idle(timeout: std::time::Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {

@@ -2,8 +2,9 @@
 //! Semantics match `akernel_sdk/instance.py`, including response dict fields, error messages, and DEVNULL default stdin.
 //!
 //! Process-table design: the whole Child is moved to a waiter thread that owns wait(); kill sends signals directly to the OS pid,
-//! avoiding wait/kill contention over the same &mut Child in Rust. Exit codes are broadcast through (Mutex<Option<i32>>, Condvar),
-//! and cmd_poll/cmd_wait wait on the Condvar with timeouts, matching Python's background waiter thread plus Event.
+//! avoiding wait/kill contention over the same &mut Child in Rust. The waiter also owns a process activity guard until the child
+//! exits. Exit codes are broadcast through (Mutex<Option<i32>>, Condvar), and cmd_poll/cmd_wait wait on the Condvar with timeouts,
+//! matching Python's background waiter thread plus Event.
 
 use super::codec::{kw_str, map_value};
 use rmpv::Value;
@@ -167,9 +168,13 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
         cond: Condvar::new(),
     });
     let exit2 = exit.clone();
-    // Move the whole Child to the waiter thread: it owns wait(), and exit codes are broadcast through the Condvar.
+    let process_activity = super::activity::enter();
+    // Move the whole Child and its activity guard to the waiter thread. The
+    // process remains busy after cmd_start returns and becomes idle only after
+    // wait() observes its exit.
     std::thread::spawn(move || {
         let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1) as i64;
+        drop(process_activity);
         *exit2.code.lock().unwrap() = Some(code);
         exit2.cond.notify_all();
     });
@@ -335,5 +340,74 @@ pub fn cmd_send_stdin(kw: &BTreeMap<String, Value>) -> Value {
             }
             map_value(vec![("error", nil())])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map_i64(value: &Value, key: &str) -> i64 {
+        value
+            .as_map()
+            .and_then(|entries| {
+                entries.iter().find_map(|(entry_key, entry_value)| {
+                    (entry_key.as_str() == Some(key))
+                        .then(|| entry_value.as_i64())
+                        .flatten()
+                })
+            })
+            .unwrap_or(-1)
+    }
+
+    #[test]
+    fn started_process_holds_activity_until_exit() {
+        const ISOLATED_ENV: &str = "YR_RRT_CMD_ACTIVITY_TEST_ISOLATED";
+        if std::env::var_os(ISOLATED_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().expect("current test executable"))
+                .arg("runtime::cmd::tests::started_process_holds_activity_until_exit")
+                .arg("--exact")
+                .arg("--test-threads=1")
+                .env(ISOLATED_ENV, "1")
+                .status()
+                .expect("run isolated process activity test");
+            assert!(status.success(), "isolated process activity test failed");
+            return;
+        }
+
+        let baseline = super::super::activity::active_count();
+        let mut start = BTreeMap::new();
+        start.insert("cmd".to_string(), Value::from("cat"));
+        start.insert("want_stdin".to_string(), Value::from(true));
+
+        let started = cmd_start(&start);
+        let pid = map_i64(&started, "pid");
+        assert!(pid > 0, "cmd_start response: {started:?}");
+        assert_eq!(super::super::activity::active_count(), baseline + 1);
+
+        let mut close_stdin = BTreeMap::new();
+        close_stdin.insert("pid".to_string(), Value::from(pid));
+        close_stdin.insert("eof".to_string(), Value::from(true));
+        let closed = cmd_send_stdin(&close_stdin);
+        assert!(
+            closed
+                .as_map()
+                .and_then(|entries| entries
+                    .iter()
+                    .find(|(key, _)| key.as_str() == Some("error")))
+                .is_some_and(|(_, error)| error.is_nil()),
+            "cmd_send_stdin response: {closed:?}"
+        );
+
+        let mut wait = BTreeMap::new();
+        wait.insert("pid".to_string(), Value::from(pid));
+        wait.insert("timeout".to_string(), Value::from(5.0));
+        let waited = cmd_wait(&wait);
+        assert_eq!(
+            map_i64(&waited, "exit_code"),
+            0,
+            "cmd_wait response: {waited:?}"
+        );
+        assert_eq!(super::super::activity::active_count(), baseline);
     }
 }

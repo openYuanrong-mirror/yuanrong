@@ -122,6 +122,15 @@ read_smoke_controlplane_wheel_patterns() {
 	read -r -a SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST <<<"${SMOKE_CONTROLPLANE_WHEEL_PATTERNS}"
 }
 
+buildkite_metadata_get() {
+	local key="$1"
+	if [ -n "${YR_K8S_SOURCE_BUILD_ID:-}" ]; then
+		buildkite-agent meta-data get "${key}" --build "${YR_K8S_SOURCE_BUILD_ID}"
+	else
+		buildkite-agent meta-data get "${key}"
+	fi
+}
+
 download_obs_patterns() {
 	local urls_root="$1"
 	local output_dir="$2"
@@ -158,11 +167,11 @@ download_artifacts() {
 	mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}" "$(dirname "${SANDBOX_METADATA}")"
 	read_smoke_controlplane_wheel_patterns
 	if command -v buildkite-agent >/dev/null 2>&1; then
-		buildkite-agent meta-data get "sandbox-release.${PACKAGE_STEP_KEY}" >"${SANDBOX_METADATA}"
+		buildkite_metadata_get "sandbox-release.${PACKAGE_STEP_KEY}" >"${SANDBOX_METADATA}"
 		mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}" "${OBS_URL_DIR}/${SDK_STEP_KEY}"
-		buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}" \
+		buildkite_metadata_get "obs-urls.${BUILD_STEP_KEY}" \
 			>"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
-		buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
+		buildkite_metadata_get "obs-urls.${SDK_STEP_KEY}" \
 			>"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
 		download_obs_patterns \
 			"${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
@@ -187,6 +196,12 @@ json_field() {
 	python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "${SANDBOX_METADATA}" "${field_name}"
 }
 
+json_optional_field() {
+	local field_name="$1"
+	python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' \
+		"${SANDBOX_METADATA}" "${field_name}"
+}
+
 runtime_image_tag() {
 	python3 -c '
 import json
@@ -203,6 +218,30 @@ for image in metadata.get("images", []):
 else:
     print(f"{image_tag}-{sdk_suffix}")
 ' "${SANDBOX_METADATA}"
+}
+
+configure_image_tags() {
+	local base_image_tag
+	local pushed_image_tag
+	local runtime_arch
+	base_image_tag="$(json_field image_tag)"
+	pushed_image_tag="$(json_optional_field pushed_image_tag)"
+
+	# Single-architecture releases publish controlplane and node using the
+	# architecture suffix recorded in pushed_image_tag. Manifest releases omit
+	# that field and publish the arch-less image_tag.
+	export YR_K8S_IMAGE_TAG="${YR_K8S_IMAGE_TAG:-${pushed_image_tag:-${base_image_tag}}}"
+	export YR_K8S_RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-$(runtime_image_tag)}"
+
+	# Per-Python runtime images retain their architecture suffix even when the
+	# controlplane and node use a multi-architecture manifest tag.
+	runtime_arch="${YR_K8S_RUNTIME_IMAGE_ARCH:-amd64}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${base_image_tag}-${runtime_arch}-cp39}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${base_image_tag}-${runtime_arch}-cp310}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${base_image_tag}-${runtime_arch}-cp311}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${base_image_tag}-${runtime_arch}-cp312}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${base_image_tag}-${runtime_arch}-cp313}"
+	export YR_K8S_RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${base_image_tag}-${runtime_arch}-cp314}"
 }
 
 resolve_smoke_python() {
@@ -679,21 +718,7 @@ main() {
 
 	download_artifacts
 	export YR_K8S_KUBECONFIG="${KUBECONFIG_PATH}"
-	export YR_K8S_IMAGE_TAG="${YR_K8S_IMAGE_TAG:-$(json_field image_tag)}"
-	export YR_K8S_RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-$(runtime_image_tag)}"
-	# Runtime images are pushed as <image_tag>-<arch>-cpNN: the pipeline runtime
-	# step sets YR_K8S_IMAGE_TAG_SUFFIX="-<arch>-<sdk_suffix>". The release
-	# metadata only records the controlplane image_tag (arch-less, since the amd64
-	# release step runs with an empty IMAGE_ARCH), so runtime_image_tag() can't
-	# supply the arch -- build the per-cp runtime tags from image_tag + arch
-	# directly. Arch is amd64 for this x86 pipeline (overridable from CI).
-	runtime_arch="${YR_K8S_RUNTIME_IMAGE_ARCH:-amd64}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp39}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp310}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp311}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp312}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp313}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${YR_K8S_IMAGE_TAG}-${runtime_arch}-cp314}"
+	configure_image_tags
 	export YR_K8S_REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-$(json_field registry)}"
 	export HELM_BIN
 
