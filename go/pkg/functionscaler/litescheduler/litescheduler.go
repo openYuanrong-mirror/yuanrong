@@ -183,16 +183,21 @@ func contains(slice []string, s string) bool {
 // internal-error JSON response instead of a propagated panic.
 func (ls *LiteScheduler) Process(req *LiteRequest, traceID, traceParent string,
 	extraData []byte) (resp []byte, err error) {
-	logger := log.GetLogger()
-	traceField := zap.String("traceID", traceID)
-	opField := zap.String("operation", string(req.Op))
-	funcKeyField := zap.String("funcKey", req.FuncKey)
-	startTime := time.Now()
+	// Populate the per-request context (logger/startTime) carried by LiteRequest
+	// itself. LiteScheduler is a process-level singleton, so request-level state
+	// MUST NOT live in its fields; concurrent requests would overwrite each other.
+	// The base logger only bakes fields known-and-final at entry: traceID, plus
+	// funcKey for acquire. For release/retain/batchRetain the funcKey is resolved
+	// later (reverseLookup / allocation lookup) and is attached by the handler at
+	// that point, because zap fields are append-only and cannot be corrected.
+	req.logger = newReqLogger(traceID, req.FuncKey)
+	req.startTime = time.Now()
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("lite Process panic recovered", traceField, opField, funcKeyField, zap.Any("panic", r))
+			req.logger.Error("lite Process panic recovered",
+				zap.String("operation", string(req.Op)), zap.Any("panic", r))
 			data, _ := json.Marshal(liteErrResp(
-				statuscode.InternalErrorCode, "lite process panic recovered", startTime))
+				statuscode.InternalErrorCode, "lite process panic recovered", req.startTime))
 			resp = data
 			err = nil
 		}
@@ -205,17 +210,18 @@ func (ls *LiteScheduler) Process(req *LiteRequest, traceID, traceParent string,
 			// and still fails immediately. Batch retain resolves every item in
 			// the handler so one missing allocation does not block the rest.
 			if req.Op != "retain" && req.Op != "batchRetain" {
-				logger.Warn("lite Process reverse lookup failed", traceField, opField, funcKeyField,
+				req.logger.Warn("lite Process reverse lookup failed",
+					zap.String("operation", string(req.Op)),
 					zap.Int("code", fillErr.code), zap.String("message", fillErr.msg))
-				data, _ := json.Marshal(liteErrResp(fillErr.code, fillErr.msg, startTime))
+				data, _ := json.Marshal(liteErrResp(fillErr.code, fillErr.msg, req.startTime))
 				return data, nil
 			}
-			logger.Info("lite Process reverse lookup missed, defer to retain recovery", traceField, opField,
-				funcKeyField)
+			req.logger.Info("lite Process reverse lookup missed, defer to retain recovery",
+				zap.String("operation", string(req.Op)))
 		} else if !ls.isFuncEnabled(req.FuncKey) {
-			logger.Warn("lite Process function not enabled after reverse lookup", traceField, opField,
-				funcKeyField)
-			data, _ := json.Marshal(liteErrResp(statuscode.FuncMetaNotFoundErrCode, statuscode.FuncMetaNotFoundErrMsg, startTime))
+			req.logger.Warn("lite Process function not enabled after reverse lookup",
+				zap.String("operation", string(req.Op)), zap.String("funcKey", req.FuncKey))
+			data, _ := json.Marshal(liteErrResp(statuscode.FuncMetaNotFoundErrCode, statuscode.FuncMetaNotFoundErrMsg, req.startTime))
 			return data, nil
 		}
 	}
@@ -224,36 +230,36 @@ func (ls *LiteScheduler) Process(req *LiteRequest, traceID, traceParent string,
 		ownerID, owned := ls.ownerProxy.CheckHashOwner(
 			schedulerOwnerKey(req.TenantID, req.FuncKey, req.SessionID, req.SessionCtxID))
 		if !owned {
-			logger.Warn("lite Process not owner of session, should reroute", traceField, opField,
-				funcKeyField, zap.String("ownerID", ownerID))
+			req.logger.Warn("lite Process not owner of session, should reroute",
+				zap.String("operation", string(req.Op)), zap.String("ownerID", ownerID))
 			data, _ := json.Marshal(liteErrResp(statuscode.AcquireNonOwnerSchedulerErrorCode,
-				ownerID, startTime))
+				ownerID, req.startTime))
 			return data, nil
 		}
 	}
 	var response interface{}
 	switch req.Op {
 	case "acquire":
-		response = ls.handleAcquire(req, startTime)
+		response = ls.handleAcquire(req)
 	case "release":
-		response = ls.handleRelease(req, startTime)
+		response = ls.handleRelease(req)
 	case "retain":
-		response = ls.handleRetain(req, startTime)
+		response = ls.handleRetain(req)
 	case "batchRetain":
-		response = ls.handleBatchRetain(req, startTime)
+		response = ls.handleBatchRetain(req)
 	default:
-		logger.Error("lite Process unsupported operation", traceField, opField, funcKeyField)
+		req.logger.Error("lite Process unsupported operation", zap.String("operation", string(req.Op)))
 		response = liteErrResp(statuscode.FuncMetaNotFoundErrCode,
-			fmt.Sprintf("unsupported operation: %s", req.Op), startTime)
+			fmt.Sprintf("unsupported operation: %s", req.Op), req.startTime)
 	}
 	data, marshalErr := json.Marshal(response)
 	if marshalErr != nil {
-		logger.Error("lite Process marshal response failed", traceField, opField, funcKeyField,
-			zap.Error(marshalErr))
+		req.logger.Error("lite Process marshal response failed",
+			zap.String("operation", string(req.Op)), zap.Error(marshalErr))
 		return nil, marshalErr
 	}
-	logger.Debug("lite Process done", traceField, opField, funcKeyField,
-		zap.Int64("costMs", time.Since(startTime).Milliseconds()))
+	req.logger.Debug("lite Process done",
+		zap.String("operation", string(req.Op)), zap.Int64("costMs", time.Since(req.startTime).Milliseconds()))
 	return data, nil
 }
 

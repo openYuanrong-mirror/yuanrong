@@ -20,31 +20,66 @@ package litescheduler
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/runtime/libruntime/api"
 )
 
 // InstanceOperation mirrors faasscheduler.InstanceOperation to avoid import cycle.
 type InstanceOperation string
 
-// LiteRequest is the parsed request entering the LiteScheduler branch.
+// LiteRequest 是进入 LiteScheduler 分支的已解析请求。
 type LiteRequest struct {
 	Op                InstanceOperation
 	FuncKey           string
 	TenantID          string
 	SessionID         string
 	SessionCtxID      string
-	SessionTTL        int // seconds; 0 means use default
+	SessionTTL        int // 秒；0 表示用默认值
 	Concurrency       int
 	AllocationIDs     []string
 	ExtraData         []byte
 	MetricsData       []byte
 	TraceID           string
 	NeedReverseLookup bool
+	// logger/startTime 为请求级上下文：Process 中填充，ensureReqContext 为绕过
+	// Process 的路径（测试、batchRetain 子请求）兜底。调度器是进程级单例，请求级
+	// 状态必须放 req 上做请求间隔离，放调度器字段会被并发请求互相覆盖。
+	logger    api.FormatLogger
+	startTime time.Time
+	// bindingKey 为会话绑定键（依赖 pool.funcSpec.EnableSessionCtx，ParseRequest
+	// 时 pool 未解析、无法提前计算）。handleAcquire 在 pool.RLock 下计算一次并
+	// 缓存于此，acquire 后续阶段复用；并发 spec 换指针时同一请求的 key 也不会
+	// 漂移。仅 acquire 路径设置。
+	bindingKey string
+}
+
+// newReqLogger 构建请求基座 logger：只烧入入口已知且此后不变的字段。
+// funcKey 仅 acquire 在入口可知；release/retain/batchRetain 的 funcKey 要等
+// reverseLookup/分配解析后才已知，须在各自解析点 With 附加（zap 字段
+// append-only，入口烧入空值或代表值都无法事后纠正）。
+func newReqLogger(traceID, funcKey string) api.FormatLogger {
+	fields := []zap.Field{zap.String("traceID", traceID)}
+	if funcKey != "" {
+		fields = append(fields, zap.String("funcKey", funcKey))
+	}
+	return log.GetLogger().With(fields...)
+}
+
+// ensureReqContext 懒初始化请求级 logger 和计时起点，兜底绕过 Process 的测试
+// 和 batchRetain 子请求。req 不跨 goroutine 共享，无需加锁。
+func (req *LiteRequest) ensureReqContext() {
+	if req.logger == nil {
+		req.logger = newReqLogger(req.TraceID, req.FuncKey)
+	}
+	if req.startTime.IsZero() {
+		req.startTime = time.Now()
+	}
 }
 
 // ParseRequest is stateless: decides whether to enter the lite branch (ok=false -> legacy).

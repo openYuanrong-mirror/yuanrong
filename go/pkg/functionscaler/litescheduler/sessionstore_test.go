@@ -124,8 +124,8 @@ func TestAcquireLazyRecoverFromStore(t *testing.T) {
 		mock.saves["sess1"] = session.StoreRecord{InstanceID: "ins1", SessionID: "sess1", SessionTTL: 30}
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		convey.So(resp.InstanceID, convey.ShouldEqual, "ins1") // recovered, not redispatched
@@ -147,8 +147,8 @@ func TestAcquireStoreDesignateInstanceGoneFallToDispatch(t *testing.T) {
 		mock.saves["sess1"] = session.StoreRecord{InstanceID: "gone", SessionID: "sess1", SessionTTL: 30}
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		// Dispatched to one of the live instances (ins1/ins2), not "gone".
@@ -180,8 +180,8 @@ func TestAcquireStoreDesignateSessionCtxMismatch(t *testing.T) {
 		}
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionCtxID: "ctx-B", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionCtxID: "ctx-B", SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		// Must dispatch to ins2 (matching ctx-B), not ins1 (stale, ctx-A).
@@ -205,8 +205,8 @@ func TestAcquireStoreMissFailOpenDispatch(t *testing.T) {
 		// store is empty -> miss
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		convey.So(resp.InstanceID, convey.ShouldNotBeEmpty)
@@ -220,8 +220,8 @@ func TestAcquireSavesBindingToStore(t *testing.T) {
 		ls.pools["t1/fA/v1"] = pool
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 
 		pool.sessionStore.drainAsyncQueue(time.Second)
@@ -242,12 +242,12 @@ func TestReleaseIdleUnbindDeletesExternalRecord(t *testing.T) {
 
 		// SessionTTL=0 => idle-unbind timer fires immediately after release.
 		acqReq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 0, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(acqReq, time.Now())
+			SessionTTL: 0, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(acqReq)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 
 		relReq := &LiteRequest{Op: "release", AllocationIDs: []string{resp.ThreadID}, TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
+		ls.handleRelease(relReq)
 
 		// Timer fires async -> removeSessionBinding -> async Delete. Poll for it.
 		convey.So(waitForDelete(mock, "sess1", 2*time.Second), convey.ShouldBeTrue)
@@ -266,8 +266,8 @@ func TestDeletePoolCleansExternalRecords(t *testing.T) {
 
 		for _, sid := range []string{"sess1", "sess2"} {
 			req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: sid,
-				SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-			convey.So(ls.handleAcquire(req, time.Now()).ErrorCode,
+				SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+			convey.So(ls.handleAcquire(req).ErrorCode,
 				convey.ShouldEqual, constant.InsReqSuccessCode)
 		}
 		pool.sessionStore.drainAsyncQueue(time.Second)
@@ -293,8 +293,8 @@ func TestStickyInvalidatedDeletesStaleExternalRecord(t *testing.T) {
 
 		// Bind sess1 to ins1.
 		acq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
-			SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(acq, time.Now())
+			SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(acq)
 		convey.So(resp.InstanceID, convey.ShouldEqual, "ins1")
 		pool.sessionStore.drainAsyncQueue(time.Second)
 
@@ -306,7 +306,7 @@ func TestStickyInvalidatedDeletesStaleExternalRecord(t *testing.T) {
 		// Re-acquire: Phase 1 sees stale binding -> removeSessionBinding (async Delete)
 		// -> Phase 2 store still has the pre-crash record -> Phase 3 designate ins1
 		// absent -> dispatch to ins2.
-		resp2 := ls.handleAcquire(acq, time.Now())
+		resp2 := ls.handleAcquire(acq)
 		convey.So(resp2.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		convey.So(resp2.InstanceID, convey.ShouldEqual, "ins2")
 		// Stale external record for sess1 must eventually be deleted.

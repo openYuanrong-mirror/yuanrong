@@ -19,9 +19,9 @@ package litescheduler
 
 import (
 	"testing"
-	"time"
 
 	"github.com/smartystreets/goconvey/convey"
+
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
@@ -64,9 +64,8 @@ func TestFunctionDeleteRemovesPool(t *testing.T) {
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
 		resp := ls.handleAcquire(&LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 3600, TenantID: "t1", TraceID: "tr"}, time.Now())
-		ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{resp.ThreadID}, TraceID: "tr"},
-			time.Now())
+			SessionID: "sess1", SessionTTL: 3600, Concurrency: 1, TenantID: "t1", TraceID: "tr"})
+		ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{resp.ThreadID}, TraceID: "tr"})
 		pool.RLock()
 		binding := pool.sessions["sess1"]
 		timerStored := binding != nil && binding.timer != nil

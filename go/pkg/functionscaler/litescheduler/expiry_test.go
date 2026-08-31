@@ -86,11 +86,14 @@ func newExpiryTestScheduler(t *testing.T) (*LiteScheduler, chan struct{}) {
 
 // TestExpiryAutoReapsAfterTTL verifies that an allocation whose TTL elapses
 // without a retain or release is automatically reaped by the background expiry
-// scanner, and InUse is decremented.
+// scanner. The unit returns to the session's reservation (InUse unchanged); it
+// is only released back to the instance when the session idle-unbinds.
 func TestExpiryAutoReapsAfterTTL(t *testing.T) {
-	convey.Convey("expired allocation is auto-reaped and InUse decremented", t, func() {
+	convey.Convey("expired allocation is auto-reaped; unit returns to reservation then released at unbind", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 50 // 50ms TTL
 
@@ -98,8 +101,8 @@ func TestExpiryAutoReapsAfterTTL(t *testing.T) {
 		defer close(stopCh)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 1, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", SessionTTL: 1, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		allocID := resp.ThreadID
 
@@ -119,9 +122,12 @@ func TestExpiryAutoReapsAfterTTL(t *testing.T) {
 		}
 
 		convey.So(ls.allocations, convey.ShouldNotContainKey, allocID)
-		convey.So(pool.currentInUse(), convey.ShouldEqual, 0)
+		// After reap, the unit returned to the session's reservation; InUse stays
+		// at 1 until the session idle-unbinds (sessionTTL=1s).
+		convey.So(pool.currentInUse(), convey.ShouldEqual, 1)
 		// After reap, the session binding enters idle-unbind countdown (sessionTTL=1s).
-		// Wait for the unbind timer to fire, then the session binding should be gone.
+		// Wait for the unbind timer to fire, then the session binding should be gone
+		// and the reservation released back to the instance (InUse drops to 0).
 		unbindDeadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(unbindDeadline) {
 			pool.RLock()
@@ -136,6 +142,7 @@ func TestExpiryAutoReapsAfterTTL(t *testing.T) {
 		_, hasSession := pool.sessions["sess1"]
 		pool.RUnlock()
 		convey.So(hasSession, convey.ShouldBeFalse)
+		convey.So(pool.currentInUse(), convey.ShouldEqual, 0)
 	})
 }
 
@@ -145,7 +152,9 @@ func TestExpiryAutoReapsAfterTTL(t *testing.T) {
 func TestSessionTTLNegativeReturnsError(t *testing.T) {
 	convey.Convey("negative sessionTTL returns error", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 5000
 
@@ -156,8 +165,8 @@ func TestSessionTTLNegativeReturnsError(t *testing.T) {
 		ls.pools["t1/fA/v1"] = newTestPool(t)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: -1, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", SessionTTL: -1, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 	})
 }
@@ -167,7 +176,9 @@ func TestSessionTTLNegativeReturnsError(t *testing.T) {
 func TestSessionTTLZeroImmediateUnbind(t *testing.T) {
 	convey.Convey("sessionTTL=0 unbinds immediately after release", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 5000
 
@@ -178,8 +189,8 @@ func TestSessionTTLZeroImmediateUnbind(t *testing.T) {
 		ls.pools["t1/fA/v1"] = newTestPool(t)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 0, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", SessionTTL: 0, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		allocID := resp.ThreadID
 
 		pool := ls.pools["t1/fA/v1"]
@@ -191,7 +202,7 @@ func TestSessionTTLZeroImmediateUnbind(t *testing.T) {
 		// Release → session should be unbound almost immediately (sessionTTL=0).
 		relReq := &LiteRequest{Op: "release",
 			AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
+		ls.handleRelease(relReq)
 
 		// Give the timer goroutine a brief moment to fire (0s timer fires instantly
 		// but the goroutine needs to be scheduled).
@@ -209,7 +220,9 @@ func TestSessionTTLZeroImmediateUnbind(t *testing.T) {
 func TestRetainUpdatesExpiryWheel(t *testing.T) {
 	convey.Convey("retain keeps allocation alive past original TTL", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 50 // 50ms TTL
 
@@ -217,8 +230,8 @@ func TestRetainUpdatesExpiryWheel(t *testing.T) {
 		defer close(stopCh)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		allocID := resp.ThreadID
 
@@ -240,7 +253,7 @@ func TestRetainUpdatesExpiryWheel(t *testing.T) {
 				case <-ticker.C:
 					retReq := &LiteRequest{Op: "retain",
 						AllocationIDs: []string{allocID}, TraceID: "tr"}
-					ls.handleRetain(retReq, time.Now())
+					ls.handleRetain(retReq)
 				}
 			}
 		}()
@@ -268,6 +281,16 @@ func TestRetainUpdatesExpiryWheel(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 		convey.So(ls.allocations, convey.ShouldNotContainKey, allocID)
+		// After reap, the unit returned to the session's reservation. The session
+		// idle-unbind (sessionTTL=0 → immediate) then releases it. Wait for InUse
+		// to drop to 0 since the unbind runs in a separate goroutine.
+		inUseDeadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(inUseDeadline) {
+			if pool.currentInUse() == 0 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 		convey.So(pool.currentInUse(), convey.ShouldEqual, 0)
 	})
 }
@@ -277,7 +300,9 @@ func TestRetainUpdatesExpiryWheel(t *testing.T) {
 func TestReleaseCancelsExpiryTask(t *testing.T) {
 	convey.Convey("explicit release cancels expiry, no double-reap", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 50 // 50ms TTL
 
@@ -285,8 +310,8 @@ func TestReleaseCancelsExpiryTask(t *testing.T) {
 		defer close(stopCh)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		allocID := resp.ThreadID
 
 		pool := ls.pools["t1/fA/v1"]
@@ -295,10 +320,18 @@ func TestReleaseCancelsExpiryTask(t *testing.T) {
 		// Explicitly release
 		relReq := &LiteRequest{Op: "release",
 			AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
+		ls.handleRelease(relReq)
 
-		// Wait beyond the original TTL; nothing should panic or error.
-		time.Sleep(150 * time.Millisecond)
+		// After release, the unit is in the session's reservation (InUse still 1).
+		// The session idle-unbind (sessionTTL=0 → immediate) then releases it.
+		// Wait for InUse to drop to 0 since the unbind runs in a goroutine.
+		inUseDeadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(inUseDeadline) {
+			if pool.currentInUse() == 0 {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 
 		convey.So(ls.allocations, convey.ShouldNotContainKey, allocID)
 		convey.So(pool.currentInUse(), convey.ShouldEqual, 0)
@@ -327,7 +360,9 @@ func TestExpiryWheelNilDoesNotPanic(t *testing.T) {
 func TestSessionIdleUnbindAfterRelease(t *testing.T) {
 	convey.Convey("session binding removed after idle sessionTTL", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 5000 // 5s lease TTL; won't fire during test
 
@@ -338,8 +373,8 @@ func TestSessionIdleUnbindAfterRelease(t *testing.T) {
 		ls.pools["t1/fA/v1"] = newTestPool(t)
 
 		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 1, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+			SessionID: "sess1", SessionTTL: 1, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		allocID := resp.ThreadID
 
 		pool := ls.pools["t1/fA/v1"]
@@ -351,7 +386,7 @@ func TestSessionIdleUnbindAfterRelease(t *testing.T) {
 		// Release the allocation → session enters idle-unbind countdown (1s).
 		relReq := &LiteRequest{Op: "release",
 			AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
+		ls.handleRelease(relReq)
 
 		// Wait for the idle-unbind timer to fire (sessionTTL=1s).
 		deadline := time.Now().Add(3 * time.Second)
@@ -376,7 +411,9 @@ func TestSessionIdleUnbindAfterRelease(t *testing.T) {
 func TestAcquireCancelsIdleUnbindTimer(t *testing.T) {
 	convey.Convey("acquire during idle-unbind countdown cancels timer", t, func() {
 		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
 		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
 		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
 		config.GlobalConfig.LeaseSpan = 5000
 
@@ -388,13 +425,13 @@ func TestAcquireCancelsIdleUnbindTimer(t *testing.T) {
 
 		// acquire → release → wait briefly → re-acquire (should cancel unbind timer)
 		req1 := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 2, TenantID: "t1", TraceID: "tr"}
-		resp1 := ls.handleAcquire(req1, time.Now())
+			SessionID: "sess1", SessionTTL: 2, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp1 := ls.handleAcquire(req1)
 		allocID1 := resp1.ThreadID
 
 		relReq := &LiteRequest{Op: "release",
 			AllocationIDs: []string{allocID1}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
+		ls.handleRelease(relReq)
 		pool := ls.pools["t1/fA/v1"]
 		pool.RLock()
 		binding := pool.sessions["sess1"]
@@ -408,8 +445,8 @@ func TestAcquireCancelsIdleUnbindTimer(t *testing.T) {
 		// Wait 200ms (well within the 2s sessionTTL), then re-acquire.
 		time.Sleep(200 * time.Millisecond)
 		req2 := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-			SessionID: "sess1", SessionTTL: 2, TenantID: "t1", TraceID: "tr"}
-		resp2 := ls.handleAcquire(req2, time.Now())
+			SessionID: "sess1", SessionTTL: 2, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp2 := ls.handleAcquire(req2)
 		convey.So(resp2.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		pool.RLock()
 		binding = pool.sessions["sess1"]
@@ -444,17 +481,15 @@ func TestCancelledTimerCannotRemoveNewIdleGeneration(t *testing.T) {
 		allocations: map[string]*Allocation{},
 	}
 	firstReq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-		SessionID: "sess1", SessionTTL: 1, TenantID: "t1", TraceID: "tr"}
-	firstResp := ls.handleAcquire(firstReq, time.Now())
-	ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{firstResp.ThreadID}, TraceID: "tr"},
-		time.Now())
+		SessionID: "sess1", SessionTTL: 1, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+	firstResp := ls.handleAcquire(firstReq)
+	ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{firstResp.ThreadID}, TraceID: "tr"})
 
 	time.Sleep(600 * time.Millisecond)
 	secondReq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-		SessionID: "sess1", SessionTTL: 2, TenantID: "t1", TraceID: "tr"}
-	secondResp := ls.handleAcquire(secondReq, time.Now())
-	ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{secondResp.ThreadID}, TraceID: "tr"},
-		time.Now())
+		SessionID: "sess1", SessionTTL: 2, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+	secondResp := ls.handleAcquire(secondReq)
+	ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{secondResp.ThreadID}, TraceID: "tr"})
 
 	// The first deadline has elapsed, but the second idle period still has more
 	// than one second remaining. The binding must belong to the second timer.
@@ -479,15 +514,14 @@ func TestSessionTimerDoesNotLeakGoroutines(t *testing.T) {
 		allocations: map[string]*Allocation{},
 	}
 	req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-		SessionID: "leak-session", SessionTTL: 3600, TenantID: "t1", TraceID: "tr"}
+		SessionID: "leak-session", SessionTTL: 3600, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
 	baseline := runtime.NumGoroutine()
 	for i := 0; i < cycles; i++ {
-		resp := ls.handleAcquire(req, time.Now())
+		resp := ls.handleAcquire(req)
 		if resp.ErrorCode != constant.InsReqSuccessCode {
 			t.Fatalf("cycle %d acquire failed: %d %s", i, resp.ErrorCode, resp.ErrorMessage)
 		}
-		ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{resp.ThreadID}, TraceID: "tr"},
-			time.Now())
+		ls.handleRelease(&LiteRequest{Op: "release", AllocationIDs: []string{resp.ThreadID}, TraceID: "tr"})
 	}
 	pool.Lock()
 	pool.removeSessionBinding("leak-session")
