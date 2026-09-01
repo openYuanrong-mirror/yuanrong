@@ -285,10 +285,10 @@ data:
     s3_endpoint={{ quote .Values.global.obsManagement.s3Endpoint | default "{HOST_IP}:30110" }}
     decrypt_algorithm={{ quote .Values.global.common.decryptAlgorithm }}
     system_timeout={{ quote .Values.global.common.systemTimeout }}
-    enable_sandbox_pause_resume={{ quote .Values.global.pauseResume.enabled }}
     checkpoint_dir={{ quote .Values.global.pauseResume.checkpointRoot }}
+    snapshot_storage_mode={{ quote .Values.global.pauseResume.snapshotStorage.mode }}
     snapshot_storage_backend={{ quote .Values.global.pauseResume.snapshotStorage.backend }}
-    {{- if and .Values.global.pauseResume.enabled (eq .Values.global.pauseResume.snapshotStorage.backend "obs") }}
+    {{- if eq .Values.global.pauseResume.snapshotStorage.backend "obs" }}
     snapshot_obs_endpoint={{ quote .Values.global.pauseResume.snapshotStorage.obs.endpoint }}
     snapshot_obs_bucket={{ quote .Values.global.pauseResume.snapshotStorage.obs.bucket }}
     snapshot_obs_access_key="{SNAPSHOT_OBS_ACCESS_KEY}"
@@ -296,7 +296,7 @@ data:
     snapshot_obs_security_token="{SNAPSHOT_OBS_SECURITY_TOKEN}"
     snapshot_obs_use_https={{ quote .Values.global.pauseResume.snapshotStorage.obs.useHttps }}
     snapshot_obs_path_style={{ quote .Values.global.pauseResume.snapshotStorage.obs.pathStyle }}
-    {{- else if and .Values.global.pauseResume.enabled (eq .Values.global.pauseResume.snapshotStorage.backend "datasystem") }}
+    {{- else if eq .Values.global.pauseResume.snapshotStorage.backend "datasystem" }}
     data_system_host={{ quote .Values.global.pauseResume.snapshotStorage.dataSystem.host }}
     data_system_port={{ quote .Values.global.pauseResume.snapshotStorage.dataSystem.port }}
     {{- end }}

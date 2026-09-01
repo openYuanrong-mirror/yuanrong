@@ -9,7 +9,8 @@
 - [Oneshot 函数](./oneshot.md) - FaaS 调度策略
 - [Quota 配额管理系统](./quota.md) - 租户级资源配额管理
 - [IAM 认证与授权](./iam-auth.md) - Keycloak/Casdoor 集成
-- [Snapshot 与 Checkpoint](./snapshot-checkpoint.md) - 函数快照与实例恢复
+- [Sandbox 快照生命周期与本地恢复](./snapshot-checkpoint.md) - Reusable Snapshot、Create、Pause/Resume、Failover 与 Reload
+- [Sandbox 快照生命周期架构设计](./2026-08-13-sandbox-pause-resume-design.md) - 跨 SDK、Frontend、FunctionSystem、RRT 与 sandboxd 的已实现设计
 - [WebTerminal](./webterminal.md) - WebSocket 终端
 - [Sandbox RESTful API](./sandbox-rest-api.md) - HTTP/WS 接口、action 词表、tunnel 协议、SDK 用法
 - [Sandbox Create SSE/Timeout Design](./sandbox-create-sse-timeout.md) - aligned create semantics, SSE result delivery, and timeout handling
@@ -32,14 +33,14 @@
 | OpenTelemetry | GA | functionsystem |
 | Prometheus/Loki/Tempo (日志/告警) | GA | functionsystem, frontend |
 | Traefik HTTP 路由 | GA | functionsystem |
-| Quota 配额管理 | Beta (TODO: 与 IAM 对接) | functionsystem |
-| IAM 认证与授权 | Beta (TODO: 与函数系统对接) | functionsystem, frontend |
+| Quota 配额管理 | Beta（待 IAM 集成） | functionsystem |
+| IAM 认证与授权 | Beta（待 FunctionSystem 集成） | functionsystem, frontend |
 | Sandbox 外部认证 | Beta | frontend |
-| Snapshot/Checkpoint | Beta | functionsystem, yuanrong |
+| Sandbox Snapshot 生命周期与本地恢复 | Beta（已实现，需组件成套升级） | yuanrong, sandbox-sdk, frontend, functionsystem |
 | DataSystem 可选部署 | Beta | yuanrong, frontend, functionsystem |
 | Direct invoke | Beta | yuanrong, functionsystem |
 
-## 待办事项 (TODO)
+## 后续集成工作
 
 | 功能 | 状态 | 说明 |
 | ---- | ---- | ---- |

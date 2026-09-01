@@ -376,7 +376,7 @@ spec:
               name: minio-secret-yuanrong
               key: secretkey
         {{ end }}
-        {{- if and .Values.global.pauseResume.enabled (eq .Values.global.pauseResume.snapshotStorage.backend "obs") }}
+        {{- if eq .Values.global.pauseResume.snapshotStorage.backend "obs" }}
         {{- $snapshotSecret := required "global.pauseResume.snapshotStorage.obs.credentials.secretName is required for OBS" .Values.global.pauseResume.snapshotStorage.obs.credentials.secretName }}
         - name: SNAPSHOT_OBS_ACCESS_KEY
           valueFrom:

@@ -12,6 +12,7 @@ use crate::posix::runtime_rpc::runtime_rpc_client::RuntimeRpcClient;
 use crate::posix::runtime_rpc::{streaming_message, StreamingMessage};
 use crate::posix::runtime_service::CallResponse;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
@@ -88,6 +89,7 @@ enum RuntimeReadyState {
 struct RuntimeServiceControls {
     http: Option<httpserver::HttpServerControl>,
     tunnel: Option<tunnel::TunnelServerControl>,
+    checkpoint: Option<httpserver::CheckpointServerControl>,
 }
 
 impl RuntimeServiceControls {
@@ -109,7 +111,21 @@ impl RuntimeServiceControls {
                     .map_err(|error| format!("tunnel listener rearm failed: {error}"))?,
             ));
         }
+        if let Some(control) = &self.checkpoint {
+            generations.push((
+                "checkpoint",
+                control
+                    .rearm()
+                    .map_err(|error| format!("checkpoint listener rearm failed: {error}"))?,
+            ));
+        }
         Ok(generations)
+    }
+
+    fn rebind_instance_id(&self, instance_id: &str) {
+        if let Some(control) = &self.checkpoint {
+            control.rebind_instance_id(instance_id);
+        }
     }
 }
 
@@ -220,6 +236,31 @@ async fn start_http_server(
     start_http_server_with_control(port, token)
         .await
         .map(|(ready, _control)| ready)
+}
+
+async fn start_checkpoint_server_with_control(
+    instance_id: String,
+    tx: mpsc::Sender<StreamingMessage>,
+) -> Result<
+    Option<(
+        watch::Receiver<RuntimeReadyState>,
+        httpserver::CheckpointServerControl,
+    )>,
+    std::io::Error,
+> {
+    let Some(socket_path) = httpserver::checkpoint_socket_path_from_control_directory(
+        std::env::var_os(httpserver::RRT_CONTROL_SOCKET_PATH_ENV).as_deref(),
+    ) else {
+        return Ok(None);
+    };
+    let listener = httpserver::bind_checkpoint_socket(&socket_path).await?;
+    let (ready_tx, ready_rx) = watch::channel(RuntimeReadyState::Starting);
+    let control = httpserver::CheckpointServerControl::start(listener, instance_id, tx, ready_tx)?;
+    rrt_info!(
+        "[rrt-checkpoint] readiness ready socket={}",
+        socket_path.display()
+    );
+    Ok(Some((ready_rx, control)))
 }
 
 async fn start_tunnel_runtime_server_with_control(
@@ -1147,6 +1188,29 @@ pub(crate) fn call_result_msg(
 /// rrt activity signal value. It matches functionsystem `common/constants/signal.h`: core signals 1..22 are already used,
 /// so use the next free value 23. It is not a POSIX signal; proxy feeds it into IdleMgr.
 pub(crate) const IDLE_REPORT_SIGNAL: i32 = 23;
+pub(crate) const CHECKPOINT_SIGNAL: i32 = 24;
+
+pub(crate) fn checkpoint_request_msg(instance_id: &str) -> StreamingMessage {
+    static CHECKPOINT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+    let sequence = CHECKPOINT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let request_id = format!("rrt-checkpoint-{nanos}-{sequence}");
+    StreamingMessage {
+        message_id: request_id.clone(),
+        meta_data: Default::default(),
+        body: Some(streaming_message::Body::KillReq(
+            crate::posix::core_service::KillRequest {
+                instance_id: instance_id.to_string(),
+                signal: CHECKPOINT_SIGNAL,
+                request_id,
+                ..Default::default()
+            },
+        )),
+    }
+}
 
 /// Build activity reports as `KillRequest{ instanceID, signal=23, payload=busy|idle }` sent upstream to function-proxy over MessageStream.
 pub(crate) fn activity_report_msg(instance_id: &str, payload: Vec<u8>) -> StreamingMessage {
@@ -1258,11 +1322,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Reserve the direct HTTP listener and, when configured, both tunnel
     // listeners concurrently. RuntimeRPC can open after the ports are reserved;
     // InitCall success is gated on the combined readiness result below.
-    let (http_start, tunnel_start) = tokio::join!(
+    let (http_start, tunnel_start, checkpoint_start) = tokio::join!(
         start_configured_http_server(),
-        start_configured_tunnel_server()
+        start_configured_tunnel_server(),
+        start_checkpoint_server_with_control(instance_id.clone(), tx.clone())
     );
-    let mut configured_services = Vec::with_capacity(2);
+    let mut configured_services = Vec::with_capacity(3);
     let mut service_controls = RuntimeServiceControls::default();
     match http_start {
         Ok(Some((ready, control))) => {
@@ -1279,6 +1344,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(None) => {}
         Err(message) => configured_services.push(failed_runtime_receiver(message)),
+    }
+    match checkpoint_start {
+        Ok(Some((ready, control))) => {
+            configured_services.push(ready);
+            service_controls.checkpoint = Some(control);
+        }
+        Ok(None) => {}
+        Err(error) => configured_services.push(failed_runtime_receiver(format!(
+            "checkpoint listener startup failed: {error}"
+        ))),
     }
     let runtime_ready = combine_runtime_readiness(configured_services);
 
@@ -1340,6 +1415,7 @@ async fn run_message_stream_loop(
         };
         let endpoint = format!("http://{}", connection_args.rt_server);
         activity::rebind_reporter_instance_id(&connection_args.instance_id);
+        service_controls.rebind_instance_id(&connection_args.instance_id);
         let mut client = match RuntimeRpcClient::connect(endpoint.clone()).await {
             Ok(client) => client,
             Err(e) => {
@@ -1435,7 +1511,7 @@ async fn run_message_stream_loop(
                                 Some(&stream_tx),
                                 Some(&service_controls),
                             ).await {
-                                return Ok(());
+                                break "handler_requested_reconnect".to_string();
                             }
                         }
                         Ok(None) => break "remote_closed".to_string(),
@@ -1537,6 +1613,7 @@ fn call_response_msg(message_id: String) -> StreamingMessage {
 async fn handle_prepare_snap_request(
     message_id: String,
     response_tx: &mpsc::Sender<StreamingMessage>,
+    checkpoint_control: Option<&httpserver::CheckpointServerControl>,
 ) -> bool {
     // Open before acknowledging PrepareSnap. gVisor binds an open descriptor
     // to the next checkpoint generation; opening after the response would race
@@ -1548,13 +1625,51 @@ async fn handle_prepare_snap_request(
             None
         }
     };
-    handle_prepare_snap_request_with_handoff(message_id, response_tx, checkpoint_handoff).await
+    handle_prepare_snap_request_with_handoff(
+        message_id,
+        response_tx,
+        checkpoint_handoff,
+        checkpoint_control,
+    )
+    .await
+}
+
+#[cfg(test)]
+mod checkpoint_prepare_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn checkpoint_prepare_does_not_wait_for_activity() {
+        let active = activity::enter();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        assert!(
+            handle_prepare_snap_request_with_handoff(
+                "prepare-checkpoint".to_string(),
+                &tx,
+                None,
+                None,
+            )
+            .await
+        );
+
+        let response = rx.recv().await.expect("PrepareSnap response");
+        let Some(streaming_message::Body::PrepareSnapRsp(response)) = response.body else {
+            panic!("unexpected PrepareSnap response body")
+        };
+        assert_eq!(
+            response.code,
+            crate::posix::common::ErrorCode::ErrInnerSystemError as i32
+        );
+        drop(active);
+    }
 }
 
 async fn handle_prepare_snap_request_with_handoff(
     message_id: String,
     response_tx: &mpsc::Sender<StreamingMessage>,
     checkpoint_handoff: Option<crate::startup::CheckpointHandoff>,
+    checkpoint_control: Option<&httpserver::CheckpointServerControl>,
 ) -> bool {
     let barrier_ready = checkpoint_handoff.is_some();
     let (code, message) = if barrier_ready {
@@ -1586,26 +1701,42 @@ async fn handle_prepare_snap_request_with_handoff(
         rrt_warn!(
             "[rrt-runtime] checkpoint handoff barrier is unavailable; PrepareSnap failed closed"
         );
+        if let Some(control) = checkpoint_control {
+            control.record_handoff_error("checkpoint handoff barrier is unavailable".to_string());
+        }
         return true;
     };
     rrt_info!("[rrt-runtime] waiting for checkpoint handoff");
     match crate::startup::wait_for_checkpoint_handoff(handoff).await {
         Ok(crate::startup::CheckpointOutcome::Restore) => {
+            if let Some(control) = checkpoint_control {
+                control.record_handoff(crate::startup::CheckpointOutcome::Restore);
+            }
             rrt_info!(
                 "[rrt-runtime] checkpoint handoff outcome=restore; target physical identity will be loaded before reconnect"
             );
+            return false;
         }
         Ok(crate::startup::CheckpointOutcome::Resume) => {
+            if let Some(control) = checkpoint_control {
+                control.record_handoff(crate::startup::CheckpointOutcome::Resume);
+            }
             rrt_warn!(
                 "[rrt-runtime] checkpoint handoff outcome=resume; source runtime remains active"
             );
         }
         Ok(crate::startup::CheckpointOutcome::Error) => {
+            if let Some(control) = checkpoint_control {
+                control.record_handoff(crate::startup::CheckpointOutcome::Error);
+            }
             rrt_error!(
                 "[rrt-runtime] checkpoint handoff outcome=error; source runtime remains authoritative"
             );
         }
         Err(error) => {
+            if let Some(control) = checkpoint_control {
+                control.record_handoff_error(format!("checkpoint handoff failed: {error}"));
+            }
             rrt_error!("[rrt-runtime] checkpoint handoff failed: {error}");
         }
     }
@@ -1706,7 +1837,12 @@ async fn handle_inbound_message_with_control_sender(
                 rrt_debug!("[rrt-runtime] CallResultAck");
             }
         }
-        Some(streaming_message::Body::KillRsp(_)) => {
+        Some(streaming_message::Body::KillRsp(response)) => {
+            if let Some(control) =
+                service_controls.and_then(|controls| controls.checkpoint.as_ref())
+            {
+                control.record_proxy_ack(&mid, response.code, response.message.clone());
+            }
             rrt_debug!(
                 "[rrt-runtime] KillRsp received for activity/signal report message_id={}",
                 mid
@@ -1743,7 +1879,9 @@ async fn handle_inbound_message_with_control_sender(
         Some(streaming_message::Body::PrepareSnapReq(_)) => {
             rrt_info!("[rrt-runtime] PrepareSnapReq accepted");
             let response_tx = control_tx.unwrap_or(&tx);
-            if !handle_prepare_snap_request(mid, response_tx).await {
+            let checkpoint_control =
+                service_controls.and_then(|controls| controls.checkpoint.as_ref());
+            if !handle_prepare_snap_request(mid, response_tx, checkpoint_control).await {
                 return false;
             }
         }
@@ -1771,6 +1909,11 @@ async fn handle_inbound_message_with_control_sender(
                     )
                 }
             };
+            if let Some(control) =
+                service_controls.and_then(|controls| controls.checkpoint.as_ref())
+            {
+                control.record_snap_started(code as i32, message.clone());
+            }
             let response = StreamingMessage {
                 message_id: mid,
                 meta_data: Default::default(),

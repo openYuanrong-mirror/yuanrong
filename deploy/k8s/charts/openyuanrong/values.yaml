@@ -561,14 +561,15 @@ global:
     # credential type: credential_type_rotating_credentials / credential_type_permanent_credentials
     credentialType: "credential_type_permanent_credentials"
 
-  # Experimental sandbox Pause/Resume data plane. Disabled by default.
+  # Sandbox checkpoint/restore and Pause/Resume data plane.
   # FunctionAgent owns the remote snapshot client and shares checkpointRoot
   # only with RuntimeManager/Sandboxd; FunctionProxy must not mount it.
   pauseResume:
-    enabled: false
     checkpointRoot: /home/sn/checkpoints
     snapshotStorage:
-      # Supported values when enabled: obs, datasystem.
+      # Supported values: local_only, distributed_cache, distributed_only.
+      mode: local_only
+      # Distributed backend: obs or datasystem. Empty for local_only.
       backend: ""
       obs:
         endpoint: ""
