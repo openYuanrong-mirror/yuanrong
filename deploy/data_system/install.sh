@@ -81,13 +81,10 @@ function install_ds_master() {
       -etcd_ca=${ETCD_SSL_BASE_PATH}/${ETCD_CA_FILE} \
       -etcd_cert=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_CERT_FILE} \
       -etcd_key=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_KEY_FILE} \
-      -enable_curve_zmq=${DS_COMPONENT_AUTH_ENABLE} \
-      -curve_key_dir=${CURVE_KEY_PATH} \
       -logfile_mode=416 \
       -l2_cache_type=${DS_L2_CACHE_TYPE} \
       -sfs_path=${DS_SFS_PATH} \
       -log_monitor=${DS_LOG_MONITOR_ENABLE} \
-      -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
       -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
       -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} ${ds_node_role_arg} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_master${STD_LOG_SUFFIX} 2>&1 &
     DS_MASTER_PID="$!"
@@ -172,12 +169,10 @@ function install_ds_worker() {
     -etcd_ca=${ETCD_SSL_BASE_PATH}/${ETCD_CA_FILE} \
     -etcd_cert=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_CERT_FILE} \
     -etcd_key=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_KEY_FILE} \
-    -enable_curve_zmq=${DS_COMPONENT_AUTH_ENABLE} \
-    -curve_key_dir=${CURVE_KEY_PATH} -logfile_mode=416 \
+    -logfile_mode=416 \
     -l2_cache_type=${DS_L2_CACHE_TYPE} \
     -sfs_path=${DS_SFS_PATH} \
     -log_monitor=${DS_LOG_MONITOR_ENABLE} \
-    -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
     -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
     -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} ${ds_node_role_arg} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_worker${STD_LOG_SUFFIX} 2>&1 &
   DS_WORKER_PID="$!"
