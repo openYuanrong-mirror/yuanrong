@@ -1228,6 +1228,47 @@ pub(crate) fn activity_report_msg(instance_id: &str, payload: Vec<u8>) -> Stream
     }
 }
 
+async fn send_snap_started_activity_and_response(
+    response_tx: &mpsc::Sender<StreamingMessage>,
+    message_id: String,
+    instance_id: &str,
+    code: crate::posix::common::ErrorCode,
+    message: String,
+) -> bool {
+    let code_value = code as i32;
+    if code_value == crate::posix::common::ErrorCode::ErrNone as i32 {
+        // Publish the restored generation's activity before acknowledging
+        // SnapStarted. FunctionSystem can then enqueue the state before its
+        // completion callback commits the instance as RUNNING or closes the
+        // candidate control stream.
+        let state = activity::current_state();
+        if response_tx
+            .send(activity_report_msg(instance_id, state.as_bytes().to_vec()))
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        rrt_info!(
+            "[rrt-runtime] SnapStarted activity state published state={} active_count={}",
+            state,
+            activity::active_count()
+        );
+    }
+
+    let response = StreamingMessage {
+        message_id,
+        meta_data: Default::default(),
+        body: Some(streaming_message::Body::SnapStartedRsp(
+            crate::posix::runtime_service::SnapStartedResponse {
+                code: code_value,
+                message,
+            },
+        )),
+    };
+    response_tx.send(response).await.is_ok()
+}
+
 fn shutdown_response_msg(
     request_id: String,
     code: crate::posix::common::ErrorCode,
@@ -1359,8 +1400,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = std::sync::Arc::new(dispatch::Ctx::new(args.clone()));
 
-    // busy/idle reports are emitted by activity::enter()/ActiveGuard drop on 0<->1 transitions.
-    // function-proxy IdleMgr owns the actual idle timeout, avoiding inconsistent duplicate timers in RRT and proxy.
+    // Busy is reasserted whenever activity restarts, and tunnel connections
+    // reassert it even when they overlap another request. Idle remains
+    // debounced until the last ActiveGuard drops. Function-proxy IdleMgr owns
+    // the actual idle timeout.
     run_message_stream_loop(args, ctx, tx, rx, runtime_ready, service_controls).await
 }
 
@@ -1637,10 +1680,11 @@ async fn handle_prepare_snap_request(
 #[cfg(test)]
 mod checkpoint_prepare_tests {
     use super::*;
+    use std::process::Command;
 
     #[tokio::test]
     async fn checkpoint_prepare_does_not_wait_for_activity() {
-        let active = activity::enter();
+        let active = activity::enter(activity::ActivitySource::RuntimeRpc);
         let (tx, mut rx) = mpsc::channel(1);
 
         assert!(
@@ -1661,6 +1705,56 @@ mod checkpoint_prepare_tests {
             response.code,
             crate::posix::common::ErrorCode::ErrInnerSystemError as i32
         );
+        drop(active);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn snap_started_success_publishes_busy_before_response() {
+        const ENV: &str = "YR_RRT_SNAP_STARTED_ACTIVITY_ISOLATED";
+        const TEST: &str =
+            "runtime::checkpoint_prepare_tests::snap_started_success_publishes_busy_before_response";
+        if std::env::var_os(ENV).is_none() {
+            let status = Command::new(std::env::current_exe().expect("current test executable"))
+                .arg(TEST)
+                .arg("--exact")
+                .arg("--test-threads=1")
+                .env(ENV, "1")
+                .status()
+                .expect("run isolated SnapStarted activity test");
+            assert!(
+                status.success(),
+                "isolated SnapStarted activity test failed"
+            );
+            return;
+        }
+
+        let active = activity::enter(activity::ActivitySource::Process);
+        let (tx, mut rx) = mpsc::channel(2);
+
+        assert!(
+            send_snap_started_activity_and_response(
+                &tx,
+                "snap-started".to_string(),
+                "restored-sandbox",
+                crate::posix::common::ErrorCode::ErrNone,
+                "ok".to_string(),
+            )
+            .await
+        );
+
+        let activity = rx.recv().await.expect("SnapStarted activity report");
+        let Some(streaming_message::Body::KillReq(kill)) = activity.body else {
+            panic!("expected activity KillReq before SnapStarted response")
+        };
+        assert_eq!(kill.instance_id, "restored-sandbox");
+        assert_eq!(kill.signal, IDLE_REPORT_SIGNAL);
+        assert_eq!(kill.payload, b"busy");
+        let response = rx.recv().await.expect("SnapStarted response");
+        assert!(matches!(
+            response.body,
+            Some(streaming_message::Body::SnapStartedRsp(_))
+        ));
+
         drop(active);
     }
 }
@@ -1789,7 +1883,7 @@ async fn handle_inbound_message_with_control_sender(
             let ctx2 = ctx.clone();
             let tx2 = tx.clone();
             tokio::spawn(async move {
-                let _active = activity::enter(); // Count RuntimeRPC calls as busy.
+                let _active = activity::enter(activity::ActivitySource::RuntimeRpc);
                 let readiness = if call.is_create {
                     match tokio::time::timeout(
                         RUNTIME_READY_TIMEOUT,
@@ -1914,18 +2008,16 @@ async fn handle_inbound_message_with_control_sender(
             {
                 control.record_snap_started(code as i32, message.clone());
             }
-            let response = StreamingMessage {
-                message_id: mid,
-                meta_data: Default::default(),
-                body: Some(streaming_message::Body::SnapStartedRsp(
-                    crate::posix::runtime_service::SnapStartedResponse {
-                        code: code as i32,
-                        message,
-                    },
-                )),
-            };
             let response_tx = control_tx.unwrap_or(&tx);
-            if response_tx.send(response).await.is_err() {
+            if !send_snap_started_activity_and_response(
+                response_tx,
+                mid,
+                instance_id,
+                code,
+                message,
+            )
+            .await
+            {
                 return false;
             }
         }

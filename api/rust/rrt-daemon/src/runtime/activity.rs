@@ -4,10 +4,12 @@
 
 //! Local busy/idle tracking for the HTTP atomic-operation server, tunnel WS,
 //! RuntimeRPC call handling, and processes launched through `process.start`.
-//! The active counter reports via `KillRequest(signal=23)` only on `0 -> 1` / `1 -> 0` transitions,
-//! letting function-proxy reuse IdleMgr to start or stop the idle timer.
+//! The active counter reports via `KillRequest(signal=23)`: busy is reasserted
+//! when work restarts and on direct/tunnel lease renewals, while idle is
+//! debounced after the final `1 -> 0` transition. Function-proxy reuses IdleMgr
+//! to start or stop the idle timer.
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 use tokio::sync::mpsc;
@@ -15,7 +17,6 @@ use tokio::sync::mpsc;
 use crate::posix::runtime_rpc::StreamingMessage;
 
 static ACTIVE: AtomicI64 = AtomicI64::new(0);
-static REPORTED_BUSY: AtomicBool = AtomicBool::new(false);
 static IDLE_EPOCH: AtomicU64 = AtomicU64::new(0);
 static REPORTER: OnceLock<ActivityReporter> = OnceLock::new();
 const IDLE_REPORT_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(800);
@@ -67,50 +68,92 @@ pub fn rebind_reporter_instance_id(instance_id: &str) {
 
 /// RAII guard: increments activity on creation and decrements on drop, including connection/call end and panic unwinding.
 #[must_use]
-pub struct ActiveGuard;
+pub struct ActiveGuard {
+    source: ActivitySource,
+}
 
-/// Mark a connection/call active and return a guard; dropping the guard ends the activity.
-pub fn enter() -> ActiveGuard {
-    let previous = ACTIVE.fetch_add(1, Ordering::SeqCst);
-    if state_transition(previous, true).is_some() {
-        // Cancel any pending idle report when new activity arrives. If proxy still considers the runtime busy,
-        // do not send duplicate busy reports; this avoids busy/idle flapping for short HTTP requests.
-        IDLE_EPOCH.fetch_add(1, Ordering::SeqCst);
-        if !REPORTED_BUSY.load(Ordering::SeqCst) && report_state_transition(true) {
-            REPORTED_BUSY.store(true, Ordering::SeqCst);
+/// Identifies which runtime surface produced an activity report.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ActivitySource {
+    Checkpoint,
+    DirectHttp,
+    Process,
+    RuntimeRpc,
+    Tunnel,
+}
+
+impl ActivitySource {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Checkpoint => "checkpoint",
+            Self::DirectHttp => "direct-http",
+            Self::Process => "process",
+            Self::RuntimeRpc => "runtime-rpc",
+            Self::Tunnel => "tunnel",
         }
     }
-    ActiveGuard
+
+    const fn reasserts_busy(self) -> bool {
+        matches!(self, Self::DirectHttp | Self::Tunnel)
+    }
+}
+
+/// Mark a connection/call active and return a guard; dropping the guard ends the activity.
+pub(crate) fn enter(source: ActivitySource) -> ActiveGuard {
+    let previous = ACTIVE.fetch_add(1, Ordering::SeqCst);
+    let crossed_from_idle = state_transition(previous, true).is_some();
+    if crossed_from_idle {
+        // A new activity invalidates any pending debounced idle report. Always
+        // reassert busy after crossing from zero: the proxy may have armed its
+        // timer through another traffic source since the previous report.
+        IDLE_EPOCH.fetch_add(1, Ordering::SeqCst);
+    }
+
+    // Direct requests are lease renewals, and a tunnel connection is a
+    // long-lived activity owner. Reassert both even when another request is
+    // active so polling and overlapping init/tunnel startup cannot leave the
+    // proxy with an armed idle timer.
+    if crossed_from_idle || source.reasserts_busy() {
+        report_state_transition(true, source);
+    }
+    ActiveGuard { source }
 }
 
 impl Drop for ActiveGuard {
     fn drop(&mut self) {
         let previous = ACTIVE.fetch_sub(1, Ordering::SeqCst);
         if state_transition(previous, false).is_some() {
-            schedule_idle_report();
+            schedule_idle_report(self.source);
         }
     }
 }
 
-fn schedule_idle_report() {
+fn schedule_idle_report(source: ActivitySource) {
     let epoch = IDLE_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
     let idle_task = async move {
         tokio::time::sleep(IDLE_REPORT_DEBOUNCE).await;
-        if IDLE_EPOCH.load(Ordering::SeqCst) != epoch || ACTIVE.load(Ordering::SeqCst) != 0 {
+        let current_epoch = IDLE_EPOCH.load(Ordering::SeqCst);
+        let active_count = ACTIVE.load(Ordering::SeqCst);
+        if current_epoch != epoch || active_count != 0 {
+            rrt_info!(
+                "[rrt-runtime] activity idle report cancelled source={} scheduled_epoch={} current_epoch={} active_count={}",
+                source.as_str(),
+                epoch,
+                current_epoch,
+                active_count
+            );
             return;
         }
-        if REPORTED_BUSY.load(Ordering::SeqCst) && report_state_transition(false) {
-            REPORTED_BUSY.store(false, Ordering::SeqCst);
-        }
+        report_state_transition(false, source);
     };
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         handle.spawn(idle_task);
     }
 }
 
-fn report_state_transition(busy: bool) -> bool {
+fn report_state_transition(busy: bool, source: ActivitySource) {
     let Some(reporter) = REPORTER.get() else {
-        return false;
+        return;
     };
     let instance_id = reporter.instance_id();
     let state = if busy { "busy" } else { "idle" };
@@ -118,22 +161,22 @@ fn report_state_transition(busy: bool) -> bool {
     match reporter.tx.try_send(msg) {
         Ok(()) => {
             rrt_info!(
-                "[rrt-runtime] activity state={} report_signal={} instance={} active_count={}",
+                "[rrt-runtime] activity state={} source={} report_signal={} instance={} active_count={}",
                 state,
+                source.as_str(),
                 super::IDLE_REPORT_SIGNAL,
                 instance_id,
                 ACTIVE.load(Ordering::SeqCst)
             );
-            true
         }
         Err(e) => {
             rrt_error!(
-                "[rrt-runtime] activity report failed state={} instance={} error={}",
+                "[rrt-runtime] activity report failed state={} source={} instance={} error={}",
                 state,
+                source.as_str(),
                 instance_id,
                 e
             );
-            false
         }
     }
 }
@@ -179,6 +222,35 @@ fn state_transition(previous: i64, entering: bool) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+    use tokio::sync::mpsc::error::TryRecvError;
+
+    fn run_in_isolated_process(env_name: &str, test_name: &str) -> bool {
+        if std::env::var_os(env_name).is_some() {
+            return true;
+        }
+        let status = Command::new(std::env::current_exe().expect("current test executable"))
+            .arg(test_name)
+            .arg("--exact")
+            .arg("--test-threads=1")
+            .env(env_name, "1")
+            .status()
+            .expect("run isolated activity test");
+        assert!(status.success(), "isolated activity test failed");
+        false
+    }
+
+    async fn recv_report(rx: &mut mpsc::Receiver<StreamingMessage>, expected_state: &str) {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("activity report timed out")
+            .expect("activity reporter closed");
+        let Some(crate::posix::runtime_rpc::streaming_message::Body::KillReq(kill)) = msg.body
+        else {
+            panic!("expected activity KillReq");
+        };
+        assert_eq!(kill.payload, expected_state.as_bytes());
+    }
 
     #[test]
     fn state_transition_only_on_zero_boundary() {
@@ -193,7 +265,7 @@ mod tests {
     fn guard_increments_then_decrements() {
         let base = active_count();
         {
-            let _g = enter();
+            let _g = enter(ActivitySource::DirectHttp);
             assert_eq!(active_count(), base + 1);
         }
         assert_eq!(active_count(), base);
@@ -207,5 +279,104 @@ mod tests {
         reporter.rebind_instance_id("clone-sandbox");
 
         assert_eq!(reporter.instance_id(), "clone-sandbox");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tunnel_within_idle_debounce_reasserts_busy_then_reports_idle_on_disconnect() {
+        const ENV: &str = "YR_RRT_ACTIVITY_TUNNEL_WITHIN_DEBOUNCE_ISOLATED";
+        const TEST: &str = "runtime::activity::tests::tunnel_within_idle_debounce_reasserts_busy_then_reports_idle_on_disconnect";
+        if !run_in_isolated_process(ENV, TEST) {
+            return;
+        }
+
+        let (tx, mut rx) = mpsc::channel(8);
+        init_reporter("sandbox-under-test".to_string(), tx);
+
+        let init_call = enter(ActivitySource::RuntimeRpc);
+        recv_report(&mut rx, "busy").await;
+        drop(init_call);
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let tunnel = enter(ActivitySource::Tunnel);
+        recv_report(&mut rx, "busy").await;
+
+        tokio::time::sleep(IDLE_REPORT_DEBOUNCE + std::time::Duration::from_millis(100)).await;
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+
+        drop(tunnel);
+        recv_report(&mut rx, "idle").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tunnel_after_idle_debounce_reports_idle_then_busy() {
+        const ENV: &str = "YR_RRT_ACTIVITY_TUNNEL_AFTER_DEBOUNCE_ISOLATED";
+        const TEST: &str =
+            "runtime::activity::tests::tunnel_after_idle_debounce_reports_idle_then_busy";
+        if !run_in_isolated_process(ENV, TEST) {
+            return;
+        }
+
+        let (tx, mut rx) = mpsc::channel(8);
+        init_reporter("sandbox-under-test".to_string(), tx);
+
+        let init_call = enter(ActivitySource::RuntimeRpc);
+        recv_report(&mut rx, "busy").await;
+        drop(init_call);
+        recv_report(&mut rx, "idle").await;
+
+        let tunnel = enter(ActivitySource::Tunnel);
+        recv_report(&mut rx, "busy").await;
+        drop(tunnel);
+        recv_report(&mut rx, "idle").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn overlapping_init_call_and_tunnel_each_report_busy() {
+        const ENV: &str = "YR_RRT_ACTIVITY_OVERLAPPING_TUNNEL_ISOLATED";
+        const TEST: &str =
+            "runtime::activity::tests::overlapping_init_call_and_tunnel_each_report_busy";
+        if !run_in_isolated_process(ENV, TEST) {
+            return;
+        }
+
+        let (tx, mut rx) = mpsc::channel(8);
+        init_reporter("sandbox-under-test".to_string(), tx);
+
+        let init_call = enter(ActivitySource::RuntimeRpc);
+        recv_report(&mut rx, "busy").await;
+        let tunnel = enter(ActivitySource::Tunnel);
+        recv_report(&mut rx, "busy").await;
+
+        let poll = enter(ActivitySource::DirectHttp);
+        recv_report(&mut rx, "busy").await;
+        drop(poll);
+
+        drop(init_call);
+        tokio::time::sleep(IDLE_REPORT_DEBOUNCE + std::time::Duration::from_millis(100)).await;
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+
+        drop(tunnel);
+        recv_report(&mut rx, "idle").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn repeated_direct_polling_reasserts_busy_before_debounced_idle() {
+        const ENV: &str = "YR_RRT_ACTIVITY_REPEATED_POLL_ISOLATED";
+        const TEST: &str =
+            "runtime::activity::tests::repeated_direct_polling_reasserts_busy_before_debounced_idle";
+        if !run_in_isolated_process(ENV, TEST) {
+            return;
+        }
+
+        let (tx, mut rx) = mpsc::channel(8);
+        init_reporter("sandbox-under-test".to_string(), tx);
+
+        for _ in 0..3 {
+            let poll = enter(ActivitySource::DirectHttp);
+            recv_report(&mut rx, "busy").await;
+            drop(poll);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        recv_report(&mut rx, "idle").await;
     }
 }
