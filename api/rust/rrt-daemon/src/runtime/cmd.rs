@@ -168,7 +168,7 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
         cond: Condvar::new(),
     });
     let exit2 = exit.clone();
-    let process_activity = super::activity::enter();
+    let process_activity = super::activity::enter(super::activity::ActivitySource::Process);
     // Move the whole Child and its activity guard to the waiter thread. The
     // process remains busy after cmd_start returns and becomes idle only after
     // wait() observes its exit.

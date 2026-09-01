@@ -1689,7 +1689,7 @@ async fn handle_client(stream: TcpStream, state: Arc<State>) -> Result<(), Strin
         .await
         .map_err(|e| format!("ws accept: {e}"))?;
     let (mut sink, mut rx_ws) = ws.split();
-    let _active = super::activity::enter(); // Count the tunnel WS client connection as busy.
+    let _active = super::activity::enter(super::activity::ActivitySource::Tunnel);
     let (tx, mut rx) = mpsc::channel::<OutboundMessage>(OUTBOUND_QUEUE_FRAMES);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let generation = state.active_generation.fetch_add(1, Ordering::AcqRel) + 1;

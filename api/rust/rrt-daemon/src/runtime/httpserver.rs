@@ -209,7 +209,9 @@ async fn handle_conn(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut active = Some(super::activity::enter());
+    let mut active = Some(super::activity::enter(
+        super::activity::ActivitySource::DirectHttp,
+    ));
     // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
     let mut tmp = [0u8; IO_BUFFER_SIZE];
@@ -1415,7 +1417,7 @@ pub(crate) async fn invoke_checkpoint_handler(
     tx: mpsc::Sender<StreamingMessage>,
     coordinator: CheckpointRequestCoordinator,
 ) -> CheckpointHttpResponse {
-    let _active = super::activity::enter();
+    let _active = super::activity::enter(super::activity::ActivitySource::Checkpoint);
     let message = super::checkpoint_request_msg(instance_id);
     let request_id = message.message_id.clone();
     let completion = match coordinator.begin(request_id.clone()) {
