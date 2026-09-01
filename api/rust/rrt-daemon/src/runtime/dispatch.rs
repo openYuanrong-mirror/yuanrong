@@ -56,7 +56,11 @@ fn sanitize_log_field(value: &str) -> String {
     let mut out = value.replace('\r', "\\r").replace('\n', "\\n");
     const MAX_LOG_FIELD_LEN: usize = 512;
     if out.len() > MAX_LOG_FIELD_LEN {
-        out.truncate(MAX_LOG_FIELD_LEN);
+        let mut truncate_at = MAX_LOG_FIELD_LEN;
+        while !out.is_char_boundary(truncate_at) {
+            truncate_at -= 1;
+        }
+        out.truncate(truncate_at);
         out.push_str("...");
     }
     out
@@ -700,6 +704,20 @@ mod tests {
         assert_eq!(
             access_command_summary("cmd_run", &kw),
             "cmd_run printf 'hello\\nworld'"
+        );
+    }
+
+    #[test]
+    fn access_command_summary_truncates_at_utf8_boundary() {
+        let command = format!("{}中{}", "a".repeat(511), "b".repeat(280));
+        assert_eq!(command.len(), 794);
+
+        let mut kw = BTreeMap::new();
+        kw.insert("cmd".to_string(), rmpv::Value::from(command));
+
+        assert_eq!(
+            access_command_summary("cmd_run", &kw),
+            format!("cmd_run {}...", "a".repeat(511))
         );
     }
 
