@@ -219,6 +219,7 @@ fn run_command(
         .stdout(Stdio::from(stdout_child))
         .stderr(Stdio::from(stderr_child))
         .process_group(0);
+    super::child_env::apply(&mut c);
     if let Some(d) = cwd {
         if !d.is_empty() {
             c.current_dir(d);
@@ -227,6 +228,9 @@ fn run_command(
     if let Some(rmpv::Value::Map(kvs)) = envs {
         for (k, v) in kvs {
             if let (Some(k), Some(v)) = (k.as_str(), v.as_str()) {
+                if let Err(error) = super::child_env::validate_override(k) {
+                    return command_result(String::new(), error, -1);
+                }
                 c.env(k, v);
             }
         }
@@ -376,6 +380,7 @@ pub(crate) fn normalize_sandbox_action(action: &str) -> Option<&'static str> {
         "cmd_send_stdin" | "process.stdin" | "process.send_stdin" | "cmd.send_stdin" => {
             Some("cmd_send_stdin")
         }
+        "entrypoint.poll" => Some("entrypoint_poll"),
         "fs_read" | "file.read" | "fs.read" => Some("fs_read"),
         "fs_write" | "file.write" | "fs.write" => Some("fs_write"),
         "fs_write_chunk" | "file.write_chunk" | "file.upload.chunk" | "fs.write_chunk" => {
@@ -458,6 +463,17 @@ pub(crate) fn dispatch_runtime_action_with_trace(
             "bash_poll" => super::bash::bash_poll(kw),
             _ => super::bash::bash_destroy(kw),
         }),
+        "entrypoint_poll" => {
+            let wait_timeout = kw
+                .get("wait_timeout")
+                .and_then(|value| {
+                    value
+                        .as_f64()
+                        .or_else(|| value.as_i64().map(|value| value as f64))
+                })
+                .unwrap_or(10.0);
+            Some(super::entrypoint::poll(wait_timeout))
+        }
         _ => None,
     }
 }
@@ -535,7 +551,17 @@ impl Ctx {
             self.instance_id.clone()
         };
         if call.is_create {
-            return call_result_msg(call.request_id, iid, oid, 0, "created", Vec::new());
+            return match super::entrypoint::complete_create() {
+                Ok(()) => call_result_msg(call.request_id, iid, oid, 0, "created", Vec::new()),
+                Err(failure) => call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    failure.code,
+                    &failure.message,
+                    Vec::new(),
+                ),
+            };
         }
         let kw = codec::parse_kwargs(&call.args);
         let method = codec::kw_str(&kw, "sandbox_method").unwrap_or_default();
@@ -548,8 +574,18 @@ impl Ctx {
                 call_result_msg(call.request_id, iid, oid, 0, "ok", yr_serialize(&r))
             }
             "get_info" => {
-                let r = std::collections::BTreeMap::from([("state", "running")]);
-                call_result_msg(call.request_id, iid, oid, 0, "ok", yr_serialize(&r))
+                let r = codec::map_value(vec![
+                    ("state", rmpv::Value::from("running")),
+                    ("entrypoint", super::entrypoint::info_value()),
+                ]);
+                call_result_msg(
+                    call.request_id,
+                    iid,
+                    oid,
+                    0,
+                    "ok",
+                    codec::yr_serialize_value(&r),
+                )
             }
             "sandbox_invoke" => {
                 let action = codec::kw_str(&kw, "action").unwrap_or_default();
