@@ -918,6 +918,7 @@ def test_repeated_invoke_stability(init_yr, require_remote_python_runtime):
 # ============================================================
 
 @pytest.mark.smoke
+@pytest.mark.high_reliability_only
 def test_sandbox_create_exec_and_terminate(init_yr):
     sandbox = None
     for attempt in range(2):
@@ -1031,6 +1032,7 @@ def test_yrcli_sandbox_reverse_tunnel(require_plain_http_for_yrcli):
 
 
 @pytest.mark.smoke
+@pytest.mark.high_reliability_only
 def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
     namespace = "faaspy"
     function = _unique_name("yrcli-faas").replace("-", "")
@@ -1118,6 +1120,7 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
 
 
 @pytest.mark.smoke
+@pytest.mark.high_reliability_only
 def test_faas_sse_stream(require_plain_http_for_yrcli, tmp_path):
     namespace = "faaspy"
     function = _unique_name("yrcli-sse").replace("-", "")
@@ -1201,6 +1204,7 @@ def test_faas_sse_stream(require_plain_http_for_yrcli, tmp_path):
 
 
 @pytest.mark.smoke
+@pytest.mark.high_reliability_only
 def test_faas_agent_session_wait_notify(require_plain_http_for_yrcli, tmp_path):
     """Verify AI Agent session wait/notify and affinity on the same instance."""
     namespace = "faaspy"
