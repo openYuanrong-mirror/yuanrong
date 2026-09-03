@@ -45,9 +45,11 @@ macro_rules! rrt_debug {
 
 mod activity;
 mod bash;
+pub(crate) mod child_env;
 mod cmd;
 mod codec;
 mod dispatch;
+mod entrypoint;
 mod fs;
 mod httpserver;
 mod tunnel;
@@ -449,6 +451,10 @@ impl ReconnectControlState {
 
     fn load(&mut self, environment_file: Option<&Path>) -> std::io::Result<Args> {
         let target = load_reconnect_control_args(&self.baseline, environment_file)?;
+        if let Some(environment_file) = environment_file {
+            let environment = crate::startup::read_environment_file(environment_file)?;
+            child_env::refresh_from_map(&environment);
+        }
         self.baseline.instance_id.clone_from(&target.instance_id);
         Ok(target)
     }
@@ -1343,6 +1349,8 @@ async fn start_configured_tunnel_server() -> Result<
 }
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    child_env::initialize();
+    entrypoint::initialize();
     let args = load_args_from_env();
     let _ = LOG_DEBUG.set(args.log_level.eq_ignore_ascii_case("debug"));
     rrt_info!(

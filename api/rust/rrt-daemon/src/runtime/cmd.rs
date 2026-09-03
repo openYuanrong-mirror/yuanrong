@@ -129,6 +129,7 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
 
     let mut c = Command::new("/bin/sh");
     c.arg("-c").arg(&cmd);
+    super::child_env::apply(&mut c);
     c.stdout(Stdio::piped()).stderr(Stdio::piped());
     // Default stdin uses /dev/null: a PIPE without a writer never reaches EOF, matching the Python behavior.
     c.stdin(if want_stdin {
@@ -144,6 +145,12 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
     if let Some(Value::Map(kvs)) = kw.get("envs") {
         for (k, v) in kvs {
             if let (Some(k), Some(v)) = (k.as_str(), v.as_str()) {
+                if let Err(error) = super::child_env::validate_override(k) {
+                    return map_value(vec![
+                        ("pid", Value::from(-1i64)),
+                        ("error", Value::from(error)),
+                    ]);
+                }
                 c.env(k, v);
             }
         }

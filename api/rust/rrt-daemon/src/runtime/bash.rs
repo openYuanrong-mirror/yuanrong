@@ -40,7 +40,8 @@ pub fn bash_init(kw: &BTreeMap<String, Value>) -> Value {
         Ok(p) => p,
         Err(e) => return map_value(vec![("error", Value::from(format!("openpty failed: {e}")))]),
     };
-    let cmd = portable_pty::CommandBuilder::new(shell);
+    let mut cmd = portable_pty::CommandBuilder::new(shell);
+    super::child_env::apply_pty(&mut cmd);
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => return map_value(vec![("error", Value::from(format!("spawn failed: {e}")))]),

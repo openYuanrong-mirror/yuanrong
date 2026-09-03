@@ -209,9 +209,7 @@ async fn handle_conn(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut active = Some(super::activity::enter(
-        super::activity::ActivitySource::DirectHttp,
-    ));
+    let _active = super::activity::enter(super::activity::ActivitySource::DirectHttp);
     // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
     let mut tmp = [0u8; IO_BUFFER_SIZE];
@@ -307,12 +305,6 @@ async fn handle_conn(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    if action == "process.poll" {
-        // The launched process already owns an activity guard until exit.
-        // Counting its blocking poll as another busy unit can deadlock the
-        // checkpoint caller against the activity drain.
-        drop(active.take());
-    }
     let kw = json_args_to_kwargs(parsed.get("args"));
     let request_id = request_id_from(&head, &parsed);
 
@@ -646,7 +638,8 @@ async fn handle_tar_upload(
     trace_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(path)?;
-    let mut child = Command::new("tar")
+    let mut child = Command::new("tar");
+    child
         .arg("--no-same-owner")
         .arg("--no-same-permissions")
         .arg("-x")
@@ -654,8 +647,9 @@ async fn handle_tar_upload(
         .arg(path)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    super::child_env::apply_tokio(&mut child);
+    let mut child = child.spawn()?;
     let mut stdin = child.stdin.take().ok_or("tar stdin unavailable")?;
     let copy_started = Instant::now();
     let stats = copy_request_body(sock, body_mode, initial_body, tmp, &mut stdin).await?;
@@ -937,7 +931,8 @@ async fn handle_tar_download(
     if !Path::new(path).is_dir() {
         return write_resp(sock, 404, &err_json("directory not found")).await;
     }
-    let mut child = Command::new("tar")
+    let mut child = Command::new("tar");
+    child
         .arg("-C")
         .arg(path)
         .arg("-cf")
@@ -945,8 +940,9 @@ async fn handle_tar_download(
         .arg(".")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    super::child_env::apply_tokio(&mut child);
+    let mut child = child.spawn()?;
     let mut stdout = child.stdout.take().ok_or("tar stdout unavailable")?;
     write_binary_headers(sock, 200, "application/x-tar", None).await?;
     let mut bytes_sent = 0u64;
@@ -1825,13 +1821,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn process_poll_does_not_duplicate_launched_process_activity() {
+    async fn process_poll_counts_as_request_activity() {
         const ISOLATED_ENV: &str = "YR_RRT_HTTP_POLL_ACTIVITY_TEST_ISOLATED";
         if std::env::var_os(ISOLATED_ENV).is_none() {
             let status = Command::new(std::env::current_exe().expect("current test executable"))
-                .arg(
-                    "runtime::httpserver::tests::process_poll_does_not_duplicate_launched_process_activity",
-                )
+                .arg("runtime::httpserver::tests::process_poll_counts_as_request_activity")
                 .arg("--exact")
                 .arg("--test-threads=1")
                 .env(ISOLATED_ENV, "1")
@@ -1889,8 +1883,8 @@ mod tests {
 
         assert_eq!(
             super::super::activity::active_count(),
-            baseline + 1,
-            "process.poll observes the launched process and must not add another busy unit"
+            baseline + 2,
+            "process.poll must count as request activity while the launched process remains busy"
         );
 
         let mut response = Vec::new();

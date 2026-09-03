@@ -14,10 +14,12 @@ impl Process for ProcessSvc {
         }
         let mut cmd = tokio::process::Command::new(&r.cmd);
         cmd.args(&r.args);
+        crate::runtime::child_env::apply_tokio(&mut cmd);
         if !r.cwd.is_empty() {
             cmd.current_dir(&r.cwd);
         }
         for (k, v) in &r.env {
+            crate::runtime::child_env::validate_override(k).map_err(Status::invalid_argument)?;
             cmd.env(k, v);
         }
         let out = cmd

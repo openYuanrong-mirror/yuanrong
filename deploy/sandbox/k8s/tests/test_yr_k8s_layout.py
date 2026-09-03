@@ -1205,6 +1205,22 @@ class YrK8sLayoutTests(unittest.TestCase):
         frontend_container = find_container(frontend_dep, "frontend")
         self.assertNotIn("args", frontend_container)
 
+    def test_buildkite_smoke_overlay_enables_force_low_reliability_instances(self):
+        overlay = ROOT / "k8s/values.buildkite-smoke.yaml"
+        overlay_values = load_yaml_file(overlay)
+        self.assertTrue(overlay_values["global"]["runtime"]["forceLowReliabilityInstance"])
+
+        manifests = render_chart("-f", str(overlay))
+        components_cm = find_manifest(manifests, "ConfigMap", "yr-components")
+        self.assertIn("force_low_reliability_instance = true", components_cm["data"]["config.toml"])
+
+        default_manifests = render_chart()
+        default_components_cm = find_manifest(default_manifests, "ConfigMap", "yr-components")
+        self.assertIn(
+            "force_low_reliability_instance = false",
+            default_components_cm["data"]["config.toml"],
+        )
+
     def test_chart_renders_image_pull_secret_into_workload_templates(self):
         manifests = render_chart("--set", "global.imagePullSecrets[0].name=swr-pull-secret")
 

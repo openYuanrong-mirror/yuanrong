@@ -10,6 +10,8 @@ data:
   config.toml: |-
     version = "1"
     [mode]
+    [function_proxy.args]
+    force_low_reliability_instance = {{ .Values.global.runtime.forceLowReliabilityInstance }}
 {{- if .Values.frontend.enableEvent }}
     [frontend.args]
     enableEvent = true
