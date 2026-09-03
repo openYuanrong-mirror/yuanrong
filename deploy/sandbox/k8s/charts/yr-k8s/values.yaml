@@ -4,6 +4,8 @@ global:
   dataSystem:
     enabled: true
     bypass: false
+  runtime:
+    forceLowReliabilityInstance: false
   namespace:
     create: true
     name: yr-k8s
