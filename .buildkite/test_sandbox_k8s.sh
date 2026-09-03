@@ -470,7 +470,7 @@ run_smoke() {
 	if [ -n "${YR_K8S_SMOKE_PYTEST_ARGS:-}" ]; then
 		read -r -a pytest_args <<<"${YR_K8S_SMOKE_PYTEST_ARGS}"
 	else
-		pytest_args=(-m smoke)
+		pytest_args=(-m "smoke and not high_reliability_only")
 	fi
 
 	printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
