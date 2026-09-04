@@ -1,4 +1,4 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher runtime runtime-ut yuanrong dashboard rust rust-ut sandbox-sdk pkg aio image all clean
+.PHONY: help frontend datasystem functionsystem runtime_launcher runtime runtime-ut yuanrong dashboard rust rust-ut data-plane-gateway data-plane-gateway-dev data-plane-gateway-linux-aarch64 data-plane-gateway-ut data-plane-gateway-mock-e2e data-plane-gateway-local-3vm-e2e data-plane-gateway-aio-3node-e2e data-plane-gateway-sandbox-sdk-aio-e2e data-plane-gateway-idle-timeout-aio-e2e sandbox-sdk pkg aio image all clean
 
 # Bazel remote cache server (optional, can be set via environment variable)
 # Example: REMOTE_CACHE=https://192.0.2.1:9090 make yuanrong
@@ -74,6 +74,15 @@ help:
 	@echo "  make dashboard      - Build dashboard"
 	@echo "  make rust           - Build rrt-runtime"
 	@echo "  make rust-ut        - Run rrt-runtime Rust tests"
+	@echo "  make data-plane-gateway    - Build and stage static Linux Data Plane binaries"
+	@echo "  make data-plane-gateway-dev - Build host-native Data Plane binaries for local tests"
+	@echo "  make data-plane-gateway-linux-aarch64 - Build Linux arm64 Gateway binaries in Docker"
+	@echo "  make data-plane-gateway-ut - Run Data Plane Gateway Rust tests"
+	@echo "  make data-plane-gateway-mock-e2e - Run real-process Gateway mock with Docker etcd"
+	@echo "  make data-plane-gateway-local-3vm-e2e - Run Edge + two Node Proxies on the reusable local Lima VMs"
+	@echo "  make data-plane-gateway-aio-3node-e2e - Run master + 2 worker AIO Gateway E2E"
+	@echo "  make data-plane-gateway-sandbox-sdk-aio-e2e - Run live sandbox-sdk matrix through the 3-node Gateway"
+	@echo "  make data-plane-gateway-idle-timeout-aio-e2e - Validate Gateway idle lifecycle in AIO"
 	@echo "  make runtime-ut     - Run YuanRong runtime tests"
 	@echo "  make sandbox-sdk    - Build openyuanrong-sandbox wheel"
 	@echo "  make pkg            - Copy packages to example/aio/pkg/"
@@ -118,6 +127,8 @@ clean:
 	@rm -rf functionsystem/vendor/src/etcd/bin
 	@rm -rf functionsystem/output
 	@rm -rf go/output
+	@rm -rf data-plane-gateway/target
+	@rm -rf build/output/data_plane
 	@bash build.sh -C 2>/dev/null || true
 	@rm -rf output/
 	@rm -f functionsystem/vendor/src/yr-datasystem.tar.gz
@@ -185,6 +196,54 @@ rust-ut:
 	@echo "Running rrt-runtime Rust tests..."
 	$(LOCAL_CACHE_RUN) cargo test --manifest-path api/rust/Cargo.toml -p rrt-daemon
 
+data-plane-gateway:
+	@echo "Building static Linux Data Plane binaries as a standalone Cargo project..."
+	@bash data-plane-gateway/scripts/build-static-linux.sh
+	@rm -rf output/openyuanrong/data_plane/bin
+	@mkdir -p output/openyuanrong/data_plane/bin
+	@cp build/output/data_plane/bin/yr-node-proxy output/openyuanrong/data_plane/bin/
+	@cp build/output/data_plane/bin/yr-edge-frontend output/openyuanrong/data_plane/bin/
+	@cp build/output/data_plane/bin/yr-data-plane-forward output/openyuanrong/data_plane/bin/
+	@data_plane_arch="$${YR_DATA_PLANE_ARCH:-$$(uname -m)}"; \
+	case "$$data_plane_arch" in \
+		x86_64|amd64) wheel_platform=manylinux_2_17_x86_64 ;; \
+		arm64|aarch64) wheel_platform=manylinux_2_17_aarch64 ;; \
+		*) echo "unsupported Data Plane wheel architecture: $$data_plane_arch" >&2; exit 1 ;; \
+	esac; \
+	find output -maxdepth 1 -type f -name 'openyuanrong_data_plane-*.whl' -delete; \
+	wheel_tmp=$$(mktemp -d); mkdir -p "$$wheel_tmp/egg"; trap 'rm -rf "$$wheel_tmp"' EXIT; \
+	cd api/python && SETUP_TYPE=data_plane YR_WHEEL_PLATFORM_TAG="$$wheel_platform" \
+		python3 setup.py egg_info --egg-base "$$wheel_tmp/egg" \
+		build --build-base "$$wheel_tmp/build" bdist_wheel \
+		--bdist-dir "$$wheel_tmp/bdist" --dist-dir ../../output
+	@echo "Staged static Data Plane binaries under output/openyuanrong/data_plane/bin"
+
+data-plane-gateway-dev:
+	@echo "Building host-native Data Plane binaries for local development..."
+	$(LOCAL_CACHE_RUN) cargo build --manifest-path data-plane-gateway/Cargo.toml --release --locked --all-features --bins
+
+data-plane-gateway-ut:
+	@echo "Running Data Plane Gateway Rust tests..."
+	$(LOCAL_CACHE_RUN) cargo test --manifest-path data-plane-gateway/Cargo.toml --locked --all-features
+
+data-plane-gateway-mock-e2e: data-plane-gateway-dev
+	@bash data-plane-gateway/tests/real_process_mock.sh
+
+data-plane-gateway-local-3vm-e2e:
+	@bash data-plane-gateway/tests/local_3vm_e2e.sh
+
+data-plane-gateway-linux-aarch64:
+	@bash data-plane-gateway/tests/aio_3node_e2e.sh build-gateway
+
+data-plane-gateway-aio-3node-e2e:
+	@bash data-plane-gateway/tests/aio_3node_e2e.sh run
+
+data-plane-gateway-sandbox-sdk-aio-e2e:
+	@bash data-plane-gateway/tests/aio_3node_e2e.sh sdk-run
+
+data-plane-gateway-idle-timeout-aio-e2e:
+	@bash data-plane-gateway/tests/aio_3node_e2e.sh idle-run
+
 functionsystem:
 	cd functionsystem && $(LOCAL_CACHE_RUN) bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) $(FUNCTIONSYSTEM_BUILDER_ARGS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
 	mkdir -p output
@@ -237,6 +296,7 @@ pkg:
 	@cp output/openyuanrong_faas-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp output/openyuanrong_cpp_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp output/openyuanrong_full-*.whl example/aio/pkg/ 2>/dev/null || true
+	@cp output/openyuanrong_data_plane-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
 	@mkdir -p example/aio/docs
 	@cp example/aio/TRAEFIK_ETCD.md example/aio/docs/ 2>/dev/null || true

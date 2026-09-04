@@ -48,3 +48,4 @@ FS_COMPONENTS = [
 class StartMode(Enum):
     MASTER = "master"
     AGENT = "agent"
+    EDGE = "edge"

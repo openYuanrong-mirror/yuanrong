@@ -76,10 +76,20 @@ exec /usr/local/bin/yr start \
   -s "values.function_master.ip=\"${master_scheduler_ip}\"" \
   -s "values.function_proxy.port=${function_proxy_port}" \
   -s "values.function_proxy.grpc_listen_port=${function_proxy_grpc_port}" \
+  -s 'values.function_proxy.advertise_frontend_proxy_create=false' \
   "${ds_worker_args[@]}" \
   "${data_system_capability_args[@]}" \
   -s "values.iam_server.ip=\"${master_ip}\"" \
   -s "values.frontend.meta_service_address=\"${meta_service_address}\"" \
+  -s "values.edge_frontend.rrt_command_result_ttl_secs=${YR_RRT_COMMAND_RESULT_TTL_SECS:-3600}" \
+  -s "values.edge_frontend.rrt_command_stdout_limit_bytes=${YR_RRT_COMMAND_STDOUT_LIMIT_BYTES:-4194304}" \
+  -s "values.edge_frontend.rrt_command_stderr_limit_bytes=${YR_RRT_COMMAND_STDERR_LIMIT_BYTES:-4194304}" \
+  -s "values.edge_frontend.rrt_command_registry_max_records=${YR_RRT_COMMAND_REGISTRY_MAX_RECORDS:-4096}" \
+  -s "values.edge_frontend.rrt_command_registry_max_bytes=${YR_RRT_COMMAND_REGISTRY_MAX_BYTES:-268435456}" \
+  -s "values.edge_frontend.rrt_command_registry_memory_high_watermark_bytes=${YR_RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES:-201326592}" \
+  -s "values.edge_frontend.rrt_command_activity_heartbeat_secs=${YR_RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS:-10}" \
+  -s "values.edge_frontend.command_watch_max_subscriptions=${YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION:-4096}" \
+  -s "values.edge_frontend.command_watch_max_frame_bytes=${YR_COMMAND_WATCH_MAX_FRAME_BYTES:-1048576}" \
   -s "frontend.port=${frontend_port}" \
   -s "meta_service.ip=\"${master_ip}\"" \
   -s "meta_service.port=${meta_service_port}" \

@@ -100,8 +100,6 @@ main() {
   for local_image in "${local_images[@]}"; do
     printf '  %s\n' "${LOCAL_TO_REMOTE[${local_image}]}" >&2
   done
-  printf '\nTraefik is a fixed third-party image. Preload it once as: %s/traefik:v2.11.14\n' "${REGISTRY_REPO}" >&2
-
   printf '\nSuggested deploy command:\n' >&2
   cat >&2 <<EOF
   helm upgrade --install yr-k8s deploy/sandbox/k8s/charts/yr-k8s \\
@@ -113,10 +111,7 @@ main() {
     --set global.images.node.repository=yr-node \\
     --set global.images.node.tag=${IMAGE_TAG} \\
     --set global.images.runtime.repository=yr-runtime \\
-    --set global.images.runtime.tag=${IMAGE_TAG} \\
-    --set global.images.traefik.registry=${REGISTRY_REPO} \\
-    --set global.images.traefik.repository=traefik \\
-    --set global.images.traefik.tag=v2.11.14
+    --set global.images.runtime.tag=${IMAGE_TAG}
 EOF
 }
 

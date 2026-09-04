@@ -1,0 +1,5 @@
+ARG BASE_IMAGE=aio-yr-runtime:latest
+FROM ${BASE_IMAGE}
+
+COPY data-plane-gateway/target/linux-aarch64-release/rrt-runtime /usr/local/bin/rrt-runtime
+RUN chmod 0755 /usr/local/bin/rrt-runtime

@@ -6,7 +6,8 @@ This directory currently contains:
 
 - layered image build scaffolding for `yr-base`, `yr-compile`, `yr-runtime`, `yr-controlplane`, and `yr-node`
 - `yr start --block` entrypoint wrappers for `master`, `frontend`, and `node`
-- a Helm chart for the three active workloads plus support objects and Traefik
+- a Helm chart for the three active workloads plus support objects; Frontend
+  and Rust Edge are exposed directly and do not require an ingress process
 - local and production values overlays
 
 ## Build inputs
@@ -77,7 +78,7 @@ bash deploy/sandbox/k8s/deploy.sh
 8. Run the off-cluster smoke checks:
 
 ```bash
-YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 -- -m smoke
+YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <frontend-ip>:8888 -- -m smoke
 ```
 
 ## Values overlays
@@ -97,7 +98,10 @@ YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 --
 
 ## Notes
 
-- the active workload model is `master`, `frontend`, and `node`
+- the active workload model is `master`, `frontend`, and `node`; when
+  `dataPlane.enabled=true`, the frontend Pod also runs an independently
+  supervised Rust Edge process and each node session starts the Rust Node
+  Gateway as a separate `yr start` component
 - `master` uses `yr start --master -e` and additionally enables scheduler, meta-service, and iam-server
 - `frontend` uses `yr start -e --enable_faas_frontend true`
 - `node` uses `yr start -e`
@@ -107,14 +111,55 @@ YR_ENABLE_TLS=false bash test/st/run_off_cluster_test.sh -a <traefik-ip>:8888 --
 - `datasystem` validates `etcd_address` strictly, so the K8S start scripts resolve service DNS names to IPs before rendering component configs
 - `helm` is required locally for linting and rendering. If `helm` is missing, chart verification is incomplete.
 
-## Traefik instance routes
+## Rust data-plane routes
 
-Traefik 的 file provider 仅维护 frontend 与 `/direct` 静态路由；实例级 tunnel 和用户端口路由从 FunctionMaster HTTP Provider 获取：
+默认 chart 保持 `dataPlane.enabled=false`。生产部署必须配置公网入口 TLS、Edge/Node
+CIDR 边界，并在启用默认 `network` 模式前完成 sandbox 受保护内网出口隔离；该出口
+基线当前仍是明确待办。Buildkite smoke overlay 在隔离测试集群中启用 h2c，用于验证以下真实链路：
 
 ```text
-http://yr-master-access:22770/global-scheduler/traefik/config
+SDK control API -> Edge Frontend Service -> Frontend loopback
+SDK data API / CONNECT -> Edge Frontend Service
+    -> H2 CONNECT -> Rust Node Proxy -> sandboxIP:targetPort
 ```
 
-对外 gateway 统一使用 8888。RRT 50090 和 tunnel 内部 8766 标记为 `direct`，不会出现在 provider JSON；8765 标记为 `tunnel`，发布 `/tunnel/{safeID}`；用户 HTTP/HTTPS 端口发布 `/{safeID}/{containerPort}`。
+Frontend Pod 通过 `SANDBOX_ROUTER_EXTERNAL=true` 不再启动旧 Go
+sandboxRouter listener；同 Pod 的 `yr start --edge` 进程接管 8080，但
+Edge Frontend Service 作为统一外部入口：配置的控制面静态路由转发到同 Pod 的 Frontend，
+`/direct`、`/tunnel` 和用户 HTTP 端口直接在 Edge 处理。Edge 开启时默认不渲染
+Frontend Service；只有显式设置 `frontend.service.exposeWhenEdgeEnabled=true` 才保留
+兼容用 ClusterIP。新增控制面路由只需修改 `dataPlane.edge.controlPlaneRoutes` 并滚动
+Edge Pod，不需要修改 Rust 代码。Node DaemonSet 仍只有一个 node
+容器，node session 内独立托管 `yr-node-proxy`，并通过宿主机网络访问
+nested-docker 的 sandbox IP。SSH、数据库和本地端口转发由客户端 helper 在本地
+适配为标准 HTTP CONNECT，复用 Edge 的 8080 HTTP entrypoint，不经过 Frontend。
+默认不渲染 Traefik workload，也不启用 master provider 或 node registry。生产环境
+通过 `dataPlane.edge.service` 选择 NodePort 或 LoadBalancer；Edge 在进程内终止
+TLS，健康检查走独立的明文 health port。
 
-升级顺序：先升级能够解析 route kind 的 Runtime、SandboxRouter 和 FunctionMaster，再升级 Frontend producer，确认 provider JSON 后最后切换 Traefik provider。回滚顺序相反。
+典型生产覆盖值如下（证书 Secret 由部署系统创建和轮转）：
+
+```yaml
+traefik:
+  enabled: false
+frontend:
+  service:
+    type: ClusterIP          # internal Frontend upstream
+dataPlane:
+  enabled: true
+  edge:
+    service:
+      type: LoadBalancer     # unified public entry
+    tls:
+      secretName: yr-edge-tls
+```
+
+The Edge Service exposes TLS `8443` for direct/tunnel/port-forwarding and
+plaintext `8080` for anonymous tunnel/port-forwarding. `/direct` is never
+accepted on `8080`.
+
+Buildkite 的正式镜像步骤会先下载对应架构的
+`yr-data-plane-gateway-{amd64,arm64}.tar.gz`，校验三个静态 ELF 后取出
+`openyuanrong_data_plane` wheel；controlplane/node 镜像像其他组件一样通过
+pip 安装该 wheel，最终目录为 `yr/data_plane/bin`。Test K8S 会先探测 Edge/Node readiness，再
+运行 SDK direct、文件/目录 copy、tunnel 和 port-forwarding 用例。

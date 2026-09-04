@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+COPY sandbox-sdk/python /opt/sandbox-sdk
+RUN pip install --no-cache-dir /opt/sandbox-sdk
+COPY data-plane-gateway/tests/aio_3node/sdk_gateway_e2e.py /usr/local/bin/sdk_gateway_e2e.py
+COPY data-plane-gateway/tests/aio_3node/idle_timeout_e2e.py /usr/local/bin/idle_timeout_e2e.py
+
+ENTRYPOINT ["python", "/usr/local/bin/sdk_gateway_e2e.py"]

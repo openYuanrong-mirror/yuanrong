@@ -44,6 +44,7 @@ NAMESPACE = "yr-k8s"
 ACTIVE_SCRIPTS = [
     "bin/start-master.sh",
     "bin/start-frontend.sh",
+    "bin/start-edge.sh",
     "bin/start-node.sh",
     "bin/supervisord-node-entrypoint.sh",
     "smoke.py",
@@ -78,6 +79,8 @@ ACTIVE_TEMPLATES = [
     "charts/yr-k8s/templates/node-daemonset.yaml",
     "charts/yr-k8s/templates/frontend-deployment.yaml",
     "charts/yr-k8s/templates/frontend-service.yaml",
+    "charts/yr-k8s/templates/data-plane-validation.yaml",
+    "charts/yr-k8s/templates/edge-frontend-service.yaml",
     "charts/yr-k8s/templates/traefik-configmap.yaml",
     "charts/yr-k8s/templates/traefik-dynamic-configmap.yaml",
     "charts/yr-k8s/templates/traefik-deployment.yaml",
@@ -383,29 +386,18 @@ def expected_etcd_addr(values: dict) -> str:
 
 
 class YrK8sLayoutTests(unittest.TestCase):
-    def test_traefik_uses_master_http_provider_on_web_entrypoint(self):
+    def test_default_control_plane_is_exposed_without_traefik(self):
         manifests = render_chart()
         master = find_manifest(manifests, "StatefulSet", "yr-master")
-        traefik = find_manifest(manifests, "Deployment", "yr-traefik")
-        service = find_manifest(manifests, "Service", "yr-traefik")
-        static_config = find_manifest(manifests, "ConfigMap", "yr-traefik-configmap")["data"]["traefik.yaml"]
-        dynamic_config = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")["data"]["config.yml"]
+        frontend_service = find_manifest(manifests, "Service", "yr-frontend")
 
         master_container = find_container(master, "master")
-        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
-        self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
-        self.assertIn(
-            "http://yr-master-access:22770/global-scheduler/traefik/config",
-            static_config,
-        )
-        self.assertIn('pollInterval: "5s"', static_config)
-        self.assertIn('pollTimeout: "5s"', static_config)
-        self.assertNotIn("etcd:", static_config)
-        self.assertNotIn("router:", static_config)
-        self.assertNotIn("tunnel-router", dynamic_config)
-        self.assertNotIn("sandbox-router", dynamic_config)
-        self.assertEqual([p["name"] for p in find_container(traefik, "traefik")["ports"]], ["web"])
-        self.assertEqual([p["name"] for p in service["spec"]["ports"]], ["web"])
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "false")
+        self.assertIn("http", [p["name"] for p in frontend_service["spec"]["ports"]])
+        names = {doc.get("metadata", {}).get("name") for doc in manifests}
+        self.assertNotIn("yr-traefik", names)
+        self.assertNotIn("yr-traefik-configmap", names)
+        self.assertNotIn("yr-traefik-dynamic", names)
 
     def test_surface_tree_matches_three_workload_model(self):
         assert_paths_exist(
@@ -507,6 +499,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("COPY openyuanrong_runtime-*.whl", controlplane_dockerfile)
         self.assertIn("COPY openyuanrong_functionsystem-*.whl", controlplane_dockerfile)
         self.assertIn("COPY openyuanrong_datasystem-*.whl", controlplane_dockerfile)
+        self.assertIn("COPY openyuanrong_data_plane-*.whl", controlplane_dockerfile)
         self.assertNotIn("COPY openyuanrong_full-*.whl", controlplane_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", controlplane_dockerfile)
         self.assertIn('missing split wheel payloads', controlplane_dockerfile)
@@ -525,6 +518,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
         self.assertIn("pip install --no-cache-dir", runtime_dockerfile)
+        self.assertIn('ln -sf "${rrt_runtime}" /usr/local/bin/rrt-runtime', runtime_dockerfile)
         self.assertIn("https://mirrors.aliyun.com/pypi/simple", runtime_dockerfile)
         self.assertIn("--trusted-host mirrors.aliyun.com", runtime_dockerfile)
         self.assertIn("--retries 5", runtime_dockerfile)
@@ -622,6 +616,7 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "master_scheduler_ip",
                 "values.etcd.enable_multi_master=true",
                 "values.etcd.address",
+                "values.function_proxy.advertise_frontend_proxy_create=false",
                 "values.frontend.meta_service_address",
                 "frontend.port",
                 "meta_service.ip",
@@ -646,9 +641,10 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "values.etcd.address",
                 "values.function_proxy.port",
                 "values.function_proxy.grpc_listen_port",
+                "values.function_proxy.advertise_frontend_proxy_create=true",
                 "values.ds_worker.port",
                 "function_proxy.args.services_path",
-                "function_proxy.args.enable_traefik_registry=true",
+                "YR_ENABLE_TRAEFIK_REGISTRY:-false",
                 "function_proxy.args.traefik_etcd_prefix",
                 "function_proxy.args.traefik_http_entrypoint",
                 "function_proxy.args.traefik_enable_tls=false",
@@ -678,6 +674,21 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('enabled_components.get(dep, False)', launcher_text)
         self.assertIn('etcd_addresses = config["values"].get("etcd", {}).get("address")', launcher_text)
         self.assertIn('etcd_addresses = join_info.get("etcd.addresses") or []', launcher_text)
+
+    def test_frontend_and_node_publish_create_capability_by_role(self):
+        frontend_config, _ = render_launcher_config("bin/start-frontend.sh")
+        node_config, _ = render_launcher_config("bin/start-node.sh")
+
+        self.assertFalse(
+            frontend_config["function_proxy"]["args"][
+                "advertise_frontend_proxy_create"
+            ]
+        )
+        self.assertTrue(
+            node_config["function_proxy"]["args"][
+                "advertise_frontend_proxy_create"
+            ]
+        )
 
     def test_deploy_removes_legacy_cli_patch_overrides(self):
         deploy_script = (ROOT / "deploy.sh").read_text()
@@ -782,7 +793,16 @@ class YrK8sLayoutTests(unittest.TestCase):
     def test_values_surface_matches_embedded_etcd_model(self):
         values = load_yaml_file(ROOT / "charts/yr-k8s/values.yaml")
 
-        for section in ["global", "etcd", "master", "frontend", "node", "traefik", "debug"]:
+        for section in [
+            "global",
+            "etcd",
+            "master",
+            "frontend",
+            "node",
+            "dataPlane",
+            "traefik",
+            "debug",
+        ]:
             self.assertIn(section, values)
         for retired in ["scheduler", "meta-service", "iam", "agent-pool"]:
             self.assertNotIn(retired, values)
@@ -805,6 +825,12 @@ class YrK8sLayoutTests(unittest.TestCase):
             sorted(values["node"]["ports"].keys()),
             ["dsWorker", "functionProxy", "functionProxyGrpc"],
         )
+        edge = values["dataPlane"]["edge"]
+        self.assertEqual(edge["tlsPort"], 8443)
+        self.assertEqual(edge["plainPort"], 8080)
+        self.assertNotIn("authEnabled", edge)
+        self.assertNotIn("tunnelSecurityMode", edge)
+        self.assertNotIn("portForwardSecurityMode", edge)
 
     def test_datasystem_defaults_preserve_existing_deployment(self):
         values = load_yaml_file(ROOT / "charts/yr-k8s/values.yaml")
@@ -990,7 +1016,6 @@ class YrK8sLayoutTests(unittest.TestCase):
         master_access_name = "yr-master-access"
         frontend_name = "yr-frontend"
         node_name = "yr-node"
-        traefik_name = "yr-traefik"
         etcd_name = "yr-etcd"
         services_name = "yr-services"
         etcd_addr = expected_etcd_addr(values)
@@ -1011,8 +1036,6 @@ class YrK8sLayoutTests(unittest.TestCase):
         frontend_dep = find_manifest(manifests, "Deployment", frontend_name)
         frontend_svc = find_manifest(manifests, "Service", frontend_name)
         node_ds = find_manifest(manifests, "DaemonSet", node_name)
-        traefik_dep = find_manifest(manifests, "Deployment", traefik_name)
-        traefik_svc = find_manifest(manifests, "Service", traefik_name)
         services_cm = find_manifest(manifests, "ConfigMap", services_name)
 
         etcd_container = find_container(etcd_sts, "etcd")
@@ -1053,6 +1076,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(functions["py310"]["runtime"], "python3.10")
         self.assertEqual(functions["py310"]["rootfs"]["imageurl"], expected_runtime_image(values, "cp310"))
         self.assertEqual(functions["py310"]["bootstrap"]["entrypoint"], "python -m yr.cli.scripts runtime_main")
+        self.assertEqual(functions["rrt"]["runtime"], "rust")
+        self.assertEqual(functions["rrt"]["rootfs"]["imageurl"], expected_runtime_image(values, "cp310"))
+        self.assertEqual(functions["rrt"]["bootstrap"]["entrypoint"], "rrt-runtime")
         self.assertIn("py312", functions)
         self.assertEqual(functions["py312"]["runtime"], "python3.12")
         self.assertEqual(functions["py312"]["rootfs"]["imageurl"], expected_runtime_image(values, "cp312"))
@@ -1071,7 +1097,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(master_container["image"], controlplane_image)
         self.assertEqual(master_container["command"], ["/usr/local/bin/start-master.sh"])
         self.assertEqual(find_env(master_container, "YR_ETCD_ADDR_LIST"), etcd_addr)
-        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "true")
+        self.assertEqual(find_env(master_container, "YR_ENABLE_TRAEFIK_PROVIDER"), "false")
         self.assertEqual(find_env(master_container, "YR_TRAEFIK_HTTP_ENTRY_POINT"), "web")
         master_mounts = {m["mountPath"] for m in master_container.get("volumeMounts", [])}
         self.assertIn(values["debug"]["sidecar"]["sessionDir"], master_mounts)
@@ -1079,7 +1105,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         frontend_container = find_container(frontend_dep, "frontend")
         self.assertEqual(frontend_container["image"], controlplane_image)
         self.assertEqual(frontend_container["command"], ["/usr/local/bin/start-frontend.sh"])
-        self.assertNotIn("args", frontend_container)
+        self.assertEqual(frontend_container.get("args"), [])
         self.assertEqual(find_env(frontend_container, "YR_MASTER_IP"), master_access_name)
         self.assertEqual(
             find_env(frontend_container, "YR_FAAS_FRONTEND_HTTP_PORT"),
@@ -1141,34 +1167,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         node_volumes = {v["name"]: v for v in node_ds["spec"]["template"]["spec"]["volumes"]}
         self.assertEqual(node_volumes["docker-root"]["hostPath"]["path"], values["node"]["docker"]["rootHostPath"])
 
-        traefik_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-configmap")
-        traefik_dynamic_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")
-        traefik_text = traefik_cfg["data"]["traefik.yaml"]
-        traefik_dynamic_text = traefik_dynamic_cfg["data"]["config.yml"]
-        traefik_annotations = traefik_dep["spec"]["template"]["metadata"]["annotations"]
-        provider_endpoint = f"http://{master_access_name}:22770/global-scheduler/traefik/config"
-        self.assertIn(provider_endpoint, traefik_text)
-        self.assertIn('pollInterval: "5s"', traefik_text)
-        self.assertIn('pollTimeout: "5s"', traefik_text)
-        self.assertNotIn("etcd:", traefik_text)
-        self.assertIn("/etc/traefik/dynamic", traefik_text)
-        self.assertIn(frontend_name, traefik_dynamic_text)
-        self.assertIn("/api/sandbox", traefik_dynamic_text)
-        self.assertIn("/serverless/v1/componentshealth", traefik_dynamic_text)
-        self.assertIn("/serverless/v1/capabilities", traefik_dynamic_text)
-        self.assertIn("/invocations", traefik_dynamic_text)
-        self.assertRegex(traefik_annotations["checksum/traefik-config"], r"^[0-9a-f]{64}$")
-        self.assertRegex(traefik_annotations["checksum/traefik-dynamic"], r"^[0-9a-f]{64}$")
-        self.assertIn("direct-router", traefik_dynamic_text)
-        self.assertIn("PathPrefix(`/direct/`) || Path(`/direct`)", traefik_dynamic_text)
-        self.assertNotIn("tunnel-router", traefik_dynamic_text)
-        self.assertNotIn("sandbox-router", traefik_dynamic_text)
-        self.assertIn("service: frontend", traefik_dynamic_text)
-        self.assertNotIn("direct-strip", traefik_dynamic_text)
-        self.assertEqual(find_container(traefik_dep, "traefik")["image"], expected_image(values, "traefik"))
-        self.assertEqual(traefik_svc["spec"]["ports"][0]["port"], values["traefik"]["service"]["port"])
-        self.assertEqual(len(traefik_svc["spec"]["ports"]), 1)
-        self.assertEqual([p["name"] for p in find_container(traefik_dep, "traefik")["ports"]], ["web"])
+        self.assertNotIn("yr-traefik", names)
+        self.assertNotIn("yr-traefik-configmap", names)
+        self.assertNotIn("yr-traefik-dynamic", names)
 
         for manifest in [master_sts, frontend_dep, node_ds]:
             debug_container = find_container(manifest, "debug-busybox")
@@ -1193,6 +1194,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertTrue(overlay.is_file())
         overlay_values = load_yaml_file(overlay)
         self.assertTrue(overlay_values["frontend"]["enableEvent"])
+        self.assertTrue(overlay_values["dataPlane"]["enabled"])
+        self.assertEqual(overlay_values["dataPlane"]["edgeNode"]["securityMode"], "network")
         frontend_service = overlay_values["frontend"]["service"]
         self.assertEqual(frontend_service["type"], "ClusterIP")
         self.assertNotIn("kubernetes.io/elb.autocreate", frontend_service.get("annotations", {}))
@@ -1203,7 +1206,96 @@ class YrK8sLayoutTests(unittest.TestCase):
 
         frontend_dep = find_manifest(manifests, "Deployment", "yr-frontend")
         frontend_container = find_container(frontend_dep, "frontend")
-        self.assertNotIn("args", frontend_container)
+        self.assertEqual(frontend_container.get("args"), [])
+        self.assertEqual(find_env(frontend_container, "SANDBOX_ROUTER_EXTERNAL"), "true")
+        edge_container = find_container(frontend_dep, "edge-frontend")
+        self.assertEqual(edge_container["command"], ["/usr/local/bin/start-edge.sh"])
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE"), "network")
+        self.assertNotIn(
+            "YR_DATA_PLANE_INTERNAL_TOKEN_KEY_FILE",
+            {env["name"] for env in edge_container.get("env", [])},
+        )
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_TLS_BIND"), "0.0.0.0:8443")
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_PLAIN_BIND"), "0.0.0.0:8080")
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_HEALTH_BIND"), "0.0.0.0:18080")
+        self.assertEqual(
+            find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS"),
+            "$(RUNTIME_POD_IP):8888",
+        )
+        self.assertIn(
+            "prefix:/api/sandbox",
+            find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES"),
+        )
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM"), "false")
+        self.assertEqual(
+            find_env(edge_container, "YR_DATA_PLANE_LOG_DIR"),
+            "/tmp/yr_sessions/logs/data-plane",
+        )
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_LOG_MAX_SIZE_MB"), "40")
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_LOG_MAX_FILES"), "10")
+        self.assertNotIn(
+            "YR_DATA_PLANE_LOG_COMPRESSION",
+            {env["name"] for env in edge_container.get("env", [])},
+        )
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_LOG_QUEUE_CAPACITY"), "32768")
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS"), "200")
+        self.assertEqual(find_env(edge_container, "YR_DATA_PLANE_LOG_STDOUT"), "true")
+        self.assertEqual(
+            find_env(edge_container, "YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED"),
+            "true",
+        )
+        self.assertIn(
+            "/tmp/yr_sessions",
+            {mount["mountPath"] for mount in edge_container["volumeMounts"]},
+        )
+
+        edge_service = find_manifest(manifests, "Service", "yr-edge-frontend")
+        self.assertEqual([port["name"] for port in edge_service["spec"]["ports"]], ["tls", "plain"])
+        self.assertEqual([port["port"] for port in edge_service["spec"]["ports"]], [8443, 8080])
+
+        node_ds = find_manifest(manifests, "DaemonSet", "yr-node")
+        node_container = find_container(node_ds, "node")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_NODE_PROXY_ENABLED"), "true")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE"), "network")
+        self.assertNotIn(
+            "YR_DATA_PLANE_INTERNAL_TOKEN_KEY_FILE",
+            {env["name"] for env in node_container.get("env", [])},
+        )
+        self.assertIn("data-plane-node", [port["name"] for port in node_container["ports"]])
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_DIR"), "/openyuanrong/logs/data-plane")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_MAX_SIZE_MB"), "40")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_MAX_FILES"), "10")
+        self.assertNotIn(
+            "YR_DATA_PLANE_LOG_COMPRESSION",
+            {env["name"] for env in node_container.get("env", [])},
+        )
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_QUEUE_CAPACITY"), "32768")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS"), "200")
+        self.assertEqual(find_env(node_container, "YR_DATA_PLANE_LOG_STDOUT"), "true")
+
+        names = {doc.get("metadata", {}).get("name") for doc in manifests}
+        self.assertNotIn("yr-frontend", {
+            doc.get("metadata", {}).get("name")
+            for doc in manifests
+            if doc.get("kind") == "Service"
+        })
+        self.assertNotIn("yr-traefik", names)
+        self.assertNotIn("yr-traefik-configmap", names)
+        self.assertNotIn("yr-traefik-dynamic", names)
+
+        compatibility_manifests = render_chart(
+            "-f",
+            str(overlay),
+            "--set",
+            "frontend.service.exposeWhenEdgeEnabled=true",
+        )
+        compatibility_service = find_manifest(
+            compatibility_manifests, "Service", "yr-frontend"
+        )
+        self.assertEqual(
+            [port["name"] for port in compatibility_service["spec"]["ports"]],
+            ["http"],
+        )
 
     def test_buildkite_smoke_overlay_enables_force_low_reliability_instances(self):
         overlay = ROOT / "k8s/values.buildkite-smoke.yaml"
@@ -1229,7 +1321,6 @@ class YrK8sLayoutTests(unittest.TestCase):
             find_manifest(manifests, "StatefulSet", "yr-master"),
             find_manifest(manifests, "Deployment", "yr-frontend"),
             find_manifest(manifests, "DaemonSet", "yr-node"),
-            find_manifest(manifests, "Deployment", "yr-traefik"),
         ]
         for workload in workloads:
             with self.subTest(workload=workload["metadata"]["name"]):
@@ -1243,18 +1334,36 @@ class YrK8sLayoutTests(unittest.TestCase):
 
         self.assertIn("values.buildkite-smoke.yaml", deploy_script)
         self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script)
-        self.assertIn("start_traefik_port_forward", deploy_script)
+        self.assertIn("start_service_port_forwards", deploy_script)
+        self.assertIn('SOURCE_BUILD_ID="${YR_K8S_SOURCE_BUILD_ID:-}"', deploy_script)
+        self.assertIn('meta-data get "${key}" --build "${SOURCE_BUILD_ID}"', deploy_script)
+        self.assertIn("ensure_service_port_forwards", deploy_script)
+        self.assertGreaterEqual(deploy_script.count("ensure_service_port_forwards"), 4)
         port_forward_cmd = '"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward'
         self.assertIn(port_forward_cmd, deploy_script)
-        self.assertIn("TRAEFIK_WEB_ADDRESS", deploy_script)
-        self.assertIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
-        self.assertIn('TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"', deploy_script)
-        self.assertIn('"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}"', deploy_script)
-        self.assertIn('probe_sandbox_ready "${smoke_server_address}"', deploy_script)
+        self.assertIn('EDGE_SERVICE="${YR_K8S_EDGE_SERVICE:-yr-edge-frontend}"', deploy_script)
+        self.assertIn('RELEASE_NAME="${YR_K8S_RELEASE:-yr-k8s}"', deploy_script)
+        self.assertIn('"${EDGE_TLS_PORT}:8443" "${EDGE_PLAIN_PORT}:8080"', deploy_script)
+        self.assertNotIn('"${FRONTEND_PORT}:8888"', deploy_script)
+        self.assertIn('smoke_server_address="${smoke_server_address:-${router_tls_address}}"', deploy_script)
+        self.assertIn('probe_sandbox_ready "https://${router_tls_address}"', deploy_script)
         self.assertIn('run_idle_timeout_e2e "${smoke_server_address}"', deploy_script)
+        self.assertIn("create_sandbox_with_capacity_retry", deploy_script)
+        self.assertIn('"${name}-attempt-${attempt}"', deploy_script)
+        self.assertIn('/direct/${sid}/invoke', deploy_script)
+        self.assertIn("survived a 12s direct data-plane request", deploy_script)
         self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
-        self.assertIn('run_rrt_direct_e2e "${smoke_server_address}" "${router_address}"', deploy_script)
-        self.assertNotIn('$(wait_for_traefik_address', deploy_script.split("bash deploy/sandbox/k8s/deploy.sh", 1)[1])
+        self.assertIn('run_rrt_direct_e2e "${smoke_server_address}" "${router_tls_address}" "${router_plain_address}"', deploy_script)
+        self.assertIn('YR_GATEWAY_ADDRESS="${router_tls_addr}"', deploy_script)
+        self.assertIn('YR_GATEWAY_ADDRESS="${router_plain_addr}"', deploy_script)
+        self.assertIn('YR_GATEWAY_TLS=1', deploy_script)
+        self.assertIn('YR_EXAMPLE_CPU=2000 YR_EXAMPLE_MEMORY=4096', deploy_script)
+        self.assertIn('prepare_edge_tls_secret', deploy_script)
+        self.assertIn("Rust Edge direct e2e", deploy_script)
+        self.assertIn("verify_rust_data_plane_ready", deploy_script)
+        self.assertIn("edge-frontend", deploy_script)
+        self.assertNotIn("TRAEFIK_WEB_ADDRESS", deploy_script)
+        self.assertNotIn("TRAEFIK_ROUTER_ADDRESS", deploy_script)
         token_command = re.search(r'yr_token="\$\("\$\{py\}" -c \'([^\']+)\'\)"', deploy_script)
         self.assertIsNotNone(token_command)
         token = subprocess.check_output([str(PYTHON_BIN), "-c", token_command.group(1)], text=True).strip()
@@ -1302,6 +1411,17 @@ class YrK8sLayoutTests(unittest.TestCase):
             "meta-data get sandbox-release.publish-sandbox-release-amd64 --build build-uuid-226",
         )
 
+    def test_buildkite_smoke_trusts_generated_edge_certificate(self):
+        deploy_script = (ROOT.parents[2] / ".buildkite/test_sandbox_k8s.sh").read_text()
+
+        self.assertIn(
+            'EDGE_TLS_CA_FILE="${YR_K8S_EDGE_TLS_CA_FILE:-${SMOKE_LOG_DIR}/edge-tls-ca.crt}"',
+            deploy_script,
+        )
+        self.assertIn('mkdir -p "$(dirname "${EDGE_TLS_CA_FILE}")"', deploy_script)
+        self.assertIn('install -m 0644 "${tls_dir}/tls.crt" "${EDGE_TLS_CA_FILE}"', deploy_script)
+        self.assertIn('export YR_VERIFY_FILE="${YR_VERIFY_FILE:-${EDGE_TLS_CA_FILE}}"', deploy_script)
+
     def test_buildkite_can_emit_k8s_test_only_pipeline(self):
         env = dict(os.environ)
         env["ENABLE_SANDBOX_K8S_TEST_ONLY"] = "true"
@@ -1314,6 +1434,7 @@ class YrK8sLayoutTests(unittest.TestCase):
             env=env,
         )
         pipeline = result.stdout
+        steps = index_pipeline_steps(yaml.safe_load(pipeline))
 
         self.assertIn('key: "test-k8s"', pipeline)
         self.assertIn("test_sandbox_k8s.sh", pipeline)
@@ -1321,6 +1442,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertNotIn("Build Image", pipeline)
         self.assertNotIn("publish-sandbox-release", pipeline)
         self.assertNotIn('depends_on:', pipeline)
+        self.assertEqual(1, steps["test-k8s"]["concurrency"])
+        self.assertEqual("eager", steps["test-k8s"]["concurrency_method"])
 
     def test_buildkite_enables_k8s_test_by_default(self):
         env = dict(os.environ)
@@ -1347,6 +1470,68 @@ class YrK8sLayoutTests(unittest.TestCase):
             env=env,
         )
         steps = index_pipeline_steps(yaml.safe_load(result.stdout))
+        self.assertNotIn("test-k8s", steps)
+
+    def test_buildkite_packages_multiarch_rust_data_plane(self):
+        pipeline = emit_dynamic_pipeline(
+            ENABLE_MACOS_SDK="false",
+            ENABLE_LINUX_ARM="true",
+            ENABLE_RUNTIME_X86="true",
+            ENABLE_RUNTIME_ARM="true",
+            ENABLE_SANDBOX_PACKAGE="true",
+            ENABLE_SANDBOX_K8S_TEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="false",
+            SDK_PYTHON_VERSIONS="python3.11",
+            SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="python3.11",
+        )
+        steps = index_pipeline_steps(pipeline)
+        for arch in ("amd64", "arm64"):
+            build = steps[f"build-data-plane-gateway-{arch}"]
+            self.assertIn("cargo build --manifest-path data-plane-gateway/Cargo.toml", build["command"])
+            self.assertIn("unknown-linux-musl", build["command"])
+            self.assertIn("verify-static-linux.sh", build["command"])
+            self.assertIn(f"yr-data-plane-gateway-{arch}.tar.gz", build["command"])
+            release = steps[f"publish-sandbox-release-{arch}"]
+            self.assertIn(f"build-data-plane-gateway-{arch}", release["depends_on"])
+            self.assertEqual(
+                release["env"]["SANDBOX_DATA_PLANE_GATEWAY_STEP_KEY"],
+                f"build-data-plane-gateway-{arch}",
+            )
+
+        repo = ROOT.parents[2]
+        package_script = (repo / ".buildkite/package_sandbox_release.sh").read_text()
+        build_images = (ROOT / "build-images.sh").read_text()
+        controlplane_dockerfile = (ROOT / "images/Dockerfile.controlplane-base").read_text()
+        node_dockerfile = (ROOT / "images/Dockerfile.node").read_text()
+        self.assertIn('artifact download "${DATA_PLANE_GATEWAY_ARCHIVE}"', package_script)
+        self.assertIn("sha256sum -c SHA256SUMS", package_script)
+        self.assertIn("openyuanrong_data_plane-*.whl", build_images)
+        self.assertIn("openyuanrong_data_plane-*.whl", package_script)
+        self.assertIn("SETUP_TYPE=data_plane", build["command"])
+        self.assertIn("yr-edge-frontend", controlplane_dockerfile)
+        self.assertIn("yr-node-proxy", node_dockerfile)
+        self.assertIn("${yr_package_dir}/data_plane/bin", controlplane_dockerfile)
+        self.assertIn("${yr_package_dir}/data_plane/bin", node_dockerfile)
+        self.assertNotIn("runtime/service/rust/bin/yr-edge-frontend", controlplane_dockerfile)
+        self.assertNotIn("runtime/service/rust/bin/yr-node-proxy", node_dockerfile)
+
+    def test_buildkite_can_disable_data_plane_gateway(self):
+        pipeline = emit_dynamic_pipeline(
+            ENABLE_DATA_PLANE_GATEWAY="false",
+            ENABLE_MACOS_SDK="false",
+            ENABLE_LINUX_ARM="false",
+            ENABLE_RUNTIME_X86="true",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="false",
+            ENABLE_SANDBOX_K8S_TEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="false",
+            SDK_PYTHON_VERSIONS="python3.11",
+        )
+        steps = index_pipeline_steps(pipeline)
+
+        self.assertNotIn("build-data-plane-gateway-amd64", steps)
+        self.assertNotIn("build-data-plane-gateway-arm64", steps)
+        self.assertNotIn("publish-sandbox-release-amd64", steps)
         self.assertNotIn("test-k8s", steps)
 
     def test_pipeline_deploys_published_sandbox_release_to_target_k8s(self):
@@ -1414,13 +1599,13 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("refresh_master_statefulset_pods_after_template_update", deploy_script_k8s)
         self.assertIn("delete_runtime_workloads_before_reset", deploy_script_k8s)
         self.assertIn("reset_etcd_state", deploy_script_k8s)
-        self.assertIn("seed_traefik_etcd_state", deploy_script_k8s)
+        self.assertNotIn("seed_traefik_etcd_state", deploy_script_k8s)
         self.assertIn('RESET_ETCD_STATE="${YR_K8S_RESET_ETCD_STATE:-true}"', deploy_script_k8s)
         self.assertIn("EXTRA_VALUES_FILE", deploy_script_k8s)
         self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script_k8s)
         self.assertIn("Stopping existing runtime workloads before resetting sandbox etcd state", deploy_script_k8s)
         self.assertIn("Resetting sandbox etcd state", deploy_script_k8s)
-        self.assertIn("Seeded Traefik etcd root key", deploy_script_k8s)
+        self.assertNotIn("Seeded Traefik etcd root key", deploy_script_k8s)
         self.assertIn("Deleting stale master pod", deploy_script_k8s)
         self.assertRegex(
             deploy_script_k8s,
@@ -1429,7 +1614,6 @@ class YrK8sLayoutTests(unittest.TestCase):
             r"remove_legacy_cli_patch_overrides\s+"
             r"refresh_master_statefulset_pods_after_template_update\s+"
             r"wait_for_rollout\s+"
-            r"seed_traefik_etcd_state\s+"
             r"helm_deploy_with_frontend\s+wait_for_frontend_rollout\s+"
             r"prepull_runtime_image",
         )
@@ -2051,6 +2235,387 @@ class YrK8sLayoutTests(unittest.TestCase):
             self.assertIn(str(sandbox_wheel), uploaded_args)
             self.assertNotIn(str(sdk_wheel), uploaded_args)
 
+    def test_manifest_only_collects_enabled_macos_sdk_metadata(self):
+        common = {
+            "ENABLE_LINUX_ARM": "true",
+            "ENABLE_RUNTIME_X86": "false",
+            "ENABLE_RUNTIME_ARM": "false",
+            "ENABLE_SANDBOX_PACKAGE": "true",
+            "ENABLE_SANDBOX_MANIFEST": "true",
+            "ENABLE_TEST_PYPI_PUBLISH": "false",
+            "SDK_PYTHON_VERSIONS": "python3.14",
+        }
+
+        without_macos = emit_dynamic_pipeline(**common, ENABLE_MACOS_SDK="false")
+        without_macos_manifest = index_pipeline_steps(without_macos)["publish-sandbox-manifest"]
+        self.assertEqual(
+            without_macos_manifest["env"]["SANDBOX_MACOS_ARM64_SDK_STEPS"],
+            "",
+        )
+        self.assertNotIn(
+            "build-sdk-macos-arm64-cp314",
+            without_macos_manifest["depends_on"],
+        )
+
+        with_macos = emit_dynamic_pipeline(**common, ENABLE_MACOS_SDK="true")
+        with_macos_manifest = index_pipeline_steps(with_macos)["publish-sandbox-manifest"]
+        self.assertEqual(
+            with_macos_manifest["env"]["SANDBOX_MACOS_ARM64_SDK_STEPS"],
+            "build-sdk-macos-arm64-cp314",
+        )
+        self.assertIn(
+            "build-sdk-macos-arm64-cp314",
+            with_macos_manifest["depends_on"],
+        )
+
+    def test_python314_buildkite_execution_contract(self):
+        packager = "registry.example.com/openyuanrong/sandbox-packager:test"
+        bootstrap = emit_dynamic_pipeline(
+            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="true",
+            SANDBOX_PACKAGER_IMAGE=packager,
+        )
+        product = emit_dynamic_pipeline(
+            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="false",
+            SANDBOX_PACKAGER_IMAGE=packager,
+            ENABLE_MACOS_SDK="true",
+            ENABLE_LINUX_ARM="true",
+            ENABLE_RUNTIME_X86="true",
+            ENABLE_RUNTIME_ARM="true",
+            ENABLE_SANDBOX_PACKAGE="true",
+            ENABLE_SANDBOX_K8S_TEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="false",
+            ENABLE_RUST_FUNCTIONSYSTEM_ST="false",
+        )
+        amd64_cp314_product = emit_dynamic_pipeline(
+            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="false",
+            ENABLE_MACOS_SDK="true",
+            ENABLE_LINUX_ARM="false",
+            ENABLE_RUNTIME_X86="true",
+            ENABLE_RUNTIME_ARM="false",
+            ENABLE_SANDBOX_PACKAGE="true",
+            ENABLE_SANDBOX_MANIFEST="false",
+            ENABLE_SANDBOX_K8S_TEST="false",
+            ENABLE_TEST_PYPI_PUBLISH="false",
+            ENABLE_RUST_FUNCTIONSYSTEM_ST="false",
+            SDK_PYTHON_VERSIONS="python3.14",
+            SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="python3.14",
+        )
+        bootstrap_steps = index_pipeline_steps(bootstrap)
+        product_steps = index_pipeline_steps(product)
+        amd64_cp314_steps = index_pipeline_steps(amd64_cp314_product)
+        bootstrap_keys = {
+            "build-python314-builder-amd64",
+            "build-python314-builder-arm64",
+            "publish-python314-builder-manifest",
+        }
+        self.assertEqual(set(bootstrap_steps), bootstrap_keys)
+        self.assertTrue(bootstrap_keys.isdisjoint(product_steps))
+        self.assertIn(
+            "build-sdk-amd64-cp314",
+            amd64_cp314_steps["publish-sandbox-release-amd64"]["depends_on"],
+        )
+        self.assertNotIn(
+            "build-sdk-amd64-cp311",
+            amd64_cp314_steps["publish-sandbox-release-amd64"]["depends_on"],
+        )
+        self.assertIn("build-sdk-macos-arm64-cp314", amd64_cp314_steps)
+        self.assertFalse(any("arm64" in key and "macos" not in key for key in amd64_cp314_steps))
+        self.assertNotIn("publish-sandbox-manifest", amd64_cp314_steps)
+        self.assertEqual(
+            set(bootstrap_steps["publish-python314-builder-manifest"]["depends_on"]),
+            bootstrap_keys - {"publish-python314-builder-manifest"},
+        )
+        for key in {
+            "build-python314-builder-amd64",
+            "publish-python314-builder-manifest",
+        }:
+            with self.subTest(bootstrap_executor=key):
+                step = bootstrap_steps[key]
+                self.assertEqual(pipeline_step_container(step)["image"], packager)
+
+        standard_base = (
+            "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/"
+            "compile-ubuntu2004:v20260428_cmake33110"
+        )
+        existing_rust_builder = (
+            "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/"
+            "compile-ubuntu2004-rust:v20260507_x86_64"
+        )
+        self.assertEqual(
+            bootstrap_steps["build-python314-builder-amd64"]["env"]["PYTHON314_BUILDER_BASE_IMAGE"],
+            standard_base,
+        )
+        self.assertEqual(
+            bootstrap_steps["build-python314-builder-arm64"]["env"]["PYTHON314_BUILDER_BASE_IMAGE"],
+            standard_base,
+        )
+        self.assertEqual(
+            pipeline_step_container(bootstrap_steps["build-python314-builder-arm64"])["image"],
+            standard_base,
+        )
+        python314_builder = standard_base.replace(
+            ":v20260428_cmake33110", ":v20260717_py3146_obs"
+        )
+        self.assertEqual(
+            pipeline_step_container(product_steps["build-all-amd64"])["image"],
+            python314_builder,
+        )
+        self.assertEqual(
+            pipeline_step_container(product_steps["build-sdk-amd64-cp314"])["image"],
+            python314_builder,
+        )
+        self.assertEqual(
+            pipeline_step_container(product_steps["build-rrt-amd64"])["image"],
+            existing_rust_builder,
+        )
+
+        amd64_docker_step_keys = {
+            "publish-sandbox-release-amd64",
+            "publish-sandbox-manifest",
+            *{
+                f"publish-runtime-amd64-{suffix}"
+                for suffix in ("cp39", "cp310", "cp311", "cp312", "cp313", "cp314")
+            },
+        }
+        for key in amd64_docker_step_keys:
+            with self.subTest(product_executor=key):
+                step = product_steps[key]
+                container = pipeline_step_container(step)
+                self.assertEqual(container["image"], packager)
+                secret_names = {entry["name"] for entry in container["env"]}
+                self.assertTrue(
+                    {"SWR_USERNAME", "SWR_PASSWORD", "SWR_DOCKER_CONFIG_JSON"}.issubset(secret_names)
+                )
+
+        for key in {
+            "publish-sandbox-release-arm64",
+            *{f"publish-runtime-arm64-{suffix}" for suffix in ("cp39", "cp310", "cp311", "cp312", "cp313", "cp314")},
+        }:
+            with self.subTest(arm64_product_step=key):
+                step = product_steps[key]
+                self.assertEqual(pipeline_step_container(step)["image"], python314_builder)
+                self.assertEqual(step["agents"]["linux_arch"], "arm64")
+                self.assertEqual(
+                    step["plugins"][0]["kubernetes"]["podSpec"]["nodeSelector"]["kubernetes.io/arch"],
+                    "arm64",
+                )
+        bootstrap_arm = bootstrap_steps["build-python314-builder-arm64"]
+        self.assertEqual(bootstrap_arm["agents"]["linux_arch"], "arm64")
+        self.assertEqual(
+            bootstrap_arm["plugins"][0]["kubernetes"]["podSpec"]["nodeSelector"]["kubernetes.io/arch"],
+            "arm64",
+        )
+
+        cp314_sdk_keys = {
+            "build-sdk-amd64-cp314",
+            "build-sdk-arm64-cp314",
+            "build-sdk-macos-arm64-cp314",
+        }
+        self.assertTrue(cp314_sdk_keys.issubset(product_steps))
+        self.assertIn(
+            "build-sdk-amd64-cp314",
+            product_steps["publish-runtime-amd64-cp314"]["depends_on"],
+        )
+        self.assertIn(
+            "build-sdk-arm64-cp314",
+            product_steps["publish-runtime-arm64-cp314"]["depends_on"],
+        )
+        manifest_dependencies = set(product_steps["publish-sandbox-manifest"]["depends_on"])
+        self.assertTrue(cp314_sdk_keys.issubset(manifest_dependencies))
+        self.assertTrue(
+            {"publish-runtime-amd64-cp314", "publish-runtime-arm64-cp314"}.issubset(
+                manifest_dependencies
+            )
+        )
+
+        repo = ROOT.parents[2]
+        packager_dockerfile = (repo / "ci/sandbox-packager/Dockerfile").read_text()
+        helper = repo / ".buildkite/docker_job_helpers.sh"
+        manifest_script = (repo / ".buildkite/package_sandbox_manifest.sh").read_text()
+        release_script = (repo / ".buildkite/package_sandbox_release.sh").read_text()
+        sdk_verifier = (repo / ".buildkite/verify_python314_sdk_wheel.sh").read_text()
+        builder_script = (repo / ".buildkite/build_python314_builder_image.sh").read_text()
+        self.assertIn("ARG TARGETARCH", packager_dockerfile)
+        self.assertIn('arm64) HELM_ARCH="arm64"; KUBECTL_ARCH="arm64"', packager_dockerfile)
+        self.assertTrue(helper.is_file())
+        helper_text = helper.read_text()
+        self.assertIn("overlay2", helper_text)
+        self.assertIn("vfs", helper_text)
+        self.assertIn("Docker daemon failed", helper_text)
+        self.assertIn("verify_image_manifest.py", manifest_script)
+        self.assertIn("require_cp314_sdk_records", manifest_script)
+        self.assertIn("image-manifest-evidence.tsv", manifest_script)
+        self.assertIn("EXPECTED_SDK_VERSION", release_script)
+        self.assertIn('installed_version == expected_version', release_script)
+        self.assertIn('wheel_listing="$(unzip -l "${wheel}")"', sdk_verifier)
+        self.assertNotIn('unzip -l "${wheel}" |', sdk_verifier)
+        self.assertIn('if [ "${VARIANT}" = compile ]; then', builder_script)
+
+    def test_image_manifest_validator_rejects_wrong_platform_and_duplicates(self):
+        verifier = ROOT.parents[2] / ".buildkite/verify_image_manifest.py"
+        self.assertTrue(verifier.is_file())
+        digest_amd64 = "sha256:" + "a" * 64
+        digest_arm64 = "sha256:" + "b" * 64
+        final_digest = "sha256:" + "c" * 64
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = pathlib.Path(tmpdir)
+            source = tmp / "source.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "Descriptor": {
+                            "digest": digest_amd64,
+                            "platform": {"os": "linux", "architecture": "amd64"},
+                        }
+                    }
+                )
+            )
+            evidence = tmp / "evidence.tsv"
+            source_args = [
+                str(PYTHON_BIN),
+                str(verifier),
+                "source",
+                "--input",
+                str(source),
+                "--image",
+                "registry.example.com/yr-runtime:test-amd64",
+                "--evidence",
+                str(evidence),
+            ]
+            subprocess.run(
+                [*source_args, "--expected-platform", "linux/amd64"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            wrong_source = subprocess.run(
+                [*source_args, "--expected-platform", "linux/arm64"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(wrong_source.returncode, 0)
+
+            final = tmp / "final.json"
+            final.write_text(
+                json.dumps(
+                    {
+                        "manifests": [
+                            {
+                                "digest": digest_amd64,
+                                "platform": {"os": "linux", "architecture": "amd64"},
+                            },
+                            {
+                                "digest": digest_arm64,
+                                "platform": {"os": "linux", "architecture": "arm64"},
+                            },
+                        ]
+                    }
+                )
+            )
+            final_args = [
+                str(PYTHON_BIN),
+                str(verifier),
+                "final",
+                "--input",
+                str(final),
+                "--image",
+                "registry.example.com/yr-runtime:test",
+                "--digest",
+                final_digest,
+                "--expected-platform",
+                "linux/amd64",
+                "--expected-platform",
+                "linux/arm64",
+                "--evidence",
+                str(evidence),
+            ]
+            subprocess.run(final_args, check=True, capture_output=True, text=True)
+            duplicate = json.loads(final.read_text())
+            duplicate["manifests"][1]["platform"]["architecture"] = "amd64"
+            final.write_text(json.dumps(duplicate))
+            wrong_final = subprocess.run(final_args, check=False, capture_output=True, text=True)
+            self.assertNotEqual(wrong_final.returncode, 0)
+            evidence_text = evidence.read_text()
+            self.assertIn(digest_amd64, evidence_text)
+            self.assertIn(final_digest, evidence_text)
+            self.assertIn("linux/amd64,linux/arm64", evidence_text)
+
+    def test_manifest_publish_requires_cp314_metadata_before_registry_mutation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = pathlib.Path(tmpdir)
+            docker_log = tmp / "docker.log"
+            fake_docker = tmp / "docker"
+            fake_docker.write_text(
+                "#!/usr/bin/env bash\n"
+                'printf "%s\\n" "$*" >>"${DOCKER_LOG}"\n'
+                "exit 0\n"
+            )
+            fake_docker.chmod(0o755)
+            fake_agent = tmp / "buildkite-agent"
+            fake_agent.write_text("#!/usr/bin/env bash\nexit 0\n")
+            fake_agent.chmod(0o755)
+            env = dict(os.environ)
+            env.update(
+                {
+                    "PATH": f"{tmp}:{env['PATH']}",
+                    "DOCKER_BIN": str(fake_docker),
+                    "DOCKER_LOG": str(docker_log),
+                    "SANDBOX_ARTIFACT_DIR": str(tmp / "artifacts"),
+                    "BUILDKITE_STEP_KEY": "publish-sandbox-manifest",
+                }
+            )
+            result = subprocess.run(
+                [str(BASH_BIN), ".buildkite/package_sandbox_manifest.sh"],
+                cwd=ROOT.parents[2],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Required Python 3.14 SDK metadata is missing or empty", result.stderr)
+            self.assertFalse(docker_log.exists(), "registry mutation must not begin without cp314 records")
+
+    def test_push_images_falls_back_when_platform_push_is_unsupported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docker_log = pathlib.Path(tmpdir) / "docker.log"
+            fake_docker = pathlib.Path(tmpdir) / "docker"
+            fake_docker.write_text(
+                "#!/usr/bin/env bash\n"
+                "echo \"$*\" >> \"${DOCKER_LOG}\"\n"
+                "if [ \"$1\" = push ] && [ \"${2:-}\" = --help ]; then\n"
+                "  echo 'Usage: docker push NAME[:TAG]'\n"
+                "  exit 0\n"
+                "fi\n"
+                "if [ \"$1\" = image ] && [ \"${2:-}\" = inspect ]; then exit 0; fi\n"
+                "if [ \"$1\" = push ] && [ \"${2:-}\" = --platform ]; then exit 42; fi\n"
+                "exit 0\n"
+            )
+            fake_docker.chmod(0o755)
+            result = subprocess.run(
+                [str(ROOT / "push-images-swr.sh")],
+                cwd=ROOT.parents[2],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={
+                    "PATH": f"{tmpdir}:/usr/bin:/bin",
+                    "DOCKER_BIN": str(fake_docker),
+                    "DOCKER_LOG": str(docker_log),
+                    "YR_K8S_REGISTRY_REPO": "registry.example.com/openyuanrong",
+                    "YR_K8S_IMAGE_TAG": "test-tag",
+                    "YR_K8S_IMAGE_PLATFORM": "linux/arm64",
+                    "YR_K8S_IMAGE_CACHE": "1",
+                    "YR_K8S_IMAGE_CACHE_TAG": "cache-arm64",
+                },
+            )
+
+            log_text = docker_log.read_text()
+            self.assertNotIn("push --platform", log_text)
+            self.assertIn("push registry.example.com/openyuanrong/yr-base:test-tag", log_text)
+            self.assertIn("push registry.example.com/openyuanrong/yr-base:cache-arm64", log_text)
+            self.assertIn("without platform flag", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

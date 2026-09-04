@@ -18,9 +18,11 @@ COPY openyuanrong_dashboard-*.whl /tmp/pkg/
 COPY openyuanrong_cpp_sdk-*.whl /tmp/pkg/
 COPY openyuanrong_functionsystem-*.whl /tmp/pkg/
 COPY openyuanrong_datasystem-*.whl /tmp/pkg/
+COPY openyuanrong_data_plane-*.whl /tmp/pkg/
 COPY openyuanrong_sdk*.whl /tmp/pkg/
 COPY .yr-k8s-deploy/bin/start-master.sh /usr/local/bin/start-master.sh
 COPY .yr-k8s-deploy/bin/start-frontend.sh /usr/local/bin/start-frontend.sh
+COPY .yr-k8s-deploy/bin/start-edge.sh /usr/local/bin/start-edge.sh
 
 RUN set -euo pipefail \
     && resolve_single_wheel() { \
@@ -46,6 +48,7 @@ RUN set -euo pipefail \
     && CPP_SDK_WHEEL="$(resolve_single_wheel 'openyuanrong_cpp_sdk-*.whl')" \
     && FUNCTIONSYSTEM_WHEEL="$(resolve_single_wheel 'openyuanrong_functionsystem-*.whl')" \
     && DATASYSTEM_WHEEL="$(resolve_single_wheel 'openyuanrong_datasystem-*.whl')" \
+    && DATA_PLANE_WHEEL="$(resolve_single_wheel 'openyuanrong_data_plane-*.whl')" \
     && python3 -m pip install --no-cache-dir \
         --index-url https://mirrors.aliyun.com/pypi/simple \
         --trusted-host mirrors.aliyun.com \
@@ -57,16 +60,21 @@ RUN set -euo pipefail \
         "${DASHBOARD_WHEEL}" \
         "${CPP_SDK_WHEEL}" \
         "${DATASYSTEM_WHEEL}" \
+        "${DATA_PLANE_WHEEL}" \
         "${FUNCTIONSYSTEM_WHEEL}" \
     && python_bin_dir="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" \
+    && yr_package_dir="$(python3 -c 'from pathlib import Path; import yr; print(Path(yr.__file__).resolve().parent)')" \
+    && test -x "${yr_package_dir}/data_plane/bin/yr-node-proxy" \
+    && test -x "${yr_package_dir}/data_plane/bin/yr-edge-frontend" \
+    && test -x "${yr_package_dir}/data_plane/bin/yr-data-plane-forward" \
     && test -x "${python_bin_dir}/yr" \
     && test -x "${python_bin_dir}/yrcli" \
-    && python3 -c 'from pathlib import Path; import yr; base = Path(yr.__file__).resolve().parent; required = ["cli", "runtime", "faas", "dashboard", "cpp", "functionsystem", "datasystem"]; missing = [name for name in required if not (base / name).exists()]; assert not missing, f"missing split wheel payloads: {missing}"' \
+    && python3 -c 'from pathlib import Path; import yr; base = Path(yr.__file__).resolve().parent; required = ["cli", "runtime", "faas", "dashboard", "cpp", "functionsystem", "datasystem", "data_plane"]; missing = [name for name in required if not (base / name).exists()]; assert not missing, f"missing split wheel payloads: {missing}"' \
     && ln -sf "${python_bin_dir}/yr" /usr/local/bin/yr \
     && ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli \
     && install -d /openyuanrong/bin /openyuanrong/cert /openyuanrong/config \
         "${YR_CONTROLPLANE_HELPER_DIR}" /home/sn /home/sn/config /home/sn/iam-config \
         /home/sn/log /home/sn/upload /etc/yuanrong \
     && install -m 0644 /dev/null /home/sn/.bashrc \
-    && chmod +x /usr/local/bin/start-master.sh /usr/local/bin/start-frontend.sh \
+    && chmod +x /usr/local/bin/start-master.sh /usr/local/bin/start-frontend.sh /usr/local/bin/start-edge.sh \
     && rm -rf /tmp/pkg

@@ -39,7 +39,16 @@ if [ -z "$_cargo_config_source" ]; then
 fi
 if [ -n "${CARGO_HOME:-}" ] && [ -n "$_cargo_config_source" ]; then
 	mkdir -p "$CARGO_HOME"
-	install -m 0644 "$_cargo_config_source" "$CARGO_HOME/config.toml"
+	# Multiple Buildkite jobs share this CARGO_HOME and start concurrently.
+	# Installing directly to config.toml races in the hostPath volume and can
+	# fail with EEXIST. Publish a complete file with one atomic rename instead.
+	_cargo_config_tmp="$(mktemp "$CARGO_HOME/.config.toml.XXXXXX")"
+	if install -m 0644 "$_cargo_config_source" "$_cargo_config_tmp"; then
+		mv -f "$_cargo_config_tmp" "$CARGO_HOME/config.toml"
+	else
+		rm -f "$_cargo_config_tmp"
+		return 1 2>/dev/null || exit 1
+	fi
 	echo "cargo registry config: $_cargo_config_source -> $CARGO_HOME/config.toml" >&2
 fi
 

@@ -117,11 +117,12 @@ def cli(ctx: click.Context, config_opt: Optional[Path], verbose: bool) -> None:
 @cli.command(
     help="""Start openYuanrong cluster.
 
-Runs in either master (control-plane) or agent (data-plane) mode.
+Runs in master (control-plane), agent (data-plane), or edge-frontend mode.
 
 Common patterns:\n
   - Start master: yr start --master\n
   - Start agent:  yr start\n
+  - Start edge:   yr start --edge\n
   - Override config: yr start -s 'values.log_level="DEBUG"'
 """,
 )
@@ -151,6 +152,12 @@ Common patterns:\n
         If omitted, runs in agent mode (deploy data-plane components only).\n
             - Agent mode deploys ds_worker, function_proxy and function_agent.
     """,
+)
+@click.option(
+    "--edge",
+    "edge_mode",
+    is_flag=True,
+    help="Run only the Data Plane Edge Frontend process.",
 )
 @click.option(
     "--master_address",
@@ -216,9 +223,10 @@ Common patterns:\n
 )
 @click.pass_context
 def start(ctx: click.Context, **kwargs) -> None:
-    """Start the YuanRong system in master or agent mode."""
+    """Start YuanRong in master, agent, or sandbox edge mode."""
     overrides = kwargs["overrides"]
     master_mode = kwargs["master_mode"]
+    edge_mode = kwargs["edge_mode"]
     function_master_addr = kwargs["function_master_addr"]
     function_proxy_merge_process_enable = kwargs["function_proxy_merge_process_enable"]
     enable_runtime_launcher = kwargs["enable_runtime_launcher"]
@@ -228,10 +236,28 @@ def start(ctx: click.Context, **kwargs) -> None:
     log_dir_prefix = kwargs["log_dir_prefix"]
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
-    mode = StartMode.MASTER if master_mode else StartMode.AGENT
+    if master_mode and edge_mode:
+        raise click.UsageError("--master and --edge are mutually exclusive")
+    if edge_mode and function_master_addr:
+        raise click.UsageError("--master_address is not supported in edge mode")
+    if edge_mode and (
+        function_proxy_merge_process_enable
+        or enable_runtime_launcher
+        or data_system_enable is not None
+    ):
+        raise click.UsageError(
+            "FunctionSystem and runtime options are not supported in edge mode"
+        )
+    mode = (
+        StartMode.EDGE
+        if edge_mode
+        else (StartMode.MASTER if master_mode else StartMode.AGENT)
+    )
     logger.info(f"Starting yr in {mode.value} mode")
     if function_master_addr:
-        logger.info(f"Discovering services from function_master at {function_master_addr}...")
+        logger.info(
+            f"Discovering services from function_master at {function_master_addr}..."
+        )
         try:
             overrides = discovery.resolve_overrides_from_function_master(
                 config_path=config_path,
@@ -242,9 +268,13 @@ def start(ctx: click.Context, **kwargs) -> None:
             )
             if overrides is None:
                 raise ValueError("service discovery returned empty config overrides")
-            logger.debug("Resolved %s config overrides from function_master", len(overrides))
+            logger.debug(
+                "Resolved %s config overrides from function_master", len(overrides)
+            )
         except Exception as e:
-            logger.error(f"Failed to get service discovery info from function_master: {e}")
+            logger.error(
+                f"Failed to get service discovery info from function_master: {e}"
+            )
             ctx.exit(1)
 
     effective_overrides = list(overrides)
@@ -418,6 +448,93 @@ def status(
     )
     ok = launcher.status()
     ctx.exit(0 if ok else 1)
+
+
+def _data_plane_client_options(function):
+    function = click.option(
+        "--tls-server-name",
+        envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
+        help="TLS server name expected from the Edge certificate.",
+    )(function)
+    function = click.option(
+        "--tls-ca",
+        type=click.Path(exists=True, dir_okay=False),
+        envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
+        help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
+    )(function)
+    function = click.option(
+        "--token",
+        envvar="YR_TOKEN",
+        help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
+    )(function)
+    return click.option(
+        "--edge",
+        envvar="YR_GATEWAY_ADDRESS",
+        required=True,
+        metavar="HOST:PORT",
+        help="Data Plane Edge address.",
+    )(function)
+
+
+@cli.command(name="connect", help="Open a Data Plane CONNECT stream on stdin/stdout.")
+@click.argument("instance_id")
+@click.argument("target_port", required=False, default=22, type=click.IntRange(1, 65535))
+@click.option(
+    "--access-kind",
+    type=click.Choice(["ssh", "tunnel", "port-forwarding"]),
+    default="ssh",
+    show_default=True,
+)
+@_data_plane_client_options
+def data_plane_connect(
+    instance_id: str,
+    target_port: int,
+    access_kind: str,
+    edge: str,
+    token: Optional[str],
+    tls_ca: Optional[str],
+    tls_server_name: Optional[str],
+) -> None:
+    """Adapt OpenSSH ProxyCommand or another stdio client to Edge CONNECT."""
+    from yr.cli.data_plane import exec_forward
+
+    exec_forward(
+        ["connect", edge, instance_id, str(target_port), access_kind],
+        token=token,
+        tls_ca=tls_ca,
+        tls_server_name=tls_server_name,
+    )
+
+
+@cli.command(name="port-forward", help="Forward a local TCP port to a sandbox port.")
+@click.argument("instance_id")
+@click.argument("target_port", type=click.IntRange(1, 65535))
+@click.option(
+    "--listen",
+    default="127.0.0.1:0",
+    show_default=True,
+    metavar="HOST:PORT",
+    help="Local address to listen on.",
+)
+@_data_plane_client_options
+def data_plane_port_forward(
+    instance_id: str,
+    target_port: int,
+    listen: str,
+    edge: str,
+    token: Optional[str],
+    tls_ca: Optional[str],
+    tls_server_name: Optional[str],
+) -> None:
+    """Expose a localhost listener for databases and other TCP applications."""
+    from yr.cli.data_plane import exec_forward
+
+    exec_forward(
+        ["port-forward", edge, instance_id, str(target_port), listen],
+        token=token,
+        tls_ca=tls_ca,
+        tls_server_name=tls_server_name,
+    )
 
 
 @cli.command(help="Stop system components")

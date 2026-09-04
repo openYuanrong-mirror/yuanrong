@@ -53,6 +53,7 @@ class TestCliMain(unittest.TestCase):
         fake_const.StartMode = types.SimpleNamespace(
             MASTER=types.SimpleNamespace(value="master"),
             AGENT=types.SimpleNamespace(value="agent"),
+            EDGE=types.SimpleNamespace(value="edge"),
         )
 
         fake_launcher = types.ModuleType("yr.cli.system_launcher")
@@ -183,6 +184,34 @@ class TestCliMain(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(main.FakeSystemLauncher.wait_for_shutdown_calls, 1)
 
+    def test_start_edge_uses_independent_mode(self):
+        main = self.load_cli_main_with_stubbed_deps()
+
+        result = CliRunner().invoke(main.cli, ["start", "--edge"], obj={})
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIs(
+            main.FakeSystemLauncher.calls[-1][0][2],
+            main.StartMode.EDGE,
+        )
+        main.fake_discovery.resolve_overrides_from_function_master.assert_not_called()
+
+    def test_start_rejects_conflicting_edge_options(self):
+        cases = (
+            ["--master", "--edge"],
+            ["--edge", "--master_address", "http://127.0.0.1:8080"],
+            ["--edge", "--enable-runtime-launcher"],
+            ["--edge", "--function-proxy-merge-process-enable"],
+            ["--edge", "--data-system-enable", "true"],
+        )
+        for args in cases:
+            with self.subTest(args=args):
+                main = self.load_cli_main_with_stubbed_deps()
+                result = CliRunner().invoke(main.cli, ["start", *args], obj={})
+
+                self.assertEqual(result.exit_code, 2, result.output)
+                self.assertEqual(main.FakeSystemLauncher.calls, [])
+
     def test_start_port_policy_options(self):
         cases = [
             ([], "RANDOM", 0),
@@ -263,6 +292,70 @@ class TestCliMain(unittest.TestCase):
                     main.FakeSystemLauncher.calls[-1][1]["overrides"],
                     expected_overrides,
                 )
+
+    def test_connect_executes_stdio_adapter(self):
+        main = self.load_cli_main_with_stubbed_deps()
+        fake_data_plane = types.ModuleType("yr.cli.data_plane")
+        fake_data_plane.exec_forward = mock.Mock()
+
+        with mock.patch.dict(sys.modules, {"yr.cli.data_plane": fake_data_plane}):
+            result = CliRunner().invoke(
+                main.cli,
+                [
+                    "connect",
+                    "instance-a",
+                    "2222",
+                    "--edge",
+                    "edge.internal:443",
+                    "--access-kind",
+                    "ssh",
+                    "--token",
+                    "token-a",
+                ],
+                obj={},
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        fake_data_plane.exec_forward.assert_called_once_with(
+            ["connect", "edge.internal:443", "instance-a", "2222", "ssh"],
+            token="token-a",
+            tls_ca=None,
+            tls_server_name=None,
+        )
+
+    def test_port_forward_executes_local_listener_adapter(self):
+        main = self.load_cli_main_with_stubbed_deps()
+        fake_data_plane = types.ModuleType("yr.cli.data_plane")
+        fake_data_plane.exec_forward = mock.Mock()
+
+        with mock.patch.dict(sys.modules, {"yr.cli.data_plane": fake_data_plane}):
+            result = CliRunner().invoke(
+                main.cli,
+                [
+                    "port-forward",
+                    "instance-a",
+                    "5432",
+                    "--edge",
+                    "edge.internal:8080",
+                    "--listen",
+                    "127.0.0.1:15432",
+                ],
+                obj={},
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        fake_data_plane.exec_forward.assert_called_once_with(
+            [
+                "port-forward",
+                "edge.internal:8080",
+                "instance-a",
+                "5432",
+                "127.0.0.1:15432",
+            ],
+            token=None,
+            tls_ca=None,
+            tls_server_name=None,
+        )
 
     def test_named_data_system_enable_option_wins_over_set_override(self):
         main = self.load_cli_main_with_stubbed_deps()

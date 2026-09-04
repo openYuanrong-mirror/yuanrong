@@ -63,7 +63,29 @@ def resolve_overrides_from_function_master(
         function_system_client_cert=function_system_client_cert,
         function_system_client_key=function_system_client_key,
     )
-    return overrides + _resolve_service_discovery_overrides(discovery_opts)
+    discovered = _resolve_service_discovery_overrides(discovery_opts)
+    return _merge_discovered_overrides(overrides, discovered)
+
+
+def _merge_discovered_overrides(
+    explicit: tuple[str, ...], discovered: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Add discovery defaults without replacing explicit command-line settings.
+
+    ConfigResolver parses all ``-s`` values as one TOML document, so emitting
+    the same dotted key twice is both ambiguous and rejected by the parser.
+    Service discovery supplies defaults; an explicit caller setting must win.
+    """
+    explicit_keys = {
+        override.partition("=")[0].strip()
+        for override in explicit
+        if override.partition("=")[1]
+    }
+    return explicit + tuple(
+        override
+        for override in discovered
+        if override.partition("=")[0].strip() not in explicit_keys
+    )
 
 
 def _resolve_tls_path(path_value: Optional[str], base_path: Optional[str]) -> Optional[Path]:

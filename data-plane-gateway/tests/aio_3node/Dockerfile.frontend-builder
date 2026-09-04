@@ -1,0 +1,17 @@
+FROM golang:1.24.1-bookworm AS go-toolchain
+
+FROM yr-local-aio:latest AS aio-runtime
+
+FROM yr-data-plane-gateway-rust-builder:1.88-arm64
+
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+COPY --from=aio-runtime /opt/uv/python/cpython-3.9.18-linux-aarch64-gnu/lib/python3.9/site-packages/yr/runtime/service/go/bin /opt/aio-go-bin
+ENV PATH=/usr/local/go/bin:/go/bin:${PATH}
+ENV GOBIN=/usr/local/bin
+ENV GOPATH=/go
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GONOSUMDB=*
+ENV GOWORK=off
+
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6 \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1

@@ -1,0 +1,260 @@
+# Rust Data Plane Gateway
+
+This crate contains the reusable Edge-to-Node data plane gateway. Its core
+CONNECT protocol identifies a workload and target endpoint; sandbox routing is
+the first adapter, not part of the generic relay contract:
+
+* `yr-node-proxy` accepts HTTP/2 `CONNECT` and relays one stream to one
+  admitted `targetIP:targetPort` TCP connection.
+* `DataPlaneL4Connector` is the Edge-side connector used by HTTP, WebSocket,
+  SSH and port-forwarding adapters.
+* `EdgeRouteResolver` consumes the shared `RouteStore`, which lists and watches
+  `/yr/route/business/yrk/{instanceID}` and atomically replaces its in-memory
+  route view after etcd compaction. The production HTTP listener calls this
+  resolver before opening a `DataPlaneL4Connector` stream.
+
+Build the Edge watcher binary with `--features etcd-watch`; the default build
+compiles the node proxy, optional UDS activity client, and protocol/L4
+primitives.
+
+The gateway is a standalone Cargo project:
+
+```text
+make data-plane-gateway
+
+# Host-native development build:
+make data-plane-gateway-dev
+
+# Equivalent host-native Cargo command:
+cargo build --release --locked --all-features --bins
+```
+
+Run its tests from the repository root with `make data-plane-gateway-ut`.
+
+The default Make target produces static Linux executables and stages them under
+`output/openyuanrong/data_plane/bin`, then builds the platform-specific
+`openyuanrong_data_plane` split wheel. Installing that wheel places the files
+under `yr/data_plane/bin`, next to the other deployed wheel payloads and
+intentionally outside `yr.runtime`. The components remain disabled unless
+`values.node_proxy.enabled=true` is set for a node session or
+`yr start --edge` is used on an Edge host.
+
+The Buildkite product pipeline builds static musl binaries natively on amd64
+and arm64, rejects ELF files with an interpreter or shared-library dependency,
+uploads `yr-data-plane-gateway-<arch>.tar.gz` with `SHA256SUMS`, and
+requires the matching artifact before building the controlplane/node images.
+The archive carries the corresponding `py3-none-manylinux` data-plane wheel;
+the image installs the wheel instead of copying loose executables.
+Its K8S smoke overlay co-locates Edge Frontend with the existing Frontend and
+uses the Edge Frontend Service as the public entry. A deployment-configured list
+of exact and boundary-aware prefix control-plane routes is forwarded over
+loopback to Frontend; `/direct`,
+`/tunnel`, HTTP port traffic and standard HTTP CONNECT terminate at Edge
+Frontend itself. Node Proxy is enabled through the existing node `yr start` session. Generic chart
+values remain disabled until deployment ingress TLS and CIDR policy are configured.
+
+The node never resolves DNS, accepts a user JWT, or chooses an arbitrary target
+address. The target IP must be present in
+`YR_DATA_PLANE_ALLOWED_TARGET_CIDRS`; for the current sandbox adapter this is
+the node's sandbox bridge CIDR. The Edge chooses the TCP port. Edge-to-Node
+defaults to plaintext H2/TCP inside a network-isolated trust boundary; optional
+mTLS, Node peer CIDR admission, and Edge client CIDR admission are implemented
+in-process. Production configuration fails closed when required CIDR or mTLS
+settings are absent.
+
+Example development launch:
+
+```text
+YR_DATA_PLANE_NODE_PROXY_BIND=0.0.0.0:8443 \
+YR_DATA_PLANE_NODE_PROXY_ADVERTISE_ADDRESS=node-a.internal:8443 \
+YR_DATA_PLANE_ALLOWED_TARGET_CIDRS=10.88.0.0/16 \
+YR_DATA_PLANE_ALLOWED_EDGE_CIDRS=127.0.0.1/32 \
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE=network \
+cargo run --bin yr-node-proxy
+```
+
+Edge-to-Node has one shared deployment mode. `network` (the default) uses
+plaintext H2/TCP and relies on a mandatory Edge-only network boundary; `mtls`
+adds mutually authenticated TLS. Untrusted or cross-cloud networks must use
+mTLS.
+
+The remaining platform ACL TODO is to install an immutable sandbox-egress
+policy that rejects protected internal CIDRs, with only platform-managed DNS
+and runtime-control exceptions. Until that is implemented, deployments must
+provide equivalent sandbox-veth/host-firewall isolation before enabling
+`network` mode. User NetworkPolicy must not be able to weaken that baseline.
+`YR_DATA_PLANE_NODE_PROXY_ALLOW_ANY_EDGE=1` /
+`YR_DATA_PLANE_EDGE_FRONTEND_ALLOW_ANY_CLIENT=1` remain development-only ACL escapes.
+Edge has separate TLS and plaintext listeners. Direct is accepted only on the
+TLS listener and always requires a user token. Tunnel and port-forwarding/SSH
+default to anonymous access on either listener. A `portForwardRoutes` entry can
+require a token for one target port; that port is then rejected on the plaintext
+listener and authenticated on the TLS listener. Plaintext requests carrying
+`Authorization`, `X-Auth`, or a token query parameter are rejected so credentials
+cannot accidentally cross the clear-text entrypoint.
+Frontend is not a data-plane hop. Edge removes credentials before opening Node
+streams, so user JWTs never reach Node or the workload.
+
+Ordinary Direct HTTP requests use a bounded keep-alive pool keyed by the full
+endpoint identity `(node, instance, workload, sandbox IP, port)`.
+Consequently, a connection can never move between sandboxes or survive an
+route change. WebSocket/Upgrade and raw CONNECT traffic remain
+one logical H2 stream per client connection. Route changes and explicit Node
+Proxy retirement,
+and drain immediately invalidate matching idle HTTP connections.
+
+The pool defaults to 64 concurrent connections per endpoint, 64 idle
+connections per endpoint, 1024 idle connections globally, a 3 second acquire
+timeout, and a 5 second idle lifetime. An idle pooled HTTP connection is still
+an active Node CONNECT stream, so the short lifetime deliberately bounds how
+long pooling can defer sandbox idle reclamation. These settings are tunable:
+
+```text
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_CONNECTIONS_PER_ENDPOINT=64
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS=1024
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS_PER_ENDPOINT=64
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_IDLE_TIMEOUT_SEC=5
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_ACQUIRE_TIMEOUT_MS=3000
+```
+
+Pool admission timeout returns HTTP 429. Metrics expose current idle
+connections plus opened, reused, discarded, and acquire-timeout totals. The L4
+connector presents the H2 CONNECT stream directly as `AsyncRead + AsyncWrite`;
+there is no intermediate `DuplexStream` or per-stream byte-copy relay task.
+
+The data-plane processes raise their inherited soft `RLIMIT_NOFILE` to 65,536
+by default without exceeding the hard limit or reducing a higher inherited
+value. Override that target with `YR_DATA_PLANE_NOFILE_SOFT_LIMIT`; Node stream
+admission is calculated only after the limit is applied. TCP listeners retry
+transient accept failures with bounded exponential backoff, so an FD pressure
+event does not permanently remove an ingress or health listener.
+
+Both Rust processes can write bounded service logs. Edge additionally writes a
+separate access/audit file containing request ID, peer, ingress security,
+access kind, instance/target port, status and duration. CONNECT completion
+records include bytes in both directions and the close outcome. URI query
+strings and credentials are never logged.
+
+```text
+YR_DATA_PLANE_LOG_DIR=<directory>             # enables rolling files
+YR_DATA_PLANE_LOG_MAX_SIZE_MB=40              # size per active/rotated file
+YR_DATA_PLANE_LOG_MAX_FILES=10                # retained rotated files
+YR_DATA_PLANE_LOG_QUEUE_CAPACITY=32768         # bounded records per file writer
+YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS=200        # background flush interval
+YR_DATA_PLANE_LOG_STDOUT=true                 # false by default in process mode
+YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED=true
+```
+
+The resulting files are `edge-frontend.log`, `edge-frontend-access.log`, and
+`node-proxy.log`, with `.1.gz` through `.N.gz` suffixes for older generations.
+Gzip compression is enabled by default and is not a deployment option. Each
+tracing event is formatted into one record and offered to a bounded queue
+without waiting for disk I/O. A dedicated writer thread performs rotation and
+flushes to the operating-system page cache every 200 ms by default; it does not
+`fsync` each record. Queue overflow drops the new record and emits a rate-limited
+warning to stderr instead of stalling the data plane. Rotation hands the closed
+file to a separate compressor thread, so gzip cannot pause queue consumption.
+Compression failure retains the uncompressed staging file and reports an error
+rather than deleting log data. Edge access/audit events go only to the dedicated
+access file when that sink is enabled; disabling it drops those events instead
+of redirecting them into the service file.
+
+Edge Frontend also replaces Traefik for the existing public control-plane
+surface. Only a fixed set of paths such as `/api/sandbox`, `/functions`,
+`/serverless`, `/terminal`, `/invocations`, and `/global-scheduler` is proxied to the configured
+`YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS`. These paths are accepted
+only on the TLS listener. Their authentication remains owned by Frontend and
+the original Authorization headers are preserved on that hop.
+
+The Edge directly exposes HTTP/direct and standard HTTP CONNECT ingress; it is
+not placed behind Traefik. Native clients such as SSH use the included local adapter, which opens
+CONNECT and presents a local TCP socket:
+
+```text
+yr-data-plane-forward port-forward \
+  edge.example.com:8080 <instance-id> 22 127.0.0.1:10022
+ssh -p 10022 user@127.0.0.1
+```
+
+Client-to-Edge TLS is selected by port: the TLS listener defaults to `8443` and
+the plaintext tunnel/port-forwarding listener defaults to `8080`. Edge
+terminates TLS itself; configure the adapter with `YR_DATA_PLANE_FORWARD_TLS_CA` and optionally
+`YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME`. Direct TLS is mandatory. The
+canonical internal header spelling follows Frontend style:
+`X-Yr-Instance-Id`, `X-Yr-Workload-Id`, `X-Yr-Target-Ip`,
+`X-Yr-Endpoint-Generation`, `X-Yr-Target-Port`, and `X-Request-Id`. HTTP field
+names are case-insensitive; HTTP/2 requires lowercase names on the wire, so the
+Rust h2 implementation encodes the same names as `x-yr-*` / `x-request-id`.
+
+Set `YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR` on both processes to a dedicated
+node-local directory to enable complete active-stream snapshots to FunctionSystem's
+`DataPlaneGatewayActivityService`. The default heartbeat interval is 30 seconds
+and can be changed with `YR_DATA_PLANE_NODE_PROXY_ACTIVITY_INTERVAL_SEC`. The socket
+is `<dir>/fs.sock`; the activity RPC does not share the POSIX server.
+Stream state changes trigger a batch after a 10 ms coalescing window. When
+FunctionSystem is starting or unavailable, reconnect attempts are limited to
+once per second while the latest counts remain cached locally.
+
+FunctionSystem expires a missing heartbeat after 90 seconds. A reporting
+failure never stops the gateway or its data plane: the activity tracker keeps
+the latest complete batch in memory and the publisher retries the UDS until
+it can deliver that snapshot. While all leases are expired, FunctionSystem
+pauses idle reclamation rather than interpreting the missing report as zero.
+
+The source layout follows the process and responsibility boundary:
+
+```text
+src/bin/       Node, Edge, and local port-forward process entrypoints
+src/common/    CONNECT metadata and RouteInfo model
+src/node/      H2 admission, TCP relay, activity tracking/client
+src/edge/      route store/watcher, resolver, H2 and backend HTTP pools,
+               direct H2 L4 connector, HTTP/WebSocket and CONNECT serving
+```
+
+Run the complete local protocol matrix with:
+
+```text
+cargo test --locked --all-features --test mock_e2e
+```
+
+It starts real in-process Node and Edge listeners plus mock sandbox HTTP and TCP
+services and covers readiness, tenant admission, direct HTTP, WebSocket,
+CONNECT tunnel, port-forwarding, SSH/raw TCP, route retirement, status errors,
+drain, H2 reuse, and activity-count convergence.
+
+For a process-level check, including a real etcd list/watch and the three
+release binaries, run `make data-plane-gateway-mock-e2e`. It uses a temporary
+Docker etcd container and a local mock sandbox service, then cleans them up.
+
+The reusable Lima topology has a separate project harness:
+
+```text
+LIMA_HOME=~/.lima-yr-local-3vm \
+LIMACTL=/path/to/limactl \
+make data-plane-gateway-local-3vm-e2e
+```
+
+It deploys one Edge Frontend on `yr-master`, one Node Proxy on each worker,
+and sandbox-like services behind worker-local netns/veth sandbox IPs. It covers
+TLS direct/auth, plaintext standard CONNECT port forwarding, static control
+proxying, two-node routing, a 65-second byte-idle stream, relay byte metrics,
+latency/throughput, secret-free access/audit records, and size rotation. The
+VM IPs are rediscovered on every run and all processes/netns are removed before
+the reusable VMs are stopped. Evidence is retained under
+`.yr-cache/data-plane-gateway-3vm/<run-id>/`.
+
+Run the live Python sandbox-sdk matrix against a master plus two worker AIO
+cluster with:
+
+```text
+YR_GATEWAY_AIO_BASE=<local-aio-image> \
+  make data-plane-gateway-sandbox-sdk-aio-e2e
+```
+
+This builds the current Linux arm64 Gateway and RRT binaries, launches an
+isolated three-node cluster, and verifies lifecycle, commands, persistent
+shell, PTY, filesystem operations, small and resumable file copy, directory
+copy, reverse tunnel, and user port forwarding. Machine-readable results,
+process logs, and Edge/Node metrics are retained below
+`.yr-cache/data-plane-gateway-aio/<run-id>/`; containers and the test network
+are removed after both success and failure.

@@ -7,3 +7,19 @@ frontend:
   service:
     type: ClusterIP
     annotations: {}
+
+dataPlane:
+  enabled: true
+  edge:
+    enabled: true
+    validateIam: false
+    allowAnyClient: true
+    tls:
+      secretName: yr-edge-frontend-tls
+  node:
+    allowAnyEdge: true
+  edgeNode:
+    securityMode: network
+
+traefik:
+  enabled: false

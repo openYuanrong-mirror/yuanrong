@@ -15,6 +15,7 @@
 
 import os
 import platform
+import re
 
 
 MACOS_ARM64_PLATFORM_TAG = "macosx_11_0_arm64"
@@ -39,6 +40,11 @@ def _normalize_macos_target_components(deployment_target):
 
 
 def get_wheel_platform_tag():
+    override = os.getenv("YR_WHEEL_PLATFORM_TAG", "").strip()
+    if override:
+        if not re.fullmatch(r"[A-Za-z0-9_.]+", override):
+            raise ValueError(f"Invalid YR_WHEEL_PLATFORM_TAG: {override}")
+        return override
     if not _is_macos_arm64():
         return None
     deployment_target = get_macos_deployment_target()

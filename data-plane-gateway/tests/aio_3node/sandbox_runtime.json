@@ -1,0 +1,25 @@
+{
+  "name": "0-defaultservice-py39",
+  "runtime": "python3.9",
+  "kind": "yrlib",
+  "cpu": 600,
+  "memory": 512,
+  "timeout": 900,
+  "storageType": "local",
+  "codePath": "/var/task",
+  "hookHandler": {
+    "call": "yrlib_handler.call",
+    "checkpoint": "yrlib_handler.checkpoint",
+    "init": "yrlib_handler.init",
+    "recover": "yrlib_handler.recover",
+    "shutdown": "yrlib_handler.shutdown",
+    "signal": "yrlib_handler.signal"
+  },
+  "rootfs": {
+    "runtime": "runc",
+    "type": "image",
+    "imageurl": "aio-yr-runtime:latest",
+    "readonly": false,
+    "mountpoint": "/var/task/code"
+  }
+}

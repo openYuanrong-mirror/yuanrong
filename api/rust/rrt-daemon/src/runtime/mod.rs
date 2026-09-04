@@ -1366,6 +1366,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let instance_id = args.instance_id.clone();
     activity::init();
     activity::init_reporter(instance_id.clone(), tx.clone());
+    let command_activity_heartbeat = std::env::var("RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(10);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(command_activity_heartbeat));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The reconnect path sends the initial snapshot. Skip the immediate
+        // first tick so normal startup does not emit a duplicate.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            activity::report_command_snapshot();
+        }
+    });
     rrt_info!("[rrt-runtime] instance_id={}", instance_id);
 
     // Reserve the direct HTTP listener and, when configured, both tunnel
@@ -1515,6 +1531,22 @@ async fn run_message_stream_loop(
                 "[rrt-runtime] MessageStream opened but state sync failed seq={} state={} reconnecting",
                 reconnect_seq,
                 state
+            );
+            continue;
+        }
+        let command_state = format!("command:{}", activity::active_command_count());
+        if let Err(e) = stream_tx
+            .send(activity_report_msg(
+                &connection_args.instance_id,
+                command_state.as_bytes().to_vec(),
+            ))
+            .await
+        {
+            drop(e);
+            rrt_warn!(
+                "[rrt-runtime] MessageStream opened but command activity sync failed seq={} state={} reconnecting",
+                reconnect_seq,
+                command_state
             );
             continue;
         }
@@ -1736,7 +1768,7 @@ mod checkpoint_prepare_tests {
             return;
         }
 
-        let active = activity::enter(activity::ActivitySource::Process);
+        let active = activity::enter(activity::ActivitySource::RuntimeRpc);
         let (tx, mut rx) = mpsc::channel(2);
 
         assert!(

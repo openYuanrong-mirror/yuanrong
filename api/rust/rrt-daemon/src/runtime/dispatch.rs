@@ -4,11 +4,13 @@ use super::codec;
 use super::{call_result_msg, Args};
 use crate::posix::runtime_rpc::StreamingMessage;
 use crate::posix::runtime_service::CallRequest;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const REQUEST_DEDUP_TTL: Duration = Duration::from_secs(30 * 60);
+const REQUEST_DEDUP_MAX_ENTRIES: usize = 65_536;
+const REQUEST_DEDUP_EVICTION_BATCH: usize = 64;
 
 struct DedupSlot {
     created: Instant,
@@ -16,25 +18,77 @@ struct DedupSlot {
     ready: Condvar,
 }
 
-fn dedup_cache() -> &'static Mutex<HashMap<String, Arc<DedupSlot>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Arc<DedupSlot>>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Default)]
+struct DedupCache {
+    slots: HashMap<String, Arc<DedupSlot>>,
+    order: VecDeque<String>,
+}
+
+impl DedupCache {
+    fn evict_incrementally(&mut self, now: Instant, max_entries: usize) {
+        let scan_count = if self.slots.len() >= max_entries {
+            self.order.len().min(REQUEST_DEDUP_EVICTION_BATCH)
+        } else {
+            self.order.len().min(1)
+        };
+        for _ in 0..scan_count {
+            let request_id = self.order.pop_front().expect("dedup order is non-empty");
+            let Some(slot) = self.slots.get(&request_id) else {
+                continue;
+            };
+            let expired = now.duration_since(slot.created) > REQUEST_DEDUP_TTL;
+            let completed_over_limit =
+                self.slots.len() >= max_entries && slot.response.lock().unwrap().is_some();
+            if expired || completed_over_limit {
+                self.slots.remove(&request_id);
+                if self.slots.len() < max_entries {
+                    break;
+                }
+            } else {
+                // Rotate live entries so one long-running request cannot block
+                // capacity eviction of completed requests behind it.
+                self.order.push_back(request_id);
+            }
+        }
+    }
+
+    fn reserve(
+        &mut self,
+        request_id: &str,
+        now: Instant,
+        max_entries: usize,
+    ) -> (Arc<DedupSlot>, bool) {
+        let max_entries = max_entries.max(1);
+        if let Some(slot) = self.slots.get(request_id) {
+            if now.duration_since(slot.created) <= REQUEST_DEDUP_TTL {
+                return (slot.clone(), false);
+            }
+            // Remove the expired key before general cleanup. Its queue entry
+            // is harmless and will be discarded when the cursor reaches it.
+            self.slots.remove(request_id);
+        }
+
+        self.evict_incrementally(now, max_entries);
+        let slot = Arc::new(DedupSlot {
+            created: now,
+            response: Mutex::new(None),
+            ready: Condvar::new(),
+        });
+        self.slots.insert(request_id.to_string(), slot.clone());
+        self.order.push_back(request_id.to_string());
+        (slot, true)
+    }
+}
+
+fn dedup_cache() -> &'static Mutex<DedupCache> {
+    static CACHE: OnceLock<Mutex<DedupCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(DedupCache::default()))
 }
 
 fn reserve_request_id(request_id: &str) -> (Arc<DedupSlot>, bool) {
     let now = Instant::now();
     let mut cache = dedup_cache().lock().unwrap();
-    cache.retain(|_, slot| now.duration_since(slot.created) <= REQUEST_DEDUP_TTL);
-    if let Some(slot) = cache.get(request_id) {
-        return (slot.clone(), false);
-    }
-    let slot = Arc::new(DedupSlot {
-        created: now,
-        response: Mutex::new(None),
-        ready: Condvar::new(),
-    });
-    cache.insert(request_id.to_string(), slot.clone());
-    (slot, true)
+    cache.reserve(request_id, now, REQUEST_DEDUP_MAX_ENTRIES)
 }
 
 fn wait_dedup_response(slot: Arc<DedupSlot>) -> Result<rmpv::Value, String> {
@@ -75,10 +129,15 @@ pub(crate) fn access_command_summary(
             codec::kw_str(kw, "cmd").or_else(|| codec::kw_str(kw, "command"))
         }
         "bash_submit" => codec::kw_str(kw, "command").or_else(|| codec::kw_str(kw, "cmd")),
-        "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_send_stdin" => kw
-            .get("pid")
-            .and_then(|v| v.as_i64())
-            .map(|pid| format!("pid={pid}")),
+        "cmd_get" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_send_stdin" => kw
+            .get("command_id")
+            .and_then(|v| v.as_str())
+            .map(|id| format!("command_id={}", sanitize_log_field(id)))
+            .or_else(|| {
+                kw.get("pid")
+                    .and_then(|v| v.as_i64())
+                    .map(|pid| format!("pid={pid}"))
+            }),
         _ => None,
     };
     match cmd {
@@ -371,12 +430,17 @@ fn value_map_to_kwargs(
 
 pub(crate) fn normalize_sandbox_action(action: &str) -> Option<&'static str> {
     match action {
+        "ping" | "noop" => Some("ping"),
         "cmd_run" | "exec" | "process.exec" | "process.run" | "cmd.run" => Some("cmd_run"),
         "cmd_start" | "process.start" | "cmd.start" => Some("cmd_start"),
+        "cmd_get" | "process.get" | "cmd.get" => Some("cmd_get"),
         "cmd_poll" | "process.poll" | "cmd.poll" => Some("cmd_poll"),
         "cmd_wait" | "process.wait" | "cmd.wait" => Some("cmd_wait"),
         "cmd_kill" | "process.kill" | "cmd.kill" => Some("cmd_kill"),
         "cmd_list" | "process.list" | "cmd.list" => Some("cmd_list"),
+        "cmd_capabilities" | "process.capabilities" | "cmd.capabilities" => {
+            Some("cmd_capabilities")
+        }
         "cmd_send_stdin" | "process.stdin" | "process.send_stdin" | "cmd.send_stdin" => {
             Some("cmd_send_stdin")
         }
@@ -420,6 +484,7 @@ pub(crate) fn dispatch_runtime_action_with_trace(
     trace_id: &str,
 ) -> Option<rmpv::Value> {
     match method {
+        "ping" => Some(codec::map_value(vec![("status", rmpv::Value::from("ok"))])),
         "cmd_run" => {
             let cmd = codec::kw_str(kw, "cmd")
                 .or_else(|| codec::kw_str(kw, "command"))
@@ -447,16 +512,17 @@ pub(crate) fn dispatch_runtime_action_with_trace(
             "fs_make_dir" => super::fs::fs_make_dir(kw),
             _ => super::fs::fs_get_info(kw),
         }),
-        "cmd_start" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list" | "cmd_send_stdin" => {
-            Some(match method {
-                "cmd_start" => super::cmd::cmd_start(kw),
-                "cmd_poll" => super::cmd::cmd_poll(kw),
-                "cmd_wait" => super::cmd::cmd_wait(kw),
-                "cmd_kill" => super::cmd::cmd_kill(kw),
-                "cmd_list" => super::cmd::cmd_list(kw),
-                _ => super::cmd::cmd_send_stdin(kw),
-            })
-        }
+        "cmd_start" | "cmd_get" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list"
+        | "cmd_capabilities" | "cmd_send_stdin" => Some(match method {
+            "cmd_start" => super::cmd::cmd_start(kw),
+            "cmd_get" => super::cmd::cmd_get(kw),
+            "cmd_poll" => super::cmd::cmd_poll(kw),
+            "cmd_wait" => super::cmd::cmd_wait(kw),
+            "cmd_kill" => super::cmd::cmd_kill(kw),
+            "cmd_list" => super::cmd::cmd_list(kw),
+            "cmd_capabilities" => super::cmd::cmd_capabilities(kw),
+            _ => super::cmd::cmd_send_stdin(kw),
+        }),
         "bash_init" | "bash_submit" | "bash_poll" | "bash_destroy" => Some(match method {
             "bash_init" => super::bash::bash_init(kw),
             "bash_submit" => super::bash::bash_submit(kw),
@@ -661,7 +727,8 @@ impl Ctx {
                     }
                 }
             }
-            "cmd_start" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list" | "cmd_send_stdin" => {
+            "cmd_start" | "cmd_get" | "cmd_poll" | "cmd_wait" | "cmd_kill" | "cmd_list"
+            | "cmd_capabilities" | "cmd_send_stdin" => {
                 let trace_id = access_trace_id(&call.trace_id, &call.request_id);
                 let started = Instant::now();
                 let command = access_command_summary(method.as_str(), &kw);
@@ -724,10 +791,105 @@ mod tests {
 
     #[test]
     fn normalizes_public_sandbox_actions_to_rrt_methods() {
+        assert_eq!(normalize_sandbox_action("ping"), Some("ping"));
+        assert_eq!(normalize_sandbox_action("noop"), Some("ping"));
         assert_eq!(normalize_sandbox_action("process.exec"), Some("cmd_run"));
         assert_eq!(normalize_sandbox_action("file.read"), Some("fs_read"));
         assert_eq!(normalize_sandbox_action("shell.run"), Some("bash_submit"));
         assert_eq!(normalize_sandbox_action("unknown"), None);
+    }
+
+    #[test]
+    fn dispatches_public_ping_and_noop_actions() {
+        let kw = BTreeMap::new();
+        for action in ["ping", "noop"] {
+            let result = execute_sandbox_action(action, &kw, "trace-test")
+                .expect("lightweight action should dispatch through the shared path");
+            assert_eq!(result_field(&result, "status").as_str(), Some("ok"));
+        }
+    }
+
+    #[test]
+    fn dedup_cache_reuses_live_slots_and_expires_old_slots() {
+        let now = Instant::now();
+        let mut cache = DedupCache::default();
+        let (first, owner) = cache.reserve("request-a", now, 4);
+        assert!(owner);
+        complete_dedup_response(&first, Ok(rmpv::Value::from("first")));
+
+        let (duplicate, owner) = cache.reserve("request-a", now + Duration::from_secs(1), 4);
+        assert!(!owner);
+        assert!(Arc::ptr_eq(&first, &duplicate));
+
+        cache.reserve(
+            "request-b",
+            now + REQUEST_DEDUP_TTL + Duration::from_secs(1),
+            4,
+        );
+        assert!(!cache.slots.contains_key("request-a"));
+        let (_, owner) = cache.reserve(
+            "request-a",
+            now + REQUEST_DEDUP_TTL + Duration::from_secs(2),
+            4,
+        );
+        assert!(owner);
+    }
+
+    #[test]
+    fn dedup_cache_evicts_oldest_completed_slot_at_capacity() {
+        let now = Instant::now();
+        let mut cache = DedupCache::default();
+        let (first, _) = cache.reserve("request-a", now, 2);
+        complete_dedup_response(&first, Ok(rmpv::Value::from("first")));
+        let (second, _) = cache.reserve("request-b", now + Duration::from_secs(1), 2);
+        complete_dedup_response(&second, Ok(rmpv::Value::from("second")));
+
+        cache.reserve("request-c", now + Duration::from_secs(2), 2);
+        assert_eq!(cache.slots.len(), 2);
+        assert!(!cache.slots.contains_key("request-a"));
+        assert!(cache.slots.contains_key("request-b"));
+        assert!(cache.slots.contains_key("request-c"));
+    }
+
+    #[test]
+    fn dedup_cache_preserves_a_duplicate_at_capacity() {
+        let now = Instant::now();
+        let mut cache = DedupCache::default();
+        let (first, _) = cache.reserve("request-a", now, 1);
+        complete_dedup_response(&first, Ok(rmpv::Value::from("first")));
+
+        let (duplicate, owner) = cache.reserve("request-a", now + Duration::from_secs(1), 1);
+        assert!(!owner);
+        assert!(Arc::ptr_eq(&first, &duplicate));
+        assert_eq!(cache.slots.len(), 1);
+    }
+
+    #[test]
+    fn dedup_cache_never_evicts_an_in_flight_slot_for_capacity() {
+        let now = Instant::now();
+        let mut cache = DedupCache::default();
+        let (in_flight, _) = cache.reserve("request-a", now, 1);
+
+        cache.reserve("request-b", now + Duration::from_secs(1), 1);
+        let (duplicate, owner) = cache.reserve("request-a", now + Duration::from_secs(2), 1);
+        assert!(!owner);
+        assert!(Arc::ptr_eq(&in_flight, &duplicate));
+        assert_eq!(cache.slots.len(), 2);
+    }
+
+    #[test]
+    fn dedup_cache_evicts_completed_slots_behind_an_in_flight_slot() {
+        let now = Instant::now();
+        let mut cache = DedupCache::default();
+        cache.reserve("request-a", now, 2);
+        let (completed, _) = cache.reserve("request-b", now + Duration::from_secs(1), 2);
+        complete_dedup_response(&completed, Ok(rmpv::Value::from("done")));
+
+        cache.reserve("request-c", now + Duration::from_secs(2), 2);
+        assert_eq!(cache.slots.len(), 2);
+        assert!(cache.slots.contains_key("request-a"));
+        assert!(!cache.slots.contains_key("request-b"));
+        assert!(cache.slots.contains_key("request-c"));
     }
 
     #[test]

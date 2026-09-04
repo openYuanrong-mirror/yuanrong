@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 
+const RRT_PROMPT: &str = "__RRT_PROMPT__ ";
+
 struct Session {
     writer: Box<dyn Write + Send>,
     output: Arc<Mutex<String>>,
@@ -42,6 +44,21 @@ pub fn bash_init(kw: &BTreeMap<String, Value>) -> Value {
     };
     let mut cmd = portable_pty::CommandBuilder::new(shell);
     super::child_env::apply_pty(&mut cmd);
+    // A deterministic reserved prompt lets clients remove terminal echo
+    // without accidentally deleting command output that did not end in a
+    // newline (for example `printf value`).
+    cmd.env("PS1", RRT_PROMPT);
+    cmd.env("PS2", RRT_PROMPT);
+    // An interactive bash normally reads ~/.bashrc after importing the
+    // environment.  A user or image-level bashrc can therefore replace PS1
+    // and make the PTY framing ambiguous.  RRT sessions are an API transport,
+    // not a login shell: keep startup deterministic and let callers apply
+    // their desired cwd/env through shell.run.
+    if shell.rsplit('/').next() == Some("bash") {
+        cmd.arg("--noprofile");
+        cmd.arg("--norc");
+        cmd.arg("-i");
+    }
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => return map_value(vec![("error", Value::from(format!("spawn failed: {e}")))]),
@@ -150,4 +167,74 @@ pub fn bash_destroy(kw: &BTreeMap<String, Value>) -> Value {
         let _ = session.child.kill();
     }
     map_value(vec![("error", nil())])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn args(values: &[(&str, Value)]) -> BTreeMap<String, Value> {
+        values
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), value.clone()))
+            .collect()
+    }
+
+    fn field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+        entries
+            .iter()
+            .find_map(|(name, value)| (name.as_str() == Some(key)).then_some(value))
+    }
+
+    fn poll_until_done(session_id: &str) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let result = bash_poll(&args(&[
+                ("session_id", Value::from(session_id)),
+                ("wait_timeout", Value::from(1)),
+            ]));
+            if field(&result, "status").and_then(Value::as_str) == Some("done") {
+                return result;
+            }
+            assert!(Instant::now() < deadline, "shell command did not complete");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn deterministic_prompt_preserves_output_without_trailing_newline() {
+        let session_id = format!("prompt-test-{}", std::process::id());
+        let init = bash_init(&args(&[
+            ("session_id", Value::from(session_id.as_str())),
+            ("shell", Value::from("/bin/bash")),
+        ]));
+        assert_eq!(field(&init, "error"), Some(&Value::Nil));
+
+        let export = bash_submit(&args(&[
+            ("session_id", Value::from(session_id.as_str())),
+            ("command", Value::from("export SDK_E2E=stateful")),
+        ]));
+        assert_eq!(field(&export, "error"), Some(&Value::Nil));
+        let _ = poll_until_done(&session_id);
+
+        let submit = bash_submit(&args(&[
+            ("session_id", Value::from(session_id.as_str())),
+            ("command", Value::from("printf $SDK_E2E")),
+        ]));
+        assert_eq!(field(&submit, "error"), Some(&Value::Nil));
+        let result = poll_until_done(&session_id);
+        let stdout = field(&result, "stdout")
+            .and_then(Value::as_str)
+            .expect("stdout");
+        assert!(
+            stdout.contains("stateful__RRT_PROMPT__ echo __RRT_DONE_$?__"),
+            "unexpected shell framing: {stdout:?}"
+        );
+
+        let _ = bash_destroy(&args(&[("session_id", Value::from(session_id.as_str()))]));
+    }
 }

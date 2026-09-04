@@ -1,0 +1,6 @@
+*
+
+!data-plane-gateway/
+!data-plane-gateway/target/
+!data-plane-gateway/target/linux-aarch64-release/
+!data-plane-gateway/target/linux-aarch64-release/rrt-runtime

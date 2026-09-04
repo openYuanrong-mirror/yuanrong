@@ -15,8 +15,6 @@ CHART_DIR="${ROOT_DIR}/deploy/sandbox/k8s/charts/yr-k8s"
 VALUES_FILE="${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.prod.yaml"
 REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/openyuanrong}"
 REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-${REGISTRY_REPO%%/*}}"
-TRAEFIK_IMAGE_REGISTRY="${YR_K8S_TRAEFIK_IMAGE_REGISTRY:-${REGISTRY_REPO}}"
-TRAEFIK_IMAGE_TAG="${YR_K8S_TRAEFIK_IMAGE_TAG:-v2.11.14}"
 COMMIT_SHA="${BUILDKITE_COMMIT:-$(git rev-parse HEAD)}"
 SHORT_SHA="${COMMIT_SHA:0:12}"
 BUILD_NUMBER="${BUILDKITE_BUILD_NUMBER:-0}"
@@ -32,7 +30,10 @@ APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313 build-sdk-amd64-cp314}"
 LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313 build-sdk-arm64-cp314}"
-MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313 build-sdk-macos-arm64-cp314}"
+# An explicitly empty value means the current build disabled macOS SDK jobs.
+# Use `-` instead of `:-` so the pipeline can distinguish that from an unset
+# variable when invoking this script outside the dynamic pipeline.
+MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313 build-sdk-macos-arm64-cp314}"
 RRT_ARTIFACT_STEPS="${SANDBOX_RRT_ARTIFACT_STEPS:-build-rrt-amd64 build-rrt-arm64}"
 SANDBOX_SDK_ARTIFACT_STEPS="${SANDBOX_SANDBOX_SDK_STEPS:-test-sandbox-sdk}"
 EXTRA_ARTIFACT_STEPS="${SANDBOX_EXTRA_ARTIFACT_STEPS:-}"
@@ -165,10 +166,6 @@ global:
     runtime:
       repository: yr-runtime
       tag: ${RUNTIME_IMAGE_TAG}
-    traefik:
-      registry: ${TRAEFIK_IMAGE_REGISTRY}
-      repository: traefik
-      tag: ${TRAEFIK_IMAGE_TAG}
 EOF
 }
 
@@ -189,9 +186,7 @@ write_metadata() {
     "${REGISTRY_REPO}/yr-node:${IMAGE_TAG}",
     "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG}"
   ],
-  "static_images": [
-    "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"
-  ]
+  "static_images": []
 }
 EOF
 }
@@ -268,8 +263,10 @@ require_cp314_sdk_records() {
     local required_records=(
         "linux-amd64-sdk/build-sdk-amd64-cp314/obs-urls.txt"
         "linux-arm64-sdk/build-sdk-arm64-cp314/obs-urls.txt"
-        "macos-arm64-sdk/build-sdk-macos-arm64-cp314/obs-urls.txt"
     )
+    if [[ " ${MACOS_ARM64_SDK_STEPS} " == *" build-sdk-macos-arm64-cp314 "* ]]; then
+        required_records+=("macos-arm64-sdk/build-sdk-macos-arm64-cp314/obs-urls.txt")
+    fi
     local record
     for record in "${required_records[@]}"; do
         if [ ! -s "${ARCHIVE_DIR}/${record}" ]; then

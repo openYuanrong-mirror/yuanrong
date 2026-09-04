@@ -61,6 +61,25 @@ function toml_etcd_addresses() {
 etcd_addresses="$(toml_etcd_addresses "${etcd_addr_list}")"
 master_scheduler_ip="$(resolve_host "${master_ip}")"
 
+gateway_args=()
+if [[ "${YR_DATA_PLANE_NODE_PROXY_ENABLED:-false}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+  gateway_args+=(
+    -s 'values.node_proxy.enabled=true'
+    -s "values.node_proxy.bind=\"${YR_DATA_PLANE_NODE_PROXY_BIND:-0.0.0.0:8443}\""
+    -s "values.node_proxy.health_bind=\"${YR_DATA_PLANE_NODE_PROXY_HEALTH_BIND:-127.0.0.1:18443}\""
+    -s "values.node_proxy.advertise_address=\"${YR_NODE_PROXY_ADDRESS:-${node_ip}:8443}\""
+    -s "values.node_proxy.allowed_target_cidrs=$(python3 -c 'import json,os; print(json.dumps([x.strip() for x in os.environ.get("YR_DATA_PLANE_ALLOWED_TARGET_CIDRS", "").split(",") if x.strip()]))')"
+    -s "values.node_proxy.allowed_edge_cidrs=$(python3 -c 'import json,os; print(json.dumps([x.strip() for x in os.environ.get("YR_DATA_PLANE_ALLOWED_EDGE_CIDRS", "").split(",") if x.strip()]))')"
+    -s "values.node_proxy.allow_any_edge=${YR_DATA_PLANE_NODE_PROXY_ALLOW_ANY_EDGE:-false}"
+    -s "values.node_proxy.edge_security_mode=\"${YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE:-network}\""
+    -s "values.node_proxy.tls_cert=\"${YR_DATA_PLANE_NODE_PROXY_TLS_CERT:-}\""
+    -s "values.node_proxy.tls_key=\"${YR_DATA_PLANE_NODE_PROXY_TLS_KEY:-}\""
+    -s "values.node_proxy.mtls_client_ca=\"${YR_DATA_PLANE_NODE_PROXY_MTLS_CLIENT_CA:-}\""
+    -s "values.node_proxy.activity_uds_dir=\"${YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR:-/openyuanrong/run/data-plane-gateway/activity}\""
+    -s "values.node_proxy.log_level=\"${YR_DATA_PLANE_NODE_PROXY_LOG_LEVEL:-info}\""
+  )
+fi
+
 exec /usr/local/bin/yr start \
   --block true \
   --function-proxy-merge-process-enable \
@@ -72,11 +91,13 @@ exec /usr/local/bin/yr start \
   -s "values.etcd.address=${etcd_addresses}" \
   -s "values.function_proxy.port=${function_proxy_port}" \
   -s "values.function_proxy.grpc_listen_port=${function_proxy_grpc_port}" \
+  -s 'values.function_proxy.advertise_frontend_proxy_create=true' \
   "${ds_worker_args[@]}" \
   "${data_system_capability_args[@]}" \
   -s "function_proxy.args.services_path=\"${services_path}\"" \
-  -s 'function_proxy.args.enable_traefik_registry=true' \
+  -s "function_proxy.args.enable_traefik_registry=${YR_ENABLE_TRAEFIK_REGISTRY:-false}" \
   -s 'function_proxy.args.traefik_etcd_prefix="traefik"' \
   -s 'function_proxy.args.traefik_http_entrypoint="web"' \
   -s 'function_proxy.args.traefik_enable_tls=false' \
+  "${gateway_args[@]}" \
   "$@"

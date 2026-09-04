@@ -30,6 +30,7 @@ dashboard = false
 collector = false
 meta_service = false
 function_scheduler = false
+node_proxy = {{ values.node_proxy.enabled | toml_bool("values.node_proxy.enabled") }}
 
 [mode.agent]
 ds_worker = true
@@ -41,6 +42,10 @@ dashboard = false
 collector = false
 meta_service = false
 function_scheduler = false
+node_proxy = {{ values.node_proxy.enabled | toml_bool("values.node_proxy.enabled") }}
+
+[mode.edge]
+edge_frontend = true
 
 {#
  Select etcd_local:
@@ -325,6 +330,11 @@ YR_DATASYSTEM_DEPLOYED = "true"
 YR_BYPASS_DATASYSTEM = "false"
 LOCAL_IP = "{{ values.local_ip }}"
 HOST_IP = "{{ values.function_proxy.ip }}"
+YR_DATA_PLANE_NODE_PROXY_ENABLED = "{{ 'true' if values.node_proxy.enabled else 'false' }}"
+YR_NODE_PROXY_ADDRESS = "{{ values.node_proxy.advertise_address or (values.host_ip ~ ':' ~ values.node_proxy.bind.rsplit(':', 1)[-1]) }}"
+YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR = "{{ values.node_proxy.activity_uds_dir }}"
+YR_COMMAND_RECOVERY_ENABLED = "{{ 'true' if values.node_proxy.enabled else 'false' }}"
+YR_COMMAND_ACTIVITY_TIMEOUT_SECS = "{{ values.function_proxy.command_activity_timeout_sec }}"
 {% if values.runtime_launcher.enable %}
 CONTAINER_EP = "unix://{{ values.runtime_launcher.socket }}"
 {% endif %}
@@ -341,6 +351,103 @@ endpoint = "{{ values.runtime_launcher.socket }}"
 socket = "{{ values.runtime_launcher.socket }}"
 backend = "{{ values.runtime_launcher.backend }}"
 docker-host = "{{ values.runtime_launcher.docker_host }}"
+
+[node_proxy]
+bin_path = "{{ values.node_proxy.bin_path }}"
+
+[node_proxy.health_check]
+enable = true
+timeout = 10
+endpoint = "http://{{ values.node_proxy.health_bind }}/readyz"
+
+[node_proxy.env]
+YR_DATA_PLANE_NODE_PROXY_BIND = "{{ values.node_proxy.bind }}"
+YR_DATA_PLANE_NODE_PROXY_ADVERTISE_ADDRESS = "{{ values.node_proxy.advertise_address or (values.host_ip ~ ':' ~ values.node_proxy.bind.rsplit(':', 1)[-1]) }}"
+YR_DATA_PLANE_NODE_PROXY_HEALTH_BIND = "{{ values.node_proxy.health_bind }}"
+YR_DATA_PLANE_ALLOWED_TARGET_CIDRS = "{{ values.node_proxy.allowed_target_cidrs | join(',') }}"
+YR_DATA_PLANE_ALLOWED_EDGE_CIDRS = "{{ values.node_proxy.allowed_edge_cidrs | join(',') }}"
+YR_DATA_PLANE_NODE_PROXY_ALLOW_ANY_EDGE = "{{ '1' if values.node_proxy.allow_any_edge else '0' }}"
+YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR = "{{ values.node_proxy.activity_uds_dir }}"
+YR_DATA_PLANE_NODE_PROXY_ACTIVITY_INTERVAL_SEC = "{{ values.node_proxy.activity_interval_sec }}"
+YR_DATA_PLANE_NODE_PROXY_TLS_CERT = "{{ values.node_proxy.tls_cert }}"
+YR_DATA_PLANE_NODE_PROXY_TLS_KEY = "{{ values.node_proxy.tls_key }}"
+YR_DATA_PLANE_NODE_PROXY_MTLS_CLIENT_CA = "{{ values.node_proxy.mtls_client_ca }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE = "{{ values.node_proxy.edge_security_mode }}"
+YR_DATA_PLANE_NODE_PROXY_MAX_STREAMS = "{{ values.node_proxy.max_streams }}"
+YR_DATA_PLANE_NODE_PROXY_DRAIN_TIMEOUT_SEC = "{{ values.node_proxy.drain_timeout_sec }}"
+YR_DATA_PLANE_LOG_DIR = "{{ values.node_proxy.log_dir }}"
+YR_DATA_PLANE_LOG_MAX_SIZE_MB = "{{ values.node_proxy.log_rolling_max_size_mb }}"
+YR_DATA_PLANE_LOG_MAX_FILES = "{{ values.node_proxy.log_rolling_max_files }}"
+YR_DATA_PLANE_LOG_QUEUE_CAPACITY = "{{ values.node_proxy.log_queue_capacity }}"
+YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS = "{{ values.node_proxy.log_flush_interval_ms }}"
+YR_DATA_PLANE_LOG_STDOUT = "{{ '1' if values.node_proxy.log_stdout else '0' }}"
+RUST_LOG = "{{ values.node_proxy.log_level }}"
+
+[edge_frontend]
+bin_path = "{{ values.edge_frontend.bin_path }}"
+
+[edge_frontend.health_check]
+enable = true
+timeout = 30
+endpoint = "http://127.0.0.1:{{ values.edge_frontend.health_bind.rsplit(':', 1)[-1] }}/readyz"
+
+[edge_frontend.env]
+{% if values.edge_frontend.etcd_endpoints %}
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_ENDPOINTS = "{{ values.edge_frontend.etcd_endpoints | join(',') }}"
+{% else %}
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_ENDPOINTS = "{% for node in values.etcd.address -%}{{ 'https' if values.etcd.auth_type == 'TLS' else 'http' }}://{{ node.ip }}:{{ node.port }}{% if not loop.last %},{% endif %}{%- endfor %}"
+{% endif %}
+{% if values.edge_frontend.etcd_tls_ca %}
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_CA = "{{ values.edge_frontend.etcd_tls_ca }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_CERT = "{{ values.edge_frontend.etcd_tls_cert }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_KEY = "{{ values.edge_frontend.etcd_tls_key }}"
+{% elif values.etcd.auth_type == "TLS" %}
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_CA = "{{ values.etcd.auth.base_path }}/{{ values.etcd.auth.ca_file }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_CERT = "{{ values.etcd.auth.base_path }}/{{ values.etcd.auth.client_cert_file }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_KEY = "{{ values.etcd.auth.base_path }}/{{ values.etcd.auth.client_key_file }}"
+{% endif %}
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_TLS_DOMAIN = "{{ values.edge_frontend.etcd_tls_domain }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_USERNAME = "{{ values.edge_frontend.etcd_username }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ETCD_PASSWORD = "{{ values.edge_frontend.etcd_password }}"
+YR_DATA_PLANE_EDGE_FRONTEND_TLS_BIND = "{{ values.edge_frontend.tls_bind }}"
+YR_DATA_PLANE_EDGE_FRONTEND_PLAIN_BIND = "{{ values.edge_frontend.plain_bind }}"
+YR_DATA_PLANE_EDGE_FRONTEND_HEALTH_BIND = "{{ values.edge_frontend.health_bind }}"
+YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS = "{{ values.edge_frontend.frontend_address }}"
+YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES = "{{ values.edge_frontend.control_plane_routes | join(',') }}"
+YR_DATA_PLANE_EDGE_FRONTEND_TLS_CERT = "{{ values.edge_frontend.tls_cert }}"
+YR_DATA_PLANE_EDGE_FRONTEND_TLS_KEY = "{{ values.edge_frontend.tls_key }}"
+YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM = "{{ '1' if values.edge_frontend.validate_iam else '0' }}"
+YR_DATA_PLANE_EDGE_FRONTEND_IAM_ADDRESS = "{{ values.edge_frontend.iam_address }}"
+YR_DATA_PLANE_EDGE_FRONTEND_AUTH_CACHE_TTL_SEC = "{{ values.edge_frontend.auth_cache_ttl_sec }}"
+YR_DATA_PLANE_EDGE_FRONTEND_DIRECT_PORT = "{{ values.edge_frontend.default_direct_port }}"
+YR_DATA_PLANE_EDGE_FRONTEND_TUNNEL_PORT = "{{ values.edge_frontend.default_tunnel_port }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE = "{{ values.edge_frontend.node_security_mode }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CA = "{{ values.edge_frontend.node_tls_ca }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_SERVER_NAME = "{{ values.edge_frontend.node_tls_server_name }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CLIENT_CERT = "{{ values.edge_frontend.node_tls_client_cert }}"
+YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CLIENT_KEY = "{{ values.edge_frontend.node_tls_client_key }}"
+YR_DATA_PLANE_EDGE_FRONTEND_H2_CONNECTIONS_PER_NODE = "{{ values.edge_frontend.h2_connections_per_node }}"
+YR_DATA_PLANE_EDGE_FRONTEND_H2_MAX_CONNECTIONS_PER_NODE = "{{ values.edge_frontend.h2_max_connections_per_node }}"
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_CONNECTIONS_PER_ENDPOINT = "{{ values.edge_frontend.backend_http_max_connections_per_endpoint }}"
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS = "{{ values.edge_frontend.backend_http_max_idle_connections }}"
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS_PER_ENDPOINT = "{{ values.edge_frontend.backend_http_max_idle_connections_per_endpoint }}"
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_IDLE_TIMEOUT_SEC = "{{ values.edge_frontend.backend_http_idle_timeout_sec }}"
+YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_ACQUIRE_TIMEOUT_MS = "{{ values.edge_frontend.backend_http_acquire_timeout_ms }}"
+YR_DATA_PLANE_EDGE_FRONTEND_DRAIN_TIMEOUT_SEC = "{{ values.edge_frontend.drain_timeout_sec }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS = "{{ values.edge_frontend.allowed_client_cidrs | join(',') }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ALLOW_ANY_CLIENT = "{{ '1' if values.edge_frontend.allow_any_client else '0' }}"
+YR_DATA_PLANE_LOG_DIR = "{{ values.edge_frontend.log_dir }}"
+YR_DATA_PLANE_LOG_MAX_SIZE_MB = "{{ values.edge_frontend.log_rolling_max_size_mb }}"
+YR_DATA_PLANE_LOG_MAX_FILES = "{{ values.edge_frontend.log_rolling_max_files }}"
+YR_DATA_PLANE_LOG_QUEUE_CAPACITY = "{{ values.edge_frontend.log_queue_capacity }}"
+YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS = "{{ values.edge_frontend.log_flush_interval_ms }}"
+YR_DATA_PLANE_LOG_STDOUT = "{{ '1' if values.edge_frontend.log_stdout else '0' }}"
+YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED = "{{ '1' if values.edge_frontend.access_log_enabled else '0' }}"
+YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION = "{{ values.edge_frontend.command_watch_max_subscriptions }}"
+YR_COMMAND_WATCH_QUEUE_CAPACITY = "{{ values.edge_frontend.command_watch_queue_capacity }}"
+YR_COMMAND_WATCH_MAX_FRAME_BYTES = "{{ values.edge_frontend.command_watch_max_frame_bytes }}"
+YR_COMMAND_WATCH_PING_INTERVAL_SECS = "{{ values.edge_frontend.command_watch_ping_interval_sec }}"
+RUST_LOG = "{{ values.edge_frontend.log_level }}"
 
 [function_proxy.args]
 ip = "{{ values.local_ip }}"
@@ -414,6 +521,7 @@ pseudo_data_plane = false
 cache_storage_host = "{{ values.ds_worker.ip }}"
 cache_storage_port = {{ values.ds_worker.port }}
 enable_server_mode = true
+advertise_frontend_proxy_create = {{ 'true' if values.function_proxy.advertise_frontend_proxy_create else 'false' }}
 max_instance_cpu_size = 16000
 max_instance_memory_size = 1073741824
 min_instance_cpu_size = 0
@@ -685,6 +793,16 @@ YR_FRONTEND_SSH_HOST_KEY="{{ values.frontend.ssh_host_key }}"
 YR_FRONTEND_SSH_AUTHORIZED_KEYS="{{ values.frontend.ssh_authorized_keys }}"
 YR_FRONTEND_SSH_BACKEND_KEY="{{ values.frontend.ssh_backend_key }}"
 YR_FRONTEND_SSH_MAX_CONNECTIONS="{{ values.frontend.ssh_max_connections }}"
+# Frontend projects these platform-owned budgets into every RRT StartRequest.
+YR_RRT_COMMAND_RESULT_TTL_SECS="{{ values.edge_frontend.rrt_command_result_ttl_secs }}"
+YR_RRT_COMMAND_STDOUT_LIMIT_BYTES="{{ values.edge_frontend.rrt_command_stdout_limit_bytes }}"
+YR_RRT_COMMAND_STDERR_LIMIT_BYTES="{{ values.edge_frontend.rrt_command_stderr_limit_bytes }}"
+YR_RRT_COMMAND_REGISTRY_MAX_RECORDS="{{ values.edge_frontend.rrt_command_registry_max_records }}"
+YR_RRT_COMMAND_REGISTRY_MAX_BYTES="{{ values.edge_frontend.rrt_command_registry_max_bytes }}"
+YR_RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES="{{ values.edge_frontend.rrt_command_registry_memory_high_watermark_bytes }}"
+YR_RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS="{{ values.edge_frontend.rrt_command_activity_heartbeat_secs }}"
+YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION="{{ values.edge_frontend.command_watch_max_subscriptions }}"
+YR_COMMAND_WATCH_MAX_FRAME_BYTES="{{ values.edge_frontend.command_watch_max_frame_bytes }}"
 # Host directory mounted read-only into agent sandboxes at
 # /run/openyuanrong/ssh; consumed by /api/agent when SSH is enabled.
 YR_SSH_BACKEND_PUBLIC_KEY_DIR="{{ values.frontend.ssh_backend_public_key_dir }}"
