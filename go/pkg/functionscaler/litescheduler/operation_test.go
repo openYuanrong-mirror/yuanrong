@@ -103,31 +103,35 @@ func TestAcquireSessionSticky(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp1 := ls.handleAcquire(req, time.Now())
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp1 := ls.handleAcquire(req)
 		convey.So(resp1.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		id1 := resp1.InstanceID
-		resp2 := ls.handleAcquire(req, time.Now())
+		resp2 := ls.handleAcquire(req)
 		convey.So(resp2.InstanceID, convey.ShouldEqual, id1) // sticky
 	})
 }
 
-func TestReleaseDecrementsInUseKeepsSticky(t *testing.T) {
-	convey.Convey("release decrements InUse, keeps session binding", t, func() {
+func TestReleaseReturnsToReservedKeepsSticky(t *testing.T) {
+	convey.Convey("release returns the unit to the session reservation, keeps binding", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		allocID := resp.ThreadID
 		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 1)
 		relReq := &LiteRequest{Op: "release", AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRelease(relReq, time.Now())
-		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 0)
+		ls.handleRelease(relReq)
+		// Concurrency-aware: release returns to binding.reserved, NOT to the instance.
+		// slot.InUse stays at 1 (reserved by session) until the session idle-unbinds.
+		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 1)
 		pool.RLock()
-		_, hasBinding := pool.sessions["sess1"]
+		binding := pool.sessions["sess1"]
 		pool.RUnlock()
-		convey.So(hasBinding, convey.ShouldBeTrue) // binding kept (sessionTTL=30s)
+		convey.So(binding, convey.ShouldNotBeNil)
+		convey.So(binding.reserved, convey.ShouldEqual, 1)     // unit returned to reservation
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 0) // no in-flight allocs
 	})
 }
 
@@ -136,13 +140,13 @@ func TestRetainDoesNotChangeConcurrency(t *testing.T) {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		pool := newTestPool(t)
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		allocID := resp.ThreadID
 		oldExpire := ls.allocations[allocID].ExpireAt
 		time.Sleep(5 * time.Millisecond)
 		retReq := &LiteRequest{Op: "retain", AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		ls.handleRetain(retReq, time.Now())
+		ls.handleRetain(retReq)
 		convey.So(ls.allocations[allocID].ExpireAt.After(oldExpire), convey.ShouldBeTrue)
 		convey.So(pool.instances["ins1"].InUse+pool.instances["ins2"].InUse, convey.ShouldEqual, 1) // unchanged
 	})
@@ -189,7 +193,7 @@ func TestRetainMissWithoutReacquireData(t *testing.T) {
 		req := &LiteRequest{Op: "retain", AllocationIDs: []string{allocID}, TraceID: "tr",
 			MetricsData:       marshalRetainMetrics(t, &types.InstanceThreadMetrics{FunctionKey: pool.funcKey}),
 			NeedReverseLookup: true}
-		resp := ls.handleRetain(req, time.Now())
+		resp := ls.handleRetain(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.LeaseIDNotFoundCode)
 		convey.So(ls.allocations, convey.ShouldNotContainKey, allocID)
@@ -210,7 +214,7 @@ func TestRetainReacquireRejectsSessionHashMismatch(t *testing.T) {
 		req := &LiteRequest{Op: "retain", AllocationIDs: []string{allocID}, TraceID: "tr",
 			MetricsData:       marshalRetainMetrics(t, newLiteReacquireMetrics(t, pool.funcKey, "sess1", 30)),
 			NeedReverseLookup: true}
-		resp := ls.handleRetain(req, time.Now())
+		resp := ls.handleRetain(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.LeaseIDIllegalCode)
 		convey.So(ls.allocations, convey.ShouldNotContainKey, allocID)
@@ -231,7 +235,7 @@ func TestRetainReacquireReturnsCurrentSessionOwner(t *testing.T) {
 		req := &LiteRequest{Op: "retain", AllocationIDs: []string{allocID}, TraceID: "tr",
 			MetricsData:       marshalRetainMetrics(t, newLiteReacquireMetrics(t, pool.funcKey, "sess1", 30)),
 			NeedReverseLookup: true}
-		resp := ls.handleRetain(req, time.Now())
+		resp := ls.handleRetain(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 		convey.So(resp.ErrorMessage, convey.ShouldEqual, "owner-id-1")
@@ -254,7 +258,7 @@ func TestRetainReacquireAllowsDesignatedOverCapacity(t *testing.T) {
 		req := &LiteRequest{Op: "retain", AllocationIDs: []string{allocID}, TraceID: "tr",
 			MetricsData:       marshalRetainMetrics(t, newLiteReacquireMetrics(t, pool.funcKey, "sess1", 30)),
 			NeedReverseLookup: true}
-		resp := ls.handleRetain(req, time.Now())
+		resp := ls.handleRetain(req)
 
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, pool.instances["ins1"].Capacity+1)
@@ -281,7 +285,7 @@ func TestConcurrentRetainReacquireIsIdempotent(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				resp := ls.handleRetain(&LiteRequest{Op: "retain", AllocationIDs: []string{allocID},
-					TraceID: "tr", MetricsData: metricsData, NeedReverseLookup: true}, time.Now())
+					TraceID: "tr", MetricsData: metricsData, NeedReverseLookup: true})
 				results <- resp.ErrorCode
 			}()
 		}
@@ -306,7 +310,7 @@ func TestBatchRetainReacquiresMissingAllocationIndependently(t *testing.T) {
 		pool := newTestPool(t)
 		ls.pools[pool.funcKey] = pool
 		acquireResp := ls.handleAcquire(&LiteRequest{Op: "acquire", FuncKey: pool.funcKey,
-			SessionID: "existing-session", SessionTTL: 30, TenantID: "t1", TraceID: "tr"}, time.Now())
+			SessionID: "existing-session", SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"})
 		existingID := acquireResp.ThreadID
 		recoveredID := genAllocationID("recovered-session", "ins2", 8)
 		failedID := genAllocationID("missing-session", "ins1", 9)
@@ -317,7 +321,7 @@ func TestBatchRetainReacquiresMissingAllocationIndependently(t *testing.T) {
 		req := &LiteRequest{Op: "batchRetain", AllocationIDs: []string{existingID, recoveredID, failedID},
 			TraceID: "tr", MetricsData: marshalRetainMetrics(t, metrics), NeedReverseLookup: true}
 
-		resp := ls.handleBatchRetain(req, time.Now())
+		resp := ls.handleBatchRetain(req)
 		convey.So(resp.InstanceAllocSucceed, convey.ShouldContainKey, existingID)
 		convey.So(resp.InstanceAllocSucceed, convey.ShouldContainKey, recoveredID)
 		convey.So(resp.InstanceAllocFailed, convey.ShouldContainKey, failedID)
@@ -332,7 +336,7 @@ func TestReleaseUnknownAllocationReturnsNotFound(t *testing.T) {
 	convey.Convey("release unknown allocID -> InstanceNotFound", t, func() {
 		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
 		relReq := &LiteRequest{Op: "release", AllocationIDs: []string{"lite:dead:ins:thread:1"}, FuncKey: "t1/fA/v1", TraceID: "tr"}
-		resp := ls.handleRelease(relReq, time.Now())
+		resp := ls.handleRelease(relReq)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.InstanceNotFoundErrCode)
 	})
 }
@@ -357,7 +361,7 @@ func TestReleaseWhenPoolNil(t *testing.T) {
 		relReq := &LiteRequest{Op: "release",
 			AllocationIDs: []string{alloc.AllocationID}, FuncKey: "t1/fA/v1", TraceID: "tr"}
 		// Must not panic.
-		resp := ls.handleRelease(relReq, time.Now())
+		resp := ls.handleRelease(relReq)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		convey.So(resp.ThreadID, convey.ShouldEqual, alloc.AllocationID)
 		convey.So(resp.InstanceID, convey.ShouldEqual, "") // slot was nil
@@ -395,9 +399,8 @@ func TestConcurrentAcquireRetainNoDeadlock(t *testing.T) {
 				defer wg.Done()
 				sess := "sess" + string(rune('A'+id%8))
 				req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
-					SessionID: sess, SessionTTL: 30, TenantID: "t1", TraceID: "tr"}
-				start := time.Now()
-				resp := ls.handleAcquire(req, start)
+					SessionID: sess, SessionTTL: 30, Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+				resp := ls.handleAcquire(req)
 				if resp.ErrorCode != constant.InsReqSuccessCode {
 					return // cold-start path; nothing to retain/release
 				}
@@ -405,10 +408,10 @@ func TestConcurrentAcquireRetainNoDeadlock(t *testing.T) {
 				// retain then release in a loop to stress the lock-order paths.
 				for j := 0; j < 4; j++ {
 					ls.handleRetain(&LiteRequest{Op: "retain",
-						AllocationIDs: []string{allocID}, TraceID: "tr"}, time.Now())
+						AllocationIDs: []string{allocID}, TraceID: "tr"})
 				}
 				ls.handleRelease(&LiteRequest{Op: "release",
-					AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"}, time.Now())
+					AllocationIDs: []string{allocID}, FuncKey: "t1/fA/v1", TraceID: "tr"})
 			}(i)
 		}
 		wg.Wait()
@@ -429,8 +432,8 @@ func TestAcquireNoInstanceReturnsNoInstanceAfterTimeout(t *testing.T) {
 		pool := &LiteFunctionPool{funcKey: "t1/fA/v1", funcSpec: &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
 			instances: map[string]*LiteInstance{}, sessions: map[string]*sessionBinding{}, dispatcher: &concurrencyDispatcher{}}
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.NoInstanceAvailableErrCode)
 	})
 }
@@ -453,8 +456,8 @@ func TestColdStartConcurrentWithInstanceUpdateNoRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-			ls.handleAcquire(req, time.Now()) // cold-start, no instances, times out
+			req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+			ls.handleAcquire(req) // cold-start, no instances, times out
 		}()
 	}
 	// M goroutines: handleInstanceUpdate (writes pool.instances under pool.Lock)
@@ -469,4 +472,177 @@ func TestColdStartConcurrentWithInstanceUpdateNoRace(t *testing.T) {
 	}
 	wg.Wait()
 	// Under -race: no "concurrent map read/write" fatal, no data race reported.
+}
+
+// TestConcurrencyAwareReservation verifies the bind-once-reserve-many model:
+// a session with Concurrency=N reserves N units at fresh bind (InUse += N),
+// subsequent acquires within the session take from the reservation (InUse
+// unchanged), and releases return to the reservation (InUse unchanged). The
+// reservation is only released when the session unbinds.
+func TestConcurrencyAwareReservation(t *testing.T) {
+	convey.Convey("Concurrency=N reserves N units; subsequent acquires take from reservation", t, func() {
+		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
+		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
+		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
+		config.GlobalConfig.LeaseSpan = 5000
+
+		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
+		pool := &LiteFunctionPool{
+			funcKey:    "t1/fA/v1",
+			funcSpec:   &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
+			instances:  map[string]*LiteInstance{},
+			sessions:   map[string]*sessionBinding{},
+			dispatcher: &concurrencyDispatcher{},
+		}
+		pool.instances["ins1"] = &LiteInstance{
+			InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 8, InUse: 0,
+			Status: InstanceStatusRunning, FuncSig: "sig",
+		}
+		ls.pools["t1/fA/v1"] = pool
+
+		// Acquire #1: fresh bind with Concurrency=4. Reserves 4 units on ins1.
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
+			SessionID: "sess1", SessionTTL: 0, Concurrency: 4,
+			TenantID: "t1", TraceID: "tr"}
+		resp1 := ls.handleAcquire(req)
+		convey.So(resp1.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 4) // reserved 4
+		pool.RLock()
+		binding := pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 3)     // 4-1 handed out
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 1) // 1 in-flight
+
+		// Acquire #2 (same session): sticky hit, takes from reservation.
+		resp2 := ls.handleAcquire(req)
+		convey.So(resp2.InstanceID, convey.ShouldEqual, "ins1")
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 4) // unchanged
+		pool.RLock()
+		binding = pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 2)
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 2)
+
+		// Acquire #3 (same session): takes from reservation again.
+		resp3 := ls.handleAcquire(req)
+		convey.So(resp3.InstanceID, convey.ShouldEqual, "ins1")
+		pool.RLock()
+		binding = pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 1)
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 3)
+
+		// Acquire #4 (same session): takes the last reserved unit.
+		resp4 := ls.handleAcquire(req)
+		convey.So(resp4.InstanceID, convey.ShouldEqual, "ins1")
+		pool.RLock()
+		binding = pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 0)
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 4)
+
+		// Acquire #5 (same session): reservation exhausted → over-acquire (InUse++).
+		resp5 := ls.handleAcquire(req)
+		convey.So(resp5.InstanceID, convey.ShouldEqual, "ins1")
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 5) // over-acquired 1
+		pool.RLock()
+		binding = pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 0)
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 5)
+
+		// Release one: returns to reservation (InUse unchanged).
+		ls.handleRelease(&LiteRequest{Op: "release",
+			AllocationIDs: []string{resp5.ThreadID}, FuncKey: "t1/fA/v1", TraceID: "tr"})
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 5) // unchanged
+		pool.RLock()
+		binding = pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(binding.reserved, convey.ShouldEqual, 1) // returned to reservation
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 4)
+	})
+}
+
+// TestConcurrencyAwareUpperBoundReject verifies that Concurrency > Capacity
+// is rejected with InstanceSessionInvalidErrCode, matching concurrencyscheduler.
+func TestConcurrencyAwareUpperBoundReject(t *testing.T) {
+	convey.Convey("Concurrency > ConcurrentNum is rejected", t, func() {
+		orig := config.GlobalConfig.LiteScheduler
+		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
+
+		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
+		pool := &LiteFunctionPool{
+			funcKey: "t1/fA/v1",
+			funcSpec: &types.FunctionSpecification{
+				FuncKey:          "t1/fA/v1",
+				InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+			},
+			instances:  map[string]*LiteInstance{},
+			sessions:   map[string]*sessionBinding{},
+			dispatcher: &concurrencyDispatcher{},
+		}
+		pool.instances["ins1"] = &LiteInstance{
+			InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 4, InUse: 0,
+			Status: InstanceStatusRunning,
+		}
+		ls.pools["t1/fA/v1"] = pool
+
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
+			SessionID: "sess1", Concurrency: 8, // > ConcurrentNum=4
+			TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
+		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 0) // unchanged
+	})
+}
+
+// TestConcurrencyAwareSessionExhaustsInstance verifies that a session with
+// Concurrency=4 on a Capacity=4 instance fully reserves it, blocking other
+// sessions until the first unbinds.
+func TestConcurrencyAwareSessionExhaustsInstance(t *testing.T) {
+	convey.Convey("full reservation blocks other sessions", t, func() {
+		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
+		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
+		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
+		config.GlobalConfig.LeaseSpan = 5000
+
+		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
+		pool := &LiteFunctionPool{
+			funcKey:    "t1/fA/v1",
+			funcSpec:   &types.FunctionSpecification{FuncKey: "t1/fA/v1"},
+			instances:  map[string]*LiteInstance{},
+			sessions:   map[string]*sessionBinding{},
+			dispatcher: &concurrencyDispatcher{},
+		}
+		pool.instances["ins1"] = &LiteInstance{
+			InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 4, InUse: 0,
+			Status: InstanceStatusRunning, FuncSig: "sig",
+		}
+		ls.pools["t1/fA/v1"] = pool
+
+		// Session A: Concurrency=4, fully reserves ins1.
+		reqA := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
+			SessionID: "sessA", SessionTTL: 0, Concurrency: 4,
+			TenantID: "t1", TraceID: "tr"}
+		respA := ls.handleAcquire(reqA)
+		convey.So(respA.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 4)
+
+		// Session B: Concurrency=1, can't fit on ins1 (0 free). No other instances.
+		// With AcquireWaitTimeoutMs=0, should reject immediately.
+		config.GlobalConfig.LiteScheduler.AcquireWaitTimeoutMs = 0
+		ls.scaleHintSender = NewNoopSender()
+		ls.stopCh = make(chan struct{})
+		reqB := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
+			SessionID: "sessB", SessionTTL: 0, Concurrency: 1,
+			TenantID: "t1", TraceID: "tr"}
+		respB := ls.handleAcquire(reqB)
+		convey.So(respB.ErrorCode, convey.ShouldEqual, statuscode.NoInstanceAvailableErrCode)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 4) // unchanged
+	})
 }

@@ -110,9 +110,15 @@ func (ls *LiteScheduler) processExpiryEvents() {
 }
 
 // reapExpiredAllocation is the expiry callback for a single allocation. It mirrors
-// the legacy leaseHolder.pollLease callback: release InUse, delete the allocation
-// from the map, and remove the session binding. The time wheel task is already
-// removed by the wheel itself (times=1 means fire-once), so no DelTask is needed.
+// the legacy leaseHolder.pollLease callback: return the allocation's capacity,
+// delete the allocation from the map, and update the session binding. The time
+// wheel task is already removed by the wheel itself (times=1 means fire-once),
+// so no DelTask is needed.
+//
+// Concurrency-aware: for session-bound allocations, the unit returns to the
+// session's reservation pool (reserved++), NOT to the instance — the session
+// keeps its reservation until it idle-unbinds. For sessionless allocations
+// (sessionCtx-only), the unit returns directly to the instance (1-unit model).
 func (ls *LiteScheduler) reapExpiredAllocation(allocID string) {
 	logger := log.GetLogger().With(zap.String("allocID", allocID))
 
@@ -127,23 +133,24 @@ func (ls *LiteScheduler) reapExpiredAllocation(allocID string) {
 
 	if pool := ls.getPool(alloc.FuncKey); pool != nil {
 		pool.Lock()
-		if slot := pool.instances[alloc.InstanceID]; slot != nil && slot.InUse > 0 {
-			slot.InUse--
-		}
-		// Decrement InstanceSession's activeAllocs; pure SessionContext requests
-		// have no sticky binding.
 		bindingKey := ""
 		needTimer := false
 		if alloc.SessionID != "" {
+			// Session-bound: return the unit to the session's reservation pool.
+			// unbindSessionOnRelease does reserved++ and activeAllocs--; slot.InUse
+			// is unchanged. If activeAllocs hits 0, the idle-unbind timer starts.
 			bindingKey = pool.sessionBindingKey(alloc.SessionID, alloc.SessionCtxID)
 			needTimer, _ = pool.unbindSessionOnRelease(bindingKey)
+		} else if slot := pool.instances[alloc.InstanceID]; slot != nil && slot.InUse > 0 {
+			// Sessionless (sessionCtx-only): 1-unit model, release to instance.
+			slot.InUse--
 		}
 		sessionTTL := alloc.SessionTTL
 		pool.Unlock()
 		if needTimer {
 			ls.startSessionUnbindTimer(pool, bindingKey, sessionTTL)
 		}
-		logger.Infof("lite expiry reaped: instance %s, funcKey %s, InUse decremented",
+		logger.Infof("lite expiry reaped: instance %s, funcKey %s",
 			alloc.InstanceID, alloc.FuncKey)
 	} else {
 		logger.Infof("lite expiry reaped: pool gone (func %s undeployed), allocation %s cleaned",

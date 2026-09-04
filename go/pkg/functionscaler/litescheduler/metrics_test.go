@@ -20,10 +20,10 @@ package litescheduler
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smartystreets/goconvey/convey"
+
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
@@ -52,8 +52,8 @@ func TestLiteCollectorIncAcquireWired(t *testing.T) {
 		pool.instances["ins1"] = &LiteInstance{InstanceID: "ins1", FuncKey: "t1/fA/v1", Capacity: 2, InUse: 0,
 			Status: InstanceStatusRunning, FuncSig: "sig"}
 		ls.pools["t1/fA/v1"] = pool
-		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(req, time.Now())
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(req)
 		convey.So(resp.ErrorCode, convey.ShouldEqual, 6030) // constant.InsReqSuccessCode
 
 		ch := make(chan prometheus.Metric, 128)

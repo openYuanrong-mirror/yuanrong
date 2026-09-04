@@ -20,9 +20,9 @@ package litescheduler
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/smartystreets/goconvey/convey"
+
 	"yuanrong.org/kernel/pkg/common/faas_common/loadbalance"
 	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
@@ -100,8 +100,9 @@ func TestProcessReverseLookupFillsSessionID(t *testing.T) {
 		pool := newTestPool(t) // helper from operation_test (same package)
 		ls.pools["t1/fA/v1"] = pool
 		// acquire first to create allocation
-		acqReq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1", TenantID: "t1", TraceID: "tr"}
-		resp := ls.handleAcquire(acqReq, time.Now())
+		acqReq := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1", SessionID: "sess1",
+			Concurrency: 1, TenantID: "t1", TraceID: "tr"}
+		resp := ls.handleAcquire(acqReq)
 		allocID := resp.ThreadID
 		// release via Process with only allocID (no sessionID)
 		relReq := &LiteRequest{Op: "release", AllocationIDs: []string{allocID}, NeedReverseLookup: true, TraceID: "tr"}
@@ -129,7 +130,7 @@ func TestProcessAcquireNonOwnerReturnsOwnerID(t *testing.T) {
 
 		ls := &LiteScheduler{ownerProxy: proxy}
 		data, err := ls.Process(&LiteRequest{
-			Op: "acquire", TenantID: "tenant1", SessionID: "session1", TraceID: "trace1",
+			Op: "acquire", TenantID: "tenant1", SessionID: "session1", Concurrency: 1, TraceID: "trace1",
 		}, "trace1", "", nil)
 		convey.So(err, convey.ShouldBeNil)
 

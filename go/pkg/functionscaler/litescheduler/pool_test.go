@@ -103,7 +103,7 @@ func TestCandidateSlotsAreSessionContextIsolated(t *testing.T) {
 				EnableSessionCtx: true,
 			},
 		}}
-	slots := pool.candidateSlotsLocked("ctx-a")
+	slots := pool.candidateSlotsLocked("ctx-a", 1)
 	convey.Convey("only the requested non-reclaiming context is returned", t, func() {
 		convey.So(len(slots), convey.ShouldEqual, 1)
 		convey.So(slots[0].InstanceID, convey.ShouldEqual, "a")

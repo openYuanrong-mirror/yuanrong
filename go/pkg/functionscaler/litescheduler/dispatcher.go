@@ -27,14 +27,17 @@ import (
 // concurrencyDispatcher selects the instance with lowest InUse/Capacity score.
 type concurrencyDispatcher struct{}
 
-// Select picks the slot with the lowest InUse/Capacity score. Returns nil when no
-// slot has remaining capacity. slots must be a consistent snapshot; reads of
-// ins.InUse/ins.Status are not locked.
-func (d *concurrencyDispatcher) Select(slots []*LiteInstance) *LiteInstance {
+// Select picks the slot with the lowest InUse/Capacity score that can fit the
+// requested concurrency. Returns nil when no slot has enough remaining capacity.
+// slots must be a consistent snapshot; reads of ins.InUse/ins.Status are not locked.
+func (d *concurrencyDispatcher) Select(slots []*LiteInstance, concurrency int) *LiteInstance {
+	if concurrency <= 0 {
+		return nil
+	}
 	var best *LiteInstance
 	bestScore := math.MaxFloat64
 	for _, ins := range slots {
-		if ins.Capacity <= 0 || ins.InUse >= ins.Capacity {
+		if ins.Capacity <= 0 || ins.Capacity-ins.InUse < concurrency {
 			continue
 		}
 		score := float64(ins.InUse) / float64(ins.Capacity)
@@ -62,12 +65,17 @@ type roundRobinDispatcher struct {
 }
 
 // Select advances the round-robin cursor across slots, preferring Running instances
-// and falling back to SubHealth. Returns nil when no slot has remaining capacity.
-func (d *roundRobinDispatcher) Select(slots []*LiteInstance) *LiteInstance {
+// and falling back to SubHealth. Returns nil when no slot can fit the requested
+// concurrency. slots must be a consistent snapshot; reads of ins.InUse/ins.Status
+// are not locked.
+func (d *roundRobinDispatcher) Select(slots []*LiteInstance, concurrency int) *LiteInstance {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	n := len(slots)
 	if n == 0 {
+		return nil
+	}
+	if concurrency <= 0 {
 		return nil
 	}
 	if d.curIndex >= n {
@@ -76,7 +84,7 @@ func (d *roundRobinDispatcher) Select(slots []*LiteInstance) *LiteInstance {
 	for offset := 0; offset < n; offset++ {
 		idx := (d.curIndex + offset) % n
 		ins := slots[idx]
-		if ins.Status == InstanceStatusRunning && ins.InUse < ins.Capacity {
+		if ins.Status == InstanceStatusRunning && ins.Capacity-ins.InUse >= concurrency {
 			d.curIndex = (idx + 1) % n
 			return ins
 		}
@@ -84,13 +92,14 @@ func (d *roundRobinDispatcher) Select(slots []*LiteInstance) *LiteInstance {
 	for offset := 0; offset < n; offset++ {
 		idx := (d.curIndex + offset) % n
 		ins := slots[idx]
-		if ins.Status == InstanceStatusSubHealth && ins.InUse < ins.Capacity {
+		if ins.Status == InstanceStatusSubHealth && ins.Capacity-ins.InUse >= concurrency {
 			d.curIndex = (idx + 1) % n
 			return ins
 		}
 	}
 	return nil
 }
+
 func (d *roundRobinDispatcher) Policy() string { return types.InstanceSchedulePolicyRoundRobin }
 
 // newDispatcher picks a dispatcher by funcSpec.SchedulePolicy; unknown degrades to concurrency.

@@ -64,9 +64,18 @@ type LiteInstance struct {
 // timer state. It mirrors legacy's sessionRecord: when activeAllocs drops to 0,
 // a timer is started; if a new acquire arrives before the timer fires, the timer
 // is cancelled. On timer fire, the session→instance binding is removed.
+//
+// Concurrency-aware reservation model (matches concurrencyscheduler's
+// bind-once-reserve-many): at fresh bind, slot.InUse is bumped by the session's
+// Concurrency; reserved holds units not yet handed out to in-flight acquires;
+// activeAllocs holds units currently handed out. Subsequent acquires within the
+// session decrement reserved (no slot.InUse change); releases return to reserved.
+// The reservation is released back to the instance only when the session unbinds
+// (idle-unbind timer, instance removal, pool deletion).
 type sessionBinding struct {
 	instanceID   string
-	activeAllocs int // number of outstanding allocations for this session
+	reserved     int // capacity units reserved on the instance, not yet handed out
+	activeAllocs int // outstanding allocations handed out from the reservation (incl. over-acquire)
 	timer        *time.Timer
 	expiring     bool // true when the idle-unbind timer is ticking
 }
@@ -96,8 +105,10 @@ type PoolStats struct {
 
 // Dispatcher selects a target LiteInstance for a session request.
 type Dispatcher interface {
-	// Select picks one instance from slots; returns nil if none schedulable.
-	Select(slots []*LiteInstance) *LiteInstance
+	// Select picks one instance from slots that can fit the requested concurrency;
+	// returns nil if none schedulable. slots must be a consistent snapshot; reads
+	// of ins.InUse/ins.Status are not locked.
+	Select(slots []*LiteInstance, concurrency int) *LiteInstance
 	// Policy returns the dispatcher policy name.
 	Policy() string
 }
@@ -136,13 +147,14 @@ func buildLiteInstanceFromInstance(ins *types.Instance) *LiteInstance {
 	}
 }
 
-// candidateSlotsLocked returns schedulable instances; caller must hold pool.Lock.
-func (p *LiteFunctionPool) candidateSlotsLocked(sessionCtxID string) []*LiteInstance {
+// candidateSlotsLocked returns schedulable instances that can fit the requested
+// concurrency; caller must hold pool.Lock.
+func (p *LiteFunctionPool) candidateSlotsLocked(sessionCtxID string, concurrency int) []*LiteInstance {
 	out := make([]*LiteInstance, 0, len(p.instances))
 	for _, ins := range p.instances {
 		if ins.SessionCtxID == sessionCtxID && !ins.Reclaiming &&
 			(ins.Status == InstanceStatusRunning || ins.Status == InstanceStatusSubHealth) &&
-			ins.InUse < ins.Capacity {
+			ins.Capacity-ins.InUse >= concurrency {
 			out = append(out, ins)
 		}
 	}
@@ -161,6 +173,19 @@ func (p *LiteFunctionPool) sessionBindingKey(sessionID, sessionCtxID string) str
 		return sessionID
 	}
 	return types.JoinKey(sessionID, sessionCtxID)
+}
+
+// instanceConcurrentNum returns the per-instance concurrency limit configured on
+// the funcSpec (0 means unset, i.e. no limit). It takes pool.RLock itself, so the
+// caller must NOT hold pool.Lock (or pool.RLock): upsertPool swaps the funcSpec
+// pointer under pool.Lock, and reading it unlocked would race with the swap.
+func (p *LiteFunctionPool) instanceConcurrentNum() int {
+	p.RLock()
+	defer p.RUnlock()
+	if p.funcSpec == nil {
+		return 0
+	}
+	return p.funcSpec.InstanceMetaData.ConcurrentNum
 }
 
 // currentInUse returns the sum of InUse over all instances. It takes pool.RLock itself,
@@ -235,51 +260,75 @@ func sessionTTLFor(reqTTL int) time.Duration {
 }
 
 // tryLocalStickyLocked checks the local session binding and returns the matching
-// schedulable slot. Returns (slot, true) on sticky hit (and cancels any pending
-// idle-unbind timer). Returns (nil, false) on miss or on an invalidated binding
-// (instance absent/unhealthy/full); in the latter case the stale binding is
-// removed so the caller can dispatch or lazily recover from the external store.
+// schedulable slot and its binding. Returns (slot, binding, true) on sticky hit
+// (and cancels any pending idle-unbind timer). A sticky hit requires either a
+// non-empty reservation (reserved>0, can hand out without touching instance
+// capacity) OR remaining instance capacity (InUse<Capacity, can over-acquire).
+// Returns (nil, nil, false) on miss or on an invalidated binding (instance
+// absent/unhealthy/full); in the latter case the stale binding is removed so
+// the caller can dispatch or lazily recover from the external store.
 // Shared by handleAcquire Phase 1 (first lookup) and Phase 3 (re-check after the
 // out-of-lock store.Get). Caller must hold pool.Lock.
-func (p *LiteFunctionPool) tryLocalStickyLocked(bindingKey string) (*LiteInstance, bool) {
+func (p *LiteFunctionPool) tryLocalStickyLocked(bindingKey string) (*LiteInstance, *sessionBinding, bool) {
 	binding, ok := p.sessions[bindingKey]
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	slot := p.instances[binding.instanceID]
 	if slot != nil &&
 		(slot.Status == InstanceStatusRunning || slot.Status == InstanceStatusSubHealth) &&
-		slot.InUse < slot.Capacity {
+		(binding.reserved > 0 || slot.InUse < slot.Capacity) {
 		p.cancelSessionUnbind(bindingKey)
-		return slot, true
+		return slot, binding, true
 	}
 	// Binding exists but its instance is absent/unhealthy/full: clean the stale
-	// binding so dispatch/recovery start from a clean slate.
+	// binding so dispatch/recovery start from a clean slate. removeSessionBinding
+	// also releases any reservation the binding still held back to the instance.
 	p.removeSessionBinding(bindingKey)
-	return nil, false
+	return nil, nil, false
 }
 
-// bindSessionOnAcquire creates or refreshes a sessionBinding for the given
-// sessionID, incrementing activeAllocs. If the session was in the idle-unbind
-// pending state (expiring), the timer is cancelled. Caller must hold pool.Lock.
-func (p *LiteFunctionPool) bindSessionOnAcquire(sessionID, instanceID string) {
-	binding, ok := p.sessions[sessionID]
-	if !ok {
-		binding = &sessionBinding{instanceID: instanceID}
-		p.sessions[sessionID] = binding
-	} else {
-		// session rebind to a different instance (e.g. sticky invalidated): stop
-		// any pending unbind timer and rebind.
-		binding.stopTimer()
-		binding.expiring = false
-		binding.instanceID = instanceID
-	}
-	binding.activeAllocs++
-}
-
-// unbindSessionOnRelease decrements activeAllocs and, if it reaches 0, starts the
-// idle-unbind timer. The caller schedules the timer outside pool.Lock.
+// bindSessionFreshLocked creates a new sessionBinding that reserves `concurrency`
+// capacity units on the instance. The caller must have already bumped slot.InUse
+// by concurrency. The binding starts with reserved=concurrency-1 (one unit is
+// immediately handed out to the in-flight acquire) and activeAllocs=1. If a stale
+// binding for the same key somehow exists (defensive; tryLocalStickyLocked should
+// have removed it), its pending timer is stopped and it is overwritten.
 // Caller must hold pool.Lock.
+func (p *LiteFunctionPool) bindSessionFreshLocked(bindingKey, instanceID string, concurrency int) {
+	binding := &sessionBinding{
+		instanceID:   instanceID,
+		reserved:     concurrency - 1,
+		activeAllocs: 1,
+	}
+	if old, ok := p.sessions[bindingKey]; ok {
+		old.stopTimer()
+	}
+	p.sessions[bindingKey] = binding
+}
+
+// bindSessionStickyTakeLocked hands out one unit from an existing binding's
+// reservation. If the reservation is exhausted (reserved==0), the unit is
+// over-acquired directly from the instance (caller bumps slot.InUse by 1).
+// Returns the slot.InUse delta the caller must apply: 0 when taken from
+// reserved, 1 when over-acquired. Caller must hold pool.Lock.
+func (p *LiteFunctionPool) bindSessionStickyTakeLocked(binding *sessionBinding) int {
+	if binding.reserved > 0 {
+		binding.reserved--
+		binding.activeAllocs++
+		return 0
+	}
+	// over-acquire: reservation exhausted, take one more unit from the instance
+	binding.activeAllocs++
+	return 1
+}
+
+// unbindSessionOnRelease decrements activeAllocs and returns the released unit
+// to the session's reservation pool (reserved++), NOT to the instance. The
+// instance capacity reserved by this session is only released when the session
+// unbinds (removeSessionBinding). If activeAllocs reaches 0 and no idle-unbind
+// timer is running, one is started. The caller schedules the timer outside
+// pool.Lock. Caller must hold pool.Lock.
 func (p *LiteFunctionPool) unbindSessionOnRelease(sessionID string) (needTimer bool, ttl time.Duration) {
 	binding, ok := p.sessions[sessionID]
 	if !ok {
@@ -287,6 +336,7 @@ func (p *LiteFunctionPool) unbindSessionOnRelease(sessionID string) (needTimer b
 	}
 	if binding.activeAllocs > 0 {
 		binding.activeAllocs--
+		binding.reserved++ // return to session's reservation pool, not to the instance
 	}
 	if binding.activeAllocs > 0 || binding.expiring {
 		return false, 0
@@ -308,18 +358,39 @@ func (p *LiteFunctionPool) cancelSessionUnbind(sessionID string) {
 	binding.expiring = false
 }
 
-// removeSessionBinding deletes the session binding entry entirely and enqueues
-// an async Delete of the external store record so a subsequent acquire on the same
-// session does not recover a stale binding. Used by the timer callback, instance
-// deletion cleanup and sticky-invalidated re-dispatch. Caller must hold pool.Lock;
-// the async enqueue does not block on I/O. nil-safe when sessionStore is unset.
-// deletePool does NOT call this (it bulk-syncs via cleanExternalRecords instead).
+// removeSessionBinding deletes the session binding entry entirely and releases
+// the session's reserved capacity (reserved+activeAllocs) back to the instance.
+// It enqueues an async Delete of the external store record so a subsequent
+// acquire on the same session does not recover a stale binding. Used by the
+// timer callback, instance deletion cleanup and sticky-invalidated re-dispatch.
+// Caller must hold pool.Lock; the async enqueue does not block on I/O. nil-safe
+// when sessionStore is unset. deletePool does NOT call this (it bulk-syncs via
+// cleanExternalRecords instead); the instance may already be gone (removed by
+// the caller before this runs), in which case the reservation release is a no-op.
 func (p *LiteFunctionPool) removeSessionBinding(sessionID string) {
 	if binding, ok := p.sessions[sessionID]; ok {
 		binding.stopTimer()
+		// Release the session's reservation back to the instance. The instance
+		// may already be deleted (removeInstanceLocked deletes the map entry
+		// before iterating sessions), in which case slot is nil and the release
+		// is a no-op — the instance's InUse no longer matters.
+		p.processInstanceInUse(binding)
 	}
 	delete(p.sessions, sessionID)
 	p.sessionStore.deleteSessionFromStore(sessionID)
+}
+
+func (p *LiteFunctionPool) processInstanceInUse(binding *sessionBinding) {
+	if slot := p.instances[binding.instanceID]; slot != nil {
+		held := binding.reserved + binding.activeAllocs
+		if held > 0 {
+			if slot.InUse >= held {
+				slot.InUse -= held
+			} else {
+				slot.InUse = 0 // defensive: should not happen
+			}
+		}
+	}
 }
 
 // stopTimer stops the timer if set; safe to call when timer is nil.
