@@ -131,7 +131,7 @@ class TestCopyTransport(unittest.TestCase):
         query = parse_qs(urlparse(received["path"]).query)
         self.assertEqual(query["instance"], ["instance-a"])
         self.assertEqual(query["tty"], ["false"])
-        command = unquote(query["command"][0])
+        command = unquote(" ".join(query["command"]))
         self.assertIn("head -c", command)
         self.assertIn("tar -xmf -", command)
         self.assertIn("/tmp/remote.bin", command)
@@ -180,7 +180,7 @@ class TestCopyTransport(unittest.TestCase):
 
         query = parse_qs(urlparse(received["path"]).query)
         self.assertEqual(query["instance"], ["instance-dir"])
-        command = unquote(query["command"][0])
+        command = unquote(" ".join(query["command"]))
         self.assertIn("head -c", command)
         self.assertIn("tar -xmf -", command)
         self.assertIn("/tmp/remote-dir", command)
@@ -229,7 +229,7 @@ class TestCopyTransport(unittest.TestCase):
         query = parse_qs(urlparse(received["path"]).query)
         self.assertEqual(query["instance"], ["instance-b"])
         self.assertEqual(query["tty"], ["false"])
-        command = unquote(query["command"][0])
+        command = unquote(" ".join(query["command"]))
         self.assertIn("tar -cf -", command)
         self.assertIn("/var/remote.bin", command)
 
@@ -277,7 +277,7 @@ class TestCopyTransport(unittest.TestCase):
         self.assertEqual(received["child"], "child-data")
         query = parse_qs(urlparse(received["path"]).query)
         self.assertEqual(query["instance"], ["instance-dir"])
-        command = unquote(query["command"][0])
+        command = unquote(" ".join(query["command"]))
         self.assertIn("tar -cf -", command)
         self.assertIn("/var/remote-dir", command)
 

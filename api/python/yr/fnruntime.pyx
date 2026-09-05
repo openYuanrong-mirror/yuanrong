@@ -955,7 +955,7 @@ cdef CErrorInfo health_check_callback() noexcept nogil:
                 return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_FAILED, CModuleCode.RUNTIME, b"")
             return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_SUBHEALTH, CModuleCode.RUNTIME, b"")
         except Exception as e:
-            _logger.debug("health check callback failed: %s", e)
+            _logger.warning("health check callback failed: %s", e)
             return CErrorInfo(CErrorCode.ERR_HEALTH_CHECK_SUBHEALTH, CModuleCode.RUNTIME, b"")
 
 cdef CErrorInfo build_invoke_arg(arg, vector[CInvokeArg]& invokeArgs, string tenantId):

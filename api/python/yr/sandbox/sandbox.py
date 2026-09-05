@@ -18,11 +18,14 @@
 
 import argparse
 import logging
+import re
 import subprocess
 import sys
 import tempfile
 import os
 import json
+import time
+import uuid
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Union, Callable
 
@@ -33,6 +36,66 @@ from yr.config_manager import ConfigManager
 from yr.sandbox.filesystem import CpDirection, SandboxFilesystem, _get_gateway_host
 
 logger = logging.getLogger(__name__)
+
+_TRACE_ID_MAX_LEN = 128
+_TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_\-.:]+$")
+
+
+def _validate_trace_id(trace_id: str) -> None:
+    """Validate trace_id format to prevent injection and log corruption.
+
+    Allows alphanumerics, ``_ - . :`` (covers UUID, hex, dotted names).
+    Max 128 characters.
+    """
+    if not trace_id or len(trace_id) > _TRACE_ID_MAX_LEN:
+        raise ValueError(f"trace_id length must be 1-{_TRACE_ID_MAX_LEN}")
+    if not _TRACE_ID_RE.match(trace_id):
+        raise ValueError(
+            "trace_id contains invalid characters "
+            "(allowed: A-Z a-z 0-9 _ - . :)"
+        )
+
+
+def _with_trace(trace_id: Optional[str]) -> InvokeOptions:
+    """Build per-call InvokeOptions carrying the given trace_id.
+
+    When *trace_id* is empty/None, returns a default InvokeOptions so the
+    backend mints its own trace id (existing behavior).
+    """
+    opts = InvokeOptions()
+    if trace_id:
+        _validate_trace_id(trace_id)
+        opts.trace_id = trace_id
+    return opts
+
+
+def _local_request_id() -> str:
+    """Generate a local request id for SDK-side trace correlation."""
+    return str(uuid.uuid4())
+
+
+def _sandbox_trace_enter(op: str, trace_id: Optional[str], request_id: str,
+                         **extra) -> None:
+    """Emit ``[sandbox.<op>.enter]`` log line for signal-channel operations."""
+    if trace_id:
+        _validate_trace_id(trace_id)
+    fields = [f"yr.trace_id={trace_id}" if trace_id else None,
+              f"request_id={request_id}"]
+    fields.extend(f"{k}={v}" for k, v in extra.items() if v is not None)
+    logger.info("[sandbox.%s.enter] %s", op, " ".join(f for f in fields if f))
+
+
+def _sandbox_trace_exit(op: str, trace_id: Optional[str], request_id: str,
+                        result: str = "", cost_ms: int = 0, **extra) -> None:
+    """Emit ``[sandbox.<op>.exit]`` log line for signal-channel operations."""
+    if trace_id:
+        _validate_trace_id(trace_id)
+    fields = [f"yr.trace_id={trace_id}" if trace_id else None,
+              f"request_id={request_id}"]
+    fields.extend(f"{k}={v}" for k, v in extra.items() if v is not None)
+    fields.append(f"result={result}")
+    fields.append(f"cost_ms={cost_ms}")
+    logger.info("[sandbox.%s.exit] %s", op, " ".join(f for f in fields if f))
 
 
 def _sanitize_instance_id(instance_id: str) -> str:
@@ -466,6 +529,7 @@ class SandboxCreateOptions:
     before_checkpoint_func: Optional[Callable[..., Any]] = None
     after_restore_func: Optional[Callable[..., Any]] = None
     user: Optional[str] = None
+    trace_id: str = ""
 
 
 def create(
@@ -489,6 +553,7 @@ def create(
     after_restore_func: Optional[Callable[..., Any]] = None,
     graceful_shutdown_time: Optional[int] = None,
     user: Optional[str] = None,
+    trace_id: str = "",
 ):
     """
     Create a new Sandbox instance.
@@ -523,6 +588,9 @@ def create(
             ``Config.User``. Supports any format Docker accepts, e.g. ``"1000"``,
             ``"1000:1000"``, ``"root"``, ``"root:root"``.
             Only effective when sandbox_type="docker".
+        trace_id (str): Optional trace id propagated through the whole invoke
+            chain for link tracing. Empty (default) keeps the existing
+            behavior: the backend mints one.
 
     Returns:
         Sandbox wrapper instance.
@@ -566,6 +634,7 @@ def create(
             after_restore_func=after_restore_func,
             graceful_shutdown_time=graceful_shutdown_time,
             user=user,
+            trace_id=trace_id,
         )
     except Exception as e:
         print(f"failed to create, exception: {e}")
@@ -576,6 +645,7 @@ def restore(
     checkpoint_id: str,
     before_checkpoint_func: Optional[Callable[..., Any]] = None,
     after_restore_func: Optional[Callable[..., Any]] = None,
+    trace_id: str = "",
 ):
     """
     Restore a Sandbox from a previously created checkpoint.
@@ -584,6 +654,8 @@ def restore(
         checkpoint_id (str): The checkpoint ID returned by a previous checkpoint() call.
         before_checkpoint_func (Optional[Callable]): Hook called before future checkpoints.
         after_restore_func (Optional[Callable]): Hook called after restore completes.
+        trace_id (str): Optional trace id for link tracing of the restore chain.
+            Empty (default) keeps the existing behavior.
 
     Returns:
         Sandbox wrapper instance restored from the checkpoint.
@@ -603,6 +675,7 @@ def restore(
         checkpoint_id=checkpoint_id,
         before_checkpoint_func=before_checkpoint_func,
         after_restore_func=after_restore_func,
+        trace_id=trace_id,
     )
 
 
@@ -654,6 +727,7 @@ class Sandbox:
         after_restore_func: Optional[Callable[..., Any]] = None,
         graceful_shutdown_time: Optional[int] = None,
         user: Optional[str] = None,
+        trace_id: str = "",
     ):
         """
         Initialize the Sandbox wrapper.
@@ -696,11 +770,15 @@ class Sandbox:
                 ``Config.User``. Supports any format Docker accepts, e.g.
                 ``"1000"``, ``"1000:1000"``, ``"root"``, ``"root:root"``.
                 Only effective when sandbox_type="docker".
+            trace_id (str): Optional trace id propagated through the whole invoke
+                chain for link tracing. Empty (default) keeps the existing
+                behavior: the backend mints one.
         """
         self._forwarded_ports = set()
         self._tunnel_client = None
         self._proxy_port = proxy_port
         self._filesystem: Optional["SandboxFilesystem"] = None
+        self._trace_id = trace_id
 
         if checkpoint_id is None:
             self.create_new_instance(SandboxCreateOptions(
@@ -723,9 +801,10 @@ class Sandbox:
                 after_restore_func=after_restore_func,
                 graceful_shutdown_time=graceful_shutdown_time,
                 user=user,
+                trace_id=trace_id,
             ))
         else:
-            self.restore_instance(checkpoint_id=checkpoint_id)
+            self.restore_instance(checkpoint_id=checkpoint_id, trace_id=trace_id)
 
     def __del__(self):
         """
@@ -806,6 +885,10 @@ class Sandbox:
 
         if options.user is not None:
             opt.custom_extensions["host_user"] = options.user
+
+        if options.trace_id:
+            _validate_trace_id(options.trace_id)
+            opt.trace_id = options.trace_id
 
         opt.recover_retry_times = 3
 
@@ -915,10 +998,11 @@ class Sandbox:
         except Exception as e:
             raise RuntimeError(f"Failed to initialize sandbox instance: {e}") from e
 
+        hook_opts = _with_trace(options.trace_id)
         if before_checkpoint_func is not None:
-            yr.get(self._instance.register_before_snapshot_hook.invoke(before_checkpoint_func))
+            yr.get(self._instance.register_before_snapshot_hook.options(hook_opts).invoke(before_checkpoint_func))
         if after_restore_func is not None:
-            yr.get(self._instance.register_after_snapstart_hook.invoke(after_restore_func))
+            yr.get(self._instance.register_after_snapstart_hook.options(hook_opts).invoke(after_restore_func))
 
     def exec(
         self,
@@ -926,6 +1010,7 @@ class Sandbox:
         working_dir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         timeout: Optional[int] = None,
+        trace_id: Optional[str] = None,
     ):
         """
         Execute a command in the sandbox environment.
@@ -936,6 +1021,8 @@ class Sandbox:
             env (Optional[Dict[str, str]]): Environment variables for command execution.
             timeout (Optional[int]): Timeout in seconds for command execution.
                 If None, no timeout is set.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Returns:
             A dictionary containing:
@@ -948,6 +1035,7 @@ class Sandbox:
             working_dir=working_dir,
             env=env,
             timeout=timeout,
+            trace_id=trace_id,
         )
         return self.get_exec_result(exec_ref)
 
@@ -957,6 +1045,7 @@ class Sandbox:
         working_dir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         timeout: Optional[int] = None,
+        trace_id: Optional[str] = None,
     ):
         """
         Execute a command in the sandbox environment asynchronously.
@@ -967,6 +1056,8 @@ class Sandbox:
             env (Optional[Dict[str, str]]): Environment variables for command execution.
             timeout (Optional[int]): Timeout in seconds for command execution.
                 If None, no timeout is set.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Returns:
             ObjectRef: Reference to the execution result that can be used with self.get_exec_result().
@@ -976,9 +1067,11 @@ class Sandbox:
             working_dir=working_dir,
             env=env,
             timeout=timeout,
+            trace_id=trace_id,
         )
 
-    def read_file(self, path: str, mode: str = "rb"):
+    def read_file(self, path: str, mode: str = "rb",
+                  trace_id: Optional[str] = None):
         """
         Read a file from the sandbox via RPC.
 
@@ -988,6 +1081,8 @@ class Sandbox:
         Args:
             path (str): Absolute path of the file inside the sandbox.
             mode (str): Python open mode. "rb" for binary (default), "r" for text.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Returns:
             bytes or str: File content.
@@ -996,9 +1091,13 @@ class Sandbox:
             >>> content = sb.read_file("/sandbox/data.txt", mode="r")
             >>> print(content)
         """
-        return yr.get(self._instance.read_file.invoke(path, mode=mode))
+        method = self._instance.read_file
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return yr.get(method.invoke(path, mode=mode))
 
-    def write_file(self, path: str, data, mode: str = "wb") -> None:
+    def write_file(self, path: str, data, mode: str = "wb",
+                   trace_id: Optional[str] = None) -> None:
         """
         Write data to a file in the sandbox via RPC.
 
@@ -1011,42 +1110,64 @@ class Sandbox:
             data (bytes or str): Data to write.
             mode (str): Python open mode. "wb" for binary (default), "w" for
                         text, "a"/"ab" for append.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Examples:
             >>> sb.write_file("/sandbox/output.txt", "hello world", mode="w")
         """
-        return yr.get(self._instance.write_file.invoke(path, data, mode=mode))
+        method = self._instance.write_file
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return yr.get(method.invoke(path, data, mode=mode))
 
     def list_files(
         self,
         path: str,
-        recursive: bool = False,
+        recursive: Union[bool, int] = False,
         max_depth: Optional[int] = None,
         include_files: bool = True,
         include_dirs: bool = True,
+        trace_id: Optional[str] = None,
     ) -> Dict:
         """
         List files and directories in the sandbox via RPC.
 
         Args:
             path (str): Absolute path of the directory to list.
-            recursive (bool): Whether to list recursively. Default False.
-            max_depth (Optional[int]): Maximum recursion depth. None = unlimited.
+            recursive (Union[bool, int]): ``False`` (default) = no recursion,
+                ``True`` = unlimited depth, ``int`` = max N levels deep.
+            max_depth (Optional[int]): Explicit recursion depth limit; takes
+                precedence over the ``int`` form of ``recursive``. ``None``
+                (default) uses the depth implied by ``recursive``.
             include_files (bool): Include files in result. Default True.
             include_dirs (bool): Include directories in result. Default True.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Returns:
             Dict: ``{"items": [{name, path, size, is_directory, modified_time, type}, ...]}``
 
         Examples:
-            >>> result = sb.list_files("/tmp", recursive=True, max_depth=2)
+            >>> result = sb.list_files("/tmp", recursive=2)
             >>> for item in result["items"]:
             ...     print(item["name"], item["size"])
         """
-        items = yr.get(self._instance.list_files.invoke(
+        if isinstance(recursive, int) and not isinstance(recursive, bool):
+            _recursive = True
+            _max_depth = recursive
+        else:
+            _recursive = bool(recursive)
+            _max_depth = None
+        if max_depth is not None:
+            _max_depth = max_depth
+        method = self._instance.list_files
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        items = yr.get(method.invoke(
             path,
-            recursive=recursive,
-            max_depth=max_depth,
+            recursive=_recursive,
+            max_depth=_max_depth,
             include_files=include_files,
             include_dirs=include_dirs,
         ))
@@ -1057,6 +1178,7 @@ class Sandbox:
         path: str,
         pattern: str,
         exclude_patterns: Optional[List[str]] = None,
+        trace_id: Optional[str] = None,
     ) -> Dict:
         """
         Search files in the sandbox by glob pattern via RPC.
@@ -1065,6 +1187,8 @@ class Sandbox:
             path (str): Absolute path of the search root directory.
             pattern (str): Glob pattern to match file names (e.g. "*.txt").
             exclude_patterns (Optional[List[str]]): Glob patterns to exclude.
+            trace_id (Optional[str]): Trace id for link tracing of this invoke.
+                None (default) keeps the existing behavior.
 
         Returns:
             Dict: ``{"items": [{name, path, size, is_directory, modified_time, type}, ...]}``
@@ -1072,30 +1196,57 @@ class Sandbox:
         Examples:
             >>> result = sb.search_files("/tmp", "*.py", exclude_patterns=["*.pyc"])
         """
-        items = yr.get(self._instance.search_files.invoke(
+        method = self._instance.search_files
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        items = yr.get(method.invoke(
             path,
             pattern,
             exclude_patterns=exclude_patterns,
         ))
         return {"items": items}
 
-    def get_working_dir(self):
+    def get_working_dir(self, trace_id: Optional[str] = None):
         """Get the working directory of the sandbox."""
-        return self._instance.get_working_dir.invoke()
+        method = self._instance.get_working_dir
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return method.invoke()
 
-    def cleanup(self):
+    def cleanup(self, trace_id: Optional[str] = None):
         """Cleanup temp files in the sandbox."""
-        return self._instance.cleanup.invoke()
+        method = self._instance.cleanup
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return method.invoke()
 
-    def terminate(self):
+    def terminate(self, trace_id: Optional[str] = None):
         """
         Terminate the sandbox instance.
         Stop tunnel client (if any) and terminate the sandbox instance.
+
+        Args:
+            trace_id (Optional[str]): Trace id for link tracing. Emitted in the
+                [sandbox.terminate] log line alongside the request id used by
+                the signal chain. None (default, e.g. implicit calls from
+                ``__del__``) omits the key.
         """
-        if self._tunnel_client is not None:
-            self._tunnel_client.stop()
-            self._tunnel_client = None
-        self._instance.terminate()
+        request_id = _local_request_id()
+        start = time.monotonic()
+        _sandbox_trace_enter("terminate", trace_id, request_id)
+        try:
+            if self._tunnel_client is not None:
+                self._tunnel_client.stop()
+                self._tunnel_client = None
+            self._instance.terminate()
+            _sandbox_trace_exit("terminate", trace_id, request_id,
+                                result="OK",
+                                cost_ms=int((time.monotonic() - start) * 1000))
+        except Exception as e:
+            _sandbox_trace_exit("terminate", trace_id, request_id,
+                                result=f"ERR:{e}",
+                                cost_ms=int((time.monotonic() - start) * 1000))
+            raise
 
     def get_tunnel_url(self) -> str:
         """Return the internal HTTP proxy URL for sandbox code to call.
@@ -1109,18 +1260,25 @@ class Sandbox:
             raise RuntimeError("No upstream configured. Pass upstream= to create().")
         return f"http://127.0.0.1:{self._proxy_port}"
 
-    def get_internal_urls(self) -> Dict[int, str]:
+    def get_internal_urls(self, trace_id: Optional[str] = None) -> Dict[int, str]:
         """Return internal cluster URLs for port-forwarded services.
 
         Other sandbox instances can use these URLs to reach this sandbox's
         forwarded ports on the internal network.
+
+        Args:
+            trace_id (Optional[str]): Trace id propagated through the whole
+                invoke chain. None (default) keeps the existing behavior.
 
         Returns:
             Dict[int, str]: Mapping from container port to internal URL.
                 e.g. {8080: "https://192.0.2.1:40001", 9090: "https://192.0.2.1:40002"}
                 Returns an empty dict if no port forwarding is configured.
         """
-        return yr.get(self._instance.get_internal_urls.invoke())
+        method = self._instance.get_internal_urls
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return yr.get(method.invoke())
 
     def get_tunnel(self, port: int) -> str:
         """
@@ -1157,6 +1315,7 @@ class Sandbox:
         self,
         ttl: int = -1,
         leave_running: bool = False,
+        trace_id: Optional[str] = None,
     ) -> str:
         """
         Create a checkpoint of the current sandbox state.
@@ -1171,6 +1330,9 @@ class Sandbox:
             leave_running (bool): If True, the sandbox continues running after
                 checkpointing. If False, the sandbox is terminated after checkpoint.
                 Default False.
+            trace_id (Optional[str]): Trace id for link tracing. Emitted in the
+                [sandbox.checkpoint] log line alongside the request id used by
+                the signal chain. None (default) omits the key.
 
         Returns:
             str: The checkpoint ID that uniquely identifies this snapshot.
@@ -1184,13 +1346,26 @@ class Sandbox:
             >>> checkpoint_id = sandbox.checkpoint(leave_running=True)
             >>> print(f"Checkpoint: {checkpoint_id}")
         """
-        checkpoint_id = self._instance.snapshot(
-            ttl=ttl,
-            leave_running=leave_running,
-        )
-        return checkpoint_id
+        request_id = _local_request_id()
+        start = time.monotonic()
+        _sandbox_trace_enter("checkpoint", trace_id, request_id)
+        try:
+            checkpoint_id = self._instance.snapshot(
+                ttl=ttl,
+                leave_running=leave_running,
+            )
+            _sandbox_trace_exit("checkpoint", trace_id, request_id,
+                                result="OK",
+                                cost_ms=int((time.monotonic() - start) * 1000))
+            return checkpoint_id
+        except Exception as e:
+            _sandbox_trace_exit("checkpoint", trace_id, request_id,
+                                result=f"ERR:{e}",
+                                cost_ms=int((time.monotonic() - start) * 1000))
+            raise
 
-    def restore_instance(self, checkpoint_id: str):
+    def restore_instance(self, checkpoint_id: str,
+                         trace_id: Optional[str] = None):
         """
         Restore the sandbox from a checkpoint.
 
@@ -1200,20 +1375,35 @@ class Sandbox:
         Args:
             checkpoint_id (str): The checkpoint ID returned by a previous
                 ``checkpoint()`` call.
+            trace_id (Optional[str]): Trace id for link tracing. Emitted in the
+                [sandbox.restore] log line alongside the request id used by
+                the signal chain. None (default) omits the key.
 
         Raises:
             RuntimeError: If the restore or readiness check fails.
         """
-        self._instance = SandboxInstance.snapstart(checkpoint_id=checkpoint_id)
-
-        # Wait for the restored instance to be fully ready
+        request_id = _local_request_id()
+        start = time.monotonic()
+        _sandbox_trace_enter("restore", trace_id, request_id)
         try:
-            ref = self._instance.get_working_dir.invoke()
-            yr.get(ref)
+            self._instance = SandboxInstance.snapstart(checkpoint_id=checkpoint_id)
+
+            # Wait for the restored instance to be fully ready
+            try:
+                ref = self._instance.get_working_dir.invoke()
+                yr.get(ref)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}"
+                ) from e
+            _sandbox_trace_exit("restore", trace_id, request_id,
+                                result="OK",
+                                cost_ms=int((time.monotonic() - start) * 1000))
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}"
-            ) from e
+            _sandbox_trace_exit("restore", trace_id, request_id,
+                                result=f"ERR:{e}",
+                                cost_ms=int((time.monotonic() - start) * 1000))
+            raise
 
     def cp(
         self,
@@ -1221,6 +1411,7 @@ class Sandbox:
         dst: str,
         direction: CpDirection = CpDirection.UPLOAD,
         streaming: Optional[bool] = None,
+        trace_id: Optional[str] = None,
     ) -> None:
         """Copy a file or directory to or from the sandbox.
 
@@ -1264,7 +1455,8 @@ class Sandbox:
             >>> # Upload a directory
             >>> sb.cp("/local/project/", "/sandbox/project/")
         """
-        getattr(self.filesystem, "_cp")(src, dst, direction=direction, streaming=streaming)
+        getattr(self.filesystem, "_cp")(src, dst, direction=direction, streaming=streaming,
+                                        trace_id=trace_id)
 
     def _exec(
         self,
@@ -1272,8 +1464,12 @@ class Sandbox:
         working_dir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         timeout: Optional[int] = None,
+        trace_id: Optional[str] = None,
     ):
-        return self._instance.execute.invoke(
+        method = self._instance.execute
+        if trace_id:
+            method = method.options(_with_trace(trace_id))
+        return method.invoke(
             command=command,
             working_dir=working_dir,
             env=env,
@@ -1308,7 +1504,6 @@ def main():
         opt.namespace = args.namespace
         opt.skip_serialize = True  # Skip serialization for pre-deployed SDK class
         if not opt.name:
-            import uuid
             opt.name = str(uuid.uuid4())
 
         sandbox = SandboxInstance.options(opt).invoke()

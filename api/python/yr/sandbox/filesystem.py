@@ -244,6 +244,7 @@ class SandboxFilesystem:
         local_path: str,
         remote_path: str,
         streaming: Optional[bool] = None,
+        trace_id: Optional[str] = None,
     ) -> None:
         """Copy a local file or directory **into** the sandbox.
 
@@ -252,18 +253,22 @@ class SandboxFilesystem:
             remote_path: Absolute path inside the **sandbox**.
             streaming:   ``None`` = auto, ``True`` = gzip streaming,
                          ``False`` = non-streaming tar.
+            trace_id:    Trace id for link tracing, sent as the ``trace`` query
+                         parameter on the exec websocket. None (default) omits it.
 
         Raises:
             FileNotFoundError: *local_path* does not exist.
             RuntimeError: Server address is not configured.
         """
-        self._cp(local_path, remote_path, CpDirection.UPLOAD, streaming)
+        self._cp(local_path, remote_path, CpDirection.UPLOAD, streaming,
+                 trace_id=trace_id)
 
     def copy_to_local(
         self,
         remote_path: str,
         local_path: str,
         streaming: Optional[bool] = None,
+        trace_id: Optional[str] = None,
     ) -> None:
         """Copy a file or directory **from** the sandbox to the local machine.
 
@@ -272,11 +277,14 @@ class SandboxFilesystem:
             local_path:  Absolute or relative path on the **local** machine.
             streaming:   ``None`` = auto, ``True`` = gzip streaming,
                          ``False`` = non-streaming tar.
+            trace_id:    Trace id for link tracing, sent as the ``trace`` query
+                         parameter on the exec websocket. None (default) omits it.
 
         Raises:
             RuntimeError: Server address is not configured.
         """
-        self._cp(remote_path, local_path, CpDirection.DOWNLOAD, streaming)
+        self._cp(remote_path, local_path, CpDirection.DOWNLOAD, streaming,
+                 trace_id=trace_id)
 
     def _resolve_transport_kwargs(self, host: str, port: str) -> dict:
         """Auto-resolve transport kwargs (ssl/token/cert/verify) from yr config.
@@ -368,6 +376,7 @@ class SandboxFilesystem:
         dst: str,
         direction: CpDirection = CpDirection.UPLOAD,
         streaming: Optional[bool] = None,
+        trace_id: Optional[str] = None,
     ) -> None:
         """Core copy implementation; delegates to :mod:`yr.cli.exec` transport.
 
@@ -378,12 +387,17 @@ class SandboxFilesystem:
                        ``DOWNLOAD`` → src is sandbox path, dst is local.
             streaming: ``None`` = auto-select, ``True`` = gzip streaming,
                        ``False`` = non-streaming tar.
+            trace_id:  Trace id for link tracing, appended as the ``trace``
+                       query parameter on the exec websocket. None (default)
+                       omits it.
 
         Raises:
             FileNotFoundError: Local source not found (upload only).
             RuntimeError: Server address not configured.
         """
         from yr.cli.exec import (
+            ExecConnection,
+            CopyRequest,
             copy_to_remote,
             copy_from_remote,
             copy_to_remote_streaming,
@@ -399,6 +413,7 @@ class SandboxFilesystem:
             raise FileNotFoundError(f"Local source path not found: {local_path}")
 
         host, port, instance_id, transport_kwargs = self._get_connection()
+        connection = ExecConnection(host=host, port=port, **transport_kwargs)
 
         if streaming is None:
             streaming = choose_cp_mode(local_path, remote_path, upload=upload)
@@ -407,23 +422,25 @@ class SandboxFilesystem:
             fn = copy_to_remote_streaming if streaming else copy_to_remote
             asyncio.run(
                 fn(
-                    host=host,
-                    port=port,
-                    instance=instance_id,
-                    local_path=local_path,
-                    remote_path=remote_path,
-                    **transport_kwargs,
+                    connection,
+                    CopyRequest(
+                        instance=instance_id,
+                        local_path=local_path,
+                        remote_path=remote_path,
+                        trace_id=trace_id,
+                    ),
                 )
             )
         else:
             fn = copy_from_remote_streaming if streaming else copy_from_remote
             asyncio.run(
                 fn(
-                    host=host,
-                    port=port,
-                    instance=instance_id,
-                    remote_path=remote_path,
-                    local_path=local_path,
-                    **transport_kwargs,
+                    connection,
+                    CopyRequest(
+                        instance=instance_id,
+                        local_path=local_path,
+                        remote_path=remote_path,
+                        trace_id=trace_id,
+                    ),
                 )
             )
