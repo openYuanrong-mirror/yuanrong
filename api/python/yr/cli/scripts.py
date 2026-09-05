@@ -2220,6 +2220,7 @@ def exec_command(stdin, tty, verify_server, instance, command):
             command=command,
             allocate_tty=tty,
             stdin=stdin,
+            trace_id=os.environ.get("YR_TRACE_ID"),
         )
         asyncio.run(
             run_client(
@@ -2282,6 +2283,8 @@ def cp(src, dst, streaming):
         token=__jwt_token,
     )
 
+    trace_id = os.environ.get("YR_TRACE_ID")
+
     if target["upload"]:
         use_streaming = (
             streaming
@@ -2292,7 +2295,10 @@ def cp(src, dst, streaming):
         asyncio.run(
             fn(
                 connection,
-                CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
+                CopyRequest(
+                    target["instance"], target["local_path"], target["remote_path"],
+                    trace_id=trace_id,
+                ),
             )
         )
         return
@@ -2306,7 +2312,10 @@ def cp(src, dst, streaming):
     asyncio.run(
         fn(
             connection,
-            CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
+            CopyRequest(
+                target["instance"], target["local_path"], target["remote_path"],
+                trace_id=trace_id,
+            ),
         )
     )
 
