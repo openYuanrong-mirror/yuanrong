@@ -101,6 +101,7 @@ class ExecInvocation:
     stdin: bool = None
     rows: int = None
     cols: int = None
+    trace_id: str = None
 
 
 @dataclass
@@ -108,6 +109,7 @@ class CopyRequest:
     instance: str
     local_path: str
     remote_path: str
+    trace_id: str = None
 
 
 def _quiet_connection(connection: ExecConnection) -> ExecConnection:
@@ -495,6 +497,11 @@ def build_exec_uri(connection: ExecConnection, invocation: ExecInvocation):
         query_params.append(f"tenant_id={quote(connection.user)}")
     if connection.token:
         query_params.append(f"token={quote(connection.token)}")
+    if getattr(invocation, "trace_id", None):
+        tid = invocation.trace_id
+        if len(tid) > 128:
+            raise ValueError(f"trace_id too long ({len(tid)} > 128)")
+        query_params.append(f"trace={quote(tid)}")
 
     query_string = "&".join(query_params)
     protocol = "wss" if connection.use_ssl else "ws"
@@ -631,7 +638,12 @@ async def copy_to_remote(connection: ExecConnection, request: CopyRequest):
     ]
     uri = build_exec_uri(
         connection,
-        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
+        ExecInvocation(
+            instance=request.instance,
+            command=command,
+            allocate_tty=False,
+            trace_id=getattr(request, "trace_id", None),
+        ),
     )
     ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
@@ -677,7 +689,12 @@ async def copy_from_remote(connection: ExecConnection, request: CopyRequest):
     ]
     uri = build_exec_uri(
         connection,
-        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
+        ExecInvocation(
+            instance=request.instance,
+            command=command,
+            allocate_tty=False,
+            trace_id=getattr(request, "trace_id", None),
+        ),
     )
     ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
@@ -727,7 +744,12 @@ async def copy_to_remote_streaming(connection: ExecConnection, request: CopyRequ
     ]
     uri = build_exec_uri(
         connection,
-        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
+        ExecInvocation(
+            instance=request.instance,
+            command=command,
+            allocate_tty=False,
+            trace_id=getattr(request, "trace_id", None),
+        ),
     )
     ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
@@ -821,7 +843,12 @@ async def copy_from_remote_streaming(connection: ExecConnection, request: CopyRe
     ]
     uri = build_exec_uri(
         connection,
-        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
+        ExecInvocation(
+            instance=request.instance,
+            command=command,
+            allocate_tty=False,
+            trace_id=getattr(request, "trace_id", None),
+        ),
     )
     ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
