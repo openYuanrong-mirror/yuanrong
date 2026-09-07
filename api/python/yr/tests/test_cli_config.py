@@ -281,17 +281,17 @@ class TestCliConfig(unittest.TestCase):
         self.assertEqual(config["function_proxy"]["args"]["aggregated_strategy"], "no_aggregate")
 
     def test_scheduler_explicit_overrides(self):
-        overrides = tuple(
-            f"{component}.args.{value}"
-            for component in ("function_master", "function_proxy")
-            for value in (
-                "enable_unit_scheduler=false",
-                'schedule_placement_policy="spread"',
-                'aggregated_strategy="no_aggregate"',
-                "schedule_relaxed=-1",
-            )
+        values = (
+            "enable_unit_scheduler=false",
+            'schedule_placement_policy="spread"',
+            'aggregated_strategy="no_aggregate"',
+            "schedule_relaxed=-1",
         )
-        config = self._resolve_real_config("", overrides)
+        overrides = []
+        for component in ("function_master", "function_proxy"):
+            for value in values:
+                overrides.append(f"{component}.args.{value}")
+        config = self._resolve_real_config("", tuple(overrides))
         for component in ("function_master", "function_proxy"):
             with self.subTest(component=component):
                 args = config[component]["args"]
