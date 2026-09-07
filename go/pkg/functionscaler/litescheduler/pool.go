@@ -21,7 +21,10 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
+	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 )
 
@@ -259,33 +262,60 @@ func sessionTTLFor(reqTTL int) time.Duration {
 	return time.Duration(reqTTL) * time.Second
 }
 
-// tryLocalStickyLocked checks the local session binding and returns the matching
-// schedulable slot and its binding. Returns (slot, binding, true) on sticky hit
-// (and cancels any pending idle-unbind timer). A sticky hit requires either a
-// non-empty reservation (reserved>0, can hand out without touching instance
-// capacity) OR remaining instance capacity (InUse<Capacity, can over-acquire).
-// Returns (nil, nil, false) on miss or on an invalidated binding (instance
-// absent/unhealthy/full); in the latter case the stale binding is removed so
-// the caller can dispatch or lazily recover from the external store.
-// Shared by handleAcquire Phase 1 (first lookup) and Phase 3 (re-check after the
-// out-of-lock store.Get). Caller must hold pool.Lock.
-func (p *LiteFunctionPool) tryLocalStickyLocked(bindingKey string) (*LiteInstance, *sessionBinding, bool) {
+// stickyResult classifies the outcome of tryLocalStickyLocked so callers can
+// distinguish "no binding / stale binding" (fall through to store recovery and
+// dispatch) from "binding healthy but instance full" (must NOT re-dispatch).
+type stickyResult int
+
+const (
+	// stickyMiss: no binding for the key, or a stale binding (instance
+	// absent/unhealthy) that tryLocalStickyLocked already removed.
+	stickyMiss stickyResult = iota
+	// stickyHit: binding usable — reserved>0 hands out without touching
+	// instance capacity, or InUse<Capacity allows one over-acquired unit.
+	stickyHit
+	// stickyFull: binding healthy but the instance is fully loaded
+	// (reserved==0 && InUse>=Capacity). The binding is kept: reserved==0
+	// implies activeAllocs>=1 whose units still occupy the instance; removing
+	// the binding would return live capacity and oversell the instance.
+	stickyFull
+)
+
+// tryLocalStickyLocked checks the local session binding and returns the
+// matching slot and its binding, plus a stickyResult:
+//   - stickyHit: the binding is schedulable (instance Running/SubHealth, and
+//     either a non-empty reservation (reserved>0, can hand out without touching
+//     instance capacity) or remaining instance capacity (InUse<Capacity, can
+//     over-acquire)). Cancels any pending idle-unbind timer.
+//   - stickyFull: the binding is healthy but the instance is fully loaded
+//     (reserved==0 && InUse>=Capacity). The binding is NOT removed: its
+//     in-flight allocations (activeAllocs>=1 when reserved==0) still hold
+//     capacity on the instance, so removing it would return live units and
+//     oversell the instance. Callers must reject (client retry) instead of
+//     re-dispatching — mirrors concurrencyscheduler, where a bound session
+//     never moves to another instance while its binding lives.
+//   - stickyMiss: no binding, or a stale one (instance absent/unhealthy);
+//     in the stale case the binding is removed here so dispatch/recovery start
+//     from a clean slate, releasing any reservation back to the instance.
+//
+// Shared by handleAcquire Phase 1 (first lookup) and Phase 3 (re-check after
+// the out-of-lock store.Get). Caller must hold pool.Lock.
+func (p *LiteFunctionPool) tryLocalStickyLocked(bindingKey string) (*LiteInstance, *sessionBinding, stickyResult) {
 	binding, ok := p.sessions[bindingKey]
 	if !ok {
-		return nil, nil, false
+		return nil, nil, stickyMiss
 	}
 	slot := p.instances[binding.instanceID]
-	if slot != nil &&
-		(slot.Status == InstanceStatusRunning || slot.Status == InstanceStatusSubHealth) &&
-		(binding.reserved > 0 || slot.InUse < slot.Capacity) {
-		p.cancelSessionUnbind(bindingKey)
-		return slot, binding, true
+	if slot == nil ||
+		(slot.Status != InstanceStatusRunning && slot.Status != InstanceStatusSubHealth) {
+		p.removeSessionBinding(bindingKey)
+		return nil, nil, stickyMiss
 	}
-	// Binding exists but its instance is absent/unhealthy/full: clean the stale
-	// binding so dispatch/recovery start from a clean slate. removeSessionBinding
-	// also releases any reservation the binding still held back to the instance.
-	p.removeSessionBinding(bindingKey)
-	return nil, nil, false
+	if binding.reserved > 0 || slot.InUse < slot.Capacity {
+		p.cancelSessionUnbind(bindingKey)
+		return slot, binding, stickyHit
+	}
+	return slot, binding, stickyFull
 }
 
 // bindSessionFreshLocked creates a new sessionBinding that reserves `concurrency`
@@ -374,19 +404,33 @@ func (p *LiteFunctionPool) removeSessionBinding(sessionID string) {
 		// may already be deleted (removeInstanceLocked deletes the map entry
 		// before iterating sessions), in which case slot is nil and the release
 		// is a no-op — the instance's InUse no longer matters.
-		p.processInstanceInUse(binding)
+		p.processInstanceInUse(sessionID, binding)
 	}
 	delete(p.sessions, sessionID)
 	p.sessionStore.deleteSessionFromStore(sessionID)
 }
 
-func (p *LiteFunctionPool) processInstanceInUse(binding *sessionBinding) {
+// processInstanceInUse releases the session's held units (reserved+activeAllocs)
+// back to the instance's InUse. Callers must only invoke it when the session is
+// truly gone (idle-unbind with activeAllocs==0, instance removal, invalidated
+// binding): held includes in-flight allocations, so releasing while allocations
+// are live would undersell InUse and oversell the instance.
+func (p *LiteFunctionPool) processInstanceInUse(sessionID string, binding *sessionBinding) {
 	if slot := p.instances[binding.instanceID]; slot != nil {
 		held := binding.reserved + binding.activeAllocs
 		if held > 0 {
 			if slot.InUse >= held {
 				slot.InUse -= held
 			} else {
+				// InUse < held breaks the accounting invariant (InUse must always
+				// cover every binding's held). Clamp to zero — going negative would
+				// make dispatch see phantom capacity — and log loudly: this branch
+				// is the sentinel for upstream accounting bugs.
+				log.GetLogger().Error("lite session binding accounting broken: inUse < held",
+					zap.String("sessionID", sessionID),
+					zap.String("instanceID", binding.instanceID),
+					zap.Int("held", held),
+					zap.Int("inUse", slot.InUse))
 				slot.InUse = 0 // defensive: should not happen
 			}
 		}

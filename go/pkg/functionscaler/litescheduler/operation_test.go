@@ -646,3 +646,104 @@ func TestConcurrencyAwareSessionExhaustsInstance(t *testing.T) {
 		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 4) // unchanged
 	})
 }
+
+// TestStickyFullKeepsBindingAndRejects verifies the full-load sticky semantics
+// aligned with concurrencyscheduler: a session whose binding is healthy but
+// whose instance is fully loaded (reserved==0 && InUse==Capacity) gets its
+// acquire rejected with NoInstanceAvailable (client retries) — the binding is
+// kept, accounting untouched, no re-dispatch to another instance. Removing the
+// binding instead would return the capacity held by the session's in-flight
+// allocations to the instance (oversell) and move the session to a different
+// instance (affinity break, leak of the old reservation).
+func TestStickyFullKeepsBindingAndRejects(t *testing.T) {
+	convey.Convey("full instance keeps binding, rejects acquire, recovers after release", t, func() {
+		orig := config.GlobalConfig.LiteScheduler
+		origLeaseSpan := config.GlobalConfig.LeaseSpan
+		defer func() { config.GlobalConfig.LiteScheduler = orig }()
+		defer func() { config.GlobalConfig.LeaseSpan = origLeaseSpan }()
+		config.GlobalConfig.LiteScheduler = types.LiteSchedulerConfig{Enable: true}
+		config.GlobalConfig.LeaseSpan = 5000
+
+		ls := &LiteScheduler{pools: map[string]*LiteFunctionPool{}, allocations: map[string]*Allocation{}}
+		pool, mock := poolWithMockStore(t)
+		delete(pool.instances, "ins2") // single instance so the session exhausts it
+		ls.pools["t1/fA/v1"] = pool
+
+		req := &LiteRequest{Op: "acquire", FuncKey: "t1/fA/v1",
+			SessionID: "sess1", SessionTTL: 30, Concurrency: 1,
+			TenantID: "t1", TraceID: "tr"}
+		resp1 := ls.handleAcquire(req)
+		convey.So(resp1.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		resp2 := ls.handleAcquire(req)
+		convey.So(resp2.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		// ins1 fully loaded by the session: InUse=2/2, reserved=0, activeAllocs=2.
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 2)
+
+		// Acquire #3: binding healthy but instance full -> rejected immediately,
+		// binding kept, InUse untouched, no new allocation, external record kept.
+		resp3 := ls.handleAcquire(req)
+		convey.So(resp3.ErrorCode, convey.ShouldEqual, statuscode.NoInstanceAvailableErrCode)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 2)
+		pool.RLock()
+		binding, bound := pool.sessions["sess1"]
+		pool.RUnlock()
+		convey.So(bound, convey.ShouldBeTrue)
+		convey.So(binding.reserved, convey.ShouldEqual, 0)
+		convey.So(binding.activeAllocs, convey.ShouldEqual, 2)
+		convey.So(len(ls.allocations), convey.ShouldEqual, 2)
+		pool.sessionStore.drainAsyncQueue(time.Second)
+		convey.So(mock.deleteCount("sess1"), convey.ShouldEqual, 0)
+
+		// Release one unit -> returns to the session reservation; the retried
+		// acquire sticky-hits the same instance without instance accounting change.
+		ls.handleRelease(&LiteRequest{Op: "release",
+			AllocationIDs: []string{resp2.ThreadID}, FuncKey: "t1/fA/v1", TraceID: "tr"})
+		resp4 := ls.handleAcquire(req)
+		convey.So(resp4.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		convey.So(resp4.InstanceID, convey.ShouldEqual, "ins1")
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 2)
+	})
+}
+
+// TestTryLocalStickyLockedClassification unit-tests the three probe outcomes:
+// full keeps the binding, stale removes it, hit cancels the idle-unbind timer.
+func TestTryLocalStickyLockedClassification(t *testing.T) {
+	convey.Convey("full keeps binding", t, func() {
+		pool := newTestPool(t)
+		pool.sessions["sess1"] = &sessionBinding{instanceID: "ins1", reserved: 0, activeAllocs: 2}
+		pool.instances["ins1"].InUse = 2 // == Capacity
+		pool.Lock()
+		slot, binding, result := pool.tryLocalStickyLocked("sess1")
+		pool.Unlock()
+		convey.So(result, convey.ShouldEqual, stickyFull)
+		convey.So(slot, convey.ShouldNotBeNil)
+		convey.So(binding, convey.ShouldNotBeNil)
+		_, stillBound := pool.sessions["sess1"]
+		convey.So(stillBound, convey.ShouldBeTrue)
+		convey.So(pool.instances["ins1"].InUse, convey.ShouldEqual, 2)
+	})
+	convey.Convey("stale (instance gone) removes binding and reports miss", t, func() {
+		pool := newTestPool(t)
+		pool.sessions["sess1"] = &sessionBinding{instanceID: "gone", reserved: 1, activeAllocs: 0}
+		pool.Lock()
+		slot, binding, result := pool.tryLocalStickyLocked("sess1")
+		pool.Unlock()
+		convey.So(result, convey.ShouldEqual, stickyMiss)
+		convey.So(slot, convey.ShouldBeNil)
+		convey.So(binding, convey.ShouldBeNil)
+		_, stillBound := pool.sessions["sess1"]
+		convey.So(stillBound, convey.ShouldBeFalse)
+	})
+	convey.Convey("reserved>0 hits even when instance is otherwise full", t, func() {
+		pool := newTestPool(t)
+		pool.sessions["sess1"] = &sessionBinding{instanceID: "ins1", reserved: 1, activeAllocs: 1, expiring: true}
+		pool.instances["ins1"].InUse = 2 // == Capacity
+		pool.Lock()
+		slot, binding, result := pool.tryLocalStickyLocked("sess1")
+		pool.Unlock()
+		convey.So(result, convey.ShouldEqual, stickyHit)
+		convey.So(slot.InstanceID, convey.ShouldEqual, "ins1")
+		convey.So(binding.reserved, convey.ShouldEqual, 1)
+		convey.So(binding.expiring, convey.ShouldBeFalse) // idle-unbind timer cancelled
+	})
+}
