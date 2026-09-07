@@ -1,22 +1,293 @@
-# Buildkite Pipeline - Standard SSH Mode
-
-env:
-  BUILD_ARCH: "amd64"
-  BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
-  ENABLE_MACOS_SDK: "true"
-
-steps:
-  - label: ":key: Initialize"
-    command: |
-      bash .buildkite/pipeline.dynamic.yml | buildkite-agent pipeline upload
-    plugins:
-      - kubernetes:
-          podSpec:
-            containers:
-              - image: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
-                resources:
-                  limits: { cpu: "4", memory: "8Gi" }
-    agents:
-      queue: "default"
-      os: "linux"
-      arch: "amd64"
+{
+  "env": {
+    "BUILD_VERSION": "0.7.0+a07b2a6f33bf",
+    "YR_BUILD_VERSION": "0.7.0+a07b2a6f33bf",
+    "BUILDKITE_PACKAGE_UPLOAD_ENABLED": "false",
+    "PUBLISH_PYPI": "false",
+    "PUBLISH_TEST_PYPI": "false"
+  },
+  "steps": [
+    {
+      "label": ":snake: Build SDK X86 cp310",
+      "key": "build-sdk-amd64-cp310",
+      "command": "set -e\nexport PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:$$PATH\nexport CC=gcc-10\nexport CXX=g++-10\nexport PIP_BREAK_SYSTEM_PACKAGES=1\nexport SDK_PYTHON_VERSIONS=\"python3.10\"\nCOMMIT_FOR_VERSION=\"$${BUILDKITE_COMMIT:-$$(git rev-parse HEAD)}\"\nSHORT_COMMIT=$$(printf '%s' \"$$COMMIT_FOR_VERSION\" | cut -c1-12)\nTAG_BUILD_VERSION=\"$${YR_RELEASE_TAG:-$${BUILDKITE_TAG:-}}\"\nTAG_BUILD_VERSION=\"$${TAG_BUILD_VERSION#refs/tags/}\"\ncase \"$$TAG_BUILD_VERSION\" in v[0-9]*) TAG_BUILD_VERSION=\"$${TAG_BUILD_VERSION#v}\" ;; esac\nYR_BUILD_VERSION=\"$${YR_BUILD_VERSION:-$${BUILD_VERSION:-$${TAG_BUILD_VERSION:-0.7.0+$$SHORT_COMMIT}}}\"\nBAZEL_BUILD_VERSION=\"$${BAZEL_BUILD_VERSION:-$${TAG_BUILD_VERSION:-$$(cat VERSION)}}\"\nexport BAZEL_BUILD_VERSION\nexport BUILD_VERSION=\"$$YR_BUILD_VERSION\"\nexport COMMIT_ID=\"$$COMMIT_FOR_VERSION\"\necho \"Package version: $$BUILD_VERSION\"\necho \"Bazel build version: $$BAZEL_BUILD_VERSION\"\n\nCACHE_BASE=\"/mnt/paas/build-cache\"\nmkdir -p $$CACHE_BASE/go-mod $$CACHE_BASE/go-cache $$CACHE_BASE/pip\nexport GOMODCACHE=$$CACHE_BASE/go-mod\nexport GOCACHE=$$CACHE_BASE/go-cache/amd64\nexport PIP_CACHE_DIR=$$CACHE_BASE/pip\nmkdir -p $$CACHE_BASE/bazel-repository-cache/amd64\nexport BAZEL_REPOSITORY_CACHE=$$CACHE_BASE/bazel-repository-cache/amd64\nexport BUILD_ARCH=amd64\nbash .buildkite/prepare_sdk_thirdparty_cache.sh \"$$CACHE_BASE\"\nexport SKIP_RUNTIME_DEPENDENCY_DOWNLOAD=1\n. .buildkite/configure_bazel_remote_cache.sh\n\ngit submodule sync --recursive\ngit submodule update --init --recursive --force --jobs=4\nrm -f output/openyuanrong_sdk-*.whl\nbash .buildkite/build_openyuanrong_sdk_wheels.sh output\n\nrm -rf artifacts/openyuanrong-sdk\nmkdir -p artifacts/openyuanrong-sdk\ncp output/openyuanrong_sdk-*.whl artifacts/openyuanrong-sdk/\nls -lh artifacts/openyuanrong-sdk/\nbash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-sdk/*.whl\nOBS_UPLOAD_CHANNEL=\"daily\"\nOBS_UPLOAD_VERSION_ARGS=\"\"\nif [ -n \"$$TAG_BUILD_VERSION\" ]; then\n  OBS_UPLOAD_CHANNEL=\"release\"\n  OBS_UPLOAD_VERSION_ARGS=\"--version $$BUILD_VERSION\"\nfi\nbash .buildkite/upload_obs_artifacts.sh         --output artifacts/openyuanrong-sdk/obs-urls.txt         --platform linux         --arch amd64         --channel \"$$OBS_UPLOAD_CHANNEL\"         $$OBS_UPLOAD_VERSION_ARGS         -- artifacts/openyuanrong-sdk/*.whl\n",
+      "agents": {
+        "queue": "default",
+        "os": "linux",
+        "arch": "amd64"
+      },
+      "plugins": [
+        {
+          "kubernetes": {
+            "podSpec": {
+              "containers": [
+                {
+                  "image": "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260717_py3146_obs",
+                  "volumeMounts": [
+                    {
+                      "name": "build-cache",
+                      "mountPath": "/mnt/paas"
+                    }
+                  ],
+                  "resources": {
+                    "requests": {
+                      "cpu": "4",
+                      "memory": "8Gi",
+                      "ephemeral-storage": "5Gi"
+                    },
+                    "limits": {
+                      "cpu": "8",
+                      "memory": "16Gi",
+                      "ephemeral-storage": "20Gi"
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "GO111MODULE",
+                      "value": "on"
+                    },
+                    {
+                      "name": "CGO_ENABLED",
+                      "value": "1"
+                    },
+                    {
+                      "name": "GOPROXY",
+                      "value": "https://goproxy.cn,direct"
+                    },
+                    {
+                      "name": "BUILDKITE_PACKAGE_UPLOAD_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "buildkite-package-credentials",
+                          "key": "api-token",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "OBS_ACCESS_KEY_ID",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "obs-credentials",
+                          "key": "AK",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "OBS_SECRET_ACCESS_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "obs-credentials",
+                          "key": "SK",
+                          "optional": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "build-cache",
+                  "hostPath": {
+                    "path": "/mnt/paas",
+                    "type": "DirectoryOrCreate"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "timeout_in_minutes": 120
+    },
+    {
+      "label": ":package: Build Runtime amd64 cp310",
+      "key": "publish-runtime-amd64-cp310",
+      "depends_on": "build-sdk-amd64-cp310",
+      "command": "set -e\nmkdir -p artifacts/rrt-reuse\nbuildkite-agent artifact download \"openyuanrong_rrt-*_x86_64.whl\" artifacts/rrt-reuse/ --build 01a07a1c-4b92-4111-ab16-4cbdd2b21140\nbuildkite-agent artifact upload \"artifacts/rrt-reuse/**/*.whl\"\nset -e\nexport PATH=\"/workspace:$$PATH\"\nCOMMIT_FOR_VERSION=\"$${BUILDKITE_COMMIT:-$$(git rev-parse HEAD)}\"\nSHORT_COMMIT=$$(printf '%s' \"$$COMMIT_FOR_VERSION\" | cut -c1-12)\nTAG_BUILD_VERSION=\"$${YR_RELEASE_TAG:-$${BUILDKITE_TAG:-}}\"\nTAG_BUILD_VERSION=\"$${TAG_BUILD_VERSION#refs/tags/}\"\ncase \"$$TAG_BUILD_VERSION\" in v[0-9]*) TAG_BUILD_VERSION=\"$${TAG_BUILD_VERSION#v}\" ;; esac\nYR_BUILD_VERSION=\"$${YR_BUILD_VERSION:-$${BUILD_VERSION:-$${TAG_BUILD_VERSION:-0.7.0+$$SHORT_COMMIT}}}\"\nexport BUILD_VERSION=\"$$YR_BUILD_VERSION\"\nexport YR_EXPECTED_SDK_VERSION=\"$$YR_BUILD_VERSION\"\nbash .buildkite/package_sandbox_release.sh\n",
+      "env": {
+        "BUILDKITE_AGENT_NAME": "agent-stack-k8s",
+        "SANDBOX_SDK_STEP_KEY": "build-sdk-amd64-cp310",
+        "YR_K8S_RUNTIME_ONLY": "1",
+        "YR_K8S_IMAGE_ARCH": "amd64",
+        "YR_K8S_IMAGE_PLATFORM": "linux/amd64",
+        "YR_K8S_IMAGE_TAG_SUFFIX": "-amd64-cp310",
+        "YR_K8S_IMAGE_SDK_WHEEL_PATTERN": "openyuanrong_sdk*-cp310-*.whl",
+        "YR_K8S_IMAGE_CACHE": "1",
+        "YR_K8S_IMAGE_CACHE_TAG": "build-cache-runtime-amd64-cp310",
+        "YR_K8S_DOCKER_BUILDKIT": "1",
+        "YR_K8S_RRT_OPTIONAL": "0",
+        "YR_K8S_IMAGE_TAG": "ci-unit-scheduler-k8s-20260907-363-a07b2a6f33bf",
+        "YR_K8S_PUSH_IMAGE_TAG": "ci-unit-scheduler-k8s-20260907-363-a07b2a6f33bf-amd64-cp310"
+      },
+      "agents": {
+        "queue": "default",
+        "os": "linux",
+        "arch": "amd64"
+      },
+      "plugins": [
+        {
+          "kubernetes": {
+            "podSpec": {
+              "imagePullSecrets": [
+                {
+                  "name": "swr-pull-secret"
+                }
+              ],
+              "containers": [
+                {
+                  "image": "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260506_kubectl",
+                  "securityContext": {
+                    "privileged": true
+                  },
+                  "volumeMounts": [
+                    {
+                      "name": "docker-graph",
+                      "mountPath": "/var/lib/docker"
+                    }
+                  ],
+                  "resources": {
+                    "requests": {
+                      "cpu": "4",
+                      "memory": "8Gi"
+                    },
+                    "limits": {
+                      "cpu": "8",
+                      "memory": "16Gi"
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "SWR_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-credentials",
+                          "key": "username",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "SWR_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-credentials",
+                          "key": "password",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "SWR_DOCKER_CONFIG_JSON",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-pull-secret",
+                          "key": ".dockerconfigjson",
+                          "optional": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "docker-graph",
+                  "emptyDir": {
+                    "sizeLimit": "80Gi"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "timeout_in_minutes": 90
+    },
+    {
+      "label": ":rocket: Test K8S",
+      "key": "test-k8s",
+      "concurrency_group": "yuanrong/sandbox-test-k8s",
+      "concurrency": 1,
+      "depends_on": "publish-runtime-amd64-cp310",
+      "command": "set -e\nexport PATH=\"/workspace:$$PATH\"\nbash .buildkite/test_sandbox_k8s.sh\n",
+      "env": {
+        "BUILDKITE_AGENT_NAME": "agent-stack-k8s",
+        "SANDBOX_PACKAGE_STEP_KEY": "publish-sandbox-release-amd64",
+        "SANDBOX_SDK_STEP_KEY": "build-sdk-amd64-cp311",
+        "YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX": "cp311",
+        "YR_K8S_RUNTIME_IMAGE_ARCH": "amd64",
+        "YR_K8S_SOURCE_BUILD_ID": "01a07a1c-4b92-4111-ab16-4cbdd2b21140",
+        "YR_K8S_PREPULL_RUNTIME_SUFFIXES": "cp310 cp311"
+      },
+      "agents": {
+        "queue": "default",
+        "os": "linux",
+        "arch": "amd64"
+      },
+      "plugins": [
+        {
+          "kubernetes": {
+            "podSpec": {
+              "imagePullSecrets": [
+                {
+                  "name": "swr-pull-secret"
+                }
+              ],
+              "containers": [
+                {
+                  "image": "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-deployer:v20260506_kubectl_py39",
+                  "resources": {
+                    "requests": {
+                      "cpu": "2",
+                      "memory": "4Gi"
+                    },
+                    "limits": {
+                      "cpu": "4",
+                      "memory": "8Gi"
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "SWR_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-credentials",
+                          "key": "username",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "SWR_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-credentials",
+                          "key": "password",
+                          "optional": true
+                        }
+                      }
+                    },
+                    {
+                      "name": "SWR_DOCKER_CONFIG_JSON",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "swr-pull-secret",
+                          "key": ".dockerconfigjson",
+                          "optional": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "timeout_in_minutes": 60
+    }
+  ]
+}
