@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::task::Poll;
+use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -60,6 +60,7 @@ struct NodePoolState {
 
 struct NodePool {
     state: Mutex<NodePoolState>,
+    connection_creation: Mutex<()>,
     active_streams: Arc<AtomicUsize>,
     last_used: Arc<StdMutex<tokio::time::Instant>>,
 }
@@ -71,6 +72,7 @@ impl Default for NodePool {
                 senders: Vec::new(),
                 next: 0,
             }),
+            connection_creation: Mutex::new(()),
             active_streams: Arc::new(AtomicUsize::new(0)),
             last_used: Arc::new(StdMutex::new(tokio::time::Instant::now())),
         }
@@ -215,39 +217,44 @@ impl H2ConnectionPool {
                 .or_insert_with(|| Arc::new(NodePool::default()))
                 .clone()
         };
-        let mut state = pool.state.lock().await;
-        while state.senders.len() < self.config.connections_per_node
-            && state.senders.len() < self.config.max_connections_per_node
+
         {
-            state.senders.push(self.open_physical(node).await?);
-        }
-        if state.senders.is_empty() {
-            state.senders.push(self.open_physical(node).await?);
-        }
-        let sender_count = state.senders.len();
-        for offset in 0..sender_count {
-            let index = (state.next + offset) % sender_count;
-            let ready = futures_util::future::poll_fn(|context| {
-                Poll::Ready(match state.senders[index].poll_ready(context) {
-                    Poll::Ready(Ok(())) => true,
-                    Poll::Ready(Err(_)) | Poll::Pending => false,
-                })
-            })
-            .await;
-            if ready {
-                state.next = index.wrapping_add(1);
-                return Ok((state.senders[index].clone(), pool.clone()));
+            let mut state = pool.state.lock().await;
+            if state.senders.len() >= self.config.connections_per_node {
+                if let Some(sender) = ready_sender(&mut state) {
+                    return Ok((sender, pool.clone()));
+                }
             }
         }
-        if state.senders.len() < self.config.max_connections_per_node {
+
+        // Serialize physical connection creation per node without retaining the
+        // sender-state lock across TCP, TLS, or H2 awaits. Existing connections
+        // therefore remain selectable while a replacement is being established.
+        let _creation = pool.connection_creation.lock().await;
+        loop {
+            let sender_count = pool.state.lock().await.senders.len();
+            if sender_count >= self.config.connections_per_node {
+                break;
+            }
             let sender = self.open_physical(node).await?;
-            state.senders.push(sender.clone());
-            state.next = state.senders.len();
-            return Ok((sender, pool.clone()));
+            pool.state.lock().await.senders.push(sender);
         }
-        let index = state.next % state.senders.len();
-        state.next = state.next.wrapping_add(1);
-        Ok((state.senders[index].clone(), pool.clone()))
+
+        {
+            let mut state = pool.state.lock().await;
+            if let Some(sender) = ready_sender(&mut state) {
+                return Ok((sender, pool.clone()));
+            }
+            if state.senders.len() >= self.config.max_connections_per_node {
+                return Ok((next_sender(&mut state), pool.clone()));
+            }
+        }
+
+        let sender = self.open_physical(node).await?;
+        let mut state = pool.state.lock().await;
+        state.senders.push(sender.clone());
+        state.next = state.senders.len();
+        Ok((sender, pool.clone()))
     }
 
     async fn prune_idle_connections(&self) {
@@ -257,16 +264,19 @@ impl H2ConnectionPool {
     async fn invalidate(&self, node: &str) {
         let pool = self.nodes.lock().await.get(node).cloned();
         if let Some(pool) = pool {
+            let _creation = pool.connection_creation.lock().await;
             pool.state.lock().await.senders.clear();
         }
     }
 
     async fn open_physical(&self, node: &str) -> io::Result<SendRequest<Bytes>> {
-        let tcp = timeout(self.config.connect_timeout, TcpStream::connect(node))
+        timeout(self.config.connect_timeout, self.open_physical_inner(node))
             .await
-            .map_err(|_| {
-                io::Error::new(io::ErrorKind::TimedOut, "node proxy connect timed out")
-            })??;
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "node proxy handshake timed out"))?
+    }
+
+    async fn open_physical_inner(&self, node: &str) -> io::Result<SendRequest<Bytes>> {
+        let tcp = TcpStream::connect(node).await?;
         tcp.set_nodelay(true)?;
         if let Some(tls_config) = &self.config.tls_config {
             let server_name = self.config.tls_server_name.clone().ok_or_else(|| {
@@ -319,6 +329,28 @@ impl H2ConnectionPool {
     }
 }
 
+fn ready_sender(state: &mut NodePoolState) -> Option<SendRequest<Bytes>> {
+    let sender_count = state.senders.len();
+    let mut context = Context::from_waker(futures_util::task::noop_waker_ref());
+    for offset in 0..sender_count {
+        let index = (state.next + offset) % sender_count;
+        match state.senders[index].poll_ready(&mut context) {
+            Poll::Ready(Ok(())) => {
+                state.next = index.wrapping_add(1);
+                return Some(state.senders[index].clone());
+            }
+            Poll::Ready(Err(_)) | Poll::Pending => {}
+        }
+    }
+    None
+}
+
+fn next_sender(state: &mut NodePoolState) -> SendRequest<Bytes> {
+    let index = state.next % state.senders.len();
+    state.next = state.next.wrapping_add(1);
+    state.senders[index].clone()
+}
+
 async fn prune_nodes(nodes: &Mutex<HashMap<String, Arc<NodePool>>>, idle_timeout: Duration) {
     let pools = nodes.lock().await.values().cloned().collect::<Vec<_>>();
     let now = tokio::time::Instant::now();
@@ -360,4 +392,52 @@ fn status_to_error_kind(status: StatusCode) -> io::ErrorKind {
 
 fn io_error(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    const TEST_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
+    const TEST_REQUEST_DEADLINE: Duration = Duration::from_secs(1);
+
+    #[tokio::test]
+    async fn stalled_handshake_does_not_hold_sender_state_lock_and_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let _ = accepted_tx.send(());
+            std::future::pending::<()>().await;
+            drop(stream);
+        });
+
+        let pool = H2ConnectionPool::new(H2PoolConfig {
+            connections_per_node: 1,
+            max_connections_per_node: 1,
+            connect_timeout: TEST_HANDSHAKE_TIMEOUT,
+            ..H2PoolConfig::default()
+        });
+        let request_pool = pool.clone();
+        let request_address = address.clone();
+        let request = tokio::spawn(async move { request_pool.sender_for(&request_address).await });
+
+        accepted_rx.await.unwrap();
+        let node_pool = pool.nodes.lock().await.get(&address).cloned().unwrap();
+        assert!(node_pool.state.try_lock().is_ok());
+
+        let result = timeout(TEST_REQUEST_DEADLINE, request)
+            .await
+            .expect("stalled handshake request did not finish")
+            .unwrap();
+        let error = match result {
+            Ok(_) => panic!("stalled H2 handshake unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        server.abort();
+    }
 }
