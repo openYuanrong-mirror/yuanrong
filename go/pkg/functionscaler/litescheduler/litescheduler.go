@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
 	"yuanrong.org/kernel/pkg/common/faas_common/timewheel"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
@@ -286,9 +285,8 @@ func (ls *LiteScheduler) reverseLookup(req *LiteRequest) *lookupErr {
 		req.TenantID = alloc.TenantID
 		req.FuncKey = alloc.FuncKey
 	}
-	log.GetLogger().With(zap.String("traceID", req.TraceID)).
-		Debugf("lite reverseLookup resolved: funcKey %s, tenantID %s, %d allocIDs",
-			req.FuncKey, req.TenantID, len(req.AllocationIDs))
+	req.logger.Debugf("lite reverseLookup resolved: funcKey %s, tenantID %s, %d allocIDs",
+		req.FuncKey, req.TenantID, len(req.AllocationIDs))
 	return nil
 }
 

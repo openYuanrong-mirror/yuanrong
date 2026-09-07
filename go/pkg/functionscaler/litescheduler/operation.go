@@ -174,18 +174,28 @@ func (ls *LiteScheduler) checkConcurrencyLimit(req *LiteRequest, pool *LiteFunct
 	return nil
 }
 
-// tryLocalSticky 在 pool.Lock 下尝试本地粘性命中，命中返回响应，未命中返回 nil。
+// tryLocalSticky 在 pool.Lock 下尝试本地粘性命中，命中返回响应，未命中返回 nil
+// 继续后续阶段。绑定健康但实例满载（reserved==0 且 InUse==Capacity）时直接返回
+// NoInstanceAvailable（客户端重试，对齐 concurrencyscheduler 的 ErrNoInsAvailable）：
+// 不能删绑定——reserved==0 时 activeAllocs>=1，删除会把活跃分配占用的容量错误
+// 归还造成超卖；也不能换实例——会话亲和只认原实例。
 func (ls *LiteScheduler) tryLocalSticky(pool *LiteFunctionPool, req *LiteRequest) *commonTypes.InstanceResponse {
 	pool.Lock()
 	defer pool.Unlock()
-	slot, binding, hit := pool.tryLocalStickyLocked(req.bindingKey)
-	if !hit {
+	slot, binding, result := pool.tryLocalStickyLocked(req.bindingKey)
+	switch result {
+	case stickyHit:
+		resp := ls.assignInstance(pool, req, slot, binding)
+		req.logger.Debugf("lite acquire session sticky hit: instance %s (inUse %d/%d, reserved %d)",
+			slot.InstanceID, slot.InUse, slot.Capacity, binding.reserved)
+		return resp
+	case stickyFull:
+		req.logger.Infof("lite acquire session instance %s full (inUse %d/%d, reserved %d), reject for retry",
+			slot.InstanceID, slot.InUse, slot.Capacity, binding.reserved)
+		return liteErrResp(statuscode.NoInstanceAvailableErrCode, "no available instance", req.startTime)
+	default:
 		return nil
 	}
-	resp := ls.assignInstance(pool, req, slot, binding)
-	req.logger.Debugf("lite acquire session sticky hit: instance %s (inUse %d/%d, reserved %d)",
-		slot.InstanceID, slot.InUse, slot.Capacity, binding.reserved)
-	return resp
 }
 
 // acquireDispatchOrColdStart 是 handleAcquire 的阶段3+4:
@@ -193,13 +203,20 @@ func (ls *LiteScheduler) tryLocalSticky(pool *LiteFunctionPool, req *LiteRequest
 func (ls *LiteScheduler) acquireDispatchOrColdStart(pool *LiteFunctionPool, req *LiteRequest,
 	storeRec *session.StoreRecord) *commonTypes.InstanceResponse {
 	pool.Lock()
-	// 阶段3a: 二次粘性检查（阶段2期间可能有并发绑定）。
-	if slot, binding, hit := pool.tryLocalStickyLocked(req.bindingKey); hit {
+	// 阶段3a: 二次粘性检查（阶段2期间可能有并发绑定）。满载同样直接拒绝，
+	// 不进入 3b/3c——换实例会 bindSessionFreshLocked 覆盖绑定，导致原实例
+	// held 永久泄漏并破坏会话亲和。
+	if slot, binding, result := pool.tryLocalStickyLocked(req.bindingKey); result == stickyHit {
 		resp := ls.assignInstance(pool, req, slot, binding)
 		req.logger.Debugf("lite acquire session sticky hit: instance %s (inUse %d/%d, reserved %d)",
 			slot.InstanceID, slot.InUse, slot.Capacity, binding.reserved)
 		pool.Unlock()
 		return resp
+	} else if result == stickyFull {
+		req.logger.Infof("lite acquire session instance %s full (inUse %d/%d, reserved %d), reject for retry",
+			slot.InstanceID, slot.InUse, slot.Capacity, binding.reserved)
+		pool.Unlock()
+		return liteErrResp(statuscode.NoInstanceAvailableErrCode, "no available instance", req.startTime)
 	}
 	// 阶段3b: 尝试从存储指定的实例恢复（崩溃恢复）。
 	if resp := ls.tryStoreRecoveryLocked(pool, req, storeRec); resp != nil {
