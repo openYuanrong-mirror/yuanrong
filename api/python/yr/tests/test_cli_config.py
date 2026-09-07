@@ -268,6 +268,50 @@ class TestCliConfig(unittest.TestCase):
             local_ip="172.17.0.1",
         )
 
+    def test_scheduler_defaults(self):
+        config = self._resolve_real_config("")
+        for component in ("function_master", "function_proxy"):
+            with self.subTest(component=component):
+                args = config[component]["args"]
+                self.assertIs(args["enable_unit_scheduler"], True)
+                self.assertEqual(args["schedule_placement_policy"], "binpack")
+                self.assertEqual(args["schedule_relaxed"], 128)
+                self._assert_scheduler_command(config, component)
+        self.assertEqual(config["function_master"]["args"]["aggregated_strategy"], "relaxed")
+        self.assertEqual(config["function_proxy"]["args"]["aggregated_strategy"], "no_aggregate")
+
+    def test_scheduler_explicit_overrides(self):
+        values = (
+            "enable_unit_scheduler=false",
+            'schedule_placement_policy="spread"',
+            'aggregated_strategy="no_aggregate"',
+            "schedule_relaxed=-1",
+        )
+        overrides = []
+        for component in ("function_master", "function_proxy"):
+            for value in values:
+                overrides.append(f"{component}.args.{value}")
+        config = self._resolve_real_config("", tuple(overrides))
+        for component in ("function_master", "function_proxy"):
+            with self.subTest(component=component):
+                args = config[component]["args"]
+                self.assertIs(args["enable_unit_scheduler"], False)
+                self.assertEqual(args["schedule_placement_policy"], "spread")
+                self.assertEqual(args["aggregated_strategy"], "no_aggregate")
+                self.assertEqual(args["schedule_relaxed"], -1)
+                self._assert_scheduler_command(config, component)
+
+    def _assert_scheduler_command(self, config, component):
+        launcher = ComponentLauncher(component, mock.Mock(rendered_config=config))
+        command = launcher.prepare_command()
+        for key in (
+            "enable_unit_scheduler", "schedule_placement_policy",
+            "aggregated_strategy", "schedule_relaxed",
+        ):
+            value = config[component]["args"][key]
+            value = str(value).lower() if isinstance(value, bool) else str(value)
+            self.assertIn(f"--{key}={value}", command)
+
     def _resolve_real_config(self, config_text, overrides=None):
         self.config_path.write_text(config_text)
         cli_dir = Path(__file__).resolve().parents[1] / "cli"

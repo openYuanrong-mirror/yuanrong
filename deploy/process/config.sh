@@ -70,6 +70,7 @@ etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key
 local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_store:,enable_persistence:,enable_jemalloc:,enable_inherit_env:,\
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
+enable_unit_scheduler:,schedule_placement_policy:,aggregated_strategy:,\
 max_priority:,enable_preemption:,enable_direct_routing:,force_low_reliability_instance:,kill_process_timeout_seconds:,\
 enable_sandbox_router:,sandbox_router_listen_port:,sandbox_router_rrt_port:,sandbox_router_enable_jwt:,sandbox_router_validate_iam:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
@@ -292,7 +293,10 @@ FUNCTION_MASTER_LITEBUS_THREAD=20
 FUNCTION_AGENT_ALIAS=""
 LOCAL_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
 DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
-SCHEDULE_RELAXED=-1
+ENABLE_UNIT_SCHEDULER=true
+SCHEDULE_PLACEMENT_POLICY="binpack"
+AGGREGATED_STRATEGY="relaxed"
+SCHEDULE_RELAXED=128
 ENABLE_PREEMPTION=false
 ENABLE_DIRECT_ROUTING=false
 FORCE_LOW_RELIABILITY_INSTANCE=false
@@ -628,7 +632,10 @@ function usage() {
   echo -e "     --lite_scheduler_acquire_wait_timeout_ms            LiteScheduler acquire wait timeout in milliseconds (default 3000)"
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
   echo -e "     --quota_config_file                                 path to quota config JSON file; empty string disables quota enforcement (default \"\")"
-  echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
+  echo -e "     --enable_unit_scheduler                             enable Unit scheduler, options:true/false (default true)"
+  echo -e "     --schedule_placement_policy                         Unit scheduler placement, options:binpack/spread (default binpack)"
+  echo -e "     --aggregated_strategy                               Domain aggregation, options:relaxed/strictly/no_aggregate (default relaxed); Local does not aggregate"
+  echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 128)"
   echo -e "     --enable_event                                      faas frontend enable stream event mode"
   echo -e "     --frontend_lease_bypass                             faas frontend bypass all lease processing, options:true/false (default false)"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
@@ -968,6 +975,9 @@ function parse_opt() {
     --dashboard_ssl_cert_file) DASHBOARD_SSL_CERT_FILE=$2 && shift 2 ;;
     --dashboard_ssl_key_file) DASHBOARD_SSL_KEY_FILE=$2 && shift 2 ;;
     --schedule_relaxed) SCHEDULE_RELAXED=$2 && shift 2 ;;
+    --enable_unit_scheduler) ENABLE_UNIT_SCHEDULER=$2 && shift 2 ;;
+    --schedule_placement_policy) SCHEDULE_PLACEMENT_POLICY=$2 && shift 2 ;;
+    --aggregated_strategy) AGGREGATED_STRATEGY=$2 && shift 2 ;;
     --memory_detection_interval) MEMORY_DETECTION_INTERVAL=$2 && shift 2 ;;
     --oom_kill_enable) OOM_KILL_ENABLE=$2 && shift 2 ;;
     --runtime_ds_connect_timeout) RUNTIME_DS_CONNECT_TIMEOUT=$2 && shift 2 ;;
@@ -1870,6 +1880,7 @@ function export_config() {
   export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
   export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING FORCE_LOW_RELIABILITY_INSTANCE KILL_PROCESS_TIMEOUT_SECONDS
+  export ENABLE_UNIT_SCHEDULER SCHEDULE_PLACEMENT_POLICY AGGREGATED_STRATEGY
   export ENABLE_SANDBOX_ROUTER SANDBOX_ROUTER_LISTEN_PORT SANDBOX_ROUTER_RRT_PORT SANDBOX_ROUTER_ENABLE_JWT SANDBOX_ROUTER_VALIDATE_IAM
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
