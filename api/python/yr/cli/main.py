@@ -486,10 +486,10 @@ def _data_plane_client_options(function):
         help="TLS server name expected from the Edge certificate.",
     )
     @functools.wraps(function)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> None:
         option_names = ("edge", "token", "tls_ca", "tls_server_name")
         options = DataPlaneClientOptions(**{name: kwargs.pop(name) for name in option_names})
-        return function(*args, client_options=options, **kwargs)
+        function(*args, client_options=options, **kwargs)
 
     return wrapper
 
