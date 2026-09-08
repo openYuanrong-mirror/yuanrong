@@ -404,7 +404,7 @@ mod tests {
     const TEST_REQUEST_DEADLINE: Duration = Duration::from_secs(1);
 
     #[tokio::test]
-    async fn stalled_handshake_does_not_hold_sender_state_lock_and_times_out() {
+    async fn stalled_tls_handshake_does_not_hold_sender_state_lock_and_times_out() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
         let (accepted_tx, accepted_rx) = oneshot::channel();
@@ -415,10 +415,18 @@ mod tests {
             drop(stream);
         });
 
+        // h2's client handshake only writes the preface; it does not wait
+        // for the peer's SETTINGS. TLS must wait for the silent peer, so it
+        // reliably exercises the handshake timeout and sender-state lock.
+        let tls_config = ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
         let pool = H2ConnectionPool::new(H2PoolConfig {
             connections_per_node: 1,
             max_connections_per_node: 1,
             connect_timeout: TEST_HANDSHAKE_TIMEOUT,
+            tls_config: Some(Arc::new(tls_config)),
+            tls_server_name: Some("localhost".to_owned()),
             ..H2PoolConfig::default()
         });
         let request_pool = pool.clone();
@@ -434,7 +442,7 @@ mod tests {
             .expect("stalled handshake request did not finish")
             .unwrap();
         let error = match result {
-            Ok(_) => panic!("stalled H2 handshake unexpectedly succeeded"),
+            Ok(_) => panic!("stalled TLS handshake unexpectedly succeeded"),
             Err(error) => error,
         };
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);

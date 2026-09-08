@@ -42,7 +42,7 @@ pub fn bash_init(kw: &BTreeMap<String, Value>) -> Value {
         Ok(p) => p,
         Err(e) => return map_value(vec![("error", Value::from(format!("openpty failed: {e}")))]),
     };
-    let mut cmd = portable_pty::CommandBuilder::new(shell);
+    let mut cmd = portable_pty::CommandBuilder::new(&shell);
     super::child_env::apply_pty(&mut cmd);
     // A deterministic reserved prompt lets clients remove terminal echo
     // without accidentally deleting command output that did not end in a
