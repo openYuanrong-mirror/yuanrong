@@ -186,9 +186,9 @@ func TestAcquireStoreDesignateSessionCtxMismatch(t *testing.T) {
 		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
 		// Must dispatch to ins2 (matching ctx-B), not ins1 (stale, ctx-A).
 		convey.So(resp.InstanceID, convey.ShouldEqual, "ins2")
-		// Stale store record must be deleted; the new binding to ins2 overwrites
-		// it via Save after the Delete.
-		convey.So(waitForDelete(mock, bindingKey, 2*time.Second), convey.ShouldBeTrue)
+		// The stale record is NOT deleted: assignInstance enqueues an async Save
+		// that overwrites it with the new binding (ins2). Overwrite-only is
+		// atomic and crash-safer than Delete+Save (no lost-binding window).
 		pool.sessionStore.drainAsyncQueue(time.Second)
 		mock.mu.Lock()
 		rec, _ := mock.saves[bindingKey]

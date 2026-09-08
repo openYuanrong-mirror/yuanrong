@@ -78,6 +78,15 @@ func InitHandlerLibruntime(args []api.Arg, libruntimeAPI api.LibruntimeAPI) ([]b
 	if err = setupFunctionSchedulerLibruntime(libruntimeAPI); err != nil {
 		return []byte(""), err
 	}
+	// Cold-start path: ensure the instance pool is fully populated before the HTTP
+	// server starts serving acquire requests. The recover path (RecoverHandlerLibruntime)
+	// calls fs.Recover() which internally invokes WaitReadyForAcquire; the cold-start
+	// path previously skipped this barrier, so acquire could arrive while insSpecCh
+	// was still being drained by processInstanceSubscription, triggering fallback
+	// churn at startup.
+	if scheduler := functionscaler.GetGlobalScheduler(); scheduler != nil {
+		scheduler.WaitReadyForAcquire()
+	}
 	registry.StartRegistry()
 	if err = healthcheck.StartHealthCheck(errCh); err != nil {
 		return []byte(""), err

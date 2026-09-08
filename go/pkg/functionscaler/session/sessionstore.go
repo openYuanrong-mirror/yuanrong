@@ -33,7 +33,6 @@
 package session
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -46,7 +45,7 @@ import (
 
 	"yuanrong.org/kernel/pkg/common/faas_common/datasystemclient"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
-	"yuanrong.org/kernel/pkg/common/faas_common/redisclient"
+	v6 "yuanrong.org/kernel/pkg/common/faas_common/redisclient/v6"
 	"yuanrong.org/kernel/pkg/common/uuid"
 )
 
@@ -72,17 +71,10 @@ const (
 // errStoreDisabled 表示 backend 未配置或 Redis client 未初始化，store 操作 fail-open 时返回，不阻断调度主流程。
 var errStoreDisabled = errors.New("session store disabled")
 
-// Redis 健康检查与热更新共享状态。
-//
-// redisClientParam 是首次 BuildRedisClient 时分配的稳定指针，之后不换指针、只原地改字段，
-// 使 redisclient.CheckRedisConnectivity 持有的同一指针在重连时读到最新配置（避免 clobber）。
-// 字段读写用 redisclient 包的 paramMu（LockParam/RLockParam）跨包互斥，避免 string 字段
-// （ServerAddr/Password 的 {ptr,len} 双字）赋值非原子导致的撕裂读。
-//   - checkerOnce 保证 checker goroutine 全进程只启一次（首次成功调用 BuildRedisClient）
-//   - redisClientParam 首次分配后稳定，Reload 原地改字段
 var (
-	checkerOnce      sync.Once
-	redisClientParam *redisclient.NewRedisClientParam
+	buildMu sync.Mutex
+	// Redis 健康检查与热更新共享状态。
+	reloadStopCh chan struct{}
 )
 
 // StoreRecord 是外部存储保存的一条 session 绑定记录。
@@ -117,8 +109,8 @@ type Store interface {
 
 // Config 是构造 Store 所需的参数。所有字段在构造时确定，store 生命周期内不变。
 //
-// Redis 后端不在此缓存 client 指针：redisStore 每次 op 都调 redisclient.GetRedisCmd()
-// 取全局 client，使得 ReloadRedisClient 换全局后所有已存在的 redisStore 在下一次 op
+// Redis 后端不在此缓存 client 指针：redisStore 每次 op 都调 v6.GetRedisCmd()
+// 取全局 client，使得 BuildRedisClient 换全局后所有已存在的 redisStore 在下一次 op
 // 立即生效（store 是函数级长期存活对象，必须能感知热更新）。
 //
 // 物理 key 只保留 session 绑定所必需的三个维度：函数（FuncCacheKey）、集群（Cluster）、
@@ -194,52 +186,60 @@ func IsRedisBackend(backend string) (bool, error) {
 	}
 }
 
-// BuildRedisClient 是 Init/Reload 的公共实现：校验配置、创建 client、SetRedisCmd 换全局、
-// 更新共享 param。健康检查 goroutine 由 sync.Once 保证全进程只启一次（首次成功调用）。
+// BuildRedisClient 是 Init/Reload 的公共实现：唯一 client 构造点、唯一配置发布点、
+// 唯一 checker goroutine 生命周期管理点。
 //
-// clobber 修复（乐观校验）：redisClientParam 首次分配后指针稳定，后续 Reload 在
-// redisclient.LockParam 下原地改字段；paramMu 仅保证 param 字段读写不撕裂，无法保证
-// checker 重连用最新配置创建 client（initClient 在 RLock 拷出 param 后即 RUnlock，New
-// 期间无锁，最长 ~8s dialTimeout）。故 redisclient.checkAndReconnectRedis 在创建前后各
-// 做一次 param 快照比对，不一致则丢弃 stale client 不 SetRedisCmd，避免 checker 用旧
-// 配置 client 覆盖 Reload 的新 client。
+// 流程：v6.New 建新 client → close 旧 checkerStopCh（旧 goroutine 退出）→ 建新
+// checkerStopCh 并发布 → SetRedisCmd 换全局 → 启新 checker goroutine。顺序保证：
+// 旧 checker 在 SetRedisCmd 前已退出、新 checker 在 SetRedisCmd 后才起，无新旧
+// checker 同时 Ping 同一/不同 client 的竞态。
 //
-// 状态一致性：redisClientParam 的更新移到 New 成功之后——New 失败时不碰共享 param，
-// 避免"param 已刷新为新配置但全局 client 仍是旧"的不一致。
-//
-// HotloadConfFunc 保留：redisclient.Config 不暴露 HotloadConfFunc 字段，toParam 无法从 cfg
-// 拿到该回调。写共享 param 前从旧 param 沿用其值——避免 Reload 清零已存在的热加载回调
-// （若其他模块通过别的路径设过该字段，sessionstore 的 Reload 不应破坏其热加载能力）。
-// sessionstore 自身不依赖热加载（重连只读 ServerAddr 等字段），沿用旧值不影响本路径。
-func BuildRedisClient(cfg redisclient.Config, stopCh <-chan struct{}) (*redisclient.Client, error) {
+// 设计：
+//   - 重建唯一入口在此处，checker 只 Ping 不重建，故无 stale 比对、无 reconnect
+//     闭包、无 atomic 闭包指针。配置刷新天然跟随 Reload——每次调用都用新 cfg New
+//     client + 启新 checker。
+//   - procStopCh 由外部传入（进程级，永不重建），reloadStopCh 由本函数管理（Reload 级）。
+//     两个 stop 通道职责分离：procStopCh 关闭代表进程退出，reloadStopCh 关闭代表
+//     被新一次 Reload 取代。
+func BuildRedisClient(cfg v6.Config, procStopCh <-chan struct{}) (*v6.Client, error) {
 	if cfg.ServerAddr == "" {
 		return nil, errors.New("redis serverAddr is empty")
 	}
-	newParam := toParam(cfg) // 值类型，无堆分配
-	// New 失败时 redisClientParam 不更新，避免 param/client 状态不一致
-	cli, err := redisclient.New(newParam, stopCh)
+	param := toParam(cfg)
+	cli, err := v6.New(param)
 	if err != nil {
 		return nil, fmt.Errorf("new redis client failed, err: %w", err)
 	}
-	// New 成功后才更新共享 param（首次分配 shell / Reload 原地改字段）
-	redisclient.LockParam()
-	if redisClientParam == nil {
-		redisClientParam = &redisclient.NewRedisClientParam{} // 首次分配空 shell，之后指针稳定
+	// 临界区：close 旧 / store 新 / SetRedisCmd / 启新 checker / close 旧 client
+	// 五步必须原子，否则两并发调用会双 close 同一 reloadStopCh 触发 panic。
+	// v6.New 在锁外，建连耗时不会阻塞其他并发 Reload。
+	buildMu.Lock()
+	defer buildMu.Unlock()
+	if reloadStopCh != nil {
+		close(reloadStopCh)
+		reloadStopCh = nil // 置 nil，下次进锁跳过 close
 	}
-	// 沿用旧 param 的 HotloadConfFunc：toParam 不带该字段，直接覆盖会清零已有回调。
-	newParam.HotloadConfFunc = redisClientParam.HotloadConfFunc
-	*redisClientParam = newParam // 首次和 Reload 都走原地拷贝字段，checker 通过同一指针读到新配置
-	redisclient.UnlockParam()
-	redisclient.SetRedisCmd(cli)
-	checkerOnce.Do(func() {
-		go redisclient.CheckRedisConnectivity(redisClientParam, stopCh)
-	})
+	reloadStopCh = make(chan struct{})
+	// 3. 换全局 client——旧 checker 已退出、新 checker 还没起，无并发访问。
+	//    捕获旧 client，发布新 client 后关闭旧底层连接池，避免 Reload 路径泄漏
+	//    连接池（每次配置变更都换新池，旧池永不释放会逐步耗尽 fd/端口）。in-flight
+	//    请求持有的旧 client 指针会因 pool 关闭而 op 失败，但 sessionstore op 有
+	//    500ms 超时且 fail-open 语义，Reload 稀有，可接受。
+	old := v6.GetRedisCmd()
+	v6.SetRedisCmd(cli)
+	// 4. 启新 checker
+	go v6.CheckRedisConnectivity(procStopCh, reloadStopCh)
+	if old != nil {
+		if err := old.Close(); err != nil {
+			log.GetLogger().Warnf("close old redis client on reload failed, err: %s", err.Error())
+		}
+	}
 	return cli, nil
 }
 
-// toParam 把 redisclient.Config 转成 redisclient.NewRedisClientParam（值类型，纯转换无堆分配）。
-func toParam(cfg redisclient.Config) redisclient.NewRedisClientParam {
-	return redisclient.NewRedisClientParam{
+// toParam 把 v6.Config 转成 v6.NewRedisClientParam。
+func toParam(cfg v6.Config) v6.NewRedisClientParam {
+	return v6.NewRedisClientParam{
 		ServerMode: cfg.ServerMode,
 		ServerAddr: cfg.ServerAddr,
 		Password:   cfg.Password,
@@ -318,7 +318,7 @@ type redisStore struct {
 }
 
 func (s *redisStore) Save(sessionKey string, record StoreRecord) error {
-	cli := redisclient.GetRedisCmd()
+	cli := v6.GetRedisCmd()
 	if cli == nil {
 		return errStoreDisabled
 	}
@@ -331,9 +331,7 @@ func (s *redisStore) Save(sessionKey string, record StoreRecord) error {
 		return fmt.Errorf("marshal session record failed: %w", err)
 	}
 	key := physicalKey(s.cfg, sessionKey)
-	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
-	defer cancel()
-	if err := cli.SetEX(ctx, key, string(value), s.ttl).Err(); err != nil {
+	if err := cli.Set(key, string(value), s.ttl, redisOpTimeout); err != nil {
 		log.GetLogger().Warnf("sessionstore redis SET failed, key=%s, err=%s", key, err.Error())
 		return err
 	}
@@ -341,7 +339,7 @@ func (s *redisStore) Save(sessionKey string, record StoreRecord) error {
 }
 
 func (s *redisStore) Get(sessionKey string) (*StoreRecord, error) {
-	cli := redisclient.GetRedisCmd()
+	cli := v6.GetRedisCmd()
 	if cli == nil {
 		return nil, errStoreDisabled
 	}
@@ -349,11 +347,9 @@ func (s *redisStore) Get(sessionKey string) (*StoreRecord, error) {
 		return nil, fmt.Errorf("sessionKey is empty")
 	}
 	key := physicalKey(s.cfg, sessionKey)
-	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
-	defer cancel()
-	value, err := cli.Get(ctx, key).Result()
+	value, err := cli.Get(key, redisOpTimeout)
 	if err != nil {
-		if errors.Is(err, redisclient.Nil) {
+		if errors.Is(err, v6.Nil) {
 			return nil, nil
 		}
 		log.GetLogger().Warnf("sessionstore redis GET failed, key=%s, err=%s", key, err.Error())
@@ -368,7 +364,7 @@ func (s *redisStore) Get(sessionKey string) (*StoreRecord, error) {
 }
 
 func (s *redisStore) Delete(sessionKey string) error {
-	cli := redisclient.GetRedisCmd()
+	cli := v6.GetRedisCmd()
 	if cli == nil {
 		return errStoreDisabled
 	}
@@ -376,9 +372,7 @@ func (s *redisStore) Delete(sessionKey string) error {
 		return fmt.Errorf("sessionKey is empty")
 	}
 	key := physicalKey(s.cfg, sessionKey)
-	ctx, cancel := context.WithTimeout(context.Background(), redisOpTimeout)
-	defer cancel()
-	if err := cli.Del(ctx, key).Err(); err != nil {
+	if err := cli.Delete(key, redisOpTimeout); err != nil {
 		log.GetLogger().Warnf("sessionstore redis DEL failed, key=%s, err=%s", key, err.Error())
 		return err
 	}

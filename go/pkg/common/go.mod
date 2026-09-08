@@ -8,6 +8,7 @@ require (
 	github.com/asaskevich/govalidator/v11 v11.0.1-0.20250122183457-e11347878e23
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gin-gonic/gin v1.10.0
+	github.com/go-redis/redis v6.15.9+incompatible
 	github.com/huaweicloud/huaweicloud-sdk-go-obs v3.23.12+incompatible
 	github.com/json-iterator/go v1.1.12
 	github.com/magiconair/properties v1.8.7

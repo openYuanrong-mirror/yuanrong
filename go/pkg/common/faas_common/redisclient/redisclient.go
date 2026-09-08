@@ -72,10 +72,6 @@ const (
 
 	redisRetryTimes    = 3
 	redisRetryInterval = 100 * time.Millisecond
-
-	// Nil is the error returned by redis client when a key doesn't exist. It mirrors
-	// redis.Nil so callers can use errors.Is against it without importing go-redis.
-	Nil = redis.Nil
 )
 
 var (
@@ -99,26 +95,7 @@ var (
 var (
 	mu       sync.RWMutex
 	redisCmd *Client
-
-	newRedisClient = New
-
-	// paramMu 保护跨包共享的 *NewRedisClientParam 字段读写：
-	//   - sessionstore.BuildRedisClient 在原地更新共享 param 字段时持写锁（LockParam）
-	//   - initClient 重连读取 param 字段时持读锁（RLockParam）
-	paramMu sync.RWMutex
 )
-
-// LockParam  持共享 param 写锁。供外部写者（如 sessionstore.BuildRedisClient）在原地改 *NewRedisClientParam 字段时使用。
-func LockParam() { paramMu.Lock() }
-
-// UnlockParam 释放共享 param 写锁。
-func UnlockParam() { paramMu.Unlock() }
-
-// RLockParam / RUnlockParam 持/释放共享 param 读锁。initClient 内部读取时使用。
-func RLockParam() { paramMu.RLock() }
-
-// RUnlockParam 释放共享 param 读锁。
-func RUnlockParam() { paramMu.RUnlock() }
 
 // Option -
 type Option func(*redisClientOption)
@@ -259,15 +236,6 @@ func (c *Client) Get(ctx context.Context, key string) *redis.StringCmd {
 	return cli.Get(ctx, key)
 }
 
-// SetEX sets key value with an expiration. Kept as SetEX for backward-compatible
-// semantics (overwrites unconditionally, applies physical TTL).
-func (c *Client) SetEX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
-	c.RLock()
-	cli := c.client
-	c.RUnlock()
-	return cli.Set(ctx, key, value, expiration)
-}
-
 // Del -
 func (c *Client) Del(ctx context.Context, keys ...string) *redis.IntCmd {
 	c.RLock()
@@ -398,7 +366,7 @@ func newSingleClient(o redisClientOption) redis.Cmdable {
 		MaxRetries:      maxRetryTimes,
 	}
 	if o.enableTLS {
-		tlsConfig, err := buildCfg(DefaultCAFile, DefaultCertFile, DefaultKeyFile)
+		tlsConfig, err := BuildTLSCfg(DefaultCAFile, DefaultCertFile, DefaultKeyFile)
 		if err != nil {
 			utils.ClearStringMemory(options.Password)
 			log.GetLogger().Errorf("failed to build single client tls config: %s", err.Error())
@@ -443,7 +411,7 @@ func newClusterClient(o redisClientOption) redis.Cmdable {
 		MaxRetries:      maxRetryTimes,
 	}
 	if o.enableTLS {
-		tlsConfig, err := buildCfg(DefaultCAFile, DefaultCertFile, DefaultKeyFile)
+		tlsConfig, err := BuildTLSCfg(DefaultCAFile, DefaultCertFile, DefaultKeyFile)
 		if err != nil {
 			utils.ClearStringMemory(options.Password)
 			log.GetLogger().Errorf("failed to build redis ClusterClient tls config: %s", err.Error())
@@ -454,7 +422,8 @@ func newClusterClient(o redisClientOption) redis.Cmdable {
 	return redis.NewClusterClient(options)
 }
 
-func buildCfg(caFile string, certFile string, keyFile string) (*tls.Config, error) {
+// BuildTLSCfg -
+func BuildTLSCfg(caFile string, certFile string, keyFile string) (*tls.Config, error) {
 	var pools *x509.CertPool
 	var err error
 	pools, err = commonTLS.GetX509CACertPool(caFile)
@@ -478,15 +447,8 @@ func buildCfg(caFile string, certFile string, keyFile string) (*tls.Config, erro
 	return tlsConfig, nil
 }
 
-// CheckRedisConnectivity 周期性检查全局 Redis client 健康状态，断连时重建并替换全局 client。
-//
-// 不接收外部传入的 *Client：早期实现把首次创建的 client 指针固定传入，但
-// checkAndReconnectRedis 内部 `client = newClient` 只是局部赋值，无法回写调用方，
-// 导致每轮仍对陈旧旧 client 做 Ping；旧 client 连接断开且不自愈时，每 10s 都会
-// 重建一个新 client 并 SetRedisCmd 替换全局，造成连接池泄漏与持续抖动。
-// 现每轮通过 GetRedisCmd() 读当前全局 client：Init/Reload 调 SetRedisCmd 换全局后
-// 下一轮立即生效，已恢复健康的 client 不会被反复重建。
-func CheckRedisConnectivity(clientRedisConfig *NewRedisClientParam, stopCh <-chan struct{}) {
+// CheckRedisConnectivity -
+func CheckRedisConnectivity(clientRedisConfig *NewRedisClientParam, client *Client, stopCh <-chan struct{}) {
 	if stopCh == nil {
 		log.GetLogger().Errorf("stopCh is nil")
 		return
@@ -495,7 +457,7 @@ func CheckRedisConnectivity(clientRedisConfig *NewRedisClientParam, stopCh <-cha
 	for {
 		select {
 		case <-ticker.C:
-			if err := checkAndReconnectRedis(clientRedisConfig, stopCh); err != nil {
+			if err := checkAndReconnectRedis(clientRedisConfig, client, stopCh); err != nil {
 				log.GetLogger().Errorf("failed to check or reconnect redis client, err:%s", err.Error())
 			}
 		case <-stopCh:
@@ -506,75 +468,34 @@ func CheckRedisConnectivity(clientRedisConfig *NewRedisClientParam, stopCh <-cha
 	}
 }
 
-// checkAndReconnectRedis 每轮通过 GetRedisCmd() 读当前全局 client 做健康检查，
-// 不依赖调用方传入的固定指针；重建成功后由 SetRedisCmd 更新全局，下一轮即可读到新 client。
-//
-// 乐观快照校验：initClient 内部 RLock 仅覆盖 param 字段拷贝，创建期间（最长 ~8s
-// dialTimeout）不持锁。期间 BuildRedisClient 可能完成"LockParam 改字段 + SetRedisCmd
-// 发布新 client"，此时本路径基于旧 param 创建的 client 已 stale。故在创建前后各做一次
-// param 快照比对，不一致则丢弃 stale client 不再 SetRedisCmd，避免覆盖 Reload 的新 client。
-// 比对忽略 HotloadConfFunc：BuildRedisClient 总是沿用旧 param 的该字段，Reload 不改它。
-func checkAndReconnectRedis(clientRedisConfig *NewRedisClientParam, stopCh <-chan struct{}) error {
+func checkAndReconnectRedis(clientRedisConfig *NewRedisClientParam, client *Client, stopCh <-chan struct{}) error {
 	log.GetLogger().Debug("redis check redis connection start")
-	client := GetRedisCmd()
 	if client != nil {
-		_, err := client.Ping(context.TODO()).Result()
+		_, err := (*client).Ping(context.TODO()).Result()
 		if err == nil {
 			log.GetLogger().Debug("redis periodically checks availability")
 			return nil
 		}
 	}
-	snap := snapshotParam(clientRedisConfig)
 	newClient, err := initClient(clientRedisConfig, stopCh)
 	if err != nil {
 		return err
 	}
-	if !sameParam(snap, snapshotParam(clientRedisConfig)) {
-		log.GetLogger().Debug("redis param changed during reconnect, discard stale client")
-		return nil
+	if client != nil {
+		client = newClient
 	}
 	SetRedisCmd(newClient)
 	return nil
 }
 
-// snapshotParam 在 RLock 下从共享 param 指针拷出值快照。
-// RLock 与 BuildRedisClient 的 LockParam 互斥，保证拷贝期间字段一致不撕裂。
-func snapshotParam(p *NewRedisClientParam) NewRedisClientParam {
-	paramMu.RLock()
-	defer paramMu.RUnlock()
-	return NewRedisClientParam{
-		ServerMode:      p.ServerMode,
-		ServerAddr:      p.ServerAddr,
-		Password:        p.Password,
-		Timeout:         p.Timeout,
-		EnableTLS:       p.EnableTLS,
-		HotloadConfFunc: p.HotloadConfFunc,
-	}
-}
-
-// sameParam 比对两个 param 快照的配置字段是否一致。
-// 忽略 HotloadConfFunc：BuildRedisClient 总是沿用旧 param 的该字段，Reload 不改它。
-func sameParam(a, b NewRedisClientParam) bool {
-	return a.ServerMode == b.ServerMode &&
-		a.ServerAddr == b.ServerAddr &&
-		a.Password == b.Password &&
-		a.Timeout == b.Timeout &&
-		a.EnableTLS == b.EnableTLS
-}
-
 func initClient(clientRedisConfig *NewRedisClientParam, stopCh <-chan struct{}) (*Client, error) {
-	paramMu.RLock()
-	param := NewRedisClientParam{
-		ServerMode:      clientRedisConfig.ServerMode,
-		ServerAddr:      clientRedisConfig.ServerAddr,
-		Password:        clientRedisConfig.Password,
-		Timeout:         clientRedisConfig.Timeout,
-		EnableTLS:       clientRedisConfig.EnableTLS,
-		HotloadConfFunc: clientRedisConfig.HotloadConfFunc,
-	}
-	paramMu.RUnlock()
-	c, err := newRedisClient(param, stopCh, SetEnableTLS(param.EnableTLS),
-		SetGetRealTimeServerAddrFunc(param.HotloadConfFunc))
+	c, err := New(NewRedisClientParam{
+		ServerMode: clientRedisConfig.ServerMode,
+		ServerAddr: clientRedisConfig.ServerAddr,
+		Password:   clientRedisConfig.Password,
+		Timeout:    clientRedisConfig.Timeout,
+	}, stopCh, SetEnableTLS(clientRedisConfig.EnableTLS),
+		SetGetRealTimeServerAddrFunc(clientRedisConfig.HotloadConfFunc))
 	if err != nil {
 		log.GetLogger().Errorf("failed to new a redis Client, %s", err.Error())
 		return nil, err

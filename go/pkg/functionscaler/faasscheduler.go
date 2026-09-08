@@ -18,6 +18,7 @@
 package functionscaler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,15 +62,16 @@ import (
 )
 
 const (
-	defaultChanSize        = 1000
-	minArgsNum             = 1
-	validArgsNum           = 2
-	libruntimeValidArgsNum = 4
-	validInsOpLen          = 2
-	waitForETCDList        = 10 * time.Millisecond
-	frontendNodePort       = "31222"
-	logFileName            = "faas-scheduler"
-	stateFuncKeyLen        = 2
+	defaultChanSize           = 1000
+	minArgsNum                = 1
+	validArgsNum              = 2
+	libruntimeValidArgsNum    = 4
+	validInsOpLen             = 2
+	waitForETCDList           = 10 * time.Millisecond
+	instanceSyncedWaitTimeout = time.Minute
+	frontendNodePort          = "31222"
+	logFileName               = "faas-scheduler"
+	stateFuncKeyLen           = 2
 )
 
 var (
@@ -127,6 +129,22 @@ type FaaSScheduler struct {
 	schedulerCh           chan registry.SubEvent
 	rolloutConfigCh       chan registry.SubEvent
 
+	// insSyncedDone is closed after processInstanceSubscription has drained the
+	// initial etcd instance list (i.e. processed SubEventTypeSynced). It is the
+	// barrier Recover() waits on so that the instance pool is fully populated
+	// before acquire requests are served, preventing acquireDesignateInstance
+	// from failing on a designate instance that simply has not entered the queue
+	// yet and triggering a fallback rebind (the fallback is non-destructive—see
+	// deleteLocalSession in basic_concurrency_scheduler.go—but still avoids
+	// needlessly churning the session binding at startup).
+	insSyncedOnce sync.Once
+	insSyncedDone chan struct{}
+
+	// stopCh is the process-level shutdown signal. Stored so Recover() can exit
+	// its barrier wait when the process is shutting down rather than blocking
+	// up to instanceSyncedWaitTimeout.
+	stopCh <-chan struct{}
+
 	leaseInterval time.Duration
 
 	allocRecord sync.Map
@@ -158,6 +176,8 @@ func NewFaaSScheduler(stopCh <-chan struct{}) *FaaSScheduler {
 		aliasSpecCh:     make(chan registry.SubEvent, defaultChanSize),
 		schedulerCh:     make(chan registry.SubEvent, defaultChanSize),
 		rolloutConfigCh: make(chan registry.SubEvent, defaultChanSize),
+		insSyncedDone:   make(chan struct{}),
+		stopCh:          stopCh,
 		leaseInterval:   leaseInterval,
 	}
 	faasScheduler.SessionContextManager = sessioncontextmanager.New(
@@ -237,6 +257,60 @@ func (fs *FaaSScheduler) Recover() {
 	}
 	time.Sleep(waitForETCDList)
 	fs.PoolManager.RecoverInstancePool()
+	fs.WaitReadyForAcquire()
+}
+
+// WaitReadyForAcquire waits until the initial etcd instance list has been drained
+// by processInstanceSubscription (SubEventTypeSynced processed). It guarantees the
+// instance pool is fully populated before acquire requests arrive, so
+// acquireDesignateInstance does not fail on a designate instance that simply has
+// not entered the queue yet and trigger a fallback rebind (the fallback is
+// non-destructive—see deleteLocalSession in basic_concurrency_scheduler.go—but
+// still avoids needlessly churning the session binding at startup).
+//
+// A single deadline (instanceSyncedWaitTimeout) covers BOTH the main pool and the
+// lite pool wait, rather than timing them independently. Worst-case blocking is
+// therefore instanceSyncedWaitTimeout (1m), not 2*instanceSyncedWaitTimeout, so
+// health probes / readiness checks cannot time out under a stuck etcd watcher.
+//
+// The timeout is a safety net for environments where the synced event never
+// arrives (e.g. etcd watcher stuck); in that case we serve with a potentially
+// incomplete pool rather than blocking forever, and the per-request lazy
+// recovery + the non-destructive acquireDesignateInstance fallback keep
+// correctness intact.
+//
+// MUST be called from every startup path (cold start and recover) after
+// ProcessETCDList and before the HTTP server starts serving acquire requests.
+// Note: this barrier only covers insSpecCh consumption; the funcSpecCh drain
+// loop in Recover() is a separate precondition for RecoverInstancePool().
+func (fs *FaaSScheduler) WaitReadyForAcquire() {
+	ctx, cancel := context.WithTimeout(context.Background(), instanceSyncedWaitTimeout)
+	defer cancel()
+	waitBarrier := func(done <-chan struct{}, ready, timeoutMsg string) {
+		select {
+		case <-done:
+			log.GetLogger().Infof(ready)
+		case <-ctx.Done():
+			log.GetLogger().Warnf(timeoutMsg)
+		case <-fs.stopCh:
+			// Process is shutting down—no point waiting for further barriers.
+			log.GetLogger().Infof("process shutting down, skip remaining instance sync barriers")
+			return
+		}
+	}
+	waitBarrier(fs.insSyncedDone,
+		"instance events drained, instance pool ready for acquire",
+		"instance events drain timeout, serving requests with potentially incomplete pool")
+	// LiteScheduler subscribes to InsSpec via its own channel (independent of
+	// fs.insSpecCh), so its pool is populated by its own processInstanceEvents
+	// goroutine. Wait for its barrier separately to guarantee the lite pool is
+	// also fully populated before acquire requests arrive. Shares the same ctx
+	// so the combined wait is bounded by instanceSyncedWaitTimeout, not 2x.
+	if config.GlobalConfig.LiteScheduler.Enable && fs.liteScheduler != nil {
+		waitBarrier(fs.liteScheduler.InsSyncedDone(),
+			"lite instance events drained, lite pool ready for acquire",
+			"lite instance events drain timeout, serving requests with potentially incomplete lite pool")
+	}
 }
 
 func (fs *FaaSScheduler) processFunctionSubscription() {
@@ -258,12 +332,30 @@ func (fs *FaaSScheduler) processFunctionSubscription() {
 }
 
 func (fs *FaaSScheduler) processInstanceSubscription() {
+	// Best-effort close insSyncedDone on every exit path (channel closed or future
+	// stopCh branch). insSyncedOnce makes this idempotent with the explicit close
+	// on SubEventTypeSynced below. Without this defer, a closed insSpecCh would
+	// leave insSyncedDone open forever and WaitReadyForAcquire would block for
+	// the full instanceSyncedWaitTimeout even though no more events can arrive.
+	defer fs.insSyncedOnce.Do(func() { close(fs.insSyncedDone) })
 	for {
 		select {
 		case event, ok := <-fs.insSpecCh:
 			if !ok {
 				log.GetLogger().Warnf("instance channel is closed")
 				return
+			}
+			// SubEventTypeSynced is a control signal with no payload dependency.
+			// Early-filter it before the type assertion so a malformed or nil EventMsg
+			// on the synced event cannot skip close(fs.insSyncedDone), which would leave
+			// Recover() waiting the full instanceSyncedWaitTimeout. This matches the
+			// early-filter pattern in PoolManager.HandleInstanceEvent (which checks
+			// Synced first and passes nil insSpec to downstream pools).
+			if event.EventType == registry.SubEventTypeSynced {
+				fs.PoolManager.HandleInstanceEvent(event.EventType, nil)
+				fs.insSyncedOnce.Do(func() { close(fs.insSyncedDone) })
+				log.GetLogger().Infof("instance subscription synced, instance pool ready for acquire")
+				continue
 			}
 			insSpec, ok := event.EventMsg.(*commonTypes.InstanceSpecification)
 			if !ok {
