@@ -16,6 +16,7 @@
 import argparse
 import http.client
 import json
+import logging
 import math
 import ssl
 import statistics
@@ -25,6 +26,15 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
+
+
+# Keep machine-readable results on stdout without diagnostic prefixes.
+result_logger = logging.getLogger(__name__ + ".result")
+result_logger.setLevel(logging.INFO)
+result_logger.propagate = False
+result_handler = logging.StreamHandler(sys.stdout)
+result_handler.setFormatter(logging.Formatter("%(message)s"))
+result_logger.addHandler(result_handler)
 
 
 def percentile(values, quantile):
@@ -154,7 +164,7 @@ def main() -> None:
         )
     if failures:
         result["failure_samples"] = failures[:3]
-    sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
+    result_logger.info("%s", json.dumps(result, sort_keys=True))
     if failures or len(samples) != args.requests:
         raise SystemExit(1)
 

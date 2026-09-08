@@ -15,9 +15,19 @@
 
 """Prove that an open data-plane stream survives a byte-idle interval."""
 
+import logging
 import socket
 import sys
 import time
+
+
+# Keep machine-readable results on stdout without diagnostic prefixes.
+result_logger = logging.getLogger(__name__ + ".result")
+result_logger.setLevel(logging.INFO)
+result_logger.propagate = False
+result_handler = logging.StreamHandler(sys.stdout)
+result_handler.setFormatter(logging.Formatter("%(message)s"))
+result_logger.addHandler(result_handler)
 
 
 host = sys.argv[1]
@@ -36,4 +46,4 @@ with socket.create_connection((host, port), timeout=5) as connection:
         raise AssertionError("echo mismatch after the idle interval")
     elapsed = time.monotonic() - started
 
-sys.stdout.write(f"idle_stream_survived_seconds={elapsed:.3f}\n")
+result_logger.info("idle_stream_survived_seconds=%.3f", elapsed)

@@ -30,6 +30,15 @@ from pathlib import Path
 from yr_sandbox import Sandbox
 
 
+# Keep machine-readable results on stdout without diagnostic prefixes.
+result_logger = logging.getLogger(__name__ + ".result")
+result_logger.setLevel(logging.INFO)
+result_logger.propagate = False
+result_handler = logging.StreamHandler(sys.stdout)
+result_handler.setFormatter(logging.Formatter("%(message)s"))
+result_logger.addHandler(result_handler)
+
+
 def wait_running(sandbox: Sandbox, expected: bool, timeout: float) -> float:
     started = time.monotonic()
     while time.monotonic() - started < timeout:
@@ -209,7 +218,7 @@ def main() -> None:
         result_path.write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        result_logger.info("%s", json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import logging
 import sys
 from dataclasses import dataclass
-from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -462,35 +462,36 @@ class DataPlaneClientOptions:
 
 
 def _data_plane_client_options(function):
-    @wraps(function)
-    def wrapper(*args, **kwargs):
-        option_names = ("edge", "token", "tls_ca", "tls_server_name")
-        options = DataPlaneClientOptions(**{name: kwargs.pop(name) for name in option_names})
-        return function(*args, client_options=options, **kwargs)
-
-    wrapper = click.option(
-        "--tls-server-name",
-        envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
-        help="TLS server name expected from the Edge certificate.",
-    )(wrapper)
-    wrapper = click.option(
-        "--tls-ca",
-        type=click.Path(exists=True, dir_okay=False),
-        envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
-        help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
-    )(wrapper)
-    wrapper = click.option(
-        "--token",
-        envvar="YR_TOKEN",
-        help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
-    )(wrapper)
-    return click.option(
+    @click.option(
         "--edge",
         envvar="YR_GATEWAY_ADDRESS",
         required=True,
         metavar="HOST:PORT",
         help="Data Plane Edge address.",
-    )(wrapper)
+    )
+    @click.option(
+        "--token",
+        envvar="YR_TOKEN",
+        help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
+    )
+    @click.option(
+        "--tls-ca",
+        type=click.Path(exists=True, dir_okay=False),
+        envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
+        help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
+    )
+    @click.option(
+        "--tls-server-name",
+        envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
+        help="TLS server name expected from the Edge certificate.",
+    )
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        option_names = ("edge", "token", "tls_ca", "tls_server_name")
+        options = DataPlaneClientOptions(**{name: kwargs.pop(name) for name in option_names})
+        return function(*args, client_options=options, **kwargs)
+
+    return wrapper
 
 
 @cli.command(name="connect", help="Open a Data Plane CONNECT stream on stdin/stdout.")

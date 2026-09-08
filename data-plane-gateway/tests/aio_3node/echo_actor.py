@@ -25,6 +25,15 @@ import yr
 from yr.sandbox.sandbox import SandboxInstance
 
 
+# Keep machine-readable results on stdout without diagnostic prefixes.
+result_logger = logging.getLogger(__name__ + ".result")
+result_logger.setLevel(logging.INFO)
+result_logger.propagate = False
+result_handler = logging.StreamHandler(sys.stdout)
+result_handler.setFormatter(logging.Formatter("%(message)s"))
+result_logger.addHandler(result_handler)
+
+
 SERVER_SOURCE = r'''#!/usr/bin/env python3
 import json
 import os
@@ -125,8 +134,7 @@ def main():
             results.append(details)
         with open(args.output, "w", encoding="utf-8") as stream:
             json.dump(results, stream, sort_keys=True)
-        sys.stdout.write(json.dumps(results, sort_keys=True) + "\n")
-        sys.stdout.flush()
+        result_logger.info("%s", json.dumps(results, sort_keys=True))
         time.sleep(args.hold_seconds)
     finally:
         for sandbox in sandboxes:

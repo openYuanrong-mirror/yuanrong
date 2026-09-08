@@ -35,6 +35,15 @@ from pathlib import Path
 
 from yr_sandbox import Sandbox, resources
 
+# Keep machine-readable results on stdout without diagnostic prefixes.
+result_logger = logging.getLogger(__name__ + ".result")
+result_logger.setLevel(logging.INFO)
+result_logger.propagate = False
+result_handler = logging.StreamHandler(sys.stdout)
+result_handler.setFormatter(logging.Formatter("%(message)s"))
+result_logger.addHandler(result_handler)
+
+
 PASSED: list[str] = []
 FAILED: list[str] = []
 DETAILS: dict[str, object] = {}
@@ -271,7 +280,7 @@ def main() -> None:
         upstream.server_close()
         payload = {"passed": PASSED, "failed": FAILED, "details": DETAILS}
         result_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        result_logger.info("%s", json.dumps(payload, indent=2, sort_keys=True))
     if FAILED:
         raise SystemExit(1)
 
