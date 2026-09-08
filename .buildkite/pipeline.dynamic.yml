@@ -573,20 +573,7 @@ cat << YAML
       # of falling back to the much slower default rustup endpoint.
       export RUSTUP_DIST_SERVER="\$\${RUSTUP_DIST_SERVER:-https://rsproxy.cn}"
       export RUSTUP_UPDATE_ROOT="\$\${RUSTUP_UPDATE_ROOT:-https://rsproxy.cn/rustup}"
-      if ! command -v musl-gcc >/dev/null 2>&1; then
-        if [ "\$\$(id -u)" -ne 0 ] || ! command -v apt-get >/dev/null 2>&1; then
-          echo "musl-gcc is required to build static Data Plane binaries" >&2
-          exit 1
-        fi
-        if [ -f /etc/apt/sources.list ]; then
-          sed -i \
-            -e 's|http://deb.debian.org/debian|https://mirrors.huaweicloud.com/debian|g' \
-            -e 's|http://security.debian.org/debian-security|https://mirrors.huaweicloud.com/debian-security|g' \
-            /etc/apt/sources.list
-        fi
-        apt-get -o Acquire::Retries=5 update
-        apt-get -o Acquire::Retries=5 install -y --no-install-recommends musl-tools file
-      fi
+      bash .buildkite/install_musl_tools.sh
       rustup target add "${rust_target}"
       export CC=musl-gcc
       export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
