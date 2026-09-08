@@ -566,7 +566,7 @@ cat << YAML
       rustc --version
       cargo --version
       protoc --version
-      cargo test --manifest-path data-plane-gateway/Cargo.toml --locked --all-features --lib --bins
+      cargo test --manifest-path data-plane-gateway/Cargo.toml --locked --all-features --lib --bins --test mock_e2e
       # The Data Plane reuses the RRT Rust builder image. RRT builds for the
       # native GNU target, while the standalone gateways additionally need the
       # musl target. Use the same rsproxy mirror configured for Cargo instead

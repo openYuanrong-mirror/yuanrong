@@ -636,3 +636,168 @@ struct SeenRequest {
     has_authorization: bool,
     has_x_auth: bool,
 }
+
+#[tokio::test]
+async fn connect_route_cancel_reclaims_half_closed_session() {
+    assert_half_closed_route_cancel(false).await;
+}
+
+#[tokio::test]
+async fn websocket_route_cancel_reclaims_half_closed_session() {
+    assert_half_closed_route_cancel(true).await;
+}
+
+async fn assert_half_closed_route_cancel(websocket: bool) {
+    let backend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backend_address = backend.local_addr().unwrap();
+    let (received_tx, mut received_rx) = mpsc::channel(8);
+    let backend_task = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = backend.accept().await.unwrap();
+            let received = received_tx.clone();
+            tokio::spawn(async move {
+                if websocket {
+                    read_headers(&mut stream).await;
+                    stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n").await.unwrap();
+                }
+                stream.write_all(b"ready").await.unwrap();
+                stream.shutdown().await.unwrap();
+                let mut byte = [0];
+                while stream.read_exact(&mut byte).await.is_ok() {
+                    if received.send(byte[0]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    let node = Arc::new(
+        NodeProxy::new(GatewayPolicy::for_local_mock(vec!["127.0.0.0/8"
+            .parse()
+            .unwrap()]))
+        .with_route_enforcement(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let node_address = listener.local_addr().unwrap();
+    let node_task = {
+        let node = node.clone();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let node = node.clone();
+                tokio::spawn(async move { node.serve_h2(stream).await });
+            }
+        })
+    };
+    let store = Arc::new(RouteStore::new());
+    for id in ["instance-a", "instance-b"] {
+        node.activate_route(id.into(), id.into(), backend_address.ip())
+            .await;
+        store.put(RouteInfo {
+            instance_id: id.into(),
+            instance_status: InstanceStatus {
+                code: 3,
+                ..Default::default()
+            },
+            sandbox_id: id.into(),
+            sandbox_ip: backend_address.ip().to_string(),
+            node_proxy_address: node_address.to_string(),
+            tenant_id: String::new(),
+            tunnel_security_mode: Default::default(),
+            port_forward_security_mode: Default::default(),
+            port_forward_routes: Vec::new(),
+        });
+    }
+    store.set_ready(true);
+    let edge = Arc::new(
+        EdgeFrontend::new(
+            Arc::new(EdgeRouteResolver::new(store.clone())),
+            DataPlaneL4Connector::new(H2PoolConfig {
+                connections_per_node: 1,
+                max_connections_per_node: 1,
+                ..Default::default()
+            }),
+            EdgeAuthenticator::new(true, false, "", Duration::from_secs(30)).unwrap(),
+            backend_address.port(),
+            8765,
+            backend_address.to_string(),
+            Vec::new(),
+        )
+        .with_client_acl(Vec::new(), true),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let edge_address = listener.local_addr().unwrap();
+    let (_shutdown, shutdown) = watch::channel(false);
+    let reconciler = tokio::spawn(edge.clone().run_route_reconciler(store.subscribe()));
+    let edge_task = tokio::spawn(edge.clone().serve_http(listener, shutdown));
+    let mut clients = Vec::new();
+    for id in ["instance-a", "instance-b"] {
+        let mut client = TcpStream::connect(edge_address).await.unwrap();
+        let port = backend_address.port();
+        let request = if websocket {
+            format!("GET /{id}/{port}/ws HTTP/1.1\r\nHost: edge\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+        } else {
+            format!("CONNECT {id}:{port} HTTP/1.1\r\nHost: {id}:{port}\r\nX-Yr-Access-Kind: port-forwarding\r\n\r\n")
+        };
+        client.write_all(request.as_bytes()).await.unwrap();
+        let response = read_headers(&mut client).await;
+        assert!(
+            response.starts_with(if websocket {
+                "HTTP/1.1 101"
+            } else {
+                "HTTP/1.1 200"
+            }),
+            "{response}"
+        );
+        let mut data = Vec::new();
+        timeout(Duration::from_secs(3), client.read_to_end(&mut data))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(data, b"ready");
+        clients.push(client);
+    }
+    assert_eq!(edge.active_sessions(), 2);
+    assert_eq!(edge.physical_connections(), 1);
+    // A normal upstream FIN preserves the client's writable direction.
+    for (client, byte) in clients.iter_mut().zip([b'a', b'b']) {
+        client.write_all(&[byte]).await.unwrap();
+        assert_eq!(
+            timeout(Duration::from_secs(3), received_rx.recv())
+                .await
+                .unwrap(),
+            Some(byte)
+        );
+    }
+    store.delete("instance-a");
+    timeout(Duration::from_secs(3), async {
+        while edge.active_sessions() != 1 || node.active_streams() != 1 {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("route cancellation retained a half-closed session");
+    // Keep both client sockets alive: cleanup must not depend on client close,
+    // and cancelling A must not interrupt B on the shared physical H2 link.
+    clients[1].write_all(b"c").await.unwrap();
+    assert_eq!(
+        timeout(Duration::from_secs(3), received_rx.recv())
+            .await
+            .unwrap(),
+        Some(b'c')
+    );
+    assert_eq!(edge.physical_connections(), 1);
+    store.delete("instance-b");
+    timeout(Duration::from_secs(3), async {
+        while edge.active_sessions() != 0 || node.active_streams() != 0 {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("second route cancellation retained a half-closed session");
+    drop(clients);
+    edge_task.abort();
+    reconciler.abort();
+    node_task.abort();
+    backend_task.abort();
+}

@@ -402,12 +402,13 @@ impl EdgeFrontend {
             .connect_stream_with_activity(
                 &route.node_proxy_address,
                 &route.target,
-                cancelled,
+                cancelled.clone(),
                 passive,
             )
             .await?;
         Ok(EdgeStream {
             stream,
+            cancelled,
             _guard: guard,
         })
     }
@@ -756,7 +757,7 @@ impl EdgeFrontend {
             Ok(stream) => stream,
             Err(error) => return plain(StatusCode::BAD_GATEWAY, &error.to_string()),
         };
-        proxy_http(request, stream, "Frontend").await
+        proxy_http(request, stream, "Frontend", None).await
     }
 
     fn health_response(&self, path: &str) -> Response<ProxyBody> {
@@ -1103,23 +1104,27 @@ impl EdgeFrontend {
         };
         match self.open_resolved_stream(route, &tenant_id).await {
             Ok(mut upstream) => {
+                let cancelled = upstream.cancelled.clone();
                 let on_upgrade = hyper::upgrade::on(request);
                 let stream_started = Instant::now();
                 let access_kind = access_kind.as_str();
                 tokio::spawn(async move {
-                    let result = match on_upgrade.await {
-                        Ok(upgraded) => {
-                            let mut upgraded = TokioIo::new(upgraded);
-                            tokio::io::copy_bidirectional_with_sizes(
-                                &mut upgraded,
-                                &mut upstream,
-                                L4_COPY_BUFFER_SIZE,
-                                L4_COPY_BUFFER_SIZE,
-                            )
-                            .await
+                    let relay = async {
+                        match on_upgrade.await {
+                            Ok(upgraded) => {
+                                let mut upgraded = TokioIo::new(upgraded);
+                                tokio::io::copy_bidirectional_with_sizes(
+                                    &mut upgraded,
+                                    &mut upstream,
+                                    L4_COPY_BUFFER_SIZE,
+                                    L4_COPY_BUFFER_SIZE,
+                                )
+                                .await
+                            }
+                            Err(error) => Err(io::Error::other(error.to_string())),
                         }
-                        Err(error) => Err(io::Error::other(error.to_string())),
                     };
+                    let result = relay_until_cancelled(relay, Some(cancelled)).await;
                     let duration_ms =
                         u64::try_from(stream_started.elapsed().as_millis()).unwrap_or(u64::MAX);
                     match result {
@@ -1236,7 +1241,8 @@ impl EdgeFrontend {
                 Ok(stream) => stream,
                 Err(error) => return error_response(error),
             };
-            return proxy_http(request, stream, "sandbox").await;
+            let cancelled = stream.cancelled.clone();
+            return proxy_http(request, stream, "sandbox", Some(cancelled)).await;
         }
 
         if let Err(error) = self.authorize(&route, &tenant_id) {
@@ -1556,10 +1562,46 @@ fn backend_pool_error_response(error: BackendHttpPoolError) -> Response<ProxyBod
     }
 }
 
+// Cancellation must surround the entire relay: after one direction reaches
+// EOF, copy_bidirectional can wait solely on the client and never poll the
+// upstream stream's cancellation-aware I/O again.
+async fn relay_until_cancelled<F>(
+    relay: F,
+    cancelled: Option<watch::Receiver<bool>>,
+) -> io::Result<(u64, u64)>
+where
+    F: std::future::Future<Output = io::Result<(u64, u64)>>,
+{
+    tokio::select! {
+        biased;
+        _ = wait_for_route_cancellation(cancelled) => Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "CONNECT stream cancelled by route change",
+        )),
+        result = relay => result,
+    }
+}
+
+async fn wait_for_route_cancellation(cancelled: Option<watch::Receiver<bool>>) {
+    let Some(mut cancelled) = cancelled else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    loop {
+        if *cancelled.borrow() {
+            return;
+        }
+        if cancelled.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 async fn proxy_http<T>(
     mut request: Request<Incoming>,
     stream: T,
     upstream_name: &'static str,
+    cancelled: Option<watch::Receiver<bool>>,
 ) -> Response<ProxyBody>
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -1571,9 +1613,15 @@ where
             Ok(parts) => parts,
             Err(error) => return plain(StatusCode::BAD_GATEWAY, &error.to_string()),
         };
+    let connection_cancelled = cancelled.clone();
     tokio::spawn(async move {
-        if let Err(error) = connection.with_upgrades().await {
-            tracing::debug!(%error, upstream = upstream_name, "upstream HTTP connection closed");
+        tokio::select! {
+            _ = wait_for_route_cancellation(connection_cancelled) => {}
+            result = connection.with_upgrades() => {
+                if let Err(error) = result {
+                    tracing::debug!(%error, upstream = upstream_name, "upstream HTTP connection closed");
+                }
+            }
         }
     });
     let mut response = match sender.send_request(request).await {
@@ -1584,19 +1632,24 @@ where
         if let Some(downstream_upgrade) = downstream_upgrade {
             let upstream_upgrade = hyper::upgrade::on(&mut response);
             tokio::spawn(async move {
-                if let (Ok(downstream), Ok(upstream)) =
-                    (downstream_upgrade.await, upstream_upgrade.await)
-                {
+                let relay = async move {
+                    let downstream = downstream_upgrade
+                        .await
+                        .map_err(|error| io::Error::other(error.to_string()))?;
+                    let upstream = upstream_upgrade
+                        .await
+                        .map_err(|error| io::Error::other(error.to_string()))?;
                     let mut downstream = TokioIo::new(downstream);
                     let mut upstream = TokioIo::new(upstream);
-                    let _ = tokio::io::copy_bidirectional_with_sizes(
+                    tokio::io::copy_bidirectional_with_sizes(
                         &mut downstream,
                         &mut upstream,
                         L4_COPY_BUFFER_SIZE,
                         L4_COPY_BUFFER_SIZE,
                     )
-                    .await;
-                }
+                    .await
+                };
+                let _ = relay_until_cancelled(relay, cancelled).await;
             });
         }
     }
@@ -1723,6 +1776,7 @@ impl Drop for SessionGuard {
 
 pub struct EdgeStream {
     stream: H2ConnectStream,
+    cancelled: watch::Receiver<bool>,
     _guard: SessionGuard,
 }
 
