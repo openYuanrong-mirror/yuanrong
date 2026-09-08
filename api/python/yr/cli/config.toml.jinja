@@ -414,6 +414,12 @@ YR_DATA_PLANE_EDGE_FRONTEND_PLAIN_BIND = "{{ values.edge_frontend.plain_bind }}"
 YR_DATA_PLANE_EDGE_FRONTEND_HEALTH_BIND = "{{ values.edge_frontend.health_bind }}"
 YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS = "{{ values.edge_frontend.frontend_address }}"
 YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES = "{{ values.edge_frontend.control_plane_routes | join(',') }}"
+{% if values.edge_frontend.proxy_routes_file %}
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_ROUTES_FILE = "{{ values.edge_frontend.proxy_routes_file }}"
+{% endif %}
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_MAX_IDLE_CONNECTIONS = "{{ values.edge_frontend.proxy_max_idle_connections }}"
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_IDLE_TIMEOUT_SEC = "{{ values.edge_frontend.proxy_idle_timeout_sec }}"
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_CONNECT_TIMEOUT_SEC = "{{ values.edge_frontend.proxy_connect_timeout_sec }}"
 YR_DATA_PLANE_EDGE_FRONTEND_TLS_CERT = "{{ values.edge_frontend.tls_cert }}"
 YR_DATA_PLANE_EDGE_FRONTEND_TLS_KEY = "{{ values.edge_frontend.tls_key }}"
 YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM = "{{ '1' if values.edge_frontend.validate_iam else '0' }}"

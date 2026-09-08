@@ -95,6 +95,12 @@ cannot accidentally cross the clear-text entrypoint.
 Frontend is not a data-plane hop. Edge removes credentials before opening Node
 streams, so user JWTs never reach Node or the workload.
 
+New Edge-to-Node physical H2 connections complete a PING/PONG exchange before
+entering the pool. TCP, optional TLS, and this protocol check share the pool's
+connect timeout. A timeout or cancellation of the opening future closes the
+socket without retaining a connection driver. This adds one round trip when
+creating a physical connection; reused connections do not repeat the check.
+
 Ordinary Direct HTTP requests use a bounded keep-alive pool keyed by the full
 endpoint identity `(node, instance, workload, sandbox IP, port)`.
 Consequently, a connection can never move between sandboxes or survive an
@@ -121,6 +127,90 @@ Pool admission timeout returns HTTP 429. Metrics expose current idle
 connections plus opened, reused, discarded, and acquire-timeout totals. The L4
 connector presents the H2 CONNECT stream directly as `AsyncRead + AsyncWrite`;
 there is no intermediate `DuplexStream` or per-stream byte-copy relay task.
+
+### Configurable reverse proxy
+
+Edge uses a shared HTTP reverse proxy for Frontend and additional applications.
+The existing `CONTROL_PLANE_ADDRESS` and `CONTROL_PLANE_ROUTES` settings continue
+to select Frontend requests. To mount other applications, set
+`YR_DATA_PLANE_EDGE_FRONTEND_PROXY_ROUTES_FILE` to a JSON file:
+
+```json
+[
+  {
+    "name": "grafana",
+    "path_prefix": "/grafana",
+    "upstream": "http://grafana:3000",
+    "strip_prefix": true
+  }
+]
+```
+
+Each route has a unique `name`, a `path_prefix`, and an HTTP origin `upstream`
+(without a path or credentials). `strip_prefix` defaults to false. An optional
+`host` restricts matching to a public hostname, ignoring case and the incoming
+port. Routes are loaded and validated at startup; restart Edge after editing the
+file. Invalid or duplicate routes fail startup.
+
+With the process-mode CLI, configure the file and pool via `values.edge_frontend`:
+
+```sh
+yr start --edge \
+  -s 'values.edge_frontend.proxy_routes_file="/etc/yuanrong/edge-proxy-routes.json"' \
+  -s 'values.edge_frontend.proxy_max_idle_connections=512' \
+  -s 'values.edge_frontend.proxy_idle_timeout_sec=30' \
+  -s 'values.edge_frontend.proxy_connect_timeout_sec=5'
+```
+
+Supply the normal Edge TLS, etcd, and authentication settings alongside these
+overrides. The routes file must be readable by the Edge process.
+
+Prefixes match whole path segments: `/grafana` matches `/grafana` and
+`/grafana/api/live/`, but not `/grafana2`. A trailing slash in the configured
+prefix is normalized. With `strip_prefix: true`, `/grafana/api/live/?x=1` becomes
+`/api/live/?x=1`; with false the original path is retained. Query strings and
+escaped path bytes are preserved. Host-specific routes take precedence over
+host-independent routes; within that group the longest matching prefix wins.
+Explicit application routes precede the legacy Frontend and sandbox HTTP routes.
+The command-watch endpoint and CONNECT handling remain reserved. A `/` route is
+therefore a catch-all for other HTTP requests on its matching host.
+
+Application routes require the TLS ingress and use its existing client ACL.
+Applications handle their own login/authorization, as Frontend does. The current
+upstream transport is HTTP/1.1 over plaintext HTTP, suitable for internal HTTP
+services behind Edge's TLS termination. Upstream HTTPS is rejected at startup.
+
+The proxy preserves the public Host, Authorization, Location, and separate
+Set-Cookie headers. It replaces forwarding metadata with the client peer address,
+public host, and HTTPS scheme, and adds `X-Forwarded-Prefix` when stripping a
+prefix. Connection-specific headers are removed in both directions. Response
+bodies are streamed, including SSE. WebSocket upgrades retain a dedicated
+connection for the upgraded session and close both sides when either relay ends.
+
+For Grafana with the stripping route above, configure its external URL, for
+example `GF_SERVER_ROOT_URL=https://example.com/grafana/`, and its internal server
+protocol as HTTP (`GF_SERVER_PROTOCOL=http`). Keep `serve_from_sub_path` false
+with this prefix-stripping configuration. Grafana then generates the correct
+subpath links, redirects, and cookie paths; Edge does not rewrite HTML or
+application-generated Location/Cookie paths. Grafana Live uses the same route
+at `/grafana/api/live/`. See the
+[Grafana reverse proxy guide](https://grafana.com/tutorials/run-grafana-behind-a-proxy/).
+
+Connections are reused per upstream origin. Transport failures return to the
+caller without automatically replaying requests. Pool defaults and overrides:
+
+```text
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_MAX_IDLE_CONNECTIONS=512
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_IDLE_TIMEOUT_SEC=30
+YR_DATA_PLANE_EDGE_FRONTEND_PROXY_CONNECT_TIMEOUT_SEC=5
+```
+
+The idle limit is per origin and controls retained connections, not concurrent
+requests. Set it to 0 to disable keep-alive reuse for comparisons. Busy responses
+can open additional connections. Idle and TCP connect timeouts must be non-zero;
+they do not impose a response deadline on long-running create or SSE requests.
+A response connection is reused only after the HTTP message completes; canceling
+an incomplete response discards that connection.
 
 The data-plane processes raise their inherited soft `RLIMIT_NOFILE` to 65,536
 by default without exceeding the hard limit or reducing a higher inherited

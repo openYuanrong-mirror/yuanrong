@@ -5,6 +5,7 @@ use super::http_pool::{
 };
 use super::path::parse_direct_path;
 use super::resolver::{AccessKind, EdgeRouteResolver, ResolveError, RouteHandle};
+use super::reverse_proxy::{ProxyRoute, ReverseProxy, ReverseProxyConfig};
 use crate::common::listener::accept_with_backoff;
 use crate::common::protocol::{
     H_ACCESS_KIND, H_INSTANCE_ID, H_TARGET_IP, H_TARGET_PORT, H_WORKLOAD_ID,
@@ -233,6 +234,8 @@ pub struct EdgeFrontend {
     default_direct_port: u16,
     default_tunnel_port: u16,
     frontend_address: String,
+    reverse_proxy: ReverseProxy,
+    proxy_routes: Arc<Vec<ProxyRoute>>,
     control_plane_routes: Arc<Vec<StaticRoute>>,
     draining: Arc<AtomicBool>,
     active_sessions: Arc<AtomicUsize>,
@@ -264,6 +267,8 @@ impl EdgeFrontend {
             default_direct_port,
             default_tunnel_port,
             frontend_address: frontend_address.into(),
+            reverse_proxy: ReverseProxy::new(ReverseProxyConfig::default()),
+            proxy_routes: Arc::new(Vec::new()),
             control_plane_routes: Arc::new(control_plane_routes),
             draining: Arc::new(AtomicBool::new(false)),
             active_sessions: Arc::new(AtomicUsize::new(0)),
@@ -287,6 +292,23 @@ impl EdgeFrontend {
     pub fn with_backend_http_pool_config(mut self, config: BackendHttpPoolConfig) -> Self {
         self.http_pool = BackendHttpPool::new(config);
         self
+    }
+
+    pub fn with_reverse_proxy_config(mut self, config: ReverseProxyConfig) -> Self {
+        self.reverse_proxy = ReverseProxy::new(config);
+        self
+    }
+
+    pub fn with_proxy_routes(mut self, routes: Vec<ProxyRoute>) -> Self {
+        self.proxy_routes = Arc::new(routes);
+        self
+    }
+
+    fn application_route<B>(&self, request: &Request<B>) -> Option<&ProxyRoute> {
+        self.proxy_routes
+            .iter()
+            .filter(|route| route.matches(request))
+            .max_by_key(|route| (route.host.is_some(), route.path_prefix.len()))
     }
 
     pub fn with_client_acl(mut self, networks: Vec<ipnet::IpNet>, allow_any_client: bool) -> Self {
@@ -646,6 +668,14 @@ impl EdgeFrontend {
                 self.handle_connect(&mut request, ingress_security, peer)
                     .await
             }
+            _ if self.application_route(&request).is_some() => {
+                if ingress_security == IngressSecurity::Plaintext {
+                    tls_required()
+                } else {
+                    let route = self.application_route(&request).expect("route matched");
+                    self.reverse_proxy.proxy(request, route, peer).await
+                }
+            }
             path if self.is_control_plane_path(path) => {
                 self.proxy_control_plane(request, ingress_security, peer)
                     .await
@@ -708,6 +738,9 @@ impl EdgeFrontend {
                 target.map(|value| value.1).unwrap_or_default(),
             );
         }
+        if self.application_route(request).is_some() {
+            return ("reverse-proxy", String::new(), 0);
+        }
         if self.is_control_plane_path(request.uri().path()) {
             return ("control-plane", String::new(), 0);
         }
@@ -734,30 +767,21 @@ impl EdgeFrontend {
 
     async fn proxy_control_plane(
         &self,
-        mut request: Request<Incoming>,
+        request: Request<Incoming>,
         ingress_security: IngressSecurity,
         peer: std::net::SocketAddr,
     ) -> Response<ProxyBody> {
         if ingress_security == IngressSecurity::Plaintext {
             return tls_required();
         }
-        request
-            .headers_mut()
-            .insert("x-forwarded-proto", http::HeaderValue::from_static("https"));
-        if let Ok(peer_ip) = http::HeaderValue::from_str(&peer.ip().to_string()) {
-            request
-                .headers_mut()
-                .insert("x-forwarded-for", peer_ip.clone());
-            request.headers_mut().insert("x-real-ip", peer_ip);
-        }
-        if let Some(host) = request.headers().get(header::HOST).cloned() {
-            request.headers_mut().insert("x-forwarded-host", host);
-        }
-        let stream = match TcpStream::connect(&self.frontend_address).await {
-            Ok(stream) => stream,
-            Err(error) => return plain(StatusCode::BAD_GATEWAY, &error.to_string()),
+        let route = ProxyRoute {
+            name: "frontend".into(),
+            path_prefix: "/".into(),
+            upstream: format!("http://{}", self.frontend_address),
+            strip_prefix: false,
+            host: None,
         };
-        proxy_http(request, stream, "Frontend", None).await
+        self.reverse_proxy.proxy(request, &route, peer).await
     }
 
     fn health_response(&self, path: &str) -> Response<ProxyBody> {
@@ -2089,3 +2113,6 @@ mod tests {
         assert!(external_access_kind(&request).is_err());
     }
 }
+
+#[cfg(test)]
+mod reverse_proxy_tests;

@@ -52,6 +52,8 @@ async fn run(config: EdgeFrontendConfig) -> Result<(), Box<dyn std::error::Error
             config.control_plane_routes.clone(),
         )
         .with_backend_http_pool_config(config.backend_http_pool_config())
+        .with_reverse_proxy_config(config.reverse_proxy.clone())
+        .with_proxy_routes(config.proxy_routes.clone())
         .with_command_watch_config(CommandWatchConfig {
             max_subscriptions_per_connection: config.command_watch_max_subscriptions,
             queue_capacity: config.command_watch_queue_capacity,

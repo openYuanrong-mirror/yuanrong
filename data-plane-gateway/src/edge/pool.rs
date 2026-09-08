@@ -272,7 +272,9 @@ impl H2ConnectionPool {
     async fn open_physical(&self, node: &str) -> io::Result<SendRequest<Bytes>> {
         timeout(self.config.connect_timeout, self.open_physical_inner(node))
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "node proxy handshake timed out"))?
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::TimedOut, "node proxy handshake timed out")
+            })?
     }
 
     async fn open_physical_inner(&self, node: &str) -> io::Result<SendRequest<Bytes>> {
@@ -307,18 +309,33 @@ impl H2ConnectionPool {
             .initial_connection_window_size(H2_CONNECTION_WINDOW)
             .max_frame_size(H2_MAX_FRAME_SIZE);
         let (sender, mut connection) = builder.handshake(io).await.map_err(io_error)?;
-        let mut ping_pong = connection.ping_pong();
+        let mut ping_pong = connection
+            .ping_pong()
+            .ok_or_else(|| io::Error::other("H2 ping handle unavailable"))?;
+        // h2's client handshake only writes our preface; it does not wait for
+        // the peer. Confirm protocol liveness before publishing the sender.
+        // Keep the driver owned by this future until then, so the enclosing
+        // connect timeout or caller cancellation also drops the socket.
+        tokio::select! {
+            result = &mut connection => {
+                result.map_err(io_error)?;
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "node proxy closed during H2 handshake",
+                ));
+            }
+            result = ping_pong.ping(h2::Ping::opaque()) => {
+                result.map_err(io_error)?;
+            }
+        }
         self.physical_connections.fetch_add(1, Ordering::Relaxed);
         let physical_connections = self.physical_connections.clone();
         let keepalive_interval = self.config.keepalive_interval;
         let keepalive_timeout = self.config.keepalive_timeout;
         tokio::spawn(async move {
-            let result = match ping_pong.as_mut() {
-                Some(ping_pong) => tokio::select! {
-                    result = &mut connection => result,
-                    result = keepalive_loop(ping_pong, keepalive_interval, keepalive_timeout) => result,
-                },
-                None => connection.await,
+            let result = tokio::select! {
+                result = &mut connection => result,
+                result = keepalive_loop(&mut ping_pong, keepalive_interval, keepalive_timeout) => result,
             };
             if let Err(error) = result {
                 tracing::debug!(%node, %error, "Edge-to-Node Proxy H2 connection closed");
@@ -397,6 +414,7 @@ fn io_error(error: impl std::fmt::Display) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt;
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
 
@@ -405,28 +423,39 @@ mod tests {
 
     #[tokio::test]
     async fn stalled_tls_handshake_does_not_hold_sender_state_lock_and_times_out() {
+        assert_stalled_handshake_times_out(true).await;
+    }
+
+    #[tokio::test]
+    async fn stalled_h2_handshake_does_not_hold_sender_state_lock_and_times_out() {
+        assert_stalled_handshake_times_out(false).await;
+    }
+
+    async fn assert_stalled_handshake_times_out(use_tls: bool) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
         let (accepted_tx, accepted_rx) = oneshot::channel();
         let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
             let _ = accepted_tx.send(());
-            std::future::pending::<()>().await;
-            drop(stream);
+            let mut received = Vec::new();
+            stream.read_to_end(&mut received).await.unwrap();
+            received
         });
 
-        // h2's client handshake only writes the preface; it does not wait
-        // for the peer's SETTINGS. TLS must wait for the silent peer, so it
-        // reliably exercises the handshake timeout and sender-state lock.
-        let tls_config = ClientConfig::builder()
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
+        let tls_config = use_tls.then(|| {
+            Arc::new(
+                ClientConfig::builder()
+                    .with_root_certificates(rustls::RootCertStore::empty())
+                    .with_no_client_auth(),
+            )
+        });
         let pool = H2ConnectionPool::new(H2PoolConfig {
             connections_per_node: 1,
             max_connections_per_node: 1,
             connect_timeout: TEST_HANDSHAKE_TIMEOUT,
-            tls_config: Some(Arc::new(tls_config)),
-            tls_server_name: Some("localhost".to_owned()),
+            tls_config,
+            tls_server_name: use_tls.then(|| "localhost".to_owned()),
             ..H2PoolConfig::default()
         });
         let request_pool = pool.clone();
@@ -442,10 +471,113 @@ mod tests {
             .expect("stalled handshake request did not finish")
             .unwrap();
         let error = match result {
-            Ok(_) => panic!("stalled TLS handshake unexpectedly succeeded"),
+            Ok(_) => panic!("stalled handshake unexpectedly succeeded (TLS: {use_tls})"),
             Err(error) => error,
         };
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        server.abort();
+        assert!(node_pool.state.lock().await.senders.is_empty());
+        assert_eq!(pool.physical_connection_count(), 0);
+        let received = timeout(TEST_REQUEST_DEADLINE, server)
+            .await
+            .expect("timed out handshake left its TCP connection open")
+            .unwrap();
+        if use_tls {
+            assert_eq!(received.first(), Some(&0x16)); // TLS handshake record
+        } else {
+            assert!(received.starts_with(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"));
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_pending_handshake_closes_socket_without_publishing_sender() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let (preface_tx, preface_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut preface = [0; 24];
+            stream.read_exact(&mut preface).await.unwrap();
+            preface_tx.send(()).unwrap();
+            stream.read_to_end(&mut Vec::new()).await.unwrap();
+        });
+        let pool = H2ConnectionPool::new(H2PoolConfig {
+            connections_per_node: 1,
+            max_connections_per_node: 1,
+            connect_timeout: Duration::from_secs(60),
+            ..H2PoolConfig::default()
+        });
+        let request_pool = pool.clone();
+        let request_address = address.clone();
+        let request = tokio::spawn(async move { request_pool.sender_for(&request_address).await });
+        timeout(TEST_REQUEST_DEADLINE, preface_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        request.abort();
+        assert!(request.await.err().unwrap().is_cancelled());
+        timeout(TEST_REQUEST_DEADLINE, server)
+            .await
+            .expect("cancelled handshake left its TCP connection open")
+            .unwrap();
+        let node_pool = pool.nodes.lock().await.get(&address).cloned().unwrap();
+        assert!(node_pool.state.lock().await.senders.is_empty());
+        assert!(node_pool.connection_creation.try_lock().is_ok());
+        assert_eq!(pool.physical_connection_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn responsive_h2_peer_is_pooled_and_reused() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut connection = h2::server::handshake::<_>(stream).await.unwrap();
+            // Polling accept drives the peer SETTINGS and PING/PONG exchange.
+            while let Some(result) = connection.accept().await {
+                let (_, mut respond) = result.unwrap();
+                respond
+                    .send_response(http::Response::new(()), true)
+                    .unwrap();
+            }
+        });
+        let pool = H2ConnectionPool::new(H2PoolConfig {
+            connections_per_node: 1,
+            max_connections_per_node: 1,
+            connect_timeout: TEST_REQUEST_DEADLINE,
+            ..H2PoolConfig::default()
+        });
+        let (sender, node_pool) = timeout(TEST_REQUEST_DEADLINE, pool.sender_for(&address))
+            .await
+            .unwrap()
+            .unwrap();
+        let (second, reused_pool) = pool.sender_for(&address).await.unwrap();
+        assert!(Arc::ptr_eq(&node_pool, &reused_pool));
+        assert_eq!(node_pool.state.lock().await.senders.len(), 1);
+        assert_eq!(pool.physical_connection_count(), 1);
+        let mut second = second.ready().await.unwrap();
+        let (response, _) = second
+            .send_request(
+                Request::builder()
+                    .uri("http://node/health")
+                    .body(())
+                    .unwrap(),
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            timeout(TEST_REQUEST_DEADLINE, response)
+                .await
+                .unwrap()
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        drop(sender);
+        drop(second);
+        pool.invalidate(&address).await;
+        timeout(TEST_REQUEST_DEADLINE, server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

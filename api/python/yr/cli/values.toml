@@ -172,6 +172,12 @@ health_bind = "127.0.0.1:18080"
 # Static control-plane routes are forwarded to the co-deployed Frontend and
 # keep the public entry independent from Traefik.
 frontend_address = "127.0.0.1:8888"
+# Optional JSON routes for additional HTTP applications (for example /grafana).
+# Loaded at Edge startup; an empty path keeps only the legacy Frontend routes.
+proxy_routes_file = ""
+proxy_max_idle_connections = 512
+proxy_idle_timeout_sec = 30
+proxy_connect_timeout_sec = 5
 # Matching is boundary-aware: prefix:/api also matches /api/v1, but not
 # /api-escape. Update this list and restart Edge; no Rust code change is needed.
 control_plane_routes = [

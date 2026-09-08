@@ -24,6 +24,8 @@ pub struct EdgeFrontendConfig {
     pub tls_cert: String,
     pub tls_key: String,
     pub frontend_address: String,
+    pub reverse_proxy: crate::edge::ReverseProxyConfig,
+    pub proxy_routes: Vec<crate::edge::ProxyRoute>,
     pub control_plane_routes: Vec<crate::edge::StaticRoute>,
     pub validate_iam: bool,
     pub iam_address: String,
@@ -218,6 +220,16 @@ impl EdgeFrontendConfig {
                 "YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES: {error}"
             ))
         })?;
+        let proxy_routes = match env::var("YR_DATA_PLANE_EDGE_FRONTEND_PROXY_ROUTES_FILE") {
+            Ok(path) => {
+                let input = std::fs::read_to_string(path).map_err(|error| {
+                    ConfigError::Invalid(format!("read proxy routes file: {error}"))
+                })?;
+                crate::edge::parse_proxy_routes(&input).map_err(ConfigError::Invalid)?
+            }
+            Err(env::VarError::NotPresent) => Vec::new(),
+            Err(error) => return Err(ConfigError::Invalid(format!("proxy routes file: {error}"))),
+        };
         let validate_iam = parse_bool_env("YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM", true)?;
         let iam_address = env::var("YR_DATA_PLANE_EDGE_FRONTEND_IAM_ADDRESS").unwrap_or_default();
         if validate_iam && iam_address.trim().is_empty() {
@@ -300,6 +312,25 @@ impl EdgeFrontendConfig {
                 "backend HTTP pool timeouts must be non-zero".into(),
             ));
         }
+        let reverse_proxy = crate::edge::ReverseProxyConfig {
+            max_idle_connections: parse_env(
+                "YR_DATA_PLANE_EDGE_FRONTEND_PROXY_MAX_IDLE_CONNECTIONS",
+                "512",
+            )?,
+            idle_timeout: Duration::from_secs(parse_env(
+                "YR_DATA_PLANE_EDGE_FRONTEND_PROXY_IDLE_TIMEOUT_SEC",
+                "30",
+            )?),
+            connect_timeout: Duration::from_secs(parse_env(
+                "YR_DATA_PLANE_EDGE_FRONTEND_PROXY_CONNECT_TIMEOUT_SEC",
+                "5",
+            )?),
+        };
+        if reverse_proxy.idle_timeout.is_zero() || reverse_proxy.connect_timeout.is_zero() {
+            return Err(ConfigError::Invalid(
+                "reverse proxy HTTP timeouts must be non-zero".into(),
+            ));
+        }
         let drain_timeout = Duration::from_secs(parse_env(
             "YR_DATA_PLANE_EDGE_FRONTEND_DRAIN_TIMEOUT_SEC",
             "30",
@@ -357,6 +388,8 @@ impl EdgeFrontendConfig {
             tls_cert,
             tls_key,
             frontend_address,
+            reverse_proxy,
+            proxy_routes,
             control_plane_routes,
             validate_iam,
             iam_address,
