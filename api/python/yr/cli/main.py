@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import functools
 import logging
 import sys
 from dataclasses import dataclass
@@ -461,40 +460,47 @@ class DataPlaneClientOptions:
     tls_server_name: Optional[str]
 
 
-def _data_plane_client_options(function):
-    @click.option(
-        "--edge",
-        envvar="YR_GATEWAY_ADDRESS",
-        required=True,
-        metavar="HOST:PORT",
-        help="Data Plane Edge address.",
-    )
-    @click.option(
-        "--token",
-        envvar="YR_TOKEN",
-        help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
-    )
-    @click.option(
-        "--tls-ca",
-        type=click.Path(exists=True, dir_okay=False),
-        envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
-        help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
-    )
-    @click.option(
-        "--tls-server-name",
-        envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
-        help="TLS server name expected from the Edge certificate.",
-    )
-    @functools.wraps(function)
-    def wrapper(*args, **kwargs) -> None:
+class DataPlaneCommand(click.Command):
+    """Register shared connection options and group them for command callbacks."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.params.extend([
+            click.Option(
+                ["--edge"],
+                envvar="YR_GATEWAY_ADDRESS",
+                required=True,
+                metavar="HOST:PORT",
+                help="Data Plane Edge address.",
+            ),
+            click.Option(
+                ["--token"],
+                envvar="YR_TOKEN",
+                help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
+            ),
+            click.Option(
+                ["--tls-ca"],
+                type=click.Path(exists=True, dir_okay=False),
+                envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
+                help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
+            ),
+            click.Option(
+                ["--tls-server-name"],
+                envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
+                help="TLS server name expected from the Edge certificate.",
+            ),
+        ])
+
+    def invoke(self, ctx: click.Context):
         option_names = ("edge", "token", "tls_ca", "tls_server_name")
-        options = DataPlaneClientOptions(**{name: kwargs.pop(name) for name in option_names})
-        function(*args, client_options=options, **kwargs)
+        options = DataPlaneClientOptions(**{name: ctx.params.pop(name) for name in option_names})
+        ctx.params["client_options"] = options
+        return super().invoke(ctx)
 
-    return wrapper
 
-
-@cli.command(name="connect", help="Open a Data Plane CONNECT stream on stdin/stdout.")
+@cli.command(
+    name="connect", cls=DataPlaneCommand, help="Open a Data Plane CONNECT stream on stdin/stdout."
+)
 @click.argument("instance_id")
 @click.argument("target_port", required=False, default=22, type=click.IntRange(1, 65535))
 @click.option(
@@ -503,7 +509,6 @@ def _data_plane_client_options(function):
     default="ssh",
     show_default=True,
 )
-@_data_plane_client_options
 def data_plane_connect(
     instance_id: str,
     target_port: int,
@@ -521,7 +526,9 @@ def data_plane_connect(
     )
 
 
-@cli.command(name="port-forward", help="Forward a local TCP port to a sandbox port.")
+@cli.command(
+    name="port-forward", cls=DataPlaneCommand, help="Forward a local TCP port to a sandbox port."
+)
 @click.argument("instance_id")
 @click.argument("target_port", type=click.IntRange(1, 65535))
 @click.option(
@@ -531,7 +538,6 @@ def data_plane_connect(
     metavar="HOST:PORT",
     help="Local address to listen on.",
 )
-@_data_plane_client_options
 def data_plane_port_forward(
     instance_id: str,
     target_port: int,
