@@ -1353,7 +1353,10 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('/direct/${sid}/invoke', deploy_script)
         self.assertIn("survived a 12s direct data-plane request", deploy_script)
         self.assertIn('run_smoke "${smoke_server_address}"', deploy_script)
-        self.assertIn('run_rrt_direct_e2e "${smoke_server_address}" "${router_tls_address}" "${router_plain_address}"', deploy_script)
+        self.assertIn(
+            'run_rrt_direct_e2e "${smoke_server_address}" "${router_tls_address}" "${router_plain_address}"',
+            deploy_script,
+        )
         self.assertIn('YR_GATEWAY_ADDRESS="${router_tls_addr}"', deploy_script)
         self.assertIn('YR_GATEWAY_ADDRESS="${router_plain_addr}"', deploy_script)
         self.assertIn('YR_GATEWAY_TLS=1', deploy_script)

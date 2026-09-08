@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+import hashlib
 import json
 import os
 import shlex
@@ -27,6 +41,33 @@ class RawCase:
     iterations: int
     concurrency: int
     resource: bool = False
+
+
+@dataclass(frozen=True)
+class HttpCase:
+    variant: str
+    path: str
+    requests: int
+    concurrency: int
+    resource: bool = False
+
+
+@dataclass(frozen=True)
+class RequestCase:
+    variant: str
+    body_size: int
+    requests: int
+    concurrency: int
+    targets: int
+    resource: bool = False
+
+
+def sha256_line(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"{digest.hexdigest()}  {path}\n"
 
 
 class Runner:
@@ -64,6 +105,12 @@ class Runner:
             raise RuntimeError(f"{node}: {command}\n{result.stdout}")
         return result.stdout
 
+    def run_remote(self, node, command) -> None:
+        """Check setup commands and retain their output for failure diagnosis."""
+        output = self.remote(node, command)
+        with (self.evidence / "setup.log").open("a") as stream:
+            stream.write(f"[{node}]\n{output}\n")
+
     def start_samplers(self, case_id):
         specs = {
             MASTER: [("edge", f"{REMOTE_ROOT}/edge-frontend.pid")],
@@ -91,7 +138,7 @@ class Runner:
                 f"--output {prefix}.json --stop-file {prefix}.stop --interval 0.05 "
                 f">{prefix}.log 2>&1 & echo $! >{prefix}.pid"
             )
-            self.remote(node, command)
+            self.run_remote(node, command)
         time.sleep(0.12)
 
     def stop_samplers(self, case_id):
@@ -163,30 +210,30 @@ class Runner:
             }
         )
 
-    def run_http_case(self, round_number, variant, path, requests, concurrency, resource):
-        case_id = f"r{round_number}-http-{variant}-{path}-c{concurrency}"
-        if variant == "direct":
-            url = f"http://{self.worker_ip}:18082/{path}"
+    def run_http_case(self, round_number, case: HttpCase):
+        case_id = f"r{round_number}-http-{case.variant}-{case.path}-c{case.concurrency}"
+        if case.variant == "direct":
+            url = f"http://{self.worker_ip}:18082/{case.path}"
             security = ""
         else:
-            url = f"https://127.0.0.1:8443/direct/vm-sandbox-1/{path}"
+            url = f"https://127.0.0.1:8443/direct/vm-sandbox-1/{case.path}"
             security = f"--ca {REMOTE_ROOT}/ca.crt --token {shlex.quote(TOKEN)}"
-        warmup = 10 if path == "small.txt" else 0
+        warmup = 10 if case.path == "small.txt" else 0
         command = (
             f"python3 {REMOTE_ROOT}/http_keepalive_bench.py {url} "
-            f"--requests {requests} --concurrency {concurrency} --warmup {warmup} {security}"
+            f"--requests {case.requests} --concurrency {case.concurrency} --warmup {warmup} {security}"
         )
-        metrics, resources, started, ended = self.execute_json(case_id, command, resource)
+        metrics, resources, started, ended = self.execute_json(case_id, command, case.resource)
         self.rows.append(
             {
                 "family": "http",
                 "round": round_number,
-                "variant": variant,
-                "path": path,
+                "variant": case.variant,
+                "path": case.path,
                 "direction": "download",
-                "bytes_per_stream": 0 if path == "small.txt" else 32 * 1024 * 1024,
-                "iterations": requests,
-                "concurrency": concurrency,
+                "bytes_per_stream": 0 if case.path == "small.txt" else 32 * 1024 * 1024,
+                "iterations": case.requests,
+                "concurrency": case.concurrency,
                 "started_ns": started,
                 "ended_ns": ended,
                 "metrics": metrics,
@@ -205,40 +252,38 @@ class Runner:
             total += int(output.strip())
         return total
 
-    def run_request_case(
-        self, round_number, variant, body_size, requests, concurrency, targets, resource
-    ):
+    def run_request_case(self, round_number, case: RequestCase):
         case_id = (
-            f"r{round_number}-request-{variant}-b{body_size}-c{concurrency}-t{targets}"
+            f"r{round_number}-request-{case.variant}-b{case.body_size}-c{case.concurrency}-t{case.targets}"
         )
-        if variant == "direct":
-            url = f"http://{self.worker_ip}:18082/bytes/{body_size}"
+        if case.variant == "direct":
+            url = f"http://{self.worker_ip}:18082/bytes/{case.body_size}"
             routing = ""
         else:
             url = "https://127.0.0.1:8443/"
             routing = (
                 f"--ca {REMOTE_ROOT}/ca.crt --token {shlex.quote(TOKEN)} "
-                f"--targets {targets} "
-                f"--path-template '/direct/perf-sandbox-{{target:04d}}/bytes/{body_size}'"
+                f"--targets {case.targets} "
+                f"--path-template '/direct/perf-sandbox-{{target:04d}}/bytes/{case.body_size}'"
             )
         command = (
             f"python3 {REMOTE_ROOT}/http_keepalive_bench.py {url} "
-            f"--requests {requests} --concurrency {concurrency} --warmup 2 {routing}"
+            f"--requests {case.requests} --concurrency {case.concurrency} --warmup 2 {routing}"
         )
-        connects_before = self.node_connect_total() if variant != "direct" else 0
-        metrics, resources, started, ended = self.execute_json(case_id, command, resource)
-        connects_after = self.node_connect_total() if variant != "direct" else 0
+        connects_before = self.node_connect_total() if case.variant != "direct" else 0
+        metrics, resources, started, ended = self.execute_json(case_id, command, case.resource)
+        connects_after = self.node_connect_total() if case.variant != "direct" else 0
         self.rows.append(
             {
                 "family": "request",
                 "round": round_number,
-                "variant": variant,
+                "variant": case.variant,
                 "direction": "request-response",
-                "body_size": body_size,
-                "bytes_per_stream": body_size,
-                "iterations": requests,
-                "concurrency": concurrency,
-                "logical_targets": targets,
+                "body_size": case.body_size,
+                "bytes_per_stream": case.body_size,
+                "iterations": case.requests,
+                "concurrency": case.concurrency,
+                "logical_targets": case.targets,
                 "backend_connect_delta": connects_after - connects_before,
                 "started_ns": started,
                 "ended_ns": ended,
@@ -265,7 +310,7 @@ class Runner:
                 "sudo ip netns exec yr-sandbox bash -lc "
                 f"{shlex.quote(alias_commands)}"
             )
-            self.remote(
+            self.run_remote(
                 node,
                 f"{aliases}; "
                 f"kill $(cat {REMOTE_ROOT}/direct-http.pid) 2>/dev/null || true; "
@@ -299,15 +344,15 @@ class Runner:
                 f"{REMOTE_ROOT}/bin/etcdctl --endpoints=http://127.0.0.1:2379 put "
                 f"/yr/route/business/yrk/{instance} {shlex.quote(route)} >/dev/null"
             )
-        self.remote(MASTER, "; ".join(commands))
-        self.remote(
+        self.run_remote(MASTER, "; ".join(commands))
+        self.run_remote(
             MASTER,
             "for attempt in $(seq 1 100); do "
             "entries=$(curl -fsS http://127.0.0.1:18080/metrics | "
             "awk '/route_cache_entries / {print $2}'); "
             f"test \"${{entries:-0}}\" -ge {count + 2} && exit 0; sleep 0.1; done; exit 1",
         )
-        self.remote(
+        self.run_remote(
             MASTER,
             f"curl -fsS http://{self.worker_ip}:18082/bytes/128 >/dev/null; "
             f"curl -fsS --cacert {REMOTE_ROOT}/ca.crt -H 'Authorization: Bearer {TOKEN}' "
@@ -321,7 +366,7 @@ class Runner:
             "curl -fsS http://127.0.0.1:18080/readyz >/dev/null",
             f"curl -fsS http://{self.worker_ip}:18443/readyz >/dev/null",
         ]
-        self.remote(MASTER, "; ".join(checks))
+        self.run_remote(MASTER, "; ".join(checks))
         topology = {
             "nodes": {"master": MASTER, "worker": WORKER},
             "addresses": {
@@ -342,19 +387,12 @@ class Runner:
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True, capture_output=True, check=True
         ).stdout.strip()
         (self.evidence / "source-identity.txt").write_text(f"HEAD={head}\n{source}")
-        hashes = subprocess.run(
-            [
-                "shasum",
-                "-a",
-                "256",
-                str(REPO_ROOT / "build/output/data_plane/bin/yr-edge-frontend"),
-                str(REPO_ROOT / "build/output/data_plane/bin/yr-node-proxy"),
-                str(REPO_ROOT / ".yr-cache/data-plane-gateway-perf/bin/relay_perf"),
-            ],
-            text=True,
-            capture_output=True,
-            check=True,
-        ).stdout
+        binaries = (
+            REPO_ROOT / "build/output/data_plane/bin/yr-edge-frontend",
+            REPO_ROOT / "build/output/data_plane/bin/yr-node-proxy",
+            REPO_ROOT / ".yr-cache/data-plane-gateway-perf/bin/relay_perf",
+        )
+        hashes = "".join(sha256_line(path) for path in binaries)
         (self.evidence / "release-sha256.txt").write_text(hashes)
 
     def collect_metrics(self, suffix):
@@ -406,12 +444,12 @@ class Runner:
                 for concurrency, requests in ((1, 500), (8, 1000)):
                     for variant in ("direct", "edge-tls"):
                         self.run_http_case(
-                            round_number, variant, "small.txt", requests, concurrency, False
+                            round_number, HttpCase(variant, "small.txt", requests, concurrency)
                         )
                 for concurrency, requests in ((1, 4), (8, 16)):
                     for variant in ("direct", "edge-tls"):
                         self.run_http_case(
-                            round_number, variant, "blob.bin", requests, concurrency, True
+                            round_number, HttpCase(variant, "blob.bin", requests, concurrency, resource=True)
                         )
             if "request" in families:
                 if round_number == 1:
@@ -421,23 +459,23 @@ class Runner:
                     for concurrency in (1, 8, 32, 64):
                         requests = self.request_count or max(2_000, concurrency * 200)
                         cases.append(
-                            ("direct", body_size, requests, concurrency, 1, concurrency >= 32)
+                            RequestCase("direct", body_size, requests, concurrency, 1, resource=concurrency >= 32)
                         )
                         for targets in (1, 10, 100):
                             cases.append(
-                                (
+                                RequestCase(
                                     "edge-tls",
                                     body_size,
                                     requests,
                                     concurrency,
                                     targets,
-                                    concurrency >= 32,
+                                    resource=concurrency >= 32,
                                 )
                             )
                 if round_number % 2 == 0:
                     cases.reverse()
                 for case in cases:
-                    self.run_request_case(round_number, *case)
+                    self.run_request_case(round_number, case)
                 if round_number != self.rounds and self.request_round_cooldown > 0:
                     time.sleep(self.request_round_cooldown)
             self.write_results()

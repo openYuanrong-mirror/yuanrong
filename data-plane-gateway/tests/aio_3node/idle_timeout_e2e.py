@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Verify that a live Rust data-plane stream participates in sandbox idle lifecycle."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
+import sys
 import time
 import urllib.request
 import uuid
 from pathlib import Path
-
-os.environ.setdefault("YR_TLS", "0")
-os.environ.setdefault("YR_GATEWAY_TLS", "0")
-os.environ.setdefault(
-    "YR_TOKEN",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJzdWIiOiJkZWZhdWx0IiwiZXhwIjo5ODc2NTQzMjEwLCJyb2xlIjoiZGV2ZWxvcGVyIn0."
-    "aio-e2e-signature",
-)
 
 from yr_sandbox import Sandbox
 
@@ -92,16 +99,23 @@ def wait_active_stream(endpoints: list[str], timeout: float = 5) -> dict[str, in
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    os.environ.setdefault("YR_TLS", "0")
+    os.environ.setdefault("YR_GATEWAY_TLS", "0")
+    os.environ.setdefault(
+        "YR_TOKEN",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiJkZWZhdWx0IiwiZXhwIjo5ODc2NTQzMjEwLCJyb2xlIjoiZGV2ZWxvcGVyIn0."
+        "aio-e2e-signature",
+    )
+
     image = os.environ.get("YR_SANDBOX_IMAGE", "yr-gateway-sdk-runtime:e2e")
     result_path = Path(os.environ.get("YR_E2E_RESULT", "/tmp/idle-timeout-result.json"))
     edge = os.environ.get("YR_GATEWAY_ADDRESS", "10.250.0.20:8080")
-    metrics_endpoints = [
-        item.strip()
-        for item in os.environ.get(
-            "YR_NODE_METRICS", "10.250.0.10:18443,10.250.0.12:18443,10.250.0.13:18443"
-        ).split(",")
-        if item.strip()
-    ]
+    metrics_addresses = os.environ.get(
+        "YR_NODE_METRICS", "10.250.0.10:18443,10.250.0.12:18443,10.250.0.13:18443"
+    )
+    metrics_endpoints = [item.strip() for item in metrics_addresses.split(",") if item.strip()]
     idle_timeout = int(os.environ.get("YR_IDLE_TIMEOUT_SECONDS", "4"))
     hold_seconds = idle_timeout + 4
     target_port = 18083
@@ -139,7 +153,8 @@ def main() -> None:
             )
         result["server_pid"] = command.stdout.strip()
 
-        safe_id = sandbox._client._safe_id(sandbox.id)
+        # CONNECT uses the gateway route.SanitizeID wire format.
+        safe_id = sandbox.id.replace("@", "-at-").translate(str.maketrans("/._", "---"))
         stream, connect_response = connect_edge(edge, safe_id, target_port)
         result["connect_status"] = connect_response.split(b"\r\n", 1)[0].decode(
             "ascii", errors="replace"
@@ -171,9 +186,11 @@ def main() -> None:
         reclaimed_after = wait_running(sandbox, False, idle_timeout + 20)
         result["reclaimed_after_stream_close_seconds"] = round(reclaimed_after, 3)
         result["reclaimed_after_close"] = True
-        print(
-            f"[PASS] open CONNECT kept sandbox alive for {hold_seconds}s; "
-            f"sandbox reclaimed {reclaimed_after:.3f}s after stream close"
+        logging.info(
+            "[PASS] open CONNECT kept sandbox alive for %ss; "
+            "sandbox reclaimed %.3fs after stream close",
+            hold_seconds,
+            reclaimed_after,
         )
     except Exception as exc:  # noqa: BLE001
         result["error"] = repr(exc)
@@ -192,7 +209,7 @@ def main() -> None:
         result_path.write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-        print(json.dumps(result, indent=2, sort_keys=True))
+        sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,8 @@
 
 import logging
 import sys
+from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -240,11 +242,12 @@ def start(ctx: click.Context, **kwargs) -> None:
         raise click.UsageError("--master and --edge are mutually exclusive")
     if edge_mode and function_master_addr:
         raise click.UsageError("--master_address is not supported in edge mode")
-    if edge_mode and (
+    runtime_options_set = (
         function_proxy_merge_process_enable
         or enable_runtime_launcher
         or data_system_enable is not None
-    ):
+    )
+    if edge_mode and runtime_options_set:
         raise click.UsageError(
             "FunctionSystem and runtime options are not supported in edge mode"
         )
@@ -450,30 +453,44 @@ def status(
     ctx.exit(0 if ok else 1)
 
 
+@dataclass(frozen=True)
+class DataPlaneClientOptions:
+    edge: str
+    token: Optional[str]
+    tls_ca: Optional[str]
+    tls_server_name: Optional[str]
+
+
 def _data_plane_client_options(function):
-    function = click.option(
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        option_names = ("edge", "token", "tls_ca", "tls_server_name")
+        options = DataPlaneClientOptions(**{name: kwargs.pop(name) for name in option_names})
+        return function(*args, client_options=options, **kwargs)
+
+    wrapper = click.option(
         "--tls-server-name",
         envvar="YR_DATA_PLANE_FORWARD_TLS_SERVER_NAME",
         help="TLS server name expected from the Edge certificate.",
-    )(function)
-    function = click.option(
+    )(wrapper)
+    wrapper = click.option(
         "--tls-ca",
         type=click.Path(exists=True, dir_okay=False),
         envvar="YR_DATA_PLANE_FORWARD_TLS_CA",
         help="CA bundle for TLS to Edge. Omit to use plaintext CONNECT.",
-    )(function)
-    function = click.option(
+    )(wrapper)
+    wrapper = click.option(
         "--token",
         envvar="YR_TOKEN",
         help="Optional sandbox access JWT. Prefer the YR_TOKEN environment variable.",
-    )(function)
+    )(wrapper)
     return click.option(
         "--edge",
         envvar="YR_GATEWAY_ADDRESS",
         required=True,
         metavar="HOST:PORT",
         help="Data Plane Edge address.",
-    )(function)
+    )(wrapper)
 
 
 @cli.command(name="connect", help="Open a Data Plane CONNECT stream on stdin/stdout.")
@@ -490,19 +507,16 @@ def data_plane_connect(
     instance_id: str,
     target_port: int,
     access_kind: str,
-    edge: str,
-    token: Optional[str],
-    tls_ca: Optional[str],
-    tls_server_name: Optional[str],
+    client_options: DataPlaneClientOptions,
 ) -> None:
     """Adapt OpenSSH ProxyCommand or another stdio client to Edge CONNECT."""
     from yr.cli.data_plane import exec_forward
 
     exec_forward(
-        ["connect", edge, instance_id, str(target_port), access_kind],
-        token=token,
-        tls_ca=tls_ca,
-        tls_server_name=tls_server_name,
+        ["connect", client_options.edge, instance_id, str(target_port), access_kind],
+        token=client_options.token,
+        tls_ca=client_options.tls_ca,
+        tls_server_name=client_options.tls_server_name,
     )
 
 
@@ -521,19 +535,16 @@ def data_plane_port_forward(
     instance_id: str,
     target_port: int,
     listen: str,
-    edge: str,
-    token: Optional[str],
-    tls_ca: Optional[str],
-    tls_server_name: Optional[str],
+    client_options: DataPlaneClientOptions,
 ) -> None:
     """Expose a localhost listener for databases and other TCP applications."""
     from yr.cli.data_plane import exec_forward
 
     exec_forward(
-        ["port-forward", edge, instance_id, str(target_port), listen],
-        token=token,
-        tls_ca=tls_ca,
-        tls_server_name=tls_server_name,
+        ["port-forward", client_options.edge, instance_id, str(target_port), listen],
+        token=client_options.token,
+        tls_ca=client_options.tls_ca,
+        tls_server_name=client_options.tls_server_name,
     )
 
 

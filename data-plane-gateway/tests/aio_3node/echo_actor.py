@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import base64
 import configparser
 import json
+import logging
+import sys
 import time
 
 import yr
@@ -109,14 +125,15 @@ def main():
             results.append(details)
         with open(args.output, "w", encoding="utf-8") as stream:
             json.dump(results, stream, sort_keys=True)
-        print(json.dumps(results, sort_keys=True), flush=True)
+        sys.stdout.write(json.dumps(results, sort_keys=True) + "\n")
+        sys.stdout.flush()
         time.sleep(args.hold_seconds)
     finally:
         for sandbox in sandboxes:
             try:
                 sandbox.terminate()
             except Exception:
-                pass
+                logging.exception("Failed to terminate sandbox during actor cleanup")
         yr.finalize()
 
 

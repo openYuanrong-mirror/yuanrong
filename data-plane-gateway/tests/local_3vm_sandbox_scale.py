@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import json
 import os
@@ -9,7 +22,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from local_3vm_perf import MASTER, REMOTE_ROOT, TOKEN, WORKER, Runner
+from local_3vm_perf import MASTER, REMOTE_ROOT, TOKEN, WORKER, Runner, sha256_line
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,12 +61,7 @@ class SandboxScaleRunner(Runner):
         self.restart_edge_for_load()
         self.prepare_request_targets(100)
         self.collect_metrics("before-scale")
-        hashes = subprocess.run(
-            ["shasum", "-a", "256", str(self.benchmark)],
-            text=True,
-            capture_output=True,
-            check=True,
-        ).stdout
+        hashes = sha256_line(self.benchmark)
         with (self.evidence / "release-sha256.txt").open("a") as stream:
             stream.write(hashes)
 
