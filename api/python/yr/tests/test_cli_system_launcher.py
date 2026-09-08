@@ -21,7 +21,8 @@ from pathlib import Path
 from unittest import mock
 
 from yr.cli.component.base import ComponentConfig
-from yr.cli.component.registry import get_depends_on_overrides
+from yr.cli.component.data_plane_gateway import DataPlaneGatewayLauncher
+from yr.cli.component.registry import LAUNCHER_CLASSES, get_depends_on_overrides
 from yr.cli.const import StartMode
 import yr.cli.system_launcher as system_launcher_module
 from yr.cli.system_launcher import SystemLauncher
@@ -144,6 +145,50 @@ class TestCliSystemLauncher(unittest.TestCase):
             "runtime_launcher",
             get_depends_on_overrides(StartMode.AGENT)["function_proxy"],
         )
+
+    def test_data_plane_gateway_components_are_independent(self):
+        self.assertIs(
+            LAUNCHER_CLASSES["node_proxy"], DataPlaneGatewayLauncher
+        )
+        self.assertIs(
+            LAUNCHER_CLASSES["edge_frontend"], DataPlaneGatewayLauncher
+        )
+        self.assertEqual(
+            get_depends_on_overrides(StartMode.AGENT)["node_proxy"],
+            [],
+        )
+        self.assertEqual(
+            get_depends_on_overrides(StartMode.EDGE),
+            {"edge_frontend": []},
+        )
+
+    def test_data_plane_gateway_launcher_uses_readiness_endpoint(self):
+        resolver = SimpleNamespace(
+            rendered_config={
+                "edge_frontend": {
+                    "health_check": {"endpoint": "http://127.0.0.1:8080/readyz"}
+                }
+            }
+        )
+        launcher = DataPlaneGatewayLauncher("edge_frontend", resolver)
+        with mock.patch.object(
+            launcher, "_check_http_or_https_health", return_value=True
+        ) as check:
+            self.assertTrue(launcher.health_check())
+            check.assert_called_once_with()
+
+    def test_non_master_status_uses_process_health(self):
+        launcher = SystemLauncher.__new__(SystemLauncher)
+        launcher.session_manager = SimpleNamespace(
+            session_file=Path("/tmp/yr-edge-session.json"),
+        )
+        with (
+            mock.patch.object(Path, "exists", return_value=True),
+            mock.patch.object(launcher, "health", return_value=True) as health,
+        ):
+            launcher.session_manager.load_session = lambda: {"mode": "edge"}
+            self.assertTrue(launcher.status())
+            health.assert_called_once_with()
 
     def test_constructor_passes_port_policy_to_config_resolver(self):
         resolver = SimpleNamespace(

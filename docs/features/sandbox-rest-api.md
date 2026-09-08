@@ -14,13 +14,12 @@ Sandbox 对外有三组 URL 面：
 | 面 | 入口 | 主要路径 | 用途 |
 |----|------|----------|------|
 | Frontend control API | `YR_SERVER_ADDRESS` | `/api/sandbox/v1/sandboxes...` | create/delete/invoke 控制面 |
-| Frontend direct alias | `YR_SERVER_ADDRESS` | `/direct/{safeID}/...` | 低延迟 RRT HTTP 数据面，隐藏 RRT 内部端口 |
-| Sandbox gateway/router | `YR_GATEWAY_ADDRESS`，缺省回退 `YR_SERVER_ADDRESS` | `/tunnel/{safeID}`、`/{safeID}/{port}` | reverse tunnel 与用户端口转发 |
+| Rust Edge data plane | `YR_GATEWAY_ADDRESS`，缺省回退同一外部 Ingress 地址 | `/direct/{safeID}/...`、`/tunnel/{safeID}`、`/{safeID}/{port}` | RRT HTTP、reverse tunnel 与用户端口转发 |
 
 两条 action 数据面执行同一套 `{action, args}` 词表：
 
 ```text
-SDK invoke ──优先──► POST /direct/{safeID}/invoke ─► frontend ─► sandboxRouter ─► rrt /invoke
+SDK invoke ──优先──► POST /direct/{safeID}/invoke ─► Rust Edge ─► Node Proxy ─► rrt /invoke
           └─回退──► POST /api/sandbox/v1/sandboxes/{sandboxID}/invoke ─► frontend ─► libRt RuntimeRPC ─► rrt sandbox_invoke
 ```
 
@@ -34,15 +33,15 @@ SDK invoke ──优先──► POST /direct/{safeID}/invoke ─► frontend �
 
 ### 2.1 JWT 与 token 传递
 
-| 路径 | frontend JWT | 转发给 sandboxRouter/RRT | 说明 |
+| 路径 | 鉴权入口 | 转发给 RRT/用户服务 | 说明 |
 |------|--------------|---------------------------|------|
 | `/api/sandbox/v1/...` | 需要（除非 frontend 全局关闭鉴权） | 不适用 | `X-Auth: <jwt>`，非 `Authorization: Bearer` |
-| `/direct/{safeID}/...` | 需要 | frontend 删除 `X-Auth` / `token` / `tenant_id`，加 `X-Internal-Src: 1` | RRT 不接收平台 JWT |
-| `/tunnel/{safeID}` | frontend 明确跳过 JWT | 删除平台凭据 | tunnel 由 create 时的授权动作建立，默认 `ws://` 不带 token |
-| `/{safeID}/{port}` 用户端口 | sandboxRouter 不要求平台 JWT | 删除平台凭据 | 用户服务自行做业务鉴权 |
-| 直接访问 `/{safeID}/{rrtPort}` | sandboxRouter 要 JWT | RRT 端口可保留 token | 仅作为低层兼容/调试路径，不是 SDK 主路径 |
+| `/direct/{safeID}/...` | Edge 校验 `Authorization: Bearer <jwt>` | Edge 删除平台 JWT、`token` 和 `tenant_id` | RRT 不接收平台 JWT |
+| `/tunnel/{safeID}` | Bearer JWT 默认可选，可配置强制；提供时必须通过 Edge 校验 | 删除平台凭据 | WebSocket 直接终止在 Edge |
+| `/{safeID}/{port}` 用户端口 | Bearer JWT 默认可选，可配置强制；提供时校验 route tenant | 删除平台凭据 | 用户服务仍可实现自己的业务鉴权 |
+| Raw L4 | framed handshake 可选携带 Bearer JWT，可配置强制 | Node 只接收 workload endpoint metadata | SSH/数据库不经过 Frontend |
 
-frontend JWT 中间件会把 JWT `sub` 写入租户 header/query；`/direct` 转发前会删除这些平台路由参数，避免泄漏到 RRT。
+Edge 从已验证 JWT 的 `sub` 得到租户并与 RouteInfo 比较，不接受客户端自报租户 Header。
 
 ### 2.2 Trace
 
@@ -126,7 +125,11 @@ data: {"status":"timeout","errorCode":3002,"message":"create timed out"}
   "env": {"KEY": "value"},
   "mounts": [],
   "extra_config": {},
-  "tunnel": {"enabled": true}
+  "tunnel": {"enabled": true},
+  "dataPlane": {
+    "tunnelSecurityMode": "tls-token",
+    "portForwardSecurityMode": "tls"
+  }
 }
 ```
 
@@ -147,6 +150,13 @@ data: {"status":"timeout","errorCode":3002,"message":"create timed out"}
 | `env` | 用户环境变量；frontend 同时会注入 `RRT_HTTP_PORT` 以及 tunnel 相关 env |
 | `mounts` / `extra_config` | 透传给 sandboxd/runtime launcher |
 | `tunnel.enabled` | 请求 frontend 准备 reverse tunnel；SDK 使用 `upstream=` 时自动设置 |
+| `dataPlane.tunnelSecurityMode` | 可选 sandbox 级覆盖；`tls` 或 `tls-token`；缺省继承 Edge tunnel 默认值 |
+| `dataPlane.portForwardSecurityMode` | 可选 sandbox 级覆盖；`tls` 或 `tls-token`；同时作用于 port-forwarding 与 SSH |
+
+所有公开入口都要求 TLS。`/direct` 固定为 `tls-token`，不提供 sandbox
+级关闭项；`tls-token` 在 TLS 基础上要求 Edge 校验用户 Bearer token 并
+绑定 RouteInfo tenant。TLS 由 Edge 前的受信 ingress 统一终止，sandbox
+字段只决定是否再要求 token。
 
 响应（envelope 解码后的 `data`）：
 
@@ -179,11 +189,11 @@ data: {"status":"timeout","errorCode":3002,"message":"create timed out"}
 - `args` 为空时按 `{}` 处理。
 - frontend 通过 `sandbox_invoke` 投递给 RRT，返回 action 结果；若结果 JSON 包含非空 `error`，frontend envelope 的 `message` 会携带该错误。
 
-## 4. Frontend direct alias 与 RRT HTTP API
+## 4. Rust Edge direct 入口与 RRT HTTP API
 
-SDK 主路径通过 frontend `/direct` alias 访问 RRT HTTP server。frontend 将 alias 转为 sandboxRouter 内部路径 `/{safeID}/{rrtPort}/...`。
+SDK 主路径通过 `YR_GATEWAY_ADDRESS` 的 Rust Edge `/direct` 入口访问 RRT HTTP server。Edge 从 `/yr/route` 解析 sandbox endpoint，通过 Node Proxy 建立 L4 stream；请求不经过 Frontend。
 
-| Method | Frontend alias | 转到 RRT | 说明 |
+| Method | Edge path | 转到 RRT | 说明 |
 |--------|----------------|----------|------|
 | `POST` | `/direct/{safeID}/invoke` | `POST /invoke` | `{action,args}` JSON，返回原始 action JSON |
 | `GET` | `/direct/{safeID}/healthz` | `GET /healthz` | 健康检查 |
@@ -221,11 +231,14 @@ RRT HTTP server 自身状态码：
 | `431` | HTTP headers 过大 |
 | `500` | direct invoke dispatch panic/join failure |
 
-经 sandboxRouter 额外可能返回：`403`（租户不匹配）、`502`（后端未监听）、`503`（路由解析不可用）、`504`（上游超时）。
+经 Rust Edge 额外可能返回：`401`（Bearer JWT 无效）、`403`（租户不匹配）、`409`（实例状态不可连接）、`502`（后端未监听）、`503`（路由解析/IAM 不可用）、`504`（上游超时）。
 
 ---
 
-## 5. sandboxRouter 路由契约
+## 5. 旧 Go sandboxRouter 路由契约（仅旧链路）
+
+本节只描述 `dataPlane.enabled=false` 时保留的旧实现。新 Rust 数据面不读取
+`portForward/hostPort`，也不存在 Frontend → Edge 转发。
 
 router 入站路径：`/{safeID}/{port}[/rest]`。
 
@@ -354,8 +367,8 @@ rrt tunnel WS Port-A 8765 ── RRT Port-B 127.0.0.1:8766 ── 沙箱内代�
 关键约束：
 
 - 帧是 TEXT JSON，不是裸 HTTP、不是 binary frame。
-- SDK 默认 `YR_GATEWAY_TLS=0` 时使用 `ws://`，不携带 `YR_TOKEN`。
-- `YR_GATEWAY_TLS=1` 时 SDK 可用 `wss://`，但 frontend/router/tunnel 仍不会把平台 token 转给 tunnel server。
+- SDK 默认 `YR_GATEWAY_TLS=0` 时使用 `ws://`；生产部署应启用 TLS。
+- WebSocket 握手向 Edge 携带 `Authorization: Bearer <JWT>`；Edge 完成鉴权后不会把平台 token 转给 sandbox tunnel server。
 
 ---
 
@@ -363,11 +376,11 @@ rrt tunnel WS Port-A 8765 ── RRT Port-B 127.0.0.1:8766 ── 沙箱内代�
 
 | 环境变量 | 默认 | 说明 |
 |----------|------|------|
-| `YR_SERVER_ADDRESS` | 必填 | frontend gateway `host:port`；control API 与 `/direct` 均走这里 |
-| `YR_TOKEN` | 必填（SDK 当前要求） | 原始 JWT，放入 `X-Auth` |
+| `YR_SERVER_ADDRESS` | 必填 | Frontend control entry `host:port` |
+| `YR_TOKEN` | 必填（SDK 当前要求） | 控制面使用 `X-Auth`；Edge 数据面使用 `Authorization: Bearer` |
 | `YR_TLS` | `1` | `1/true/yes` → `https` frontend；`0/false/no` → `http` |
-| `YR_GATEWAY_ADDRESS` | 空 | tunnel 和用户端口 URL 的 gateway；为空回退 `YR_SERVER_ADDRESS` |
-| `YR_GATEWAY_TLS` | `0` | tunnel 外部连接使用 `wss` 或 `ws` |
+| `YR_GATEWAY_ADDRESS` | 空 | Edge data-plane entry；承载 direct、tunnel 和用户端口，空时仅为单地址部署回退到 `YR_SERVER_ADDRESS` |
+| `YR_GATEWAY_TLS` | 跟随 `YR_TLS` | Edge 的 HTTP/WS TLS 开关 |
 | `YR_TUNNEL_CONNECT_TIMEOUT` | `60` | SDK 等待 TunnelClient 连接成功的秒数 |
 | `YR_RESUME_CHUNK_SIZE` | `8388608` | resumable file upload 每个 chunk 的默认大小 |
 | `YR_RESUME_MAX_RETRIES` | `3` | resumable file upload/download 单次操作内的最大恢复重试次数 |
@@ -377,8 +390,8 @@ SDK URL 规则：
 | SDK 能力 | URL |
 |----------|-----|
 | create/delete/frontend invoke | `{http(s)}://{YR_SERVER_ADDRESS}/api/sandbox/v1/sandboxes...` |
-| direct invoke | `{http(s)}://{YR_SERVER_ADDRESS}/direct/{safeID}/invoke`，SDK 自动携带 requestId |
-| direct upload/download | `{http(s)}://{YR_SERVER_ADDRESS}/direct/{safeID}/upload|download`；file copy 使用 resumable status/chunk/commit 与 Range 下载 |
+| direct invoke | `{http(s)}://{YR_GATEWAY_ADDRESS}/direct/{safeID}/invoke`，SDK 自动携带 requestId |
+| direct upload/download | `{http(s)}://{YR_GATEWAY_ADDRESS}/direct/{safeID}/upload|download`；file copy 使用 resumable status/chunk/commit 与 Range 下载 |
 | reverse tunnel client | `{ws(s)}://{YR_GATEWAY_ADDRESS or YR_SERVER_ADDRESS}/tunnel/{safeID}` |
 | sandbox 内访问 reverse tunnel | `http://127.0.0.1:8766`（或 create 响应 `tunnel.proxyUrl`） |
 | 用户端口 | `http://{YR_GATEWAY_ADDRESS or YR_SERVER_ADDRESS}/{safeID}/{port}` |

@@ -62,6 +62,53 @@ def load_setup_module(setup_type=""):
 
 
 class SetupPackagingTest(unittest.TestCase):
+    def test_data_plane_make_target_rebuilds_binary_stage(self):
+        makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        target = makefile.split("data-plane-gateway:\n", 1)[1].split(
+            "\ndata-plane-gateway-dev:", 1
+        )[0]
+        clean = target.index("rm -rf output/openyuanrong/data_plane/bin")
+        copy_node = target.index(
+            "cp build/output/data_plane/bin/yr-node-proxy output/openyuanrong/data_plane/bin/"
+        )
+        copy_edge = target.index(
+            "cp build/output/data_plane/bin/yr-edge-frontend output/openyuanrong/data_plane/bin/"
+        )
+        self.assertLess(clean, copy_node)
+        self.assertLess(clean, copy_edge)
+
+    def test_data_plane_split_package_places_binary_outside_runtime(self):
+        setup_mod = load_setup_module("data_plane")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            api_python_dir = root / "api" / "python"
+            data_plane_bin = (
+                root
+                / "output"
+                / "openyuanrong"
+                / "data_plane"
+                / "bin"
+                / "yr-node-proxy"
+            )
+            build_lib = root / "build_lib"
+
+            api_python_dir.mkdir(parents=True)
+            data_plane_bin.parent.mkdir(parents=True)
+            data_plane_bin.write_bytes(b"static-elf-placeholder")
+
+            old_root_dir = setup_mod.ROOT_DIR
+            setup_mod.ROOT_DIR = str(api_python_dir)
+            try:
+                setup_mod.copy_openyuanrong_data_plane(str(build_lib))
+            finally:
+                setup_mod.ROOT_DIR = old_root_dir
+
+            packaged = build_lib / "yr" / "data_plane" / "bin" / "yr-node-proxy"
+            self.assertEqual(packaged.read_bytes(), b"static-elf-placeholder")
+            self.assertFalse(
+                (build_lib / "yr" / "runtime" / "service" / "rust" / "bin").exists()
+            )
+
     def test_python_dependency_ranges_preserve_existing_lower_bounds(self):
         expected_requirements = [
             "cloudpickle==3.1.2",

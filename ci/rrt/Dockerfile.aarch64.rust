@@ -10,15 +10,26 @@ FROM ${RUST_IMAGE}
 
 ARG SCCACHE_VERSION=0.8.2
 ARG TARGETARCH
+ARG DEBIAN_MIRROR=https://mirrors.huaweicloud.com/debian
+ARG DEBIAN_SECURITY_MIRROR=https://mirrors.huaweicloud.com/debian-security
+
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn \
+    RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
 
 RUN set -eux; \
+    sed -i \
+        -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+        -e "s|http://security.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        /etc/apt/sources.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        file \
         g++ \
         gcc \
         git \
+        musl-tools \
         pkg-config \
         protobuf-compiler \
         python3 \
@@ -40,6 +51,19 @@ RUN set -eux; \
     readelf --version | head -n 1; \
     protoc --version; \
     python3 -c 'import packaging, setuptools, wheel'
+
+# RRT itself uses the native GNU target. The same image also builds the static
+# Edge Frontend and Node Proxy, so bake in the architecture's musl stdlib and
+# avoid a network/toolchain bootstrap in every Data Plane job.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        arm64) rust_target=aarch64-unknown-linux-musl ;; \
+        amd64) rust_target=x86_64-unknown-linux-musl ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    rustup target add "${rust_target}"; \
+    musl-gcc --version | head -n 1; \
+    rustup target list --installed | grep -Fx "${rust_target}"
 
 # Use the same sparse Cargo mirror as the existing architecture-specific Rust
 # builders. Install sccache in the image so CI never has to bootstrap it from

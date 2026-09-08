@@ -32,3 +32,11 @@ master:
 
 frontend:
   replicaCount: 2
+  # Control-plane API is exposed directly. Add provider-specific annotations
+  # when the target cluster requires them for a managed LoadBalancer.
+  service:
+    type: LoadBalancer
+    annotations: {}
+
+traefik:
+  enabled: false

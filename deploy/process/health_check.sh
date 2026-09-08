@@ -42,6 +42,20 @@ function runtime_launcher_health_check() {
     return 0
 }
 
+function rust_gateway_health_check() {
+    local pid="$1"
+    local bind="$2"
+    local component="$3"
+    local host="${bind%:*}"
+    local port="${bind##*:}"
+    [ "${host}" = "0.0.0.0" ] && host="127.0.0.1"
+    if [ -z "${pid}" ] || ! kill -0 "${pid}" 2>/dev/null; then
+        log_warning >&2 "${component} exited, pid: ${pid}"
+        return 1
+    fi
+    curl -fsS --max-time 1 "http://${host}:${port}/readyz" >/dev/null 2>&1
+}
+
 function health_check() {
     case "$1" in
     function_proxy)
@@ -70,6 +84,12 @@ function health_check() {
         ;;
     runtime_launcher)
         runtime_launcher_health_check "$2"
+        ;;
+    node_proxy)
+        rust_gateway_health_check "$2" "${NODE_PROXY_HEALTH_BIND}" "node_proxy"
+        ;;
+    edge_frontend)
+        rust_gateway_health_check "$2" "${EDGE_FRONTEND_HEALTH_BIND}" "edge_frontend"
         ;;
     etcd)
         third_party_health_check "$2"

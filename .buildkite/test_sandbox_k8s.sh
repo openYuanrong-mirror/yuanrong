@@ -7,6 +7,7 @@ cd "${ROOT_DIR}"
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
 SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
+SOURCE_BUILD_ID="${YR_K8S_SOURCE_BUILD_ID:-}"
 SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp311-*.whl}"
 DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS="openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl"
 SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-${DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS}}"
@@ -18,15 +19,19 @@ KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 HELM_BIN="${HELM_BIN:-helm}"
 KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"
 NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
-TRAEFIK_SERVICE="${YR_K8S_TRAEFIK_SERVICE:-yr-traefik}"
+RELEASE_NAME="${YR_K8S_RELEASE:-yr-k8s}"
+EDGE_SERVICE="${YR_K8S_EDGE_SERVICE:-yr-edge-frontend}"
 SMOKE_LOG_DIR="${ROOT_DIR}/artifacts/sandbox-smoke"
+EDGE_TLS_CA_FILE="${YR_K8S_EDGE_TLS_CA_FILE:-${SMOKE_LOG_DIR}/edge-tls-ca.crt}"
 TOOL_DIR="${ROOT_DIR}/.buildkite/tools/bin"
-TRAEFIK_PORT_FORWARD_ADDRESS="${YR_K8S_TRAEFIK_PORT_FORWARD_ADDRESS:-127.0.0.1}"
-TRAEFIK_WEB_PORT="${YR_K8S_TRAEFIK_WEB_PORT:-8888}"
-TRAEFIK_ROUTER_PORT="${YR_K8S_TRAEFIK_ROUTER_PORT:-8080}"
-TRAEFIK_WEB_ADDRESS="${YR_K8S_TRAEFIK_WEB_ADDRESS:-${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_WEB_PORT}}"
-TRAEFIK_ROUTER_ADDRESS="${YR_K8S_TRAEFIK_ROUTER_ADDRESS:-${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_ROUTER_PORT}}"
-PORT_FORWARD_PID=""
+PORT_FORWARD_ADDRESS="${YR_K8S_PORT_FORWARD_ADDRESS:-127.0.0.1}"
+EDGE_TLS_PORT="${YR_K8S_EDGE_TLS_PORT:-8443}"
+EDGE_PLAIN_PORT="${YR_K8S_EDGE_PLAIN_PORT:-8080}"
+EDGE_TLS_ADDRESS="${YR_K8S_EDGE_TLS_ADDRESS:-${PORT_FORWARD_ADDRESS}:${EDGE_TLS_PORT}}"
+EDGE_PLAIN_ADDRESS="${YR_K8S_EDGE_PLAIN_ADDRESS:-${PORT_FORWARD_ADDRESS}:${EDGE_PLAIN_PORT}}"
+SMOKE_SERVER_TLS="${YR_K8S_SMOKE_SERVER_TLS:-true}"
+PORT_FORWARD_PIDS=()
+USING_LOCAL_PORT_FORWARDS=false
 
 host_arch() {
 	case "$(uname -m)" in
@@ -308,13 +313,14 @@ install_smoke_wheels() {
 	PIP_BREAK_SYSTEM_PACKAGES=1 "${SMOKE_PYTHON}" -m pip install "${pip_args[@]}" "${smoke_wheels[@]}" pytest
 }
 
-wait_for_traefik_address() {
-	local port_name="${1:-web}"
+wait_for_service_address() {
+    local service_name="$1"
+    local port_name="$2"
 	local timeout="${YR_K8S_ADDRESS_TIMEOUT:-300}"
 	local deadline=$((SECONDS + timeout))
 	local address
 	while [ "${SECONDS}" -le "${deadline}" ]; do
-		address="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get svc "${TRAEFIK_SERVICE}" -o json |
+        address="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get svc "${service_name}" -o json |
 			PORT_NAME="${port_name}" python3 -c '
 import json
 import os
@@ -337,15 +343,20 @@ if host and port:
 		fi
 		sleep 5
 	done
-	printf 'Timed out waiting for %s/%s LoadBalancer address.\n' "${NAMESPACE}" "${TRAEFIK_SERVICE}" >&2
+    printf 'Timed out waiting for %s/%s LoadBalancer address.\n' "${NAMESPACE}" "${service_name}" >&2
 	exit 1
 }
 
 cleanup_port_forward() {
-	if [ -n "${PORT_FORWARD_PID}" ] && kill -0 "${PORT_FORWARD_PID}" >/dev/null 2>&1; then
-		kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
-		wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
-	fi
+    local pid
+    for pid in "${PORT_FORWARD_PIDS[@]:-}"; do
+        if [ -n "${pid}" ] && kill -0 "${pid}" >/dev/null 2>&1; then
+            kill "${pid}" >/dev/null 2>&1 || true
+            wait "${pid}" >/dev/null 2>&1 || true
+        fi
+    done
+	PORT_FORWARD_PIDS=()
+	USING_LOCAL_PORT_FORWARDS=false
 }
 
 wait_for_local_port() {
@@ -373,32 +384,67 @@ sys.exit(1)
 PY
 }
 
-start_traefik_port_forward() {
-	local log_file="${SMOKE_LOG_DIR}/traefik-port-forward.log"
+start_service_port_forwards() {
+    local edge_log="${SMOKE_LOG_DIR}/edge-port-forward.log"
 	mkdir -p "${SMOKE_LOG_DIR}"
+	if [ "${#PORT_FORWARD_PIDS[@]}" -gt 0 ]; then
+		cleanup_port_forward
+	fi
 
-	printf 'Starting port-forward %s/%s --address %s %s:%s %s:%s\n' \
-		"${NAMESPACE}" "${TRAEFIK_SERVICE}" "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
-		"${TRAEFIK_ROUTER_PORT}" "${TRAEFIK_WEB_PORT}" \
-		"${TRAEFIK_WEB_PORT}" "${TRAEFIK_WEB_PORT}" >&2
-	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward \
-		--address "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
-		"svc/${TRAEFIK_SERVICE}" \
-		"${TRAEFIK_ROUTER_PORT}:${TRAEFIK_WEB_PORT}" \
-		"${TRAEFIK_WEB_PORT}:${TRAEFIK_WEB_PORT}" \
-		>"${log_file}" 2>&1 &
-	PORT_FORWARD_PID="$!"
+    printf 'Starting test-only public Edge service port-forward (no Traefik or Frontend Service)\n' >&2
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward \
+        --address "${PORT_FORWARD_ADDRESS}" "svc/${EDGE_SERVICE}" \
+        "${EDGE_TLS_PORT}:8443" "${EDGE_PLAIN_PORT}:8080" >"${edge_log}" 2>&1 &
+    PORT_FORWARD_PIDS+=("$!")
 
-	if ! wait_for_local_port "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${TRAEFIK_ROUTER_PORT}" \
-		"${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
-		tail -n 120 "${log_file}" >&2 || true
+    if ! wait_for_local_port "${PORT_FORWARD_ADDRESS}" "${EDGE_TLS_PORT}" \
+        "${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
+        tail -n 120 "${edge_log}" >&2 || true
+        return 1
+    fi
+    if ! wait_for_local_port "${PORT_FORWARD_ADDRESS}" "${EDGE_PLAIN_PORT}" \
+        "${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
+        tail -n 120 "${edge_log}" >&2 || true
+        return 1
+    fi
+	USING_LOCAL_PORT_FORWARDS=true
+}
+
+service_port_forwards_healthy() {
+	local pid
+	if [ "${#PORT_FORWARD_PIDS[@]}" -ne 1 ]; then
 		return 1
 	fi
-	if ! wait_for_local_port "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${TRAEFIK_WEB_PORT}" \
-		"${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
-		tail -n 120 "${log_file}" >&2 || true
-		return 1
+	for pid in "${PORT_FORWARD_PIDS[@]}"; do
+		if ! kill -0 "${pid}" >/dev/null 2>&1; then
+			return 1
+		fi
+	done
+	python3 - "${PORT_FORWARD_ADDRESS}" "${EDGE_TLS_PORT}" "${EDGE_PLAIN_PORT}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+for value in sys.argv[2:]:
+    try:
+        with socket.create_connection((host, int(value)), timeout=2):
+            pass
+    except OSError:
+        sys.exit(1)
+PY
+}
+
+ensure_service_port_forwards() {
+	if [ "${USING_LOCAL_PORT_FORWARDS}" != true ]; then
+		return 0
 	fi
+	if service_port_forwards_healthy; then
+		return 0
+	fi
+	printf 'Test-only service port-forward stopped; restarting it before the next phase.\n' >&2
+	tail -n 80 "${SMOKE_LOG_DIR}/edge-port-forward.log" >&2 || true
+	cleanup_port_forward
+	start_service_port_forwards
 }
 
 
@@ -421,7 +467,7 @@ dump_k8s_diagnostics() {
 	fi
 	printf '\n--- recent events ---\n' >&2
 	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get events --sort-by=.lastTimestamp 2>/dev/null | tail -80 >&2 || true
-	for pod in $("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods -o name 2>/dev/null | grep -E 'pod/(yr-master|yr-node|yr-frontend|yr-traefik)' || true); do
+	for pod in $("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods -o name 2>/dev/null | grep -E 'pod/(yr-master|yr-node|yr-frontend)' || true); do
 		printf '\n--- logs %s (all containers, tail=200, since=30m) ---\n' "${pod}" >&2
 		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" logs "${pod}" --all-containers=true --tail=200 --since=30m --prefix >&2 || true
 	done
@@ -441,7 +487,7 @@ wait_for_smoke_ready() {
 
 	printf 'Waiting for yr-k8s smoke readiness against %s\n' "${server_address}" >&2
 	while [ "${SECONDS}" -le "${deadline}" ]; do
-		if YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
+		if YR_ENABLE_TLS="${SMOKE_SERVER_TLS}" \
 			YR_SERVER_ADDRESS="${server_address}" \
 			YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
 			YR_K8S_SMOKE_TIMEOUT="${YR_K8S_SMOKE_READY_OPERATION_TIMEOUT:-120}" \
@@ -474,7 +520,7 @@ run_smoke() {
 	fi
 
 	printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
-	YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
+	YR_ENABLE_TLS="${SMOKE_SERVER_TLS}" \
 		YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
 		YR_OFF_CLUSTER_USE_UV_VENV=false \
 		YR_OFF_CLUSTER_TEST_TIMEOUT="${YR_OFF_CLUSTER_TEST_TIMEOUT:-1200}" \
@@ -484,9 +530,11 @@ run_smoke() {
 		2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
 }
 
-# Live sandbox-sdk -> rrt direct verification: build+install the sandbox-sdk
-# wheel, point direct invoke at the frontend /direct path, and keep tunnel /
-# user port examples on the sandboxRouter gateway.
+# Live sandbox-sdk -> Rust data-plane verification: control APIs and /direct
+# enter through Edge TLS; /tunnel and standard CONNECT use the configured Edge
+# TLS/plain entry. Frontend remains a private Pod-local upstream without a
+# Service or test port-forward.
+# Edge resolves /yr/route and Node reaches bridge IP without hostPort/DNAT.
 
 extract_sandbox_id() {
 	python3 -c '
@@ -530,39 +578,75 @@ curl_status() {
 }
 
 create_idle_timeout_sandbox() {
-	local frontend_addr="$1"
+	local control_addr="$1"
 	local idle_timeout="$2"
 	local name="$3"
 	local resp_file
 	local status
 	local sid
 	resp_file="$(mktemp)"
-	status="$(curl_status "${resp_file}" --connect-timeout 10 --max-time 60 \
-		-X POST "http://${frontend_addr}/api/sandbox/v1/sandboxes" \
+	status="$(curl_status "${resp_file}" -k --connect-timeout 10 --max-time 60 \
+		-X POST "$(control_origin "${control_addr}")/api/sandbox/v1/sandboxes" \
 		-H 'Content-Type: application/json' \
 		-d "{\"name\":\"${name}\",\"cpu\":200,\"memory\":256,\"idleTimeoutSeconds\":${idle_timeout}}")"
 	if [[ ! "${status}" =~ ^2 ]]; then
-		printf 'idle-timeout: create failed status=%s body=%s\n' "${status}" "$(cat "${resp_file}")" >&2
+		local response_body
+		response_body="$(cat "${resp_file}")"
+		printf 'idle-timeout: create failed status=%s body=%s\n' "${status}" "${response_body}" >&2
 		rm -f "${resp_file}"
-		exit 1
+		if [[ "${response_body}" == *ERR_RESOURCE_NOT_ENOUGH* ]]; then
+			return 75
+		fi
+		return 1
 	fi
 	sid="$(extract_sandbox_id <"${resp_file}" 2>/dev/null || true)"
 	rm -f "${resp_file}"
 	if [ -z "${sid}" ]; then
 		printf 'idle-timeout: create returned no sandbox id\n' >&2
-		exit 1
+		return 1
 	fi
 	printf '%s\n' "${sid}"
 }
 
+create_sandbox_with_capacity_retry() {
+	local idle_timeout="$1"
+	local name="$2"
+	local control_addr="$3"
+	local timeout="${YR_K8S_IDLE_CAPACITY_WAIT_TIMEOUT:-180}"
+	local deadline=$((SECONDS + timeout))
+	local attempt=0
+	local sid
+	local rc
+	while [ "${SECONDS}" -le "${deadline}" ]; do
+		attempt=$((attempt + 1))
+		# A capacity-rejected create may still reserve the requested instance name
+		# in the control plane. Retrying that same name then fails with
+		# ERR_INSTANCE_DUPLICATED before capacity can become available, so each
+		# bounded capacity attempt must use a distinct identity.
+		if sid="$(create_idle_timeout_sandbox "${control_addr}" "${idle_timeout}" "${name}-attempt-${attempt}")"; then
+			printf '%s\n' "${sid}"
+			return 0
+		else
+			rc=$?
+		fi
+		if [ "${rc}" -ne 75 ]; then
+			return "${rc}"
+		fi
+		printf 'idle-timeout: waiting for the previous sandbox capacity to be released\n' >&2
+		sleep 5
+	done
+	printf 'idle-timeout: capacity was not released within %ss\n' "${timeout}" >&2
+	return 1
+}
+
 invoke_sandbox_status() {
-	local frontend_addr="$1"
+	local control_addr="$1"
 	local sid="$2"
 	local cmd="$3"
 	local output="$4"
 	local max_time="${5:-30}"
-	curl_status "${output}" --connect-timeout 10 --max-time "${max_time}" \
-		-X POST "http://${frontend_addr}/api/sandbox/v1/sandboxes/${sid}/invoke" \
+	curl_status "${output}" -k --connect-timeout 10 --max-time "${max_time}" \
+		-X POST "$(control_origin "${control_addr}")/api/sandbox/v1/sandboxes/${sid}/invoke" \
 		-H 'Content-Type: application/json' \
 		-H "X-Trace-Id: k8s-idle-timeout-${sid}" \
 		-d "$(CMD_VALUE="${cmd}" python3 - <<'PYJSON'
@@ -573,22 +657,39 @@ PYJSON
 		)"
 }
 
+control_origin() {
+	local address="$1"
+	case "${address}" in
+	http://* | https://*) printf '%s\n' "${address%/}" ;;
+	*)
+		if [[ "${SMOKE_SERVER_TLS}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+			printf 'https://%s\n' "${address}"
+		else
+			printf 'http://%s\n' "${address}"
+		fi
+		;;
+	esac
+}
+
 run_idle_timeout_e2e() {
-	local frontend_addr="$1"
-	local idle_wait="${YR_K8S_IDLE_TIMEOUT_IDLE_WAIT:-3}"
+	local control_addr="$1"
+	local idle_wait="${YR_K8S_IDLE_TIMEOUT_IDLE_WAIT:-5}"
 	local sid
 	local status
 	local body_file
+	local request_id
+	local token
+	local direct_deadline
 	mkdir -p "${SMOKE_LOG_DIR}"
-	printf 'Running sandbox idle_timeout e2e against %s (timeout=2s wait=%ss)\n' "${frontend_addr}" "${idle_wait}" >&2
+	printf 'Running sandbox idle_timeout e2e against %s (timeout=2s wait=%ss)\n' "$(control_origin "${control_addr}")" "${idle_wait}" >&2
 
 	body_file="${SMOKE_LOG_DIR}/idle_timeout_idle_probe.log"
-	sid="$(create_idle_timeout_sandbox "${frontend_addr}" 2 "idle-timeout-reclaim-${BUILDKITE_BUILD_NUMBER:-local}-${RANDOM}")"
+	sid="$(create_sandbox_with_capacity_retry 2 "idle-timeout-reclaim-${BUILDKITE_BUILD_NUMBER:-local}-${RANDOM}" "${control_addr}")"
 	printf '[idle-timeout] created idle reclaim sandbox %s\n' "${sid}" >&2
 	sleep "${idle_wait}"
-	status="$(invoke_sandbox_status "${frontend_addr}" "${sid}" 'echo should-not-run-after-idle-timeout' "${body_file}" 30)"
-	curl -sS --connect-timeout 10 --max-time 30 \
-		-X DELETE "http://${frontend_addr}/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
+	status="$(invoke_sandbox_status "${control_addr}" "${sid}" 'echo should-not-run-after-idle-timeout' "${body_file}" 10)"
+	curl -ksS --connect-timeout 5 --max-time 10 \
+		-X DELETE "$(control_origin "${control_addr}")/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
 	if [[ "${status}" =~ ^2 ]]; then
 		printf '[idle-timeout] FAIL idle sandbox %s still accepted invoke after %ss. body=%s\n' \
 			"${sid}" "${idle_wait}" "$(cat "${body_file}" 2>/dev/null)" >&2
@@ -596,23 +697,44 @@ run_idle_timeout_e2e() {
 	fi
 	printf '[idle-timeout] PASS idle sandbox %s rejected invoke after %ss (status=%s)\n' "${sid}" "${idle_wait}" "${status}" >&2
 
+	# Capacity reuse below is part of the idle assertion: a timeout or route miss
+	# alone is not enough to claim reclamation if the instance still owns its
+	# scheduler resources.
 	body_file="${SMOKE_LOG_DIR}/idle_timeout_busy_probe.log"
-	sid="$(create_idle_timeout_sandbox "${frontend_addr}" 2 "idle-timeout-busy-${BUILDKITE_BUILD_NUMBER:-local}-${RANDOM}")"
+	sid="$(create_sandbox_with_capacity_retry 10 "idle-timeout-busy-${BUILDKITE_BUILD_NUMBER:-local}-${RANDOM}" "${control_addr}")"
 	printf '[idle-timeout] created busy sandbox %s\n' "${sid}" >&2
-	status="$(invoke_sandbox_status "${frontend_addr}" "${sid}" 'sleep 3 && echo busy-alive' "${body_file}" 45)"
-	curl -sS --connect-timeout 10 --max-time 30 \
-		-X DELETE "http://${frontend_addr}/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
+	request_id="k8s-idle-busy-${BUILDKITE_BUILD_NUMBER:-local}-${RANDOM}"
+	token="$(python3 -c 'import base64,json; b=lambda d: base64.urlsafe_b64encode(json.dumps(d,separators=(",",":")).encode()).rstrip(b"=").decode(); print("{}.{}.sig".format(b({"alg":"none","typ":"JWT"}), b({"sub":"default","role":"developer","exp":4102444800})))')"
+	direct_deadline=$((SECONDS + 45))
+	while true; do
+		status="$(curl_status "${body_file}" -k --connect-timeout 10 --max-time 30 \
+			-X POST "$(control_origin "${control_addr}")/direct/${sid}/invoke" \
+			-H 'Content-Type: application/json' \
+			-H "Authorization: Bearer ${token}" \
+			-H "X-Request-Id: ${request_id}" \
+			-d "{\"action\":\"process.exec\",\"args\":{\"cmd\":\"sleep 12 && echo busy-alive\"},\"requestId\":\"${request_id}\"}")"
+		if [[ "${status}" =~ ^2 ]] || [ "${SECONDS}" -ge "${direct_deadline}" ]; then
+			break
+		fi
+		case "${status}" in
+		404 | 409 | 502 | 503 | 504 | 000) sleep 1 ;;
+		*) break ;;
+		esac
+	done
+	curl -ksS --connect-timeout 10 --max-time 30 \
+		-X DELETE "$(control_origin "${control_addr}")/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
 	if [[ ! "${status}" =~ ^2 ]]; then
-		printf '[idle-timeout] FAIL busy sandbox %s was reclaimed or invoke failed during 3s request (status=%s). body=%s\n' \
+		printf '[idle-timeout] FAIL busy sandbox %s was reclaimed or direct invoke failed during 12s request under a 10s idle timeout (status=%s). body=%s\n' \
 			"${sid}" "${status}" "$(cat "${body_file}" 2>/dev/null)" >&2
 		exit 1
 	fi
-	printf '[idle-timeout] PASS busy sandbox %s survived 3s request under 2s idle timeout\n' "${sid}" >&2
+	printf '[idle-timeout] PASS busy sandbox %s survived a 12s direct data-plane request under a 10s idle timeout\n' "${sid}" >&2
 }
 
 run_rrt_direct_e2e() {
 	local frontend_addr="$1"
-	local router_addr="$2"
+	local router_tls_addr="$2"
+	local router_plain_addr="$3"
 	local wheel
 	local py
 	mkdir -p "${SMOKE_LOG_DIR}"
@@ -639,22 +761,20 @@ run_rrt_direct_e2e() {
 		--index-url "${YR_K8S_SMOKE_PIP_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple}" \
 		--trusted-host "${YR_K8S_SMOKE_PIP_TRUSTED_HOST:-repo.huaweicloud.com}" \
 		"${wheel}"
-	# Control ports (rrt 50090 / tunnel 8765) require a token under the
-	# control-port-only auth policy. The router only structurally parses the JWT
-	# (Header.Payload.Signature, no signature check) and -- with validateIam off
-	# for this test deploy -- skips the IAM round-trip, so a structurally-valid
-	# unsigned developer JWT with a far-future exp authenticates the WS ?token=
-	# path and authorizes lifecycle cleanup through the frontend DELETE API. This
-	# lets the e2e exercise the real auth paths instead of failing on the old dummy
-	# "ci" string. An externally supplied YR_TOKEN (real IAM token) still takes
-	# precedence.
+	# Keep one structurally valid token for control-plane lifecycle calls and SDK
+	# request construction. The isolated smoke overlay disables IAM validation at
+	# Edge; production Edge requires Authorization bearer validation and may call
+	# IAM. An externally supplied real YR_TOKEN still takes precedence.
 	local yr_token="${YR_TOKEN:-}"
 	if [ -z "${yr_token}" ]; then
 		yr_token="$("${py}" -c 'import base64,json; b=lambda d: base64.urlsafe_b64encode(json.dumps(d,separators=(",",":")).encode()).rstrip(b"=").decode(); print("{}.{}.sig".format(b({"alg":"none","typ":"JWT"}), b({"sub":"default","role":"developer","exp":4102444800})))')"
 	fi
-	printf 'Running sandbox-sdk -> rrt direct e2e (frontend=%s path=/direct)\n' "${frontend_addr}" >&2
+	printf 'Running sandbox-sdk -> Rust Edge direct e2e (frontend=%s edge=%s path=/direct)\n' \
+		"${frontend_addr}" "${router_tls_addr}" >&2
 	YR_SERVER_ADDRESS="${frontend_addr}" \
-		YR_TLS=0 \
+		YR_GATEWAY_ADDRESS="${router_tls_addr}" \
+		YR_TLS="${SMOKE_SERVER_TLS}" \
+		YR_GATEWAY_TLS=1 \
 		YR_TOKEN="${yr_token}" \
 		"${py}" sandbox-sdk/python/tests/e2e_rrt_direct.py \
 		2>&1 | tee "${SMOKE_LOG_DIR}/rrt_direct.log"
@@ -667,7 +787,9 @@ run_rrt_direct_e2e() {
 		local core_examples="basic_usage command_stdin persistent_shell tunnel_large_response port_forwarding"
 		local extra_examples="reverse_tunnel named_sandbox bench_cp"
 		local ex rc core_fail=0
-		printf '[examples] env YR_SERVER_ADDRESS=%s YR_GATEWAY_ADDRESS=%s YR_TLS=0 YR_GATEWAY_TLS=0 TUNNEL_SSL_VERIFY=0\n' "${frontend_addr}" "${router_addr}" >&2
+		local attempt deadline example_log
+		local capacity_wait_timeout="${YR_K8S_EXAMPLE_CAPACITY_WAIT_TIMEOUT:-180}"
+		printf '[examples] env YR_SERVER_ADDRESS=%s YR_GATEWAY_ADDRESS=%s YR_TLS=%s YR_GATEWAY_TLS=0 TUNNEL_SSL_VERIFY=0\n' "${frontend_addr}" "${router_plain_addr}" "${SMOKE_SERVER_TLS}" >&2
 		for ex in ${core_examples} ${extra_examples}; do
 			local f="sandbox-sdk/python/examples/${ex}.py"
 			[ -f "${f}" ] || {
@@ -676,10 +798,30 @@ run_rrt_direct_e2e() {
 			}
 			printf '[examples] RUN %s\n' "${ex}" >&2
 			printf '[examples] ---- %s log ----\n' "${ex}" >&2
-			if YR_SERVER_ADDRESS="${frontend_addr}" YR_GATEWAY_ADDRESS="${router_addr}" YR_TLS=0 YR_GATEWAY_TLS=0 YR_TOKEN="${yr_token}" TUNNEL_SSL_VERIFY=0 timeout 180 "${py}" "${f}" 2>&1 | tee "${SMOKE_LOG_DIR}/example_${ex}.log"; then
-				printf '[examples] PASS %s\n' "${ex}" >&2
-			else
-				rc=$?
+			example_log="${SMOKE_LOG_DIR}/example_${ex}.log"
+			: >"${example_log}"
+			attempt=0
+			deadline=$((SECONDS + capacity_wait_timeout))
+			while true; do
+				attempt=$((attempt + 1))
+				printf '[examples] attempt %s for %s\n' "${attempt}" "${ex}" >&2
+				if YR_SERVER_ADDRESS="${frontend_addr}" YR_GATEWAY_ADDRESS="${router_plain_addr}" YR_TLS="${SMOKE_SERVER_TLS}" YR_GATEWAY_TLS=0 YR_EXAMPLE_CPU=2000 YR_EXAMPLE_MEMORY=4096 YR_TOKEN="${yr_token}" TUNNEL_SSL_VERIFY=0 timeout 180 "${py}" "${f}" 2>&1 | tee "${example_log}"; then
+					printf '[examples] PASS %s\n' "${ex}" >&2
+					rc=0
+					break
+				else
+					rc=$?
+				fi
+				# Deletion and scheduler resource release are asynchronous in the
+				# shared smoke cluster. Retry only a create-time capacity rejection;
+				# protocol, assertion and data-plane failures remain immediate.
+				if [ "${SECONDS}" -lt "${deadline}" ] &&
+					grep -Fq 'sandbox create failed' "${example_log}" &&
+					grep -Eq 'ERR_RESOURCE_NOT_ENOUGH|No Resource In Cluster|Out Of Capacity' "${example_log}"; then
+					printf '[examples] capacity unavailable for %s; retrying after 5s\n' "${ex}" >&2
+					sleep 5
+					continue
+				fi
 				# Example stdout/stderr is streamed inline for both pass and fail so
 				# CI keeps the runnable demonstration output instead of silently
 				# passing. Classification only decides whether a failure gates.
@@ -690,7 +832,8 @@ run_rrt_direct_e2e() {
 					;;
 				*) printf '[examples] WARN %s (best-effort, rc=%s)\n' "${ex}" "${rc}" >&2 ;;
 				esac
-			fi
+				break
+			done
 			printf '[examples] ---- end %s log ----\n' "${ex}" >&2
 		done
 		if [ "${core_fail}" = "1" ]; then
@@ -700,9 +843,52 @@ run_rrt_direct_e2e() {
 	fi
 }
 
+verify_rust_data_plane_ready() {
+	local frontend_pod node_pod
+	frontend_pod="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pod \
+		-l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=frontend \
+		-o jsonpath='{.items[0].metadata.name}')"
+	node_pod="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pod \
+		-l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=node \
+		-o jsonpath='{.items[0].metadata.name}')"
+	[ -n "${frontend_pod}" ] && [ -n "${node_pod}" ] || {
+		printf 'Rust data plane pods are missing (frontend=%s node=%s).\n' "${frontend_pod}" "${node_pod}" >&2
+		return 1
+	}
+	printf 'Verifying Rust Edge in pod/%s and Rust Node Proxy in pod/%s\n' "${frontend_pod}" "${node_pod}" >&2
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" exec "${frontend_pod}" \
+		-c edge-frontend -- python3 -c \
+		'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:18080/readyz", timeout=5).read().decode())'
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" exec "${node_pod}" \
+		-c node -- python3 -c \
+		'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:18443/readyz", timeout=5).read().decode())'
+}
+
+prepare_edge_tls_secret() {
+	local secret_name="${YR_K8S_EDGE_TLS_SECRET:-yr-edge-frontend-tls}"
+	local tls_dir
+	require_bin openssl
+	mkdir -p "$(dirname "${EDGE_TLS_CA_FILE}")"
+	tls_dir="$(mktemp -d)"
+	openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+		-subj /CN=127.0.0.1 \
+		-addext "subjectAltName=IP:127.0.0.1,DNS:${EDGE_SERVICE},DNS:${EDGE_SERVICE}.${NAMESPACE}.svc" \
+		-keyout "${tls_dir}/tls.key" -out "${tls_dir}/tls.crt" >/dev/null 2>&1
+	install -m 0644 "${tls_dir}/tls.crt" "${EDGE_TLS_CA_FILE}"
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" create namespace "${NAMESPACE}" \
+		--dry-run=client -o yaml | \
+		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" apply -f - >/dev/null
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" \
+		create secret tls "${secret_name}" --cert "${tls_dir}/tls.crt" \
+		--key "${tls_dir}/tls.key" --dry-run=client -o yaml | \
+		"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" apply -f - >/dev/null
+	rm -rf "${tls_dir}"
+}
+
 main() {
 	local smoke_server_address
-	local router_address
+	local router_tls_address
+	local router_plain_address
 	ensure_kubectl
 	ensure_helm
 	export PATH="${TOOL_DIR}:${PATH}"
@@ -734,16 +920,33 @@ main() {
 	export YR_K8S_EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.buildkite-smoke.yaml}"
 	trap cleanup_port_forward EXIT
 
+	prepare_edge_tls_secret
 	bash deploy/sandbox/k8s/deploy.sh
 	trap 'dump_k8s_diagnostics "error"' ERR
 	trap on_k8s_test_term TERM INT
+	verify_rust_data_plane_ready
+	# The K8S smoke generates a short-lived self-signed Edge certificate above.
+	# Keep verification enabled and teach every SDK subprocess to trust that
+	# exact certificate instead of disabling TLS verification for CI.
+	export YR_VERIFY_FILE="${YR_VERIFY_FILE:-${EDGE_TLS_CA_FILE}}"
+	printf 'Kubernetes node capacity used by the sandbox smoke cluster:\n' >&2
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get nodes \
+		-o 'custom-columns=NAME:.metadata.name,CPU_CAPACITY:.status.capacity.cpu,CPU_ALLOCATABLE:.status.allocatable.cpu,MEMORY_ALLOCATABLE:.status.allocatable.memory' >&2 || true
+	"${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods \
+		-l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=node \
+		-o 'custom-columns=POD:.metadata.name,K8S_NODE:.spec.nodeName,POD_IP:.status.podIP,READY:.status.containerStatuses[*].ready' >&2 || true
 	smoke_server_address="${YR_K8S_SMOKE_SERVER_ADDRESS:-}"
-	router_address="${YR_K8S_ROUTER_ADDRESS:-}"
-	if [ -z "${smoke_server_address}" ] || [ -z "${router_address}" ]; then
-		start_traefik_port_forward
-		smoke_server_address="${smoke_server_address:-${TRAEFIK_WEB_ADDRESS}}"
-		router_address="${router_address:-${TRAEFIK_ROUTER_ADDRESS}}"
+	router_tls_address="${YR_K8S_ROUTER_TLS_ADDRESS:-}"
+	router_plain_address="${YR_K8S_ROUTER_PLAIN_ADDRESS:-}"
+	if [ -z "${router_tls_address}" ] || [ -z "${router_plain_address}" ]; then
+		start_service_port_forwards
+		router_tls_address="${router_tls_address:-${EDGE_TLS_ADDRESS}}"
+		router_plain_address="${router_plain_address:-${EDGE_PLAIN_ADDRESS}}"
 	fi
+	# Edge owns the external TLS control entry and statically forwards lifecycle
+	# requests to the private Frontend process. Exercise that real deployment
+	# path instead of adding a test-only Frontend Service/port-forward.
+	smoke_server_address="${smoke_server_address:-${router_tls_address}}"
 
 	# Smoke-probe: actually create a sandbox using the frontend's default
 	# isolation runtime to verify the full create path before running tests.
@@ -751,14 +954,16 @@ main() {
 	# to roll out. It cannot detect API contract regressions or runtime capacity
 	# failures. A failed probe must fail the job because no smoke coverage ran.
 	probe_sandbox_ready() {
-		local frontend="$1"
+		local endpoint="$1"
+		local base_url="${endpoint}"
 		local resp
 		local sid
-		resp="$(curl -sS --connect-timeout 10 --max-time 60 \
-			-X POST "http://${frontend}/api/sandbox/v1/sandboxes" \
+		[[ "${base_url}" == *://* ]] || base_url="http://${base_url}"
+		resp="$(curl -ksS --connect-timeout 10 --max-time 60 \
+			-X POST "${base_url}/api/sandbox/v1/sandboxes" \
 			-H 'Content-Type: application/json' \
 			-d '{"cpu":200,"memory":256,"idleTimeoutSeconds":30}')" || {
-			printf 'Cluster sandbox probe: CREATE request failed (frontend=%s).\n' "${frontend}" >&2
+			printf 'Cluster sandbox probe: CREATE request failed (endpoint=%s).\n' "${base_url}" >&2
 			printf 'Smoke precondition failed; no tests were run.\n' >&2
 			return 1
 		}
@@ -770,11 +975,13 @@ main() {
 			return 1
 		fi
 		printf 'Cluster sandbox probe: created %s, cleaning up.\n' "${sid}" >&2
-		curl -sS --connect-timeout 10 --max-time 30 \
-			-X DELETE "http://${frontend}/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
+		curl -ksS --connect-timeout 10 --max-time 30 \
+			-X DELETE "${base_url}/api/sandbox/v1/sandboxes/${sid}" >/dev/null 2>&1 || true
 		return 0
 	}
-	if ! probe_sandbox_ready "${smoke_server_address}"; then
+	# Prove the public Edge TLS listener owns the control-plane static route;
+	# the legacy Frontend Service is intentionally absent in this deployment.
+	if ! probe_sandbox_ready "https://${router_tls_address}"; then
 		if command -v buildkite-agent >/dev/null 2>&1; then
 			buildkite-agent annotate --style "error" --context "sandbox-k8s-probe-failed" \
 				"Cluster sandbox probe failed. No smoke or example tests were run; inspect the CREATE response above."
@@ -783,20 +990,23 @@ main() {
 	fi
 
 	if [[ "${YR_K8S_RUN_IDLE_TIMEOUT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+		ensure_service_port_forwards
 		run_idle_timeout_e2e "${smoke_server_address}"
 	fi
 
 	if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+		ensure_service_port_forwards
 		run_smoke "${smoke_server_address}"
 	fi
 
 	if [[ "${YR_K8S_RUN_RRT_DIRECT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-		run_rrt_direct_e2e "${smoke_server_address}" "${router_address}"
+		ensure_service_port_forwards
+		run_rrt_direct_e2e "${smoke_server_address}" "${router_tls_address}" "${router_plain_address}"
 	fi
 
 	if command -v buildkite-agent >/dev/null 2>&1; then
 		buildkite-agent annotate --style "success" --context "sandbox-k8s" \
-			"Deployed sandbox image tag ${YR_K8S_IMAGE_TAG} to the target K8S cluster and ran idle-timeout + smoke + sandbox-sdk rrt-direct checks."
+			"Deployed sandbox image tag ${YR_K8S_IMAGE_TAG} with Rust Edge/Node data plane and passed idle-timeout + SDK direct/copy/tunnel/port-forward checks."
 	fi
 }
 

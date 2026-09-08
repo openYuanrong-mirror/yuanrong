@@ -17,9 +17,13 @@
 //! Auth model: RRT is privileged, so token auth is required when RRT_HTTP_TOKEN is set. Requests must carry
 //! `X-Auth: <token>` or they receive 401. Production should use JWT validation; this path uses a static token.
 //!
-//! No new dependencies: use raw tokio TcpListener plus handwritten HTTP/1.1 with connection-level close.
+//! No new dependencies: use raw tokio TcpListener plus handwritten HTTP/1.1.
+//! JSON/control responses support sequential keep-alive requests so the Edge
+//! backend pool can reuse a connection through the Edge proxy. Streaming responses
+//! that require EOF framing still advertise `Connection: close`.
 
-use std::collections::BTreeMap;
+use futures_util::{SinkExt, StreamExt};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
@@ -35,6 +39,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use crate::posix::runtime_rpc::StreamingMessage;
 
 const IO_BUFFER_SIZE: usize = 256 * 1024;
+static COMMAND_WATCHERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 struct CachedResponse {
     status: u16,
     body: String,
@@ -209,6 +214,22 @@ async fn handle_conn(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        // Distinguish an orderly peer close from the next request without
+        // consuming its first byte. The Edge proxy does not pipeline requests on
+        // this connection, so one iteration owns one complete exchange.
+        let mut first = [0u8; 1];
+        if sock.peek(&mut first).await? == 0 {
+            return Ok(());
+        }
+        handle_one_request(sock, token.clone()).await?;
+    }
+}
+
+async fn handle_one_request(
+    sock: &mut tokio::net::TcpStream,
+    token: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let _active = super::activity::enter(super::activity::ActivitySource::DirectHttp);
     // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
@@ -254,12 +275,38 @@ async fn handle_conn(
     if method == "GET" && route == "/healthz" {
         return write_resp(sock, 200, "{\"status\":\"ok\"}").await;
     }
+    if method == "GET" && route == "/metrics" {
+        let metrics = super::cmd::command_metrics();
+        let body = format!(
+            "command_records {}\ncommand_running {}\ncommand_completed {}\ncommand_result_bytes {}\ncommand_result_truncated_total {}\ncommand_record_expired_total {}\ncommand_id_conflict_total {}\ncommand_watch_connections {}\n",
+            metrics.records,
+            metrics.running,
+            metrics.completed,
+            metrics.result_bytes,
+            metrics.result_truncated_total,
+            metrics.record_expired_total,
+            metrics.id_conflict_total,
+            COMMAND_WATCHERS.load(std::sync::atomic::Ordering::Relaxed),
+        );
+        return write_resp(sock, 200, &body).await;
+    }
     // Auth: RRT requires token authentication. /invoke, /upload, and /download are all control-plane capabilities.
     if let Some(expect) = token.as_deref() {
         if auth.as_deref() != Some(expect) {
             return write_resp(sock, 401, "{\"error\":\"unauthorized\"}").await;
         }
     }
+
+    if method == "GET"
+        && route == "/commands/watch"
+        && header_has_token(&head, "upgrade", "websocket")
+    {
+        return handle_command_watch(sock, &head).await;
+    }
+
+    // Ordinary atomic operations are data activity. The long-lived command
+    // watch above is deliberately a passive observer and must not prevent idle.
+    let _active = super::activity::enter(super::activity::ActivitySource::DirectHttp);
 
     if method == "GET" && route == "/upload/status" {
         return handle_upload_status(sock, &path).await;
@@ -312,12 +359,133 @@ async fn handle_conn(
     write_resp(sock, resp.status, &resp.body).await
 }
 
+async fn handle_command_watch(
+    sock: &mut tokio::net::TcpStream,
+    head: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    struct WatchGuard;
+    impl Drop for WatchGuard {
+        fn drop(&mut self) {
+            COMMAND_WATCHERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    COMMAND_WATCHERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _guard = WatchGuard;
+    let key = parse_header(head, "sec-websocket-key").ok_or("missing websocket key")?;
+    let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
+    sock.write_all(
+        format!(
+            "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .as_bytes(),
+    )
+    .await?;
+    let mut websocket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        sock,
+        tokio_tungstenite::tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+    let mut subscriptions = HashSet::<String>::new();
+    let mut versions = HashMap::<String, u64>::new();
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(200));
+    let max_subscriptions = std::env::var("RRT_COMMAND_WATCH_MAX_SUBSCRIPTIONS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(4096);
+    let max_frame_bytes = std::env::var("RRT_COMMAND_WATCH_MAX_FRAME_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1024 * 1024);
+
+    loop {
+        tokio::select! {
+            message = websocket.next() => {
+                let Some(message) = message else { break; };
+                match message? {
+                    tokio_tungstenite::tungstenite::Message::Text(text) => {
+                        if text.len() > max_frame_bytes {
+                            websocket.close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Size,
+                                reason: "command watch frame exceeds configured limit".into(),
+                            })).await?;
+                            break;
+                        }
+                        let request: serde_json::Value = serde_json::from_str(&text)?;
+                        let op = request.get("op").and_then(|value| value.as_str()).unwrap_or("");
+                        let ids = request.get("commandIds").and_then(|value| value.as_array())
+                            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect::<Vec<_>>())
+                            .unwrap_or_default();
+                        match op {
+                            "subscribe" => {
+                                let new_count = ids.iter().filter(|id| !subscriptions.contains(*id)).count();
+                                if subscriptions.len().saturating_add(new_count) > max_subscriptions {
+                                    websocket.close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                        code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
+                                        reason: "command watch subscription limit reached".into(),
+                                    })).await?;
+                                    break;
+                                }
+                                for id in ids {
+                                    subscriptions.insert(id.clone());
+                                    // Every subscribe operation promises an
+                                    // immediate current-state snapshot, even
+                                    // when this connection already watches the
+                                    // same command for another Edge consumer.
+                                    versions.remove(&id);
+                                }
+                            }
+                            "unsubscribe" => {
+                                for id in ids { subscriptions.remove(&id); versions.remove(&id); }
+                            }
+                            _ => {
+                                websocket.close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                    code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Protocol,
+                                    reason: "unsupported command watch operation".into(),
+                                })).await?;
+                                break;
+                            }
+                        }
+                    }
+                    tokio_tungstenite::tungstenite::Message::Ping(payload) => {
+                        websocket.send(tokio_tungstenite::tungstenite::Message::Pong(payload)).await?;
+                    }
+                    tokio_tungstenite::tungstenite::Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+            _ = tick.tick() => {
+                if subscriptions.is_empty() { continue; }
+                let ids: Vec<String> = subscriptions.iter().cloned().collect();
+                for state in super::cmd::watch_snapshot(&ids) {
+                    let json = rmpv_to_json(&state);
+                    let command_id = json.get("command_id").and_then(|value| value.as_str()).unwrap_or("");
+                    let version = json.get("state_version").and_then(|value| value.as_u64()).unwrap_or(0);
+                    if versions.get(command_id).copied().unwrap_or(u64::MAX) == version { continue; }
+                    versions.insert(command_id.to_owned(), version);
+                    let response = serde_json::json!({
+                        "op": "state",
+                        "commandId": command_id,
+                        "status": json.get("status").cloned().unwrap_or(serde_json::Value::Null),
+                        "stateVersion": version,
+                    });
+                    websocket.send(tokio_tungstenite::tungstenite::Message::Text(response.to_string())).await?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn execute_invoke(
     request_id: Option<String>,
     action: String,
     kw: BTreeMap<String, rmpv::Value>,
     trace_id: String,
 ) -> CachedResponse {
+    let normalized_action = super::dispatch::normalize_sandbox_action(&action);
     let result = tokio::task::spawn_blocking(move || {
         super::dispatch::execute_sandbox_action_once(request_id.as_deref(), &action, &kw, &trace_id)
     })
@@ -326,8 +494,28 @@ async fn execute_invoke(
     match result {
         Ok(Ok(result)) => {
             let json = rmpv_to_json(&result);
+            let error = json
+                .get("error")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let error_code = json
+                .get("error_code")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let status = if error.is_empty() {
+                200
+            } else {
+                match error_code {
+                    "COMMAND_NOT_FOUND" => 404,
+                    "COMMAND_CONFLICT" => 409,
+                    "RESOURCE_EXHAUSTED" => 429,
+                    "UNSUPPORTED_FEATURE" => 501,
+                    _ if normalized_action == Some("cmd_start") => 400,
+                    _ => 400,
+                }
+            };
             CachedResponse {
-                status: 200,
+                status,
                 body: serde_json::to_string(&json).unwrap_or_else(|_| "{}".into()),
             }
         }
@@ -1018,12 +1206,14 @@ async fn write_resp(
         401 => "Unauthorized",
         404 => "Not Found",
         409 => "Conflict",
+        429 => "Too Many Requests",
+        501 => "Not Implemented",
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
         _ => "Error",
     };
     let resp = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{body}",
         body.as_bytes().len()
     );
     sock.write_all(resp.as_bytes()).await?;
@@ -1656,10 +1846,57 @@ async fn write_checkpoint_response(
 #[cfg(test)]
 mod tests {
     use super::{
-        checkpoint_socket_path_from_control_directory, invoke_checkpoint_handler,
-        parse_range_header, percent_decode, query_param, request_path, upload_part_path,
-        upload_type, CheckpointRequestCoordinator,
+        bind, checkpoint_socket_path_from_control_directory, handle_conn,
+        invoke_checkpoint_handler, parse_content_length, parse_range_header, percent_decode,
+        query_param, request_path, serve_listener, upload_part_path, upload_type,
+        CheckpointRequestCoordinator,
     };
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn read_http_response(stream: &mut tokio::net::TcpStream) -> (String, Vec<u8>) {
+        let mut bytes = Vec::new();
+        let mut byte = [0u8; 1];
+        let header_end = loop {
+            stream.read_exact(&mut byte).await.unwrap();
+            bytes.push(byte[0]);
+            if bytes.ends_with(b"\r\n\r\n") {
+                break bytes.len();
+            }
+        };
+        let head = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+        let content_length = parse_content_length(&head);
+        let mut body = vec![0u8; content_length];
+        stream.read_exact(&mut body).await.unwrap();
+        (head, body)
+    }
+
+    #[tokio::test]
+    async fn json_responses_reuse_one_http_connection() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            handle_conn(&mut stream, None).await.unwrap();
+        });
+        let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+
+        for _ in 0..2 {
+            client
+                .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .await
+                .unwrap();
+            let (head, body) = read_http_response(&mut client).await;
+            assert!(head.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(head.contains("Connection: keep-alive\r\n"));
+            assert_eq!(body, br#"{"status":"ok"}"#);
+        }
+
+        drop(client);
+        server.await.unwrap();
+    }
 
     use std::ffi::OsStr;
     use std::path::PathBuf;
@@ -1838,8 +2075,12 @@ mod tests {
             return;
         }
 
-        let baseline = super::super::activity::active_count();
+        let baseline = super::super::activity::active_command_count();
         let mut start = std::collections::BTreeMap::new();
+        start.insert(
+            "command_id".to_string(),
+            rmpv::Value::from("poll-activity-command"),
+        );
         start.insert("cmd".to_string(), rmpv::Value::from("sleep 2"));
         let started = super::super::cmd::cmd_start(&start);
         let pid = started
@@ -1852,7 +2093,7 @@ mod tests {
                 })
             })
             .expect("started process pid");
-        assert_eq!(super::super::activity::active_count(), baseline + 1);
+        assert_eq!(super::super::activity::active_command_count(), baseline + 1);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -1882,16 +2123,81 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(
-            super::super::activity::active_count(),
-            baseline + 2,
-            "process.poll must count as request activity while the launched process remains busy"
+            super::super::activity::active_command_count(),
+            baseline + 1,
+            "process.poll observes the launched process and must not add another busy unit"
         );
 
-        let mut response = Vec::new();
-        tokio::io::AsyncReadExt::read_to_end(&mut client, &mut response)
-            .await
-            .expect("read process.poll response");
+        let (response_head, _) = read_http_response(&mut client).await;
+        drop(client);
         server.await.expect("process.poll server task");
-        assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
+        assert!(response_head.starts_with("HTTP/1.1 200"));
+    }
+
+    #[tokio::test]
+    async fn command_watch_returns_initial_and_terminal_state() {
+        let listener = bind(0).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = serve_listener(listener, None).await;
+        });
+        let command_id = format!(
+            "cmd-watch-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let args = std::collections::BTreeMap::from([
+            (
+                "command_id".to_string(),
+                rmpv::Value::from(command_id.clone()),
+            ),
+            ("command".to_string(), rmpv::Value::from("sleep 0.1")),
+        ]);
+        super::super::cmd::cmd_start(&args);
+
+        let (mut websocket, _) =
+            tokio_tungstenite::connect_async(format!("ws://{address}/commands/watch"))
+                .await
+                .unwrap();
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({"op": "subscribe", "commandIds": [command_id.clone()]})
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+        let mut observed_terminal = false;
+        for _ in 0..5 {
+            let message = tokio::time::timeout(std::time::Duration::from_secs(1), websocket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let value: serde_json::Value =
+                serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if value["status"] == "SUCCEEDED" {
+                observed_terminal = true;
+                break;
+            }
+        }
+        assert!(observed_terminal);
+
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({"op": "subscribe", "commandIds": [command_id.clone()]})
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+        let replay = tokio::time::timeout(std::time::Duration::from_secs(1), websocket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let replay: serde_json::Value = serde_json::from_str(replay.to_text().unwrap()).unwrap();
+        assert_eq!(replay["status"], "SUCCEEDED");
+        server.abort();
     }
 }

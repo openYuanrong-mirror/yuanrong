@@ -1,0 +1,10 @@
+*
+
+!sandbox-sdk/
+!sandbox-sdk/python/
+!sandbox-sdk/python/**
+!data-plane-gateway/
+!data-plane-gateway/tests/
+!data-plane-gateway/tests/aio_3node/
+!data-plane-gateway/tests/aio_3node/sdk_gateway_e2e.py
+!data-plane-gateway/tests/aio_3node/idle_timeout_e2e.py

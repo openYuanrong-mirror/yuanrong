@@ -1,4 +1,4 @@
-{{- if .Values.frontend.enabled }}
+{{- if and .Values.frontend.enabled (or (not (and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled)) .Values.frontend.service.exposeWhenEdgeEnabled) }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,10 +18,12 @@ spec:
       port: {{ .Values.frontend.service.port }}
       targetPort: http
       protocol: TCP
+{{- if not (and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled) }}
     - name: router
       port: {{ .Values.frontend.service.routerPort }}
       targetPort: router
       protocol: TCP
+{{- end }}
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: frontend

@@ -188,6 +188,26 @@ class TestCliConfig(unittest.TestCase):
             config["function_agent"]["env"]["YR_BYPASS_DATASYSTEM"], "false"
         )
 
+    def test_frontend_proxy_create_advertisement_defaults_and_overrides(self):
+        config = self._resolve_real_config("")
+        self.assertIs(
+            config["function_proxy"]["args"][
+                "advertise_frontend_proxy_create"
+            ],
+            True,
+        )
+
+        config = self._resolve_real_config(
+            "[values.function_proxy]\n"
+            "advertise_frontend_proxy_create = false\n"
+        )
+        self.assertIs(
+            config["function_proxy"]["args"][
+                "advertise_frontend_proxy_create"
+            ],
+            False,
+        )
+
     def test_function_agent_data_system_enable_override_reaches_both_modes(self):
         for enabled in (False, True):
             with self.subTest(enabled=enabled):
@@ -245,6 +265,147 @@ class TestCliConfig(unittest.TestCase):
         )
         self.assertEqual(
             config["function_agent"]["env"]["YR_BYPASS_DATASYSTEM"], "true"
+        )
+
+    def test_data_plane_gateway_is_off_by_default(self):
+        config = self._resolve_real_config("")
+
+        self.assertIs(config["mode"]["master"]["node_proxy"], False)
+        self.assertIs(config["mode"]["agent"]["node_proxy"], False)
+        self.assertEqual(config["mode"]["edge"], {"edge_frontend": True})
+        self.assertEqual(
+            config["function_proxy"]["env"]["YR_DATA_PLANE_NODE_PROXY_ENABLED"],
+            "false",
+        )
+
+    def test_data_plane_gateway_values_enable_node_component_and_env(self):
+        config = self._resolve_real_config(
+            "[values.node_proxy]\n"
+            "enabled = true\n"
+            'advertise_address = "192.0.2.10:9443"\n'
+            'allowed_target_cidrs = ["10.88.0.0/16", "10.89.0.0/16"]\n'
+            'activity_uds_dir = "/run/yr-gateway"\n'
+            'health_bind = "127.0.0.1:19443"\n'
+            'allowed_edge_cidrs = ["192.0.2.0/24"]\n'
+            'edge_security_mode = "network"\n'
+            "max_streams = 4096\n"
+        )
+
+        self.assertIs(config["mode"]["master"]["node_proxy"], True)
+        self.assertIs(config["mode"]["agent"]["node_proxy"], True)
+        proxy_env = config["function_proxy"]["env"]
+        self.assertEqual(proxy_env["YR_DATA_PLANE_NODE_PROXY_ENABLED"], "true")
+        self.assertEqual(
+            proxy_env["YR_NODE_PROXY_ADDRESS"],
+            "192.0.2.10:9443",
+        )
+        gateway_env = config["node_proxy"]["env"]
+        self.assertEqual(
+            gateway_env["YR_DATA_PLANE_ALLOWED_TARGET_CIDRS"],
+            "10.88.0.0/16,10.89.0.0/16",
+        )
+        self.assertEqual(
+            gateway_env["YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR"],
+            "/run/yr-gateway",
+        )
+        self.assertEqual(gateway_env["YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE"], "network")
+        self.assertNotIn("YR_DATA_PLANE_INTERNAL_TOKEN_KEY_FILE", gateway_env)
+        self.assertEqual(gateway_env["YR_DATA_PLANE_NODE_PROXY_MAX_STREAMS"], "4096")
+        self.assertEqual(
+            gateway_env["YR_DATA_PLANE_ALLOWED_EDGE_CIDRS"], "192.0.2.0/24"
+        )
+        self.assertEqual(gateway_env["YR_DATA_PLANE_NODE_PROXY_ALLOW_ANY_EDGE"], "0")
+        self.assertTrue(
+            gateway_env["YR_DATA_PLANE_LOG_DIR"].endswith(
+                "/logs/function_system/data_plane"
+            )
+        )
+        self.assertEqual(gateway_env["YR_DATA_PLANE_LOG_MAX_SIZE_MB"], "40")
+        self.assertEqual(gateway_env["YR_DATA_PLANE_LOG_MAX_FILES"], "10")
+        self.assertNotIn("YR_DATA_PLANE_LOG_COMPRESSION", gateway_env)
+        self.assertEqual(gateway_env["YR_DATA_PLANE_LOG_QUEUE_CAPACITY"], "32768")
+        self.assertEqual(gateway_env["YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS"], "200")
+        self.assertEqual(gateway_env["YR_DATA_PLANE_LOG_STDOUT"], "0")
+        self.assertEqual(
+            config["node_proxy"]["health_check"]["endpoint"],
+            "http://127.0.0.1:19443/readyz",
+        )
+
+    def test_edge_frontend_renders_external_etcd_endpoints(self):
+        config = self._resolve_real_config(
+            "[values.edge_frontend]\n"
+            'etcd_endpoints = ["https://192.0.2.1:2379", "https://192.0.2.2:2379"]\n'
+            'tls_bind = "0.0.0.0:9443"\n'
+            'plain_bind = "0.0.0.0:9080"\n'
+            'frontend_address = "127.0.0.1:9999"\n'
+            'control_plane_routes = ["exact:/healthz", "prefix:/api/custom"]\n'
+            'allowed_client_cidrs = ["198.51.100.0/24"]\n'
+            'node_security_mode = "network"\n'
+            "validate_iam = true\n"
+            'iam_address = "iam.internal:31112"\n'
+            "auth_cache_ttl_sec = 45\n"
+            "command_watch_max_subscriptions = 128\n"
+            "rrt_command_result_ttl_secs = 600\n"
+        )
+
+        self.assertEqual(
+            config["edge_frontend"]["env"]["YR_DATA_PLANE_EDGE_FRONTEND_ETCD_ENDPOINTS"],
+            "https://192.0.2.1:2379,https://192.0.2.2:2379",
+        )
+        edge_env = config["edge_frontend"]["env"]
+        self.assertEqual(
+            edge_env["YR_DATA_PLANE_EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS"],
+            "198.51.100.0/24",
+        )
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE"], "network")
+        self.assertNotIn("YR_DATA_PLANE_INTERNAL_TOKEN_KEY_FILE", edge_env)
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_DIRECT_PORT"], "50090")
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM"], "1")
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_TLS_BIND"], "0.0.0.0:9443")
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_PLAIN_BIND"], "0.0.0.0:9080")
+        self.assertEqual(
+            edge_env["YR_DATA_PLANE_EDGE_FRONTEND_IAM_ADDRESS"], "iam.internal:31112"
+        )
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_AUTH_CACHE_TTL_SEC"], "45")
+        self.assertEqual(
+            edge_env["YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION"], "128"
+        )
+        self.assertNotIn("YR_RRT_COMMAND_RESULT_TTL_SECS", edge_env)
+        self.assertEqual(
+            config["frontend"]["env"]["YR_RRT_COMMAND_RESULT_TTL_SECS"], "600"
+        )
+        self.assertEqual(
+            config["frontend"]["env"][
+                "YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION"
+            ],
+            "128",
+        )
+        self.assertTrue(
+            edge_env["YR_DATA_PLANE_LOG_DIR"].endswith(
+                "/logs/function_system/data_plane"
+            )
+        )
+        self.assertEqual(edge_env["YR_DATA_PLANE_LOG_MAX_SIZE_MB"], "40")
+        self.assertEqual(edge_env["YR_DATA_PLANE_LOG_MAX_FILES"], "10")
+        self.assertNotIn("YR_DATA_PLANE_LOG_COMPRESSION", edge_env)
+        self.assertEqual(edge_env["YR_DATA_PLANE_LOG_QUEUE_CAPACITY"], "32768")
+        self.assertEqual(edge_env["YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS"], "200")
+        self.assertEqual(edge_env["YR_DATA_PLANE_LOG_STDOUT"], "0")
+        self.assertEqual(
+            edge_env["YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED"], "1"
+        )
+        self.assertEqual(edge_env["YR_DATA_PLANE_EDGE_FRONTEND_HEALTH_BIND"], "127.0.0.1:18080")
+        self.assertEqual(
+            edge_env["YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS"],
+            "127.0.0.1:9999",
+        )
+        self.assertEqual(
+            edge_env["YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES"],
+            "exact:/healthz,prefix:/api/custom",
+        )
+        self.assertEqual(
+            config["edge_frontend"]["health_check"]["endpoint"],
+            "http://127.0.0.1:18080/readyz",
         )
 
     def test_local_ip_defaults_to_host_ip_for_backward_compatibility(self):

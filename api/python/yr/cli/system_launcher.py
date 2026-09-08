@@ -629,8 +629,10 @@ class SystemLauncher:
             return False
 
         if session.get("mode") != StartMode.MASTER.value:
-            logger.error("Cluster status is only available in 'master' mode.")
-            return False
+            # Agent and Edge sessions do not own the global scheduler. Still
+            # expose their process/session status through the same command so
+            # `yr status` is useful for the standalone Gateway deployment.
+            return self.health()
         cluster_info = session.get("cluster_info", {}).get("for-join", {})
         scheduler_ip = cluster_info.get("function_master.ip")
         scheduler_port = cluster_info.get("function_master.port")

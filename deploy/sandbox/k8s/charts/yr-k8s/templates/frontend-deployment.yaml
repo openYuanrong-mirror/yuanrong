@@ -74,6 +74,8 @@ spec:
               value: {{ default (printf "%s:%v" (include "yr-k8s.componentName" (dict "root" . "component" "master-access")) .Values.master.service.ports.iamServer) .Values.frontend.iamServerAddress | quote }}
             - name: ENABLE_SANDBOX_ROUTER
               value: {{ .Values.frontend.sandboxRouter.enabled | quote }}
+            - name: SANDBOX_ROUTER_EXTERNAL
+              value: {{ and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled | quote }}
             - name: SANDBOX_ROUTER_LISTEN_PORT
               value: {{ .Values.frontend.service.routerPort | quote }}
             - name: SANDBOX_ROUTER_RRT_PORT
@@ -82,13 +84,33 @@ spec:
               value: {{ .Values.frontend.sandboxRouter.enableJwt | quote }}
             - name: SANDBOX_ROUTER_VALIDATE_IAM
               value: {{ .Values.frontend.sandboxRouter.validateIam | quote }}
+            - name: YR_RRT_COMMAND_RESULT_TTL_SECS
+              value: {{ .Values.dataPlane.rrtCommand.resultTtlSeconds | int64 | quote }}
+            - name: YR_RRT_COMMAND_STDOUT_LIMIT_BYTES
+              value: {{ .Values.dataPlane.rrtCommand.stdoutLimitBytes | int64 | quote }}
+            - name: YR_RRT_COMMAND_STDERR_LIMIT_BYTES
+              value: {{ .Values.dataPlane.rrtCommand.stderrLimitBytes | int64 | quote }}
+            - name: YR_RRT_COMMAND_REGISTRY_MAX_RECORDS
+              value: {{ .Values.dataPlane.rrtCommand.registryMaxRecords | int64 | quote }}
+            - name: YR_RRT_COMMAND_REGISTRY_MAX_BYTES
+              value: {{ .Values.dataPlane.rrtCommand.registryMaxBytes | int64 | quote }}
+            - name: YR_RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES
+              value: {{ .Values.dataPlane.rrtCommand.registryMemoryHighWatermarkBytes | int64 | quote }}
+            - name: YR_RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS
+              value: {{ .Values.dataPlane.rrtCommand.activityHeartbeatSeconds | int64 | quote }}
+            - name: YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION
+              value: {{ .Values.dataPlane.commandWatch.maxSubscriptionsPerConnection | int64 | quote }}
+            - name: YR_COMMAND_WATCH_MAX_FRAME_BYTES
+              value: {{ .Values.dataPlane.commandWatch.maxFrameBytes | int64 | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.frontend.service.targetPort }}
               protocol: TCP
+{{- if not (and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled) }}
             - name: router
               containerPort: {{ .Values.frontend.service.routerPort }}
               protocol: TCP
+{{- end }}
 {{- with .Values.frontend.probes.readiness }}
           readinessProbe:
 {{ toYaml . | nindent 12 }}
@@ -111,6 +133,148 @@ spec:
               readOnly: true
             - name: session-dir
               mountPath: {{ .Values.debug.sidecar.sessionDir }}
+{{- if and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled }}
+{{- if or (le (int .Values.dataPlane.commandWatch.maxSubscriptionsPerConnection) 0) (le (int .Values.dataPlane.commandWatch.queueCapacity) 0) (le (int .Values.dataPlane.commandWatch.maxFrameBytes) 0) (le (int .Values.dataPlane.commandWatch.pingIntervalSeconds) 0) }}
+{{- fail "dataPlane.commandWatch limits must be greater than zero" }}
+{{- end }}
+{{- if gt (int64 .Values.dataPlane.rrtCommand.registryMemoryHighWatermarkBytes) (int64 .Values.dataPlane.rrtCommand.registryMaxBytes) }}
+{{- fail "dataPlane.rrtCommand.registryMemoryHighWatermarkBytes must not exceed registryMaxBytes" }}
+{{- end }}
+        - name: edge-frontend
+          image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.global.images.controlplane) }}
+          imagePullPolicy: {{ .Values.global.images.controlplane.pullPolicy }}
+          command:
+            - /usr/local/bin/start-edge.sh
+          env:
+            - name: RUNTIME_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: YR_ETCD_ADDR_LIST
+              value: {{ include "yr-k8s.etcdAddrList" . | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_TLS_BIND
+              value: {{ printf "0.0.0.0:%v" .Values.dataPlane.edge.tlsPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_PLAIN_BIND
+              value: {{ printf "0.0.0.0:%v" .Values.dataPlane.edge.plainPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_HEALTH_BIND
+              value: {{ printf "0.0.0.0:%v" .Values.dataPlane.edge.healthPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ADDRESS
+              # Frontend binds the Pod IP rather than loopback. Kubernetes
+              # expands the previously declared RUNTIME_POD_IP reference.
+              value: {{ printf "$(RUNTIME_POD_IP):%v" .Values.frontend.service.targetPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_CONTROL_PLANE_ROUTES
+              value: {{ join "," .Values.dataPlane.edge.controlPlaneRoutes | quote }}
+{{- if .Values.dataPlane.edge.tls.secretName }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_TLS_CERT
+              value: /etc/yr-data-plane-tls/tls.crt
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_TLS_KEY
+              value: /etc/yr-data-plane-tls/tls.key
+{{- end }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_VALIDATE_IAM
+              value: {{ .Values.dataPlane.edge.validateIam | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_IAM_ADDRESS
+              value: {{ default (printf "%s:%v" (include "yr-k8s.componentName" (dict "root" . "component" "master-access")) .Values.master.service.ports.iamServer) .Values.dataPlane.edge.iamAddress | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_AUTH_CACHE_TTL_SEC
+              value: {{ .Values.dataPlane.edge.authCacheTtlSeconds | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_DIRECT_PORT
+              value: {{ .Values.dataPlane.edge.defaultDirectPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_TUNNEL_PORT
+              value: {{ .Values.dataPlane.edge.defaultTunnelPort | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_CONNECTIONS_PER_ENDPOINT
+              value: {{ .Values.dataPlane.edge.backendHttpPool.maxConnectionsPerEndpoint | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS
+              value: {{ .Values.dataPlane.edge.backendHttpPool.maxIdleConnections | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_MAX_IDLE_CONNECTIONS_PER_ENDPOINT
+              value: {{ .Values.dataPlane.edge.backendHttpPool.maxIdleConnectionsPerEndpoint | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_IDLE_TIMEOUT_SEC
+              value: {{ .Values.dataPlane.edge.backendHttpPool.idleTimeoutSeconds | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_BACKEND_HTTP_ACQUIRE_TIMEOUT_MS
+              value: {{ .Values.dataPlane.edge.backendHttpPool.acquireTimeoutMilliseconds | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE
+              value: {{ .Values.dataPlane.edgeNode.securityMode | quote }}
+{{- if eq .Values.dataPlane.edgeNode.securityMode "mtls" }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CA
+              value: /etc/yr-data-plane-mtls/ca/ca.crt
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_SERVER_NAME
+              value: {{ .Values.dataPlane.edgeNode.mtls.serverName | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CLIENT_CERT
+              value: /etc/yr-data-plane-mtls/client/tls.crt
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_TLS_CLIENT_KEY
+              value: /etc/yr-data-plane-mtls/client/tls.key
+{{- end }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS
+              value: {{ join "," .Values.dataPlane.edge.allowedClientCidrs | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_ALLOW_ANY_CLIENT
+              value: {{ .Values.dataPlane.edge.allowAnyClient | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_LOG_LEVEL
+              value: {{ .Values.dataPlane.edge.logLevel | quote }}
+            - name: YR_DATA_PLANE_LOG_DIR
+              value: {{ printf "%s/logs/data-plane" .Values.debug.sidecar.sessionDir | quote }}
+            - name: YR_DATA_PLANE_LOG_MAX_SIZE_MB
+              value: {{ .Values.dataPlane.log.maxSizeMB | quote }}
+            - name: YR_DATA_PLANE_LOG_MAX_FILES
+              value: {{ .Values.dataPlane.log.maxFiles | quote }}
+            - name: YR_DATA_PLANE_LOG_QUEUE_CAPACITY
+              value: {{ .Values.dataPlane.log.queueCapacity | quote }}
+            - name: YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS
+              value: {{ .Values.dataPlane.log.flushIntervalMs | quote }}
+            - name: YR_DATA_PLANE_LOG_STDOUT
+              value: {{ .Values.dataPlane.log.stdout | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED
+              value: {{ .Values.dataPlane.edge.accessLogEnabled | quote }}
+            - name: YR_COMMAND_WATCH_MAX_SUBSCRIPTIONS_PER_CONNECTION
+              value: {{ .Values.dataPlane.commandWatch.maxSubscriptionsPerConnection | int64 | quote }}
+            - name: YR_COMMAND_WATCH_QUEUE_CAPACITY
+              value: {{ .Values.dataPlane.commandWatch.queueCapacity | int64 | quote }}
+            - name: YR_COMMAND_WATCH_MAX_FRAME_BYTES
+              value: {{ .Values.dataPlane.commandWatch.maxFrameBytes | int64 | quote }}
+            - name: YR_COMMAND_WATCH_PING_INTERVAL_SECS
+              value: {{ .Values.dataPlane.commandWatch.pingIntervalSeconds | int64 | quote }}
+          ports:
+            - name: edge-tls
+              containerPort: {{ .Values.dataPlane.edge.tlsPort }}
+              protocol: TCP
+            - name: edge-plain
+              containerPort: {{ .Values.dataPlane.edge.plainPort }}
+              protocol: TCP
+            - name: edge-health
+              containerPort: {{ .Values.dataPlane.edge.healthPort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: edge-health
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: edge-health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.dataPlane.edge.resources | nindent 12 }}
+          volumeMounts:
+            - name: components
+              mountPath: /etc/yuanrong/config.toml
+              subPath: config.toml
+            - name: session-dir
+              mountPath: {{ .Values.debug.sidecar.sessionDir }}
+{{- if .Values.dataPlane.edge.tls.secretName }}
+            - name: edge-frontend-tls
+              mountPath: /etc/yr-data-plane-tls
+              readOnly: true
+{{- end }}
+{{- if eq .Values.dataPlane.edgeNode.securityMode "mtls" }}
+            - name: data-plane-mtls-ca
+              mountPath: /etc/yr-data-plane-mtls/ca
+              readOnly: true
+            - name: data-plane-mtls-client
+              mountPath: /etc/yr-data-plane-mtls/client
+              readOnly: true
+{{- end }}
+{{- end }}
         - name: debug-busybox
           image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.debug.sidecar.image) }}
           imagePullPolicy: {{ .Values.debug.sidecar.image.pullPolicy }}
@@ -141,4 +305,17 @@ spec:
                 path: services.yaml
         - name: session-dir
           emptyDir: {}
+{{- if and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled .Values.dataPlane.edge.tls.secretName }}
+        - name: edge-frontend-tls
+          secret:
+            secretName: {{ .Values.dataPlane.edge.tls.secretName }}
+{{- end }}
+{{- if and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled (eq .Values.dataPlane.edgeNode.securityMode "mtls") }}
+        - name: data-plane-mtls-ca
+          secret:
+            secretName: {{ .Values.dataPlane.edgeNode.mtls.caSecret }}
+        - name: data-plane-mtls-client
+          secret:
+            secretName: {{ .Values.dataPlane.edgeNode.mtls.edgeClientSecret }}
+{{- end }}
 {{- end }}

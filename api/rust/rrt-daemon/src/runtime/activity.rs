@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use crate::posix::runtime_rpc::StreamingMessage;
 
 static ACTIVE: AtomicI64 = AtomicI64::new(0);
+static ACTIVE_COMMANDS: AtomicI64 = AtomicI64::new(0);
 static IDLE_EPOCH: AtomicU64 = AtomicU64::new(0);
 static REPORTER: OnceLock<ActivityReporter> = OnceLock::new();
 const IDLE_REPORT_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(800);
@@ -72,12 +73,14 @@ pub struct ActiveGuard {
     source: ActivitySource,
 }
 
+#[must_use]
+pub struct CommandActivityGuard;
+
 /// Identifies which runtime surface produced an activity report.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ActivitySource {
     Checkpoint,
     DirectHttp,
-    Process,
     RuntimeRpc,
     Tunnel,
 }
@@ -87,7 +90,6 @@ impl ActivitySource {
         match self {
             Self::Checkpoint => "checkpoint",
             Self::DirectHttp => "direct-http",
-            Self::Process => "process",
             Self::RuntimeRpc => "runtime-rpc",
             Self::Tunnel => "tunnel",
         }
@@ -126,6 +128,50 @@ impl Drop for ActiveGuard {
             schedule_idle_report(self.source);
         }
     }
+}
+
+pub fn enter_command() -> CommandActivityGuard {
+    let count = ACTIVE_COMMANDS.fetch_add(1, Ordering::SeqCst) + 1;
+    report_command_count(count);
+    CommandActivityGuard
+}
+
+impl Drop for CommandActivityGuard {
+    fn drop(&mut self) {
+        let count = ACTIVE_COMMANDS.fetch_sub(1, Ordering::SeqCst) - 1;
+        report_command_count(count.max(0));
+    }
+}
+
+fn report_command_count(count: i64) {
+    let Some(reporter) = REPORTER.get() else {
+        return;
+    };
+    let instance_id = reporter.instance_id();
+    let payload = format!("command:{count}").into_bytes();
+    let msg = super::activity_report_msg(&instance_id, payload);
+    if let Err(error) = reporter.tx.try_send(msg) {
+        rrt_error!(
+            "[rrt-runtime] command activity report failed instance={} active_commands={} error={}",
+            instance_id,
+            count,
+            error
+        );
+    }
+}
+
+pub fn active_command_count() -> i64 {
+    ACTIVE_COMMANDS.load(Ordering::SeqCst)
+}
+
+/// Re-send the complete command count as a lease heartbeat.
+///
+/// This is intentionally a best-effort snapshot: losing the reporting channel
+/// must never stop command execution. FunctionSystem expires the independent
+/// command-activity lease and pauses idle reclamation until a later snapshot
+/// arrives.
+pub fn report_command_snapshot() {
+    report_command_count(active_command_count());
 }
 
 fn schedule_idle_report(source: ActivitySource) {

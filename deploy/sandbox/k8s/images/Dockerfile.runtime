@@ -8,7 +8,10 @@ COPY openyuanrong_sdk*.whl /tmp/
 COPY rrt-wheels/ /tmp/rrt-wheels/
 RUN rrt_wheels="$(find /tmp/rrt-wheels -type f -name 'openyuanrong_rrt*.whl' -print | sort)" && \
     if [ -n "${rrt_wheels}" ]; then \
-      pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl ${rrt_wheels}; \
+      pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl ${rrt_wheels} && \
+      rrt_runtime="$(python -c 'import openyuanrong_rrt; print(openyuanrong_rrt.runtime_path())')" && \
+      test -x "${rrt_runtime}" && \
+      ln -sf "${rrt_runtime}" /usr/local/bin/rrt-runtime; \
     else \
       pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl; \
     fi && \

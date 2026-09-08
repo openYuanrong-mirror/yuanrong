@@ -112,11 +112,139 @@ ip = "{{ values.host_ip }}"
 port = "{{ 22772|check_port() }}"
 grpc_listen_port = "{{ 22773|check_port() }}"
 component_grpc_port = "{{ 22774|check_port() }}"
+advertise_frontend_proxy_create = true
 # TCP tunnel (frontend SSH -> instance sshd). Listener enabled only when
 # values.frontend.ssh_enable is true. Port uses check_port() so it auto-shifts
 # on conflict; override via -s values.function_proxy.tcp_tunnel_port.
 tcp_tunnel_port = "{{ 22775|check_port() }}"
 tcp_tunnel_max_connections = 1024
+command_activity_timeout_sec = 30
+
+[values.node_proxy]
+# Off by default. The same switch starts the standalone Node Proxy component
+# and enables its activity source in FunctionSystem.
+enabled = false
+bin_path = "{{ values.yr_package_path }}/data_plane/bin/yr-node-proxy"
+bind = "0.0.0.0:8443"
+health_bind = "127.0.0.1:18443"
+# Empty means <values.host_ip>:8443, derived from bind's port by the config
+# template. Set this explicitly when the node advertises a different private IP.
+advertise_address = ""
+# Generic Node Proxy admission boundary. For the current sandbox adapter,
+# configure this with the node-local sandbox bridge CIDRs.
+allowed_target_cidrs = []
+allowed_edge_cidrs = []
+# Development escape hatch; production should keep false and configure CIDRs.
+allow_any_edge = false
+activity_uds_dir = "{{ values.deploy_path }}/run/data-plane-gateway/activity"
+activity_interval_sec = 30
+tls_cert = ""
+tls_key = ""
+# Optional CA used to require and verify Edge client certificates.
+mtls_client_ca = ""
+edge_security_mode = "network"
+max_streams = 0
+drain_timeout_sec = 30
+log_level = "info"
+log_dir = "{{ values.fs.log.path }}/data_plane"
+log_rolling_max_size_mb = 40
+log_rolling_max_files = 10
+log_queue_capacity = 32768
+log_flush_interval_ms = 200
+# Process mode redirects stdout to a launcher file, so use the internally
+# rotated service log as the authoritative sink.
+log_stdout = false
+
+[values.edge_frontend]
+bin_path = "{{ values.yr_package_path }}/data_plane/bin/yr-edge-frontend"
+# Empty uses values.etcd.address and values.etcd.auth_type. Production Edge
+# deployments should normally configure the complete external endpoint list.
+etcd_endpoints = []
+etcd_tls_ca = ""
+etcd_tls_cert = ""
+etcd_tls_key = ""
+etcd_tls_domain = ""
+etcd_username = ""
+etcd_password = ""
+tls_bind = "0.0.0.0:8443"
+plain_bind = "0.0.0.0:8080"
+health_bind = "127.0.0.1:18080"
+# Static control-plane routes are forwarded to the co-deployed Frontend and
+# keep the public entry independent from Traefik.
+frontend_address = "127.0.0.1:8888"
+# Matching is boundary-aware: prefix:/api also matches /api/v1, but not
+# /api-escape. Update this list and restart Edge; no Rust code change is needed.
+control_plane_routes = [
+  "exact:/",
+  "exact:/healthz",
+  "prefix:/terminal",
+  "prefix:/api/instances",
+  "prefix:/api/jobs",
+  "prefix:/api/sandbox",
+  "prefix:/functions",
+  "prefix:/api-docs",
+  "prefix:/admin/v1/functions",
+  "prefix:/serverless/v1/functions",
+  "prefix:/serverless/v1/stream",
+  "prefix:/serverless/v1/componentshealth",
+  "prefix:/serverless/v1/posix",
+  "prefix:/frontend/v1/instance",
+  "prefix:/datasystem/v1",
+  "prefix:/serverless/v2",
+  "prefix:/app/v1",
+  "prefix:/client/v1/lease",
+  "prefix:/invocations",
+  "prefix:/global-scheduler",
+]
+# Direct always uses this TLS listener. Tunnel and port-forwarding may use the
+# plaintext listener without a token unless their route requires authentication.
+tls_cert = ""
+tls_key = ""
+validate_iam = true
+iam_address = ""
+auth_cache_ttl_sec = 30
+default_direct_port = 50090
+default_tunnel_port = 8765
+node_security_mode = "network"
+node_tls_ca = ""
+node_tls_server_name = ""
+node_tls_client_cert = ""
+node_tls_client_key = ""
+h2_connections_per_node = 2
+h2_max_connections_per_node = 4
+# HTTP/1.1 connections inside a sandbox are reused independently from the
+# Edge-to-Node H2 pool. Idle connections are globally bounded and short-lived
+# because an idle backend connection is still an open Node CONNECT stream.
+backend_http_max_connections_per_endpoint = 64
+backend_http_max_idle_connections = 1024
+backend_http_max_idle_connections_per_endpoint = 64
+backend_http_idle_timeout_sec = 5
+backend_http_acquire_timeout_ms = 3000
+drain_timeout_sec = 30
+# Edge accepts clients only from these source networks. User identity still
+# comes from a validated Authorization bearer token.
+allowed_client_cidrs = []
+# Development escape hatch; production should keep false and configure CIDRs.
+allow_any_client = false
+log_level = "info"
+log_dir = "{{ values.fs.log.path }}/data_plane"
+log_rolling_max_size_mb = 40
+log_rolling_max_files = 10
+log_queue_capacity = 32768
+log_flush_interval_ms = 200
+log_stdout = false
+access_log_enabled = true
+command_watch_max_subscriptions = 4096
+command_watch_queue_capacity = 256
+command_watch_max_frame_bytes = 1048576
+command_watch_ping_interval_sec = 20
+rrt_command_result_ttl_secs = 3600
+rrt_command_stdout_limit_bytes = 4194304
+rrt_command_stderr_limit_bytes = 4194304
+rrt_command_registry_max_records = 4096
+rrt_command_registry_max_bytes = 268435456
+rrt_command_registry_memory_high_watermark_bytes = 201326592
+rrt_command_activity_heartbeat_secs = 10
 
 [values.runtime_launcher]
 enable = false

@@ -22,6 +22,8 @@ ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
 RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
 RRT_AMD64_BUILDER_IMAGE="${RRT_AMD64_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260826_rust1950_musl_x86_64}"
 RRT_ARM64_BUILDER_IMAGE="${RRT_ARM64_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/rrt-rust-builder:v20260826_rust1851_sccache082_musl_arm64}"
+DATA_PLANE_GATEWAY_AMD64_BUILDER_IMAGE="${DATA_PLANE_GATEWAY_AMD64_BUILDER_IMAGE:-${RRT_AMD64_BUILDER_IMAGE}}"
+DATA_PLANE_GATEWAY_ARM64_BUILDER_IMAGE="${DATA_PLANE_GATEWAY_ARM64_BUILDER_IMAGE:-${RRT_ARM64_BUILDER_IMAGE}}"
 FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
 FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
 BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
@@ -36,6 +38,7 @@ ENABLE_RRT_ARM="${ENABLE_RRT_ARM:-true}"
 # Validation mode: emit only the selected RRT build step(s). This keeps builder
 # image/toolchain checks from starting unrelated C++, SDK, packaging, or test jobs.
 ENABLE_RRT_ONLY="${ENABLE_RRT_ONLY:-false}"
+ENABLE_DATA_PLANE_GATEWAY="${ENABLE_DATA_PLANE_GATEWAY:-true}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
 PUBLISH_OPENYUANRONG_SDK_PYPI="${PUBLISH_OPENYUANRONG_SDK_PYPI:-false}"
 SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13 python3.14}"
@@ -53,6 +56,7 @@ if is_enabled "${ENABLE_RRT_ONLY}"; then
   ENABLE_SANDBOX_K8S_TEST=false
   ENABLE_MACOS_SDK=false
   ENABLE_TEST_PYPI_PUBLISH=false
+  ENABLE_DATA_PLANE_GATEWAY=false
 fi
 
 if is_enabled "${ENABLE_MACOS_SDK_ONLY}"; then
@@ -94,6 +98,12 @@ if is_enabled "${ENABLE_RUST_BUILD}"; then
   fi
   if is_enabled "${ENABLE_RUNTIME_ARM}" && is_enabled "${ENABLE_RRT_ARM}"; then
     validate_ci_value "RRT_ARM64_BUILDER_IMAGE" "$RRT_ARM64_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
+  fi
+  if is_enabled "${ENABLE_DATA_PLANE_GATEWAY}" && is_enabled "${ENABLE_RUNTIME_X86}"; then
+    validate_ci_value "DATA_PLANE_GATEWAY_AMD64_BUILDER_IMAGE" "$DATA_PLANE_GATEWAY_AMD64_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
+  fi
+  if is_enabled "${ENABLE_DATA_PLANE_GATEWAY}" && is_enabled "${ENABLE_RUNTIME_ARM}"; then
+    validate_ci_value "DATA_PLANE_GATEWAY_ARM64_BUILDER_IMAGE" "$DATA_PLANE_GATEWAY_ARM64_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
   fi
 fi
 
@@ -146,6 +156,14 @@ SANDBOX_MANIFEST_ARCHES="amd64"
 SANDBOX_MANIFEST_RELEASE_DEPENDS=$'\n'"      - \"publish-sandbox-release-amd64\""
 SANDBOX_ARM_RRT_DEPENDS=""
 SANDBOX_ARM_RRT_OPTIONAL="1"
+SANDBOX_AMD64_DATA_PLANE_DEPENDS=""
+SANDBOX_ARM64_DATA_PLANE_DEPENDS=""
+if is_enabled "${ENABLE_DATA_PLANE_GATEWAY}"; then
+  SANDBOX_AMD64_DATA_PLANE_DEPENDS=$'\n'"      - \"build-data-plane-gateway-amd64\""
+  if is_enabled "${ENABLE_LINUX_ARM}"; then
+    SANDBOX_ARM64_DATA_PLANE_DEPENDS=$'\n'"      - \"build-data-plane-gateway-arm64\""
+  fi
+fi
 if is_enabled "${ENABLE_LINUX_ARM}"; then
   SANDBOX_MANIFEST_ARCHES="amd64 arm64"
   SANDBOX_MANIFEST_RELEASE_DEPENDS=$'\n'"      - \"publish-sandbox-release-amd64\""$'\n'"      - \"publish-sandbox-release-arm64\""
@@ -159,6 +177,7 @@ SANDBOX_TEST_PYPI_SANDBOX_SDK_DEPENDS=""
 SANDBOX_TEST_PYPI_DEPENDS=""
 SANDBOX_SANDBOX_SDK_STEPS=""
 SANDBOX_SDK_STEPS=""
+SANDBOX_MACOS_ARM64_SDK_STEPS=""
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
   SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS:+${SANDBOX_SDK_STEPS} }build-sdk-amd64-${SDK_SUFFIX}"
@@ -170,7 +189,9 @@ for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
     SANDBOX_MANIFEST_SDK_DEPENDS="${SANDBOX_MANIFEST_SDK_DEPENDS}"$'\n'"      - \"build-sdk-arm64-${SDK_SUFFIX}\""
   fi
   if is_enabled "${ENABLE_MACOS_SDK}"; then
-    SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS} build-sdk-macos-arm64-${SDK_SUFFIX}"
+    MACOS_SDK_STEP="build-sdk-macos-arm64-${SDK_SUFFIX}"
+    SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS} ${MACOS_SDK_STEP}"
+    SANDBOX_MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:+${SANDBOX_MACOS_ARM64_SDK_STEPS} }${MACOS_SDK_STEP}"
     SANDBOX_TEST_PYPI_DEPENDS="${SANDBOX_TEST_PYPI_DEPENDS}"$'\n'"      - \"build-sdk-macos-arm64-${SDK_SUFFIX}\""
     SANDBOX_MANIFEST_SDK_DEPENDS="${SANDBOX_MANIFEST_SDK_DEPENDS}"$'\n'"      - \"build-sdk-macos-arm64-${SDK_SUFFIX}\""
   fi
@@ -226,6 +247,11 @@ cat << YAML
     # "deployment yr-frontend exceeded its progress deadline". One at a time.
     concurrency_group: "yuanrong/sandbox-test-k8s"
     concurrency: 1
+    # A K8S-only verification has no build dependencies and should not sit
+    # behind an older full build whose K8S step is still waiting for images.
+    # Eager changes eligibility ordering only; concurrency=1 still serializes
+    # all access to the shared target cluster.
+    concurrency_method: eager
 ${depends_on}
     command: |
       set -e
@@ -276,8 +302,8 @@ YAML
 
 # sandbox-sdk (sandbox-sdk submodule): build the pure-Python wheel and run the
 # sandbox-sdk -> rrt direct-routing verification. The test (offline, MockTransport)
-# asserts the SDK takes the frontend /direct/{id}/invoke alias to the rrt port,
-# falls back to frontend invoke on route failure,
+# asserts the SDK takes the Edge /direct/{id}/invoke data path to the RRT port,
+# falls back to Frontend invoke on route failure,
 # and sticky-disables — i.e. the
 # build's test suite includes sandbox-sdk -> rrt direct verification. Building + installing the
 # wheel also validates sandbox-sdk packaging end to end.
@@ -510,6 +536,133 @@ ${node_selector}
               - name: docker-graph
                 emptyDir:
                   sizeLimit: 80Gi
+    timeout_in_minutes: 90
+YAML
+}
+
+emit_data_plane_gateway_build() {
+  local image_arch="$1"
+  local agent_arch="$2"
+  local builder_image="$3"
+  local agent_arch_attr="arch"
+  local node_selector=""
+  local rust_target="x86_64-unknown-linux-musl"
+  if [ "${agent_arch}" = "arm64" ]; then
+    agent_arch_attr="linux_arch"
+    rust_target="aarch64-unknown-linux-musl"
+    node_selector="            nodeSelector:
+              kubernetes.io/arch: arm64"
+  fi
+cat << YAML
+  - label: ":crab: Build Rust Data Plane ${image_arch}"
+    key: "build-data-plane-gateway-${image_arch}"
+    command: |
+      set -e
+      CACHE_BASE="/mnt/paas/build-cache"
+      export CARGO_HOME="\$\$CACHE_BASE/cargo-home"
+      export CARGO_TARGET_DIR="\$\$CACHE_BASE/cargo-target/data-plane-gateway/${image_arch}"
+      mkdir -p "\$\$CARGO_HOME" "\$\$CARGO_TARGET_DIR"
+      . .buildkite/setup_sccache.sh
+      rustc --version
+      cargo --version
+      protoc --version
+      cargo test --manifest-path data-plane-gateway/Cargo.toml --locked --all-features --lib --bins
+      # The Data Plane reuses the RRT Rust builder image. RRT builds for the
+      # native GNU target, while the standalone gateways additionally need the
+      # musl target. Use the same rsproxy mirror configured for Cargo instead
+      # of falling back to the much slower default rustup endpoint.
+      export RUSTUP_DIST_SERVER="\$\${RUSTUP_DIST_SERVER:-https://rsproxy.cn}"
+      export RUSTUP_UPDATE_ROOT="\$\${RUSTUP_UPDATE_ROOT:-https://rsproxy.cn/rustup}"
+      if ! command -v musl-gcc >/dev/null 2>&1; then
+        if [ "\$\$(id -u)" -ne 0 ] || ! command -v apt-get >/dev/null 2>&1; then
+          echo "musl-gcc is required to build static Data Plane binaries" >&2
+          exit 1
+        fi
+        if [ -f /etc/apt/sources.list ]; then
+          sed -i \
+            -e 's|http://deb.debian.org/debian|https://mirrors.huaweicloud.com/debian|g' \
+            -e 's|http://security.debian.org/debian-security|https://mirrors.huaweicloud.com/debian-security|g' \
+            /etc/apt/sources.list
+        fi
+        apt-get -o Acquire::Retries=5 update
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends musl-tools file
+      fi
+      rustup target add "${rust_target}"
+      export CC=musl-gcc
+      export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+      export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+      # Rust 1.95 no longer produces a fully static x86_64 musl executable
+      # when an external musl-gcc linker is selected unless crt-static and
+      # self-contained linking are explicit. Keep this identical across the
+      # x86 and arm builders and reject any ELF interpreter below.
+      export RUSTFLAGS="\$\${RUSTFLAGS:+\$\${RUSTFLAGS} }-C target-feature=+crt-static -C link-self-contained=yes -C relocation-model=static"
+      cargo build --manifest-path data-plane-gateway/Cargo.toml --locked --release --all-features --bins --target "${rust_target}"
+      artifact_dir="artifacts/data-plane-gateway/${image_arch}"
+      rm -rf "\$\$artifact_dir"
+      mkdir -p "\$\$artifact_dir"
+      for binary in yr-node-proxy yr-edge-frontend yr-data-plane-forward; do
+        strip "\$\$CARGO_TARGET_DIR/${rust_target}/release/\$\$binary"
+        install -m 0755 "\$\$CARGO_TARGET_DIR/${rust_target}/release/\$\$binary" "\$\$artifact_dir/\$\$binary"
+      done
+      data-plane-gateway/scripts/verify-static-linux.sh \
+        "\$\$artifact_dir/yr-node-proxy" \
+        "\$\$artifact_dir/yr-edge-frontend" \
+        "\$\$artifact_dir/yr-data-plane-forward"
+      COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
+      SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
+      mkdir -p output/openyuanrong/data_plane/bin
+      install -m 0755 "\$\$artifact_dir"/yr-* output/openyuanrong/data_plane/bin/
+      case "${image_arch}" in
+        amd64) wheel_platform=manylinux_2_17_x86_64 ;;
+        arm64) wheel_platform=manylinux_2_17_aarch64 ;;
+      esac
+      wheel_tmp=\$\$(mktemp -d)
+      mkdir -p "\$\$wheel_tmp/egg"
+      trap 'rm -rf "\$\$wheel_tmp"' EXIT
+      # setuptools 52 rejects absolute egg-info paths when its manifest is
+      # consumed by build_py. Keep every setup.py work path relative to the
+      # setup directory, while retaining the disposable directory outside the
+      # checkout.
+      setup_root="\$\$PWD/api/python"
+      wheel_tmp_rel=\$\$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' \
+        "\$\$wheel_tmp" "\$\$setup_root")
+      (cd api/python && SETUP_TYPE=data_plane BUILD_VERSION="\$\$YR_BUILD_VERSION" \
+        YR_WHEEL_PLATFORM_TAG="\$\$wheel_platform" python3 setup.py \
+        egg_info --egg-base "\$\$wheel_tmp_rel/egg" \
+        build --build-base "\$\$wheel_tmp_rel/build" bdist_wheel \
+        --bdist-dir "\$\$wheel_tmp_rel/bdist" --dist-dir "\$\$wheel_tmp_rel/dist")
+      cp -f "\$\$wheel_tmp"/dist/openyuanrong_data_plane-*.whl "\$\$artifact_dir/"
+      (cd "\$\$artifact_dir" && sha256sum yr-node-proxy yr-edge-frontend yr-data-plane-forward openyuanrong_data_plane-*.whl > SHA256SUMS)
+      tar -C "\$\$artifact_dir" -czf "artifacts/yr-data-plane-gateway-${image_arch}.tar.gz" .
+      ls -lh "\$\$artifact_dir" "artifacts/yr-data-plane-gateway-${image_arch}.tar.gz"
+      (cd artifacts && buildkite-agent artifact upload "yr-data-plane-gateway-${image_arch}.tar.gz")
+    agents:
+      queue: "default"
+      os: "linux"
+      ${agent_arch_attr}: "${agent_arch}"
+    plugins:
+      - kubernetes:
+          podSpec:
+${node_selector}
+            imagePullSecrets:
+              - name: swr-pull-secret
+            containers:
+              - image: "${builder_image}"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "8", memory: "8Gi" }
+                  limits: { cpu: "16", memory: "16Gi" }
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
     timeout_in_minutes: 90
 YAML
 }
@@ -988,6 +1141,10 @@ cat << YAML
 YAML
 fi
 
+if is_enabled "${ENABLE_RUNTIME_X86}" && is_enabled "${ENABLE_DATA_PLANE_GATEWAY}" && ! is_enabled "${ENABLE_RRT_ONLY}"; then
+  emit_data_plane_gateway_build "amd64" "amd64" "${DATA_PLANE_GATEWAY_AMD64_BUILDER_IMAGE}"
+fi
+
 if is_enabled "${ENABLE_RUNTIME_X86}"; then
 cat << YAML
   - label: ":crab: Build RRT amd64"
@@ -1230,7 +1387,7 @@ cat << YAML
   - label: ":package: Build Image"
     key: "publish-sandbox-release-amd64"
     depends_on:
-      - "build-all-amd64"
+      - "build-all-amd64"${SANDBOX_AMD64_DATA_PLANE_DEPENDS}
       - "build-rrt-amd64"
       - "${SANDBOX_AMD64_SDK_STEP}"
     command: |
@@ -1247,6 +1404,7 @@ cat << YAML
     env:
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_AMD64_SDK_STEP}"
+      SANDBOX_DATA_PLANE_GATEWAY_STEP_KEY: "build-data-plane-gateway-amd64"
       YR_K8S_IMAGE_SDK_WHEEL_PATTERN: "openyuanrong_sdk*-${SANDBOX_AMD64_SDK_SUFFIX}-*.whl"
       YR_K8S_IMAGE_CACHE: "1"
       ENABLE_SANDBOX_MANIFEST: "${ENABLE_SANDBOX_MANIFEST}"
@@ -1581,6 +1739,10 @@ cat << YAML
 YAML
 fi
 
+if is_enabled "${ENABLE_RUNTIME_ARM}" && is_enabled "${ENABLE_DATA_PLANE_GATEWAY}" && ! is_enabled "${ENABLE_RRT_ONLY}"; then
+  emit_data_plane_gateway_build "arm64" "arm64" "${DATA_PLANE_GATEWAY_ARM64_BUILDER_IMAGE}"
+fi
+
 if is_enabled "${ENABLE_RUNTIME_ARM}" && is_enabled "${ENABLE_RRT_ARM}"; then
 cat << YAML
   - label: ":crab: Build RRT arm64"
@@ -1831,7 +1993,7 @@ cat << YAML
   - label: ":package: Build Image arm"
     key: "publish-sandbox-release-arm64"
     depends_on:
-      - "build-all-arm64"${SANDBOX_ARM_RRT_DEPENDS}
+      - "build-all-arm64"${SANDBOX_ARM_RRT_DEPENDS}${SANDBOX_ARM64_DATA_PLANE_DEPENDS}
       - "${SANDBOX_ARM64_SDK_STEP}"
     command: |
       set -e
@@ -1841,6 +2003,7 @@ cat << YAML
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_BUILD_STEP_KEY: "build-all-arm64"
       SANDBOX_SDK_STEP_KEY: "${SANDBOX_ARM64_SDK_STEP}"
+      SANDBOX_DATA_PLANE_GATEWAY_STEP_KEY: "build-data-plane-gateway-arm64"
       YR_K8S_IMAGE_ARCH: "arm64"
       YR_K8S_IMAGE_PLATFORM: "linux/arm64"
       YR_K8S_IMAGE_CACHE: "1"
@@ -1929,6 +2092,7 @@ ${SANDBOX_MANIFEST_EXTRA_DEPENDS}
       BUILDKITE_AGENT_NAME: "agent-stack-k8s"
       SANDBOX_RUNTIME_IMAGE_STEPS: "${SANDBOX_RUNTIME_IMAGE_STEPS}"
       SANDBOX_RRT_ARTIFACT_STEPS: "${SANDBOX_RRT_ARTIFACT_STEPS}"
+      SANDBOX_MACOS_ARM64_SDK_STEPS: "${SANDBOX_MACOS_ARM64_SDK_STEPS}"
       YR_K8S_MANIFEST_ARCHES: "${SANDBOX_MANIFEST_ARCHES}"
       SANDBOX_SANDBOX_SDK_STEPS: "${SANDBOX_SANDBOX_SDK_STEPS}"
       SANDBOX_EXTRA_ARTIFACT_STEPS: ""

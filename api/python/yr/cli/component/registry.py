@@ -17,6 +17,7 @@
 from yr.cli.component.base import ComponentLauncher
 from yr.cli.component.collector import CollectorLauncher
 from yr.cli.component.dashboard import DashboardLauncher
+from yr.cli.component.data_plane_gateway import DataPlaneGatewayLauncher
 from yr.cli.component.ds_worker import DsWorkerLauncher
 from yr.cli.component.etcd import ETCDLauncher
 from yr.cli.component.frontend import FrontendLauncher
@@ -41,6 +42,8 @@ LAUNCHER_CLASSES: dict[str, type[ComponentLauncher]] = {
     "collector": CollectorLauncher,
     "meta_service": MetaServiceLauncher,
     "runtime_launcher": RuntimeLauncherLauncher,
+    "node_proxy": DataPlaneGatewayLauncher,
+    "edge_frontend": DataPlaneGatewayLauncher,
     # used for yr k8s deployment
     "iam_server": ComponentLauncher,
     "function_manager": ComponentLauncher,
@@ -77,12 +80,17 @@ DEPENDS_ON_OVERRIDES_BY_MODE: dict[StartMode, dict[str, list[str]]] = {
         "collector": ["ds_worker"],
         "meta_service": ["etcd"],
         "etcd": [],
+        "node_proxy": [],
     },
     StartMode.AGENT: {
         "function_agent": ["ds_worker", "function_proxy"],
         "function_proxy": ["ds_worker"],
         "frontend": ["function_proxy"],
         "runtime_launcher": [],
+        "node_proxy": [],
+    },
+    StartMode.EDGE: {
+        "edge_frontend": [],
     },
 }
 

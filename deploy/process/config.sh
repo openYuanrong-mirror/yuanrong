@@ -48,7 +48,7 @@ enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_f
 lite_scheduler_enable:,lite_scheduler_enable_all_tenants:,lite_scheduler_enabled_tenants:,lite_scheduler_enabled_functions:,lite_scheduler_acquire_wait_timeout_ms:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
-function_agent_port:,function_proxy_port:,data_system_enable:,ssh_enable:,enable_tcp_tunnel:,ssh_backend_public_key_dir:,frontend_ssh_auth_enable:,frontend_ssh_address:,\
+function_agent_port:,function_proxy_port:,advertise_frontend_proxy_create:,data_system_enable:,ssh_enable:,enable_tcp_tunnel:,ssh_backend_public_key_dir:,frontend_ssh_auth_enable:,frontend_ssh_address:,\
 frontend_ssh_host_key:,frontend_ssh_authorized_keys:,frontend_ssh_backend_key:,frontend_ssh_max_connections:,\
 tcp_tunnel_port:,tcp_tunnel_max_connections:,\
 function_proxy_grpc_port:,function_proxy_component_grpc_port:,global_scheduler_port:,runtime_init_port:,\
@@ -85,6 +85,11 @@ etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,runtime_metrics_config_file:,enable_runtime_launcher:,runtime_default_write_mode:,\
+enable_node_proxy:,node_proxy_bind:,node_proxy_advertise_address:,node_proxy_health_bind:,node_proxy_allowed_target_cidrs:,node_proxy_allowed_edge_cidrs:,node_proxy_allow_any_edge:,node_proxy_security_mode:,node_proxy_tls_cert:,node_proxy_tls_key:,node_proxy_mtls_client_ca:,node_proxy_activity_uds_dir:,\
+enable_edge_frontend:,edge_frontend_tls_bind:,edge_frontend_plain_bind:,edge_frontend_health_bind:,edge_frontend_tls_cert:,edge_frontend_tls_key:,edge_frontend_control_plane_address:,edge_frontend_control_plane_routes:,edge_frontend_validate_iam:,edge_frontend_iam_address:,edge_frontend_allowed_client_cidrs:,edge_frontend_allow_any_client:,edge_frontend_node_tls_ca:,edge_frontend_node_tls_server_name:,edge_frontend_node_tls_client_cert:,edge_frontend_node_tls_client_key:,\
+data_plane_log_dir:,data_plane_log_max_size_mb:,data_plane_log_max_files:,data_plane_log_stdout:,edge_frontend_access_log_enabled:,\
+command_watch_max_subscriptions:,command_watch_queue_capacity:,command_watch_max_frame_bytes:,command_watch_ping_interval_secs:,command_activity_timeout_secs:,\
+rrt_command_result_ttl_secs:,rrt_command_stdout_limit_bytes:,rrt_command_stderr_limit_bytes:,rrt_command_registry_max_records:,rrt_command_registry_max_bytes:,rrt_command_registry_memory_high_watermark_bytes:,rrt_command_activity_heartbeat_secs:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
 enable_traefik_registry:,enable_traefik_provider:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_http_entry_point:,traefik_enable_tls:,traefik_servers_transport:,traefik_forward_timeout_ms:,\
 meta_service_address:,\
@@ -141,6 +146,51 @@ CPU_ALL=0
 MEM_ALL=0
 ENABLE_RUNTIME_LAUNCHER="false"
 RUNTIME_LAUNCHER_SOCK=""
+ENABLE_NODE_PROXY="${ENABLE_NODE_PROXY:-false}"
+NODE_PROXY_BIND="${NODE_PROXY_BIND:-0.0.0.0:8443}"
+NODE_PROXY_ADVERTISE_ADDRESS="${NODE_PROXY_ADVERTISE_ADDRESS:-}"
+NODE_PROXY_HEALTH_BIND="${NODE_PROXY_HEALTH_BIND:-127.0.0.1:18443}"
+NODE_PROXY_ALLOWED_TARGET_CIDRS="${NODE_PROXY_ALLOWED_TARGET_CIDRS:-}"
+NODE_PROXY_ALLOWED_EDGE_CIDRS="${NODE_PROXY_ALLOWED_EDGE_CIDRS:-}"
+NODE_PROXY_ALLOW_ANY_EDGE="${NODE_PROXY_ALLOW_ANY_EDGE:-false}"
+NODE_PROXY_SECURITY_MODE="${NODE_PROXY_SECURITY_MODE:-network}"
+NODE_PROXY_TLS_CERT="${NODE_PROXY_TLS_CERT:-}"
+NODE_PROXY_TLS_KEY="${NODE_PROXY_TLS_KEY:-}"
+NODE_PROXY_MTLS_CLIENT_CA="${NODE_PROXY_MTLS_CLIENT_CA:-}"
+NODE_PROXY_ACTIVITY_UDS_DIR="${NODE_PROXY_ACTIVITY_UDS_DIR:-}"
+ENABLE_EDGE_FRONTEND="${ENABLE_EDGE_FRONTEND:-false}"
+EDGE_FRONTEND_TLS_BIND="${EDGE_FRONTEND_TLS_BIND:-0.0.0.0:8443}"
+EDGE_FRONTEND_PLAIN_BIND="${EDGE_FRONTEND_PLAIN_BIND:-0.0.0.0:8080}"
+EDGE_FRONTEND_HEALTH_BIND="${EDGE_FRONTEND_HEALTH_BIND:-127.0.0.1:18080}"
+EDGE_FRONTEND_TLS_CERT="${EDGE_FRONTEND_TLS_CERT:-}"
+EDGE_FRONTEND_TLS_KEY="${EDGE_FRONTEND_TLS_KEY:-}"
+EDGE_FRONTEND_CONTROL_PLANE_ADDRESS="${EDGE_FRONTEND_CONTROL_PLANE_ADDRESS:-}"
+EDGE_FRONTEND_CONTROL_PLANE_ROUTES="${EDGE_FRONTEND_CONTROL_PLANE_ROUTES:-exact:/,exact:/healthz,prefix:/terminal,prefix:/api/instances,prefix:/api/jobs,prefix:/api/sandbox,prefix:/functions,prefix:/api-docs,prefix:/admin/v1/functions,prefix:/serverless/v1/functions,prefix:/serverless/v1/stream,prefix:/serverless/v1/componentshealth,prefix:/serverless/v1/posix,prefix:/frontend/v1/instance,prefix:/datasystem/v1,prefix:/serverless/v2,prefix:/app/v1,prefix:/client/v1/lease,prefix:/invocations,prefix:/global-scheduler}"
+EDGE_FRONTEND_VALIDATE_IAM="${EDGE_FRONTEND_VALIDATE_IAM:-true}"
+EDGE_FRONTEND_IAM_ADDRESS="${EDGE_FRONTEND_IAM_ADDRESS:-}"
+EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS="${EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS:-127.0.0.0/8}"
+EDGE_FRONTEND_ALLOW_ANY_CLIENT="${EDGE_FRONTEND_ALLOW_ANY_CLIENT:-false}"
+EDGE_FRONTEND_NODE_TLS_CA="${EDGE_FRONTEND_NODE_TLS_CA:-}"
+EDGE_FRONTEND_NODE_TLS_SERVER_NAME="${EDGE_FRONTEND_NODE_TLS_SERVER_NAME:-}"
+EDGE_FRONTEND_NODE_TLS_CLIENT_CERT="${EDGE_FRONTEND_NODE_TLS_CLIENT_CERT:-}"
+EDGE_FRONTEND_NODE_TLS_CLIENT_KEY="${EDGE_FRONTEND_NODE_TLS_CLIENT_KEY:-}"
+DATA_PLANE_LOG_DIR="${DATA_PLANE_LOG_DIR:-}"
+DATA_PLANE_LOG_MAX_SIZE_MB="${DATA_PLANE_LOG_MAX_SIZE_MB:-40}"
+DATA_PLANE_LOG_MAX_FILES="${DATA_PLANE_LOG_MAX_FILES:-10}"
+DATA_PLANE_LOG_STDOUT="${DATA_PLANE_LOG_STDOUT:-false}"
+EDGE_FRONTEND_ACCESS_LOG_ENABLED="${EDGE_FRONTEND_ACCESS_LOG_ENABLED:-true}"
+COMMAND_WATCH_MAX_SUBSCRIPTIONS="${COMMAND_WATCH_MAX_SUBSCRIPTIONS:-4096}"
+COMMAND_WATCH_QUEUE_CAPACITY="${COMMAND_WATCH_QUEUE_CAPACITY:-256}"
+COMMAND_WATCH_MAX_FRAME_BYTES="${COMMAND_WATCH_MAX_FRAME_BYTES:-1048576}"
+COMMAND_WATCH_PING_INTERVAL_SECS="${COMMAND_WATCH_PING_INTERVAL_SECS:-20}"
+COMMAND_ACTIVITY_TIMEOUT_SECS="${COMMAND_ACTIVITY_TIMEOUT_SECS:-30}"
+RRT_COMMAND_RESULT_TTL_SECS="${RRT_COMMAND_RESULT_TTL_SECS:-3600}"
+RRT_COMMAND_STDOUT_LIMIT_BYTES="${RRT_COMMAND_STDOUT_LIMIT_BYTES:-4194304}"
+RRT_COMMAND_STDERR_LIMIT_BYTES="${RRT_COMMAND_STDERR_LIMIT_BYTES:-4194304}"
+RRT_COMMAND_REGISTRY_MAX_RECORDS="${RRT_COMMAND_REGISTRY_MAX_RECORDS:-4096}"
+RRT_COMMAND_REGISTRY_MAX_BYTES="${RRT_COMMAND_REGISTRY_MAX_BYTES:-268435456}"
+RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES="${RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES:-201326592}"
+RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS="${RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS:-10}"
 CPU4COMP=0
 MEM4COMP=0
 MEM4DATA=0
@@ -228,6 +278,7 @@ FUNCTION_AGENT_PORT=58866
 FUNCTION_PROXY_PORT=22772
 FUNCTION_PROXY_GRPC_PORT=22773
 FUNCTION_PROXY_COMPONENT_GRPC_PORT=22774
+ADVERTISE_FRONTEND_PROXY_CREATE="true"
 LOCAL_IP=""
 ENABLE_DPOSIX_UDS=false
 DPOSIX_UDS_PATH=""
@@ -544,6 +595,7 @@ function usage() {
   echo -e "     --function_agent_port                               function agent port (default 58866)"
   echo -e "     --function_proxy_port                               function proxy port (default 22772)"
   echo -e "     --function_proxy_grpc_port                          function proxy port for driver (default 22773)"
+  echo -e "     --advertise_frontend_proxy_create                   advertise faas.create from this FunctionProxy (default true)"
   echo -e "     --ssh_enable                                        enable frontend SSH (default false). When true the TCP tunnel is also enabled (the SSH path needs it)."
   echo -e "     --enable_tcp_tunnel                                 enable function proxy TCP tunnel listener independently of ssh_enable (default false). Use this for wsproxy WS passthrough without SSH keys."
   echo -e "     --ssh_backend_public_key_dir                        host directory containing authorized_keys for sandbox mounts"
@@ -719,6 +771,41 @@ function usage() {
   echo -e "     --oom_consecutive_detection_count                   number of consecutive times the memory usage must exceed the control limit before triggering OOM kill"
   echo -e "     --runtime_metrics_config                            runtime_metrics_config, default is false"
   echo -e "     --enable_runtime_launcher                           enable runtime launcher for sandbox container backend, default is false"
+  echo -e "     --enable_node_proxy                                 start the Rust Node Proxy with this node, options:true/false (default false)"
+  echo -e "     --node_proxy_bind                                   Node Proxy H2 listen address (default 0.0.0.0:8443)"
+  echo -e "     --node_proxy_advertise_address                      Node Proxy address published in RouteInfo (default <node-ip>:<bind-port>)"
+  echo -e "     --node_proxy_health_bind                            Node Proxy health listen address (default 127.0.0.1:18443)"
+  echo -e "     --node_proxy_allowed_target_cidrs                   comma-separated target CIDRs; required when Node Proxy is enabled"
+  echo -e "     --node_proxy_allowed_edge_cidrs                     comma-separated Edge source CIDRs unless allow-any-edge is true"
+  echo -e "     --node_proxy_allow_any_edge                         development-only source ACL bypass, options:true/false (default false)"
+  echo -e "     --node_proxy_security_mode                          Edge-to-Node transport: network/mtls (default network)"
+  echo -e "     --node_proxy_tls_cert/--node_proxy_tls_key          Node server identity for mtls mode"
+  echo -e "     --node_proxy_mtls_client_ca                         CA used to verify Edge clients in mtls mode"
+  echo -e "     --node_proxy_activity_uds_dir                       local activity exchange directory"
+  echo -e "     --enable_edge_frontend                              start the Rust Edge Frontend, options:true/false (default false)"
+  echo -e "     --edge_frontend_tls_bind                            Edge TLS listen address (default 0.0.0.0:8443)"
+  echo -e "     --edge_frontend_plain_bind                          Edge plaintext tunnel/forward listen address (default 0.0.0.0:8080)"
+  echo -e "     --edge_frontend_health_bind                         Edge health listen address (default 127.0.0.1:18080)"
+  echo -e "     --edge_frontend_tls_cert/--edge_frontend_tls_key    required Edge public TLS identity"
+  echo -e "     --edge_frontend_control_plane_address               Frontend upstream (default <local-ip>:faas-frontend-port)"
+  echo -e "     --edge_frontend_control_plane_routes                comma-separated exact:/path or prefix:/path routes"
+  echo -e "     --edge_frontend_validate_iam                        validate supplied bearer tokens with IAM (default true)"
+  echo -e "     --edge_frontend_iam_address                         IAM upstream (default configured IAM server address)"
+  echo -e "     --edge_frontend_allowed_client_cidrs                comma-separated Edge ingress CIDRs (default 127.0.0.0/8)"
+  echo -e "     --edge_frontend_allow_any_client                    development-only ingress ACL bypass (default false)"
+  echo -e "     --edge_frontend_node_tls_ca                         CA used to verify Node Proxy in mtls mode"
+  echo -e "     --edge_frontend_node_tls_server_name                Node certificate DNS name in mtls mode"
+  echo -e "     --edge_frontend_node_tls_client_cert/key            Edge client identity in mtls mode"
+  echo -e "     --data_plane_log_dir                                Edge/Node rolling log directory (default <fs-log>/data_plane)"
+  echo -e "     --data_plane_log_max_size_mb                        maximum size of each active Rust log file in MiB (default 40)"
+  echo -e "     --data_plane_log_max_files                          retained rotated files per Rust log (default 10)"
+  echo -e "     --data_plane_log_stdout                             also emit Rust logs to stdout, options:true/false (default false)"
+  echo -e "     --edge_frontend_access_log_enabled                  write the separate Edge access/audit log (default true)"
+  echo -e "     --command_watch_max_subscriptions/queue_capacity/max_frame_bytes/ping_interval_secs"
+  echo -e "                                                         command watch resource budgets"
+  echo -e "     --rrt_command_result_ttl_secs/stdout_limit_bytes/stderr_limit_bytes"
+  echo -e "     --rrt_command_registry_max_records/max_bytes/memory_high_watermark_bytes"
+  echo -e "     --rrt_command_activity_heartbeat_secs               recoverable command registry and activity budgets"
 }
 
 function help_msg() {
@@ -840,6 +927,7 @@ function parse_opt() {
     --function_agent_port) FUNCTION_AGENT_PORT=$2 && port_policy_table["function_agent_port"]="FIX" && shift 2 ;;
     --function_proxy_port) FUNCTION_PROXY_PORT=$2 && port_policy_table["function_proxy_port"]="FIX" && shift 2 ;;
     --function_proxy_grpc_port) FUNCTION_PROXY_GRPC_PORT=$2 && port_policy_table["function_proxy_grpc_port"]="FIX" && shift 2 ;;
+    --advertise_frontend_proxy_create) ADVERTISE_FRONTEND_PROXY_CREATE=$2 && shift 2 ;;
     --ssh_enable) SSH_ENABLE=$2 && shift 2 ;;
     --enable_tcp_tunnel) ENABLE_TCP_TUNNEL=$2 && shift 2 ;;
     --ssh_backend_public_key_dir) YR_SSH_BACKEND_PUBLIC_KEY_DIR=$(readlink -m "$2") && shift 2 ;;
@@ -866,6 +954,51 @@ function parse_opt() {
     --runtime_default_config) RUNTIME_DEFAULT_CONFIG=$2 && shift 2 ;;
     --runtime_metrics_config)  RUNTIME_METRICS_CONFIG=$2 && shift 2 ;;
     --enable_runtime_launcher) ENABLE_RUNTIME_LAUNCHER=$2 && shift 2 ;;
+    --enable_node_proxy) ENABLE_NODE_PROXY=$2 && shift 2 ;;
+    --node_proxy_bind) NODE_PROXY_BIND=$2 && shift 2 ;;
+    --node_proxy_advertise_address) NODE_PROXY_ADVERTISE_ADDRESS=$2 && shift 2 ;;
+    --node_proxy_health_bind) NODE_PROXY_HEALTH_BIND=$2 && shift 2 ;;
+    --node_proxy_allowed_target_cidrs) NODE_PROXY_ALLOWED_TARGET_CIDRS=$2 && shift 2 ;;
+    --node_proxy_allowed_edge_cidrs) NODE_PROXY_ALLOWED_EDGE_CIDRS=$2 && shift 2 ;;
+    --node_proxy_allow_any_edge) NODE_PROXY_ALLOW_ANY_EDGE=$2 && shift 2 ;;
+    --node_proxy_security_mode) NODE_PROXY_SECURITY_MODE=$2 && shift 2 ;;
+    --node_proxy_tls_cert) NODE_PROXY_TLS_CERT=$(readlink -m "$2") && shift 2 ;;
+    --node_proxy_tls_key) NODE_PROXY_TLS_KEY=$(readlink -m "$2") && shift 2 ;;
+    --node_proxy_mtls_client_ca) NODE_PROXY_MTLS_CLIENT_CA=$(readlink -m "$2") && shift 2 ;;
+    --node_proxy_activity_uds_dir) NODE_PROXY_ACTIVITY_UDS_DIR=$(readlink -m "$2") && shift 2 ;;
+    --enable_edge_frontend) ENABLE_EDGE_FRONTEND=$2 && shift 2 ;;
+    --edge_frontend_tls_bind) EDGE_FRONTEND_TLS_BIND=$2 && shift 2 ;;
+    --edge_frontend_plain_bind) EDGE_FRONTEND_PLAIN_BIND=$2 && shift 2 ;;
+    --edge_frontend_health_bind) EDGE_FRONTEND_HEALTH_BIND=$2 && shift 2 ;;
+    --edge_frontend_tls_cert) EDGE_FRONTEND_TLS_CERT=$(readlink -m "$2") && shift 2 ;;
+    --edge_frontend_tls_key) EDGE_FRONTEND_TLS_KEY=$(readlink -m "$2") && shift 2 ;;
+    --edge_frontend_control_plane_address) EDGE_FRONTEND_CONTROL_PLANE_ADDRESS=$2 && shift 2 ;;
+    --edge_frontend_control_plane_routes) EDGE_FRONTEND_CONTROL_PLANE_ROUTES=$2 && shift 2 ;;
+    --edge_frontend_validate_iam) EDGE_FRONTEND_VALIDATE_IAM=$2 && shift 2 ;;
+    --edge_frontend_iam_address) EDGE_FRONTEND_IAM_ADDRESS=$2 && shift 2 ;;
+    --edge_frontend_allowed_client_cidrs) EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS=$2 && shift 2 ;;
+    --edge_frontend_allow_any_client) EDGE_FRONTEND_ALLOW_ANY_CLIENT=$2 && shift 2 ;;
+    --edge_frontend_node_tls_ca) EDGE_FRONTEND_NODE_TLS_CA=$(readlink -m "$2") && shift 2 ;;
+    --edge_frontend_node_tls_server_name) EDGE_FRONTEND_NODE_TLS_SERVER_NAME=$2 && shift 2 ;;
+    --edge_frontend_node_tls_client_cert) EDGE_FRONTEND_NODE_TLS_CLIENT_CERT=$(readlink -m "$2") && shift 2 ;;
+    --edge_frontend_node_tls_client_key) EDGE_FRONTEND_NODE_TLS_CLIENT_KEY=$(readlink -m "$2") && shift 2 ;;
+    --data_plane_log_dir) DATA_PLANE_LOG_DIR=$(readlink -m "$2") && shift 2 ;;
+    --data_plane_log_max_size_mb) DATA_PLANE_LOG_MAX_SIZE_MB=$2 && shift 2 ;;
+    --data_plane_log_max_files) DATA_PLANE_LOG_MAX_FILES=$2 && shift 2 ;;
+    --data_plane_log_stdout) DATA_PLANE_LOG_STDOUT=$2 && shift 2 ;;
+    --edge_frontend_access_log_enabled) EDGE_FRONTEND_ACCESS_LOG_ENABLED=$2 && shift 2 ;;
+    --command_watch_max_subscriptions) COMMAND_WATCH_MAX_SUBSCRIPTIONS=$2 && shift 2 ;;
+    --command_watch_queue_capacity) COMMAND_WATCH_QUEUE_CAPACITY=$2 && shift 2 ;;
+    --command_watch_max_frame_bytes) COMMAND_WATCH_MAX_FRAME_BYTES=$2 && shift 2 ;;
+    --command_watch_ping_interval_secs) COMMAND_WATCH_PING_INTERVAL_SECS=$2 && shift 2 ;;
+    --command_activity_timeout_secs) COMMAND_ACTIVITY_TIMEOUT_SECS=$2 && shift 2 ;;
+    --rrt_command_result_ttl_secs) RRT_COMMAND_RESULT_TTL_SECS=$2 && shift 2 ;;
+    --rrt_command_stdout_limit_bytes) RRT_COMMAND_STDOUT_LIMIT_BYTES=$2 && shift 2 ;;
+    --rrt_command_stderr_limit_bytes) RRT_COMMAND_STDERR_LIMIT_BYTES=$2 && shift 2 ;;
+    --rrt_command_registry_max_records) RRT_COMMAND_REGISTRY_MAX_RECORDS=$2 && shift 2 ;;
+    --rrt_command_registry_max_bytes) RRT_COMMAND_REGISTRY_MAX_BYTES=$2 && shift 2 ;;
+    --rrt_command_registry_memory_high_watermark_bytes) RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES=$2 && shift 2 ;;
+    --rrt_command_activity_heartbeat_secs) RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS=$2 && shift 2 ;;
     --npu_collection_mode) NPU_COLLECTION_MODE=$2 && shift 2 ;;
     --gpu_collection_enable) GPU_COLLECTION_ENABLE=$2 && shift 2 ;;
     --runtime_init_call_timeout_seconds) RUNTIME_INIT_CALL_TIMEOUT_SECONDS=$2 && shift 2 ;;
@@ -1455,6 +1588,10 @@ function check_input() {
      log_error "enable_tcp_tunnel can only be 'true' or 'false'"
      return 1
   fi
+  if [ "X${ADVERTISE_FRONTEND_PROXY_CREATE}" != "Xtrue" ] && [ "X${ADVERTISE_FRONTEND_PROXY_CREATE}" != "Xfalse" ]; then
+     log_error "advertise_frontend_proxy_create can only be 'true' or 'false'"
+     return 1
+  fi
   if [ "X${FRONTEND_SSH_AUTH_ENABLE}" != "Xtrue" ] && [ "X${FRONTEND_SSH_AUTH_ENABLE}" != "Xfalse" ]; then
     log_error "frontend_ssh_auth_enable can only be 'true' or 'false'"
     return 1
@@ -1500,6 +1637,75 @@ function check_input() {
       return 1
     fi
   done
+  for gateway_bool in "${ENABLE_NODE_PROXY}" "${NODE_PROXY_ALLOW_ANY_EDGE}" "${ENABLE_EDGE_FRONTEND}" "${EDGE_FRONTEND_VALIDATE_IAM}" "${EDGE_FRONTEND_ALLOW_ANY_CLIENT}" "${DATA_PLANE_LOG_STDOUT}" "${EDGE_FRONTEND_ACCESS_LOG_ENABLED}"; do
+    if [ "X${gateway_bool}" != "Xtrue" ] && [ "X${gateway_bool}" != "Xfalse" ]; then
+      log_error "Rust Edge/Node enable and ACL options can only be 'true' or 'false'"
+      return 1
+    fi
+  done
+  check_greater_than_zero "data_plane_log_max_size_mb" "${DATA_PLANE_LOG_MAX_SIZE_MB}" || return 1
+  check_greater_than_zero "data_plane_log_max_files" "${DATA_PLANE_LOG_MAX_FILES}" || return 1
+  for command_budget in "${COMMAND_WATCH_MAX_SUBSCRIPTIONS}" "${COMMAND_WATCH_QUEUE_CAPACITY}" \
+    "${COMMAND_WATCH_MAX_FRAME_BYTES}" "${COMMAND_WATCH_PING_INTERVAL_SECS}" \
+    "${COMMAND_ACTIVITY_TIMEOUT_SECS}" "${RRT_COMMAND_RESULT_TTL_SECS}" \
+    "${RRT_COMMAND_STDOUT_LIMIT_BYTES}" "${RRT_COMMAND_STDERR_LIMIT_BYTES}" \
+    "${RRT_COMMAND_REGISTRY_MAX_RECORDS}" "${RRT_COMMAND_REGISTRY_MAX_BYTES}" \
+    "${RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES}" "${RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS}"; do
+    check_greater_than_zero "command recovery budget" "${command_budget}" || return 1
+  done
+  if [[ ${RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES} -gt ${RRT_COMMAND_REGISTRY_MAX_BYTES} ]]; then
+    echo "rrt command registry high watermark must not exceed max bytes" >&2
+    return 1
+  fi
+  if [[ ${COMMAND_ACTIVITY_TIMEOUT_SECS} -le $((RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS * 2)) ]]; then
+    echo "command activity timeout must be greater than two heartbeat intervals" >&2
+    return 1
+  fi
+  if [ "${NODE_PROXY_SECURITY_MODE}" != "network" ] && [ "${NODE_PROXY_SECURITY_MODE}" != "mtls" ]; then
+    log_error "node_proxy_security_mode can only be 'network' or 'mtls'"
+    return 1
+  fi
+  if [ "X${ENABLE_NODE_PROXY}" = "Xtrue" ]; then
+    if [ -z "${NODE_PROXY_ALLOWED_TARGET_CIDRS}" ]; then
+      log_error "node_proxy_allowed_target_cidrs is required when enable_node_proxy=true"
+      return 1
+    fi
+    if [ -z "${NODE_PROXY_ALLOWED_EDGE_CIDRS}" ] && [ "X${NODE_PROXY_ALLOW_ANY_EDGE}" != "Xtrue" ]; then
+      log_error "node_proxy_allowed_edge_cidrs is required unless node_proxy_allow_any_edge=true"
+      return 1
+    fi
+    if [ "${NODE_PROXY_SECURITY_MODE}" = "mtls" ]; then
+      check_readable_file "node_proxy_tls_cert" "${NODE_PROXY_TLS_CERT}" || return 1
+      check_readable_file "node_proxy_tls_key" "${NODE_PROXY_TLS_KEY}" || return 1
+      check_readable_file "node_proxy_mtls_client_ca" "${NODE_PROXY_MTLS_CLIENT_CA}" || return 1
+    fi
+  fi
+  if [ "X${ENABLE_EDGE_FRONTEND}" = "Xtrue" ]; then
+    check_readable_file "edge_frontend_tls_cert" "${EDGE_FRONTEND_TLS_CERT}" || return 1
+    check_readable_file "edge_frontend_tls_key" "${EDGE_FRONTEND_TLS_KEY}" || return 1
+    if [ -z "${EDGE_FRONTEND_CONTROL_PLANE_ROUTES}" ]; then
+      log_error "edge_frontend_control_plane_routes cannot be empty"
+      return 1
+    fi
+    if [ -z "${EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS}" ] && [ "X${EDGE_FRONTEND_ALLOW_ANY_CLIENT}" != "Xtrue" ]; then
+      log_error "edge_frontend_allowed_client_cidrs is required unless edge_frontend_allow_any_client=true"
+      return 1
+    fi
+    if [ "${NODE_PROXY_SECURITY_MODE}" = "mtls" ]; then
+      check_readable_file "edge_frontend_node_tls_ca" "${EDGE_FRONTEND_NODE_TLS_CA}" || return 1
+      check_readable_file "edge_frontend_node_tls_client_cert" "${EDGE_FRONTEND_NODE_TLS_CLIENT_CERT}" || return 1
+      check_readable_file "edge_frontend_node_tls_client_key" "${EDGE_FRONTEND_NODE_TLS_CLIENT_KEY}" || return 1
+      if [ -z "${EDGE_FRONTEND_NODE_TLS_SERVER_NAME}" ]; then
+        log_error "edge_frontend_node_tls_server_name is required in mtls mode"
+        return 1
+      fi
+    fi
+  fi
+  if [ "X${ENABLE_NODE_PROXY}" = "Xtrue" ] && [ "X${ENABLE_EDGE_FRONTEND}" = "Xtrue" ] && \
+     { [ "${NODE_PROXY_BIND}" = "${EDGE_FRONTEND_TLS_BIND}" ] || [ "${NODE_PROXY_BIND}" = "${EDGE_FRONTEND_PLAIN_BIND}" ]; }; then
+    log_error "Node Proxy and Edge Frontend cannot share the same listen address on one host"
+    return 1
+  fi
   if [ "X${ETCD_PROXY_ENABLE}" = "Xtrue" ] ; then
     ETCD_PROXY_ENABLE="TRUE"
   fi
@@ -1659,7 +1865,13 @@ function process_log_config() {
 
 
   DATA_PLANE_INSTALL_DIR="${INSTALL_DIR_PARENT}"/"${NODE_ID}"
+  [ "${DATA_PLANE_LOG_DIR}X" = "X" ] && DATA_PLANE_LOG_DIR="${FS_LOG_PATH}/data_plane"
+  mkdir -m 750 -p "${DATA_PLANE_LOG_DIR}"
   [ "${RUNTIME_LAUNCHER_SOCK}X" = "X" ] && RUNTIME_LAUNCHER_SOCK="${DATA_PLANE_INSTALL_DIR}/runtime-launcher.sock"
+  [ "${NODE_PROXY_ACTIVITY_UDS_DIR}X" = "X" ] && NODE_PROXY_ACTIVITY_UDS_DIR="${DATA_PLANE_INSTALL_DIR}/data-plane-gateway/activity"
+  [ "${NODE_PROXY_ADVERTISE_ADDRESS}X" = "X" ] && NODE_PROXY_ADVERTISE_ADDRESS="${IP_ADDRESS}:${NODE_PROXY_BIND##*:}"
+  [ "${EDGE_FRONTEND_CONTROL_PLANE_ADDRESS}X" = "X" ] && EDGE_FRONTEND_CONTROL_PLANE_ADDRESS="${LOCAL_IP:-${IP_ADDRESS}}:${FAAS_FRONTEND_HTTP_PORT}"
+  [ "${EDGE_FRONTEND_IAM_ADDRESS}X" = "X" ] && EDGE_FRONTEND_IAM_ADDRESS="${IAM_SERVER_ADDRESS:-${FUNCTION_MASTER_IP}:${IAM_SERVER_PORT}}"
   [ "${DS_SPILL_DIRECTORY}X" = "X" ] && DS_SPILL_DIRECTORY="${DATA_PLANE_INSTALL_DIR}/data_system/spill"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logLevel\}\}/$FS_LOG_LEVEL}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logCompressEnable\}\}/$FS_LOG_COMPRESS_ENABLE}"
@@ -1843,9 +2055,22 @@ function export_config() {
   export LOG_ROOT DS_LOG_PATH ETCD_LOG_PATH STD_LOG_SUFFIX CPU_RESERVED_FOR_DS_WORKER MAX_INSTANCE_CPU_SIZE MAX_INSTANCE_MEMORY_SIZE
   export DS_LOG_ROLLING_MAX_SIZE DS_LOG_ROLLING_MAX_FILES DS_RPC_THREAD_NUM DS_CLIENT_DEAD_TIMEOUT_S DS_NODE_DEAD_TIMEOUT_S
   export RUNTIME_LOG_PATH RUNTIME_LOG_LEVEL DS_LOG_LEVEL_STR MIN_INSTANCE_CPU_SIZE MIN_INSTANCE_MEMORY_SIZE
-  export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT FUNCTION_PROXY_COMPONENT_GRPC_PORT
+  export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT FUNCTION_PROXY_COMPONENT_GRPC_PORT ADVERTISE_FRONTEND_PROXY_CREATE
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
   export ENABLE_RUNTIME_LAUNCHER RUNTIME_LAUNCHER_SOCK
+  export ENABLE_NODE_PROXY NODE_PROXY_BIND NODE_PROXY_ADVERTISE_ADDRESS NODE_PROXY_HEALTH_BIND
+  export NODE_PROXY_ALLOWED_TARGET_CIDRS NODE_PROXY_ALLOWED_EDGE_CIDRS NODE_PROXY_ALLOW_ANY_EDGE NODE_PROXY_SECURITY_MODE
+  export NODE_PROXY_TLS_CERT NODE_PROXY_TLS_KEY NODE_PROXY_MTLS_CLIENT_CA NODE_PROXY_ACTIVITY_UDS_DIR
+  export ENABLE_EDGE_FRONTEND EDGE_FRONTEND_TLS_BIND EDGE_FRONTEND_PLAIN_BIND EDGE_FRONTEND_HEALTH_BIND
+  export EDGE_FRONTEND_TLS_CERT EDGE_FRONTEND_TLS_KEY EDGE_FRONTEND_CONTROL_PLANE_ADDRESS EDGE_FRONTEND_CONTROL_PLANE_ROUTES
+  export EDGE_FRONTEND_VALIDATE_IAM EDGE_FRONTEND_IAM_ADDRESS EDGE_FRONTEND_ALLOWED_CLIENT_CIDRS EDGE_FRONTEND_ALLOW_ANY_CLIENT
+  export EDGE_FRONTEND_NODE_TLS_CA EDGE_FRONTEND_NODE_TLS_SERVER_NAME EDGE_FRONTEND_NODE_TLS_CLIENT_CERT EDGE_FRONTEND_NODE_TLS_CLIENT_KEY
+  export DATA_PLANE_LOG_DIR DATA_PLANE_LOG_MAX_SIZE_MB DATA_PLANE_LOG_MAX_FILES DATA_PLANE_LOG_STDOUT
+  export EDGE_FRONTEND_ACCESS_LOG_ENABLED
+  export COMMAND_WATCH_MAX_SUBSCRIPTIONS COMMAND_WATCH_QUEUE_CAPACITY COMMAND_WATCH_MAX_FRAME_BYTES COMMAND_WATCH_PING_INTERVAL_SECS
+  export COMMAND_ACTIVITY_TIMEOUT_SECS RRT_COMMAND_RESULT_TTL_SECS RRT_COMMAND_STDOUT_LIMIT_BYTES RRT_COMMAND_STDERR_LIMIT_BYTES
+  export RRT_COMMAND_REGISTRY_MAX_RECORDS RRT_COMMAND_REGISTRY_MAX_BYTES RRT_COMMAND_REGISTRY_MEMORY_HIGH_WATERMARK_BYTES
+  export RRT_COMMAND_ACTIVITY_HEARTBEAT_SECS
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export SNAPSHOT_STORAGE_BACKEND SNAPSHOT_STORAGE_MODE CHECKPOINT_DIR
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DATA_SYSTEM_ENABLE YR_DATASYSTEM_DEPLOYED YR_BYPASS_DATASYSTEM DRIVER_GATEWAY_ENABLE SSH_ENABLE ENABLE_TCP_TUNNEL

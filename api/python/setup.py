@@ -96,6 +96,7 @@ class SetupType(Enum):
     OPENYUANRONG_DASHBOARD = 6
     OPENYUANRONG_FAAS = 7
     OPENYUANRONG_FULL = 8
+    OPENYUANRONG_DATA_PLANE = 9
 
 
 class SetupSpec:
@@ -120,6 +121,8 @@ class SetupSpec:
                     "yr.runtime.*",
                     "yr.faas",
                     "yr.faas.*",
+                    "yr.data_plane",
+                    "yr.data_plane.*",
                 )
             )
         if self.setup_type == SetupType.OPENYUANRONG_SDK:
@@ -130,6 +133,8 @@ class SetupSpec:
             return setuptools.find_packages(
                 include=("yr.runtime", "yr.runtime.*", "yr.faas", "yr.faas.*")
             )
+        if self.setup_type == SetupType.OPENYUANRONG_DATA_PLANE:
+            return setuptools.find_packages(include=("yr.data_plane", "yr.data_plane.*"))
         return []
 
 
@@ -186,6 +191,12 @@ elif setup_type_env == "faas":
         SetupType.OPENYUANRONG_FAAS,
         f"{base_name}_faas",
         "openyuanrong faas",
+    )
+elif setup_type_env == "data_plane":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_DATA_PLANE,
+        f"{base_name}_data_plane",
+        "openyuanrong standalone data-plane binaries",
     )
 elif setup_type_env == "all":
     setup_spec = SetupSpec(
@@ -768,6 +779,18 @@ def copy_openyuanrong_faas(build_lib):
         copy_file(os.path.join(build_lib, "yr/faas"), filename, faas_dir)
 
 
+def copy_openyuanrong_data_plane(build_lib):
+    """copy static standalone data-plane binaries into their split wheel"""
+    data_plane_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong/data_plane")
+    for root, _, files in os.walk(data_plane_dir):
+        for filename in files:
+            copy_file(
+                os.path.join(build_lib, "yr/data_plane"),
+                os.path.join(root, filename),
+                data_plane_dir,
+            )
+
+
 def copy_openyuanrong_dashboard(build_lib):
     """copy dashboard files for the split dashboard wheel"""
     root_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong")
@@ -851,6 +874,8 @@ def run_ext(build_lib):
         copy_openyuanrong_runtime(build_lib)
     elif setup_spec.setup_type == SetupType.OPENYUANRONG_FAAS:
         copy_openyuanrong_faas(build_lib)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_DATA_PLANE:
+        copy_openyuanrong_data_plane(build_lib)
     elif setup_spec.setup_type == SetupType.OPENYUANRONG_DASHBOARD:
         copy_openyuanrong_dashboard(build_lib)
     elif setup_spec.setup_type == SetupType.OPENYUANRONG_CPP_SDK:
@@ -893,7 +918,10 @@ class BdistWheelImpl(_bdist_wheel):
         """Build wheels with a supported platform tag."""
         tag = next(tags.sys_tags())
         platform_tag = get_wheel_platform_tag() or tag.platform
-        if setup_spec.setup_type == SetupType.OPENYUANRONG:
+        if setup_spec.setup_type in (
+            SetupType.OPENYUANRONG,
+            SetupType.OPENYUANRONG_DATA_PLANE,
+        ):
             return "py3", "none", platform_tag
         return tag.interpreter, tag.abi, platform_tag
 
@@ -920,7 +948,16 @@ class BinaryDistribution(setuptools.Distribution):
     def __init__(self, attrs=None):
         super().__init__(attrs)
         # Keep generated metadata compatible with older upload validators.
-        self.metadata.metadata_version = Version("2.2")
+        # Debian's setuptools 52 still compares this value with distutils'
+        # StrictVersion while newer setuptools compares packaging.Version
+        # instances. Supplying packaging.Version unconditionally makes
+        # egg_info fail on the arm64 builder before the wheel is created.
+        if Version(setuptools.__version__) < Version("61"):
+            from distutils.version import StrictVersion
+
+            self.metadata.metadata_version = StrictVersion("2.2")
+        else:
+            self.metadata.metadata_version = Version("2.2")
 
     def has_ext_modules(self):
         """has ext modules"""
@@ -960,6 +997,7 @@ if setup_spec.setup_type in (
     SetupType.OPENYUANRONG_FAAS,
     SetupType.OPENYUANRONG_CPP_SDK,
     SetupType.OPENYUANRONG_FULL,
+    SetupType.OPENYUANRONG_DATA_PLANE,
 ):
     ext_modules = [Extension("yr._dummy", sources=[])]
 
@@ -999,6 +1037,7 @@ setuptools.setup(
             "cli/*.yaml",
             "cli/*.jinja",
         ],
+        "yr.data_plane": ["bin/*"],
     },
     exclude_package_data={
         "": ["BUILD", "BUILD.bazel"],

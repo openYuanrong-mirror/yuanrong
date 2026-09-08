@@ -17,7 +17,7 @@ IMAGE_CACHE_ENABLED="${YR_K8S_IMAGE_CACHE:-0}"
 CACHE_TAG="${YR_K8S_IMAGE_CACHE_TAG:-build-cache}"
 DOCKER_BUILDKIT_MODE="${YR_K8S_DOCKER_BUILDKIT:-1}"
 DEPLOY_CONTEXT_DIR="${OUTPUT_DIR}/.yr-k8s-deploy"
-CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl}"
+CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl openyuanrong_data_plane-*.whl}"
 
 required_patterns=("openyuanrong_sdk*.whl")
 case "${RUNTIME_ONLY}" in
@@ -81,6 +81,10 @@ validate_required_artifacts() {
       exit 1
     fi
   done
+
+  case "${RUNTIME_ONLY}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+  esac
 }
 
 python_build_args_from_wheel() {
@@ -139,6 +143,7 @@ stage_deploy_context() {
   cp \
     "${ROOT_DIR}/bin/start-master.sh" \
     "${ROOT_DIR}/bin/start-frontend.sh" \
+    "${ROOT_DIR}/bin/start-edge.sh" \
     "${ROOT_DIR}/bin/start-node.sh" \
     "${ROOT_DIR}/bin/supervisord-node-entrypoint.sh" \
     "${DEPLOY_CONTEXT_DIR}/bin/"

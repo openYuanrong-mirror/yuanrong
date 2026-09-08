@@ -115,9 +115,9 @@ global:
           # analog of the docker AIO rrt slot. The frontend create API selects
           # the rrt slot directly; the runtime field is still propagated as
           # YR_LANGUAGE for runtime-side language dispatch.
-          # rrt-runtime now ships in the openyuanrong_sdk wheel (at
-          # yr/sandbox/rrt-runtime), which Dockerfile.runtime installs — so the
-          # k8s runtime image carries it without extra baking.
+          # Dockerfile.runtime installs the platform-specific
+          # openyuanrong-rrt wheel and exposes its native binary as
+          # /usr/local/bin/rrt-runtime.
           # RRT_HTTP_PORT / RRT_TUNNEL_* are injected by frontend create when needed.
           rrt:
             timeout: 900
@@ -134,7 +134,7 @@ global:
             bootstrap:
               type: path
               root: "/"
-              entrypoint: "set -e; exec \"$(python -c 'import openyuanrong_rrt;print(openyuanrong_rrt.runtime_path())')\""
+              entrypoint: "rrt-runtime"
           py313:
             timeout: 900
             cpu: 500
@@ -275,13 +275,15 @@ frontend:
     type: ClusterIP
     port: 8888
     targetPort: 8888
-    # sandboxRouter listen port (init_frontend_args.json sandboxRouter.listenPort);
-    # frontend forwards /direct traffic from its 8888 handler to this local port.
+    # Legacy Go sandboxRouter listen port. It remains available only when the
+    # standalone data plane is disabled; Frontend never proxies to Rust Edge.
     routerPort: 8080
     annotations: {}
+    # Edge reaches Frontend over Pod loopback. Keep the legacy Service absent
+    # while Edge is enabled unless an internal compatibility client needs it.
+    exposeWhenEdgeEnabled: false
   iamServerAddress: ""
-  # sandboxRouter (akernel-sdk -> /direct RRT L7 proxy behind frontend). Enabled
-  # here so Test K8S exercises the rrt direct path; flip enabled=false to ship off-by-default.
+  # Legacy sandboxRouter used by the old /direct path while dataPlane is off.
   sandboxRouter:
     enabled: true
     rrtPort: 50090
@@ -315,6 +317,116 @@ frontend:
       periodSeconds: 20
       timeoutSeconds: 5
       failureThreshold: 3
+
+# Standalone Rust data plane. Disabled in the generic chart so production must
+# explicitly choose TLS/CIDR policy. The Buildkite smoke overlay enables an
+# isolated h2c deployment and verifies that traffic no longer uses the legacy
+# in-process Go sandboxRouter.
+dataPlane:
+  enabled: false
+  log:
+    maxSizeMB: 40
+    maxFiles: 10
+    queueCapacity: 32768
+    flushIntervalMs: 200
+    # Keep stdout enabled in Kubernetes for kubectl/container-runtime logs;
+    # bounded service files are also written for node-level diagnostics.
+    stdout: true
+  commandWatch:
+    maxSubscriptionsPerConnection: 4096
+    queueCapacity: 256
+    maxFrameBytes: 1048576
+    pingIntervalSeconds: 20
+  commandActivity:
+    timeoutSeconds: 30
+  rrtCommand:
+    resultTtlSeconds: 3600
+    stdoutLimitBytes: 4194304
+    stderrLimitBytes: 4194304
+    registryMaxRecords: 4096
+    registryMaxBytes: 268435456
+    registryMemoryHighWatermarkBytes: 201326592
+    activityHeartbeatSeconds: 10
+  edge:
+    enabled: true
+    tlsPort: 8443
+    plainPort: 8080
+    healthPort: 18080
+    service:
+      type: ClusterIP
+      tlsPort: 8443
+      plainPort: 8080
+      annotations: {}
+    tls:
+      # Edge terminates public TLS itself; point this at a kubernetes.io/tls Secret.
+      secretName: ""
+    # Direct is fixed to TLS plus a token. Tunnel and port-forwarding default
+    # to the plaintext listener without a token; route policy may require the
+    # TLS listener and token for individual targets.
+    validateIam: true
+    iamAddress: ""
+    authCacheTtlSeconds: 30
+    defaultDirectPort: 50090
+    defaultTunnelPort: 8765
+    backendHttpPool:
+      maxConnectionsPerEndpoint: 64
+      maxIdleConnections: 1024
+      maxIdleConnectionsPerEndpoint: 64
+      idleTimeoutSeconds: 5
+      acquireTimeoutMilliseconds: 3000
+    # All entries forward to the co-located Frontend. Add an entry and roll the
+    # Edge pod to extend the static control-plane surface without a code change.
+    controlPlaneRoutes:
+      - exact:/
+      - exact:/healthz
+      - prefix:/terminal
+      - prefix:/api/instances
+      - prefix:/api/jobs
+      - prefix:/api/sandbox
+      - prefix:/functions
+      - prefix:/api-docs
+      - prefix:/admin/v1/functions
+      - prefix:/serverless/v1/functions
+      - prefix:/serverless/v1/stream
+      - prefix:/serverless/v1/componentshealth
+      - prefix:/serverless/v1/posix
+      - prefix:/frontend/v1/instance
+      - prefix:/datasystem/v1
+      - prefix:/serverless/v2
+      - prefix:/app/v1
+      - prefix:/client/v1/lease
+      - prefix:/invocations
+      - prefix:/global-scheduler
+    allowedClientCidrs:
+      - 127.0.0.0/8
+    allowAnyClient: false
+    logLevel: info
+    accessLogEnabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  node:
+    port: 8443
+    healthPort: 18443
+    allowedTargetCidrs:
+      - 172.16.0.0/12
+    allowedEdgeCidrs: []
+    allowAnyEdge: false
+    logLevel: info
+  # Edge-to-Node has two mutually exclusive modes:
+  # network = plaintext H2/TCP admitted by the mandatory Edge CIDR boundary;
+  # mtls = mutually authenticated TLS on top of the same network boundary.
+  edgeNode:
+    securityMode: network
+    mtls:
+      nodeServerSecret: ""
+      edgeClientSecret: ""
+      caSecret: ""
+      serverName: ""
 
 node:
   enabled: true
@@ -358,7 +470,9 @@ node:
       failureThreshold: 3
 
 traefik:
-  enabled: true
+  # Legacy optional deployment only. Frontend and Rust Edge expose their own
+  # Services and do not require Traefik.
+  enabled: false
   replicaCount: 1
   entryPoints:
     web:

@@ -1,0 +1,12 @@
+{{- if and .Values.dataPlane.enabled (not (has .Values.dataPlane.edgeNode.securityMode (list "network" "mtls"))) }}
+{{- fail "dataPlane.edgeNode.securityMode must be network or mtls" }}
+{{- end }}
+{{- if and .Values.dataPlane.enabled (le (int .Values.dataPlane.commandActivity.timeoutSeconds) (mul 2 (int .Values.dataPlane.rrtCommand.activityHeartbeatSeconds))) }}
+{{- fail "dataPlane.commandActivity.timeoutSeconds must be greater than two RRT heartbeat intervals" }}
+{{- end }}
+{{- if and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled (not .Values.dataPlane.edge.tls.secretName) }}
+{{- fail "dataPlane Edge requires edge.tls.secretName because direct always uses the TLS listener" }}
+{{- end }}
+{{- if and .Values.dataPlane.enabled (eq .Values.dataPlane.edgeNode.securityMode "mtls") (or (not .Values.dataPlane.edgeNode.mtls.nodeServerSecret) (not .Values.dataPlane.edgeNode.mtls.edgeClientSecret) (not .Values.dataPlane.edgeNode.mtls.caSecret) (not .Values.dataPlane.edgeNode.mtls.serverName)) }}
+{{- fail "dataPlane.edgeNode mtls mode requires nodeServerSecret, edgeClientSecret, caSecret, and serverName" }}
+{{- end }}

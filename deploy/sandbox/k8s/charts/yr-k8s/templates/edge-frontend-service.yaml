@@ -1,0 +1,28 @@
+{{- if and .Values.dataPlane.enabled .Values.dataPlane.edge.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "yr-k8s.componentName" (dict "root" . "component" "edge-frontend") }}
+  namespace: {{ include "yr-k8s.namespace" . }}
+  labels:
+    {{- include "yr-k8s.labels" . | nindent 4 }}
+    app.kubernetes.io/component: edge-frontend
+{{- with .Values.dataPlane.edge.service.annotations }}
+  annotations:
+{{ toYaml . | nindent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.dataPlane.edge.service.type }}
+  ports:
+    - name: tls
+      port: {{ .Values.dataPlane.edge.service.tlsPort }}
+      targetPort: edge-tls
+      protocol: TCP
+    - name: plain
+      port: {{ .Values.dataPlane.edge.service.plainPort }}
+      targetPort: edge-plain
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: frontend
+{{- end }}

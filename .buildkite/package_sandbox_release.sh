@@ -6,12 +6,14 @@ cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
 SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp39}"
+DATA_PLANE_GATEWAY_STEP_KEY="${SANDBOX_DATA_PLANE_GATEWAY_STEP_KEY:-build-data-plane-gateway-amd64}"
 IMAGE_SDK_WHEEL_PATTERN="${YR_K8S_IMAGE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl}"
 CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl}"
 case "${YR_K8S_IMAGE_ARCH:-amd64}" in
-arm64 | aarch64) RRT_WHEEL_ARCH="aarch64" ;;
-*) RRT_WHEEL_ARCH="x86_64" ;;
+arm64 | aarch64) RRT_WHEEL_ARCH="aarch64"; DATA_PLANE_GATEWAY_ARCH="arm64" ;;
+*) RRT_WHEEL_ARCH="x86_64"; DATA_PLANE_GATEWAY_ARCH="amd64" ;;
 esac
+DATA_PLANE_GATEWAY_ARCHIVE="yr-data-plane-gateway-${DATA_PLANE_GATEWAY_ARCH}.tar.gz"
 IMAGE_RRT_WHEEL_PATTERN="${YR_K8S_IMAGE_RRT_WHEEL_PATTERN:-openyuanrong_rrt-*_${RRT_WHEEL_ARCH}.whl}"
 RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
 RRT_OPTIONAL="${YR_K8S_RRT_OPTIONAL:-0}"
@@ -27,8 +29,6 @@ CHART_DIR="${ROOT_DIR}/deploy/sandbox/k8s/charts/yr-k8s"
 VALUES_FILE="${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.prod.yaml"
 REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/openyuanrong}"
 REGISTRY_SERVER="${YR_K8S_REGISTRY_SERVER:-${REGISTRY_REPO%%/*}}"
-TRAEFIK_IMAGE_REGISTRY="${YR_K8S_TRAEFIK_IMAGE_REGISTRY:-${REGISTRY_REPO}}"
-TRAEFIK_IMAGE_TAG="${YR_K8S_TRAEFIK_IMAGE_TAG:-v2.11.14}"
 COMMIT_SHA="${BUILDKITE_COMMIT:-$(git rev-parse HEAD)}"
 SHORT_SHA="${COMMIT_SHA:0:12}"
 BUILD_NUMBER="${BUILDKITE_BUILD_NUMBER:-0}"
@@ -201,11 +201,45 @@ download_release_artifacts() {
 			fi
 			printf 'WARNING: building runtime image without optional openyuanrong-rrt wheel.\n' >&2
 		fi
+		if ! is_enabled "${RUNTIME_ONLY}"; then
+			buildkite-agent artifact download "${DATA_PLANE_GATEWAY_ARCHIVE}" "${OUTPUT_DIR}/" \
+				--step "${DATA_PLANE_GATEWAY_STEP_KEY}"
+			rm -rf "${OUTPUT_DIR}/data-plane-gateway"
+			mkdir -p "${OUTPUT_DIR}/data-plane-gateway"
+			tar -xzf "${OUTPUT_DIR}/${DATA_PLANE_GATEWAY_ARCHIVE}" \
+				-C "${OUTPUT_DIR}/data-plane-gateway"
+			(
+				cd "${OUTPUT_DIR}/data-plane-gateway"
+				sha256sum -c SHA256SUMS
+			)
+			for gateway_binary in yr-node-proxy yr-edge-frontend yr-data-plane-forward; do
+				test -x "${OUTPUT_DIR}/data-plane-gateway/${gateway_binary}" || {
+					printf 'Missing executable %s in %s\n' "${gateway_binary}" "${DATA_PLANE_GATEWAY_ARCHIVE}" >&2
+					exit 1
+				}
+			done
+			# The producing data-plane build already performs mandatory ELF static
+			# inspection before publishing this checksum-protected archive. The
+			# minimal packager image intentionally has neither readelf nor file, so
+			# permit only this consumer-side redundant inspection to degrade.
+			YR_STATIC_VERIFY_ALLOW_MISSING_TOOLS=1 \
+				"${ROOT_DIR}/data-plane-gateway/scripts/verify-static-linux.sh" \
+				"${OUTPUT_DIR}/data-plane-gateway/yr-node-proxy" \
+				"${OUTPUT_DIR}/data-plane-gateway/yr-edge-frontend" \
+				"${OUTPUT_DIR}/data-plane-gateway/yr-data-plane-forward"
+			data_plane_wheels=("${OUTPUT_DIR}/data-plane-gateway"/openyuanrong_data_plane-*.whl)
+			if [ "${#data_plane_wheels[@]}" -ne 1 ] || [ ! -f "${data_plane_wheels[0]}" ]; then
+				printf 'Expected exactly one openyuanrong_data_plane wheel in %s\n' "${DATA_PLANE_GATEWAY_ARCHIVE}" >&2
+				exit 1
+			fi
+			cp -f "${data_plane_wheels[0]}" "${OUTPUT_DIR}/"
+		fi
 	elif is_enabled "${RUNTIME_ONLY}" &&
 		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
 		return 0
 	elif has_artifacts "${OUTPUT_DIR}" "${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}" &&
-		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
+		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null &&
+		compgen -G "${OUTPUT_DIR}/openyuanrong_data_plane-*.whl" >/dev/null; then
 		return 0
 	fi
 
@@ -329,10 +363,6 @@ global:
     runtime:
       repository: yr-runtime
       tag: ${PUSH_IMAGE_TAG}
-    traefik:
-      registry: ${TRAEFIK_IMAGE_REGISTRY}
-      repository: traefik
-      tag: ${TRAEFIK_IMAGE_TAG}
 EOF
 }
 
@@ -346,6 +376,8 @@ write_metadata() {
   "image_tag": "${IMAGE_TAG}",
   "pushed_image_tag": "${PUSH_IMAGE_TAG}",
   "image_arch": "${IMAGE_ARCH}",
+  "data_plane_gateway_arch": "${DATA_PLANE_GATEWAY_ARCH}",
+  "data_plane_gateway_step": "${DATA_PLANE_GATEWAY_STEP_KEY}",
   "chart_version": "${CHART_VERSION}",
   "app_version": "${APP_VERSION}",
   "images": [
@@ -353,9 +385,7 @@ write_metadata() {
     "${REGISTRY_REPO}/yr-node:${PUSH_IMAGE_TAG}",
     "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}"
   ],
-  "static_images": [
-    "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"
-  ]
+  "static_images": []
 }
 EOF
 }

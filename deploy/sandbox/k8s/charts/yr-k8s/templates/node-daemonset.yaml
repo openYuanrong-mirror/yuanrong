@@ -61,6 +61,52 @@ spec:
 {{- end }}
             - name: DOCKER_DRIVER
               value: {{ .Values.node.docker.storageDriver | quote }}
+            - name: YR_ENABLE_TRAEFIK_REGISTRY
+              value: {{ .Values.traefik.enabled | quote }}
+            - name: YR_DATA_PLANE_NODE_PROXY_ENABLED
+              value: {{ .Values.dataPlane.enabled | quote }}
+{{- if .Values.dataPlane.enabled }}
+            - name: YR_COMMAND_RECOVERY_ENABLED
+              value: "true"
+            - name: YR_COMMAND_ACTIVITY_TIMEOUT_SECS
+              value: {{ .Values.dataPlane.commandActivity.timeoutSeconds | quote }}
+            - name: YR_DATA_PLANE_NODE_PROXY_BIND
+              value: {{ printf "0.0.0.0:%v" .Values.dataPlane.node.port | quote }}
+            - name: YR_DATA_PLANE_NODE_PROXY_HEALTH_BIND
+              value: {{ printf "127.0.0.1:%v" .Values.dataPlane.node.healthPort | quote }}
+            - name: YR_DATA_PLANE_ALLOWED_TARGET_CIDRS
+              value: {{ join "," .Values.dataPlane.node.allowedTargetCidrs | quote }}
+            - name: YR_DATA_PLANE_ALLOWED_EDGE_CIDRS
+              value: {{ join "," .Values.dataPlane.node.allowedEdgeCidrs | quote }}
+            - name: YR_DATA_PLANE_NODE_PROXY_ALLOW_ANY_EDGE
+              value: {{ .Values.dataPlane.node.allowAnyEdge | quote }}
+            - name: YR_DATA_PLANE_EDGE_FRONTEND_NODE_SECURITY_MODE
+              value: {{ .Values.dataPlane.edgeNode.securityMode | quote }}
+{{- if and .Values.dataPlane.enabled (eq .Values.dataPlane.edgeNode.securityMode "mtls") }}
+            - name: YR_DATA_PLANE_NODE_PROXY_TLS_CERT
+              value: /etc/yr-data-plane-mtls/server/tls.crt
+            - name: YR_DATA_PLANE_NODE_PROXY_TLS_KEY
+              value: /etc/yr-data-plane-mtls/server/tls.key
+            - name: YR_DATA_PLANE_NODE_PROXY_MTLS_CLIENT_CA
+              value: /etc/yr-data-plane-mtls/ca/ca.crt
+{{- end }}
+            - name: YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR
+              value: /openyuanrong/run/data-plane-gateway/activity
+            - name: YR_DATA_PLANE_NODE_PROXY_LOG_LEVEL
+              value: {{ .Values.dataPlane.node.logLevel | quote }}
+            - name: YR_DATA_PLANE_LOG_DIR
+              value: /openyuanrong/logs/data-plane
+            - name: YR_DATA_PLANE_LOG_MAX_SIZE_MB
+              value: {{ .Values.dataPlane.log.maxSizeMB | quote }}
+            - name: YR_DATA_PLANE_LOG_MAX_FILES
+              value: {{ .Values.dataPlane.log.maxFiles | quote }}
+            - name: YR_DATA_PLANE_LOG_QUEUE_CAPACITY
+              value: {{ .Values.dataPlane.log.queueCapacity | quote }}
+            - name: YR_DATA_PLANE_LOG_FLUSH_INTERVAL_MS
+              value: {{ .Values.dataPlane.log.flushIntervalMs | quote }}
+            - name: YR_DATA_PLANE_LOG_STDOUT
+              value: {{ .Values.dataPlane.log.stdout | quote }}
+{{- end }}
           ports:
             - name: function-proxy
               containerPort: {{ .Values.node.ports.functionProxy.containerPort }}
@@ -74,6 +120,12 @@ spec:
             - name: ds-worker
               containerPort: {{ .Values.node.ports.dsWorker.containerPort }}
               hostPort: {{ .Values.node.ports.dsWorker.hostPort }}
+              protocol: TCP
+{{- end }}
+{{- if .Values.dataPlane.enabled }}
+            - name: data-plane-node
+              containerPort: {{ .Values.dataPlane.node.port }}
+              hostPort: {{ .Values.dataPlane.node.port }}
               protocol: TCP
 {{- end }}
 {{- with .Values.node.probes.readiness }}
@@ -107,6 +159,14 @@ spec:
               mountPath: {{ .Values.debug.sidecar.sessionDir }}
             - name: docker-root
               mountPath: /var/lib/docker
+{{- if and .Values.dataPlane.enabled (eq .Values.dataPlane.edgeNode.securityMode "mtls") }}
+            - name: data-plane-mtls-ca
+              mountPath: /etc/yr-data-plane-mtls/ca
+              readOnly: true
+            - name: data-plane-mtls-server
+              mountPath: /etc/yr-data-plane-mtls/server
+              readOnly: true
+{{- end }}
         - name: debug-busybox
           image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.debug.sidecar.image) }}
           imagePullPolicy: {{ .Values.debug.sidecar.image.pullPolicy }}
@@ -157,4 +217,12 @@ spec:
           hostPath:
             path: {{ .Values.node.docker.rootHostPath | quote }}
             type: DirectoryOrCreate
+{{- if and .Values.dataPlane.enabled (eq .Values.dataPlane.edgeNode.securityMode "mtls") }}
+        - name: data-plane-mtls-ca
+          secret:
+            secretName: {{ .Values.dataPlane.edgeNode.mtls.caSecret }}
+        - name: data-plane-mtls-server
+          secret:
+            secretName: {{ .Values.dataPlane.edgeNode.mtls.nodeServerSecret }}
+{{- end }}
 {{- end }}

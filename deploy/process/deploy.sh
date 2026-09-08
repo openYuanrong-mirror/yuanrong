@@ -122,6 +122,13 @@ function print_info() {
     printf "%30s %10s\n" "FAAS_FRONTEND_HTTP_PORT:" "${data_port_table['faas_frontend_http_port']}"
     printf "%30s %10s\n" "FAAS_FRONTEND_GRPC_PORT:" "${data_port_table['faas_frontend_grpc_port']}"
   fi
+  if [ -n "${pid_table["edge_frontend"]}" ]; then
+    printf "%30s %10s\n" "EDGE_FRONTEND_TLS_BIND:" "${EDGE_FRONTEND_TLS_BIND}"
+    printf "%30s %10s\n" "EDGE_FRONTEND_PLAIN_BIND:" "${EDGE_FRONTEND_PLAIN_BIND}"
+  fi
+  if [ -n "${pid_table["node_proxy"]}" ]; then
+    printf "%30s %10s\n" "NODE_PROXY_ADDRESS:" "${NODE_PROXY_ADVERTISE_ADDRESS}"
+  fi
   if [ -n "${pid_table["dashboard"]}" ]; then
       printf "%30s %10s\n" "DASHBOARD_PORT:" "${data_port_table['dashboard_port']}"
   fi
@@ -506,8 +513,24 @@ function start_function_proxy() {
   FUNCTION_PROXY_PORT=${data_port_table["function_proxy_port"]}
   FUNCTION_PROXY_GRPC_PORT=${data_port_table["function_proxy_grpc_port"]}
   FUNCTION_PROXY_COMPONENT_GRPC_PORT=${data_port_table["function_proxy_component_grpc_port"]}
+  export YR_DATA_PLANE_NODE_PROXY_ENABLED="${ENABLE_NODE_PROXY}"
+  # Command activity is node-local and follows the Node Proxy/FunctionSystem
+  # capability. Edge may run only on master nodes, so it must not gate worker
+  # idle protection.
+  export YR_COMMAND_RECOVERY_ENABLED="${ENABLE_NODE_PROXY}"
+  export YR_COMMAND_ACTIVITY_TIMEOUT_SECS="${COMMAND_ACTIVITY_TIMEOUT_SECS}"
+  export YR_NODE_PROXY_ADDRESS="${NODE_PROXY_ADVERTISE_ADDRESS}"
+  export YR_DATA_PLANE_NODE_PROXY_ACTIVITY_UDS_DIR="${NODE_PROXY_ACTIVITY_UDS_DIR}"
   install_function_system "function_proxy"
   check_and_set_component_checklist "function_proxy" $FUNCTION_PROXY_PID
+}
+
+function start_node_proxy() {
+  if [ "X${ENABLE_NODE_PROXY}" != "Xtrue" ]; then
+    return 0
+  fi
+  install_function_system "node_proxy" || return $?
+  check_and_set_component_checklist "node_proxy" "${NODE_PROXY_PID}"
 }
 
 function start_runtime_launcher() {
@@ -575,6 +598,14 @@ function start_faas_frontend() {
   FAAS_FRONTEND_GRPC_PORT=${data_port_table["faas_frontend_grpc_port"]}
   install_function_system "faas_frontend"
   check_and_set_component_checklist "faas_frontend" $FAAS_FRONTEND_PID
+}
+
+function start_edge_frontend() {
+  if [ "X${ENABLE_EDGE_FRONTEND}" != "Xtrue" ]; then
+    return 0
+  fi
+  install_function_system "edge_frontend" || return $?
+  check_and_set_component_checklist "edge_frontend" "${EDGE_FRONTEND_PID}"
 }
 
 function start_function_scheduler() {
@@ -789,7 +820,7 @@ function restart_component() {
        restart_agent_runtime_accessor
      fi
     ;;
-  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service|iam_server)
+  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service|iam_server|node_proxy|edge_frontend)
     restart_module "$1"
     ;;
   runtime_launcher)
@@ -1027,6 +1058,7 @@ function main() {
   if [ "x${DEPLOY_FUNCTION_PROXY}" = "xtrue" ]; then
       health_check "function_proxy" ${pid_table["function_proxy"]}
   fi
+  start_node_proxy
   start_runtime_launcher
   if [ ${CPU4COMP} -le 100 ]; then
     log_warning "no cpu available for function agent, skip starting it"
@@ -1034,6 +1066,7 @@ function main() {
     start_function_agent
   fi
   start_faas_frontend
+  start_edge_frontend
   start_function_scheduler
   start_dashboard
   start_collector
