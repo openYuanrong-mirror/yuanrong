@@ -1,7 +1,7 @@
 //! Durable-for-the-sandbox command registry.
 //!
 //! `command_id` is generated before submission and is the authoritative
-//! identity. The OS pid is only an implementation attribute.
+//! identity. Legacy callers may omit it and continue using the OS pid.
 
 use super::codec::{kw_str, map_value};
 use rmpv::Value;
@@ -437,6 +437,7 @@ fn record_value(record: &CommandSnapshot, include_output: bool) -> Value {
         ("pid", Value::from(record.pid)),
         ("cmd", Value::from(record.cmd.clone())),
         ("status", Value::from(snapshot_status(record))),
+        ("running", Value::from(!terminal)),
         (
             "state_version",
             Value::from(record.exit.state_version.load(Ordering::Acquire)),
@@ -477,30 +478,81 @@ fn record_value(record: &CommandSnapshot, include_output: bool) -> Value {
     ])
 }
 
+/// PID-based clients predate stable command identities and recognize only the
+/// running/done/error states. Keep their result and signal-exit-code contract.
+fn legacy_record_value(record: &CommandSnapshot, include_output: bool) -> Value {
+    let mut value = record_value(record, include_output);
+    let Value::Map(items) = &mut value else {
+        unreachable!("command result is a map");
+    };
+    for (key, value) in items.iter_mut() {
+        match key.as_str() {
+            Some("status") => {
+                *value = Value::from(match value.as_str() {
+                    Some("PENDING" | "RUNNING") => "running",
+                    _ if record.exit.spawn_error.lock().unwrap().is_some() => "error",
+                    _ => "done",
+                });
+            }
+            Some("exit_code") => {
+                *value = record
+                    .exit
+                    .code
+                    .lock()
+                    .unwrap()
+                    .map(Value::from)
+                    .unwrap_or(nil());
+            }
+            _ => {}
+        }
+    }
+    items.push((
+        Value::from("error"),
+        record
+            .exit
+            .spawn_error
+            .lock()
+            .unwrap()
+            .clone()
+            .map(Value::from)
+            .unwrap_or(nil()),
+    ));
+    value
+}
+
+fn legacy_command_id(records: &HashMap<String, CommandRecord>) -> String {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    loop {
+        let id = format!(
+            "legacy-{}-{}",
+            now_ms(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        // User-supplied IDs share the registry; never deduplicate a legacy start.
+        if !records.contains_key(&id) {
+            return id;
+        }
+    }
+}
+
 fn not_found(kw: &BTreeMap<String, Value>) -> String {
     command_id(kw)
         .map(|id| format!("No command with id {id}"))
         .unwrap_or_else(|| format!("No process with pid {}", kw_i64(kw, "pid").unwrap_or(-1)))
 }
 
-/// Start a command idempotently. `command_id` is mandatory.
+/// Start a command; a supplied `command_id` makes submission idempotent.
 pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
-    let Some(command_id) = command_id(kw) else {
+    let supplied_id = command_id(kw);
+    if kw.contains_key("command_id") && !supplied_id.as_deref().is_some_and(valid_command_id) {
         return map_value(vec![
-            ("command_id", Value::from("")),
-            ("pid", Value::from(-1i64)),
-            ("error_code", Value::from("INVALID_ARGUMENT")),
-            ("error", Value::from("command_id is required")),
-        ]);
-    };
-    if !valid_command_id(&command_id) {
-        return map_value(vec![
-            ("command_id", Value::from(command_id)),
+            ("command_id", Value::from(supplied_id.unwrap_or_default())),
             ("pid", Value::from(-1i64)),
             ("error_code", Value::from("INVALID_ARGUMENT")),
             ("error", Value::from("invalid command_id")),
         ]);
     }
+    let legacy = supplied_id.is_none();
     let fingerprint = request_fingerprint(kw);
     let cmd = kw_str(kw, "command")
         .or_else(|| kw_str(kw, "cmd"))
@@ -509,6 +561,7 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
     let want_stdin = kw_bool(kw, "want_stdin").unwrap_or(false);
     let mut records = commands().lock().unwrap();
     cleanup_expired(&mut records);
+    let command_id = supplied_id.unwrap_or_else(|| legacy_command_id(&records));
     if let Some(existing) = records.get(&command_id) {
         if existing.request_fingerprint != fingerprint {
             COMMAND_ID_CONFLICT.fetch_add(1, Ordering::Relaxed);
@@ -609,7 +662,11 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
             let record = records.get(&command_id).expect("pending command exists");
             let snapshot = CommandSnapshot::from(record);
             drop(records);
-            return record_value(&snapshot, true);
+            return if legacy {
+                legacy_record_value(&snapshot, true)
+            } else {
+                record_value(&snapshot, true)
+            };
         }
     };
     let pid = child.id() as i64;
@@ -694,9 +751,17 @@ pub fn cmd_get(kw: &BTreeMap<String, Value>) -> Value {
         .map(CommandSnapshot::from);
     drop(records);
     match snapshot {
+        Some(record) if !kw.contains_key("command_id") => legacy_record_value(&record, true),
         Some(record) => record_value(&record, true),
         None => map_value(vec![
-            ("status", Value::from("not_found")),
+            (
+                "status",
+                Value::from(if kw.contains_key("command_id") {
+                    "not_found"
+                } else {
+                    "error"
+                }),
+            ),
             ("error_code", Value::from("COMMAND_NOT_FOUND")),
             ("error", Value::from(not_found(kw))),
         ]),
@@ -713,7 +778,14 @@ pub fn cmd_wait(kw: &BTreeMap<String, Value>) -> Value {
             Some(exit) => exit,
             None => {
                 return map_value(vec![
-                    ("status", Value::from("not_found")),
+                    (
+                        "status",
+                        Value::from(if kw.contains_key("command_id") {
+                            "not_found"
+                        } else {
+                            "error"
+                        }),
+                    ),
                     ("error_code", Value::from("COMMAND_NOT_FOUND")),
                     ("error", Value::from(not_found(kw))),
                 ])
@@ -740,7 +812,14 @@ pub fn cmd_poll(kw: &BTreeMap<String, Value>) -> Value {
             Some(exit) => exit,
             None => {
                 return map_value(vec![
-                    ("status", Value::from("not_found")),
+                    (
+                        "status",
+                        Value::from(if kw.contains_key("command_id") {
+                            "not_found"
+                        } else {
+                            "error"
+                        }),
+                    ),
                     ("error_code", Value::from("COMMAND_NOT_FOUND")),
                     ("error", Value::from(not_found(kw))),
                 ])
@@ -964,6 +1043,111 @@ mod tests {
             .iter()
             .find_map(|(key, value)| (key.as_str() == Some(name)).then_some(value))
             .unwrap()
+    }
+
+    #[test]
+    fn legacy_starts_are_independent_and_poll_preserves_output_and_exit_code() {
+        let request = BTreeMap::from([(
+            "cmd".to_string(),
+            Value::from("printf legacy; printf err >&2; exit 17"),
+        )]);
+        let first = cmd_start(&request);
+        let second = cmd_start(&request);
+        assert!(field(&first, "error").is_nil());
+        assert_ne!(field(&first, "command_id"), field(&second, "command_id"));
+        for started in [&first, &second] {
+            let lookup = BTreeMap::from([
+                ("pid".to_string(), field(started, "pid").clone()),
+                ("wait_timeout".to_string(), Value::from(5)),
+            ]);
+            let result = cmd_poll(&lookup);
+            assert_eq!(field(&result, "status").as_str(), Some("done"));
+            assert_eq!(field(&result, "stdout").as_str(), Some("legacy"));
+            assert_eq!(field(&result, "stderr").as_str(), Some("err"));
+            assert_eq!(field(&result, "exit_code").as_i64(), Some(17));
+            let stable = cmd_get(&BTreeMap::from([(
+                "command_id".to_string(),
+                field(started, "command_id").clone(),
+            )]));
+            assert_eq!(field(&stable, "status").as_str(), Some("FAILED"));
+        }
+    }
+
+    #[test]
+    fn legacy_stdin_list_and_wait_work_by_pid() {
+        let started = cmd_start(&BTreeMap::from([
+            ("cmd".to_string(), Value::from("cat")),
+            ("want_stdin".to_string(), Value::from(true)),
+        ]));
+        let mut lookup = BTreeMap::from([("pid".to_string(), field(&started, "pid").clone())]);
+        let running = cmd_poll(&lookup);
+        assert_eq!(field(&running, "status").as_str(), Some("running"));
+        let listed = cmd_list(&BTreeMap::new());
+        let process = field(&listed, "processes")
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| field(item, "pid") == field(&started, "pid"))
+            .unwrap();
+        assert_eq!(field(process, "running").as_bool(), Some(true));
+        lookup.insert("data".to_string(), Value::from("legacy stdin\n"));
+        lookup.insert("eof".to_string(), Value::from(true));
+        assert!(field(&cmd_send_stdin(&lookup), "error").is_nil());
+        lookup.insert("timeout".to_string(), Value::from(5));
+        let result = cmd_wait(&lookup);
+        assert_eq!(field(&result, "status").as_str(), Some("done"));
+        assert_eq!(field(&result, "stdout").as_str(), Some("legacy stdin\n"));
+        assert_eq!(field(&result, "exit_code").as_i64(), Some(0));
+        assert_eq!(field(&result, "running").as_bool(), Some(false));
+    }
+
+    #[test]
+    fn legacy_kill_and_spawn_failure_terminate_polling() {
+        let started = cmd_start(&BTreeMap::from([(
+            "cmd".to_string(),
+            Value::from("sleep 30"),
+        )]));
+        let lookup = BTreeMap::from([
+            ("pid".to_string(), field(&started, "pid").clone()),
+            ("wait_timeout".to_string(), Value::from(5)),
+        ]);
+        assert_eq!(field(&cmd_kill(&lookup), "killed").as_bool(), Some(true));
+        let result = cmd_poll(&lookup);
+        assert_eq!(field(&result, "status").as_str(), Some("done"));
+        assert_eq!(field(&result, "exit_code").as_i64(), Some(-1));
+        let failed = cmd_start(&BTreeMap::from([
+            ("cmd".to_string(), Value::from("true")),
+            (
+                "cwd".to_string(),
+                Value::from("/definitely-not-a-real-yr-command-directory"),
+            ),
+        ]));
+        assert_eq!(field(&failed, "status").as_str(), Some("error"));
+        assert!(field(&failed, "error").as_str().is_some());
+        let missing = cmd_poll(&BTreeMap::from([(
+            "pid".to_string(),
+            Value::from(i64::MAX),
+        )]));
+        assert_eq!(field(&missing, "status").as_str(), Some("error"));
+    }
+
+    #[test]
+    fn explicit_invalid_ids_are_not_treated_as_legacy_requests() {
+        for id in [
+            Value::Nil,
+            Value::from(""),
+            Value::from(42),
+            Value::from("invalid/id"),
+        ] {
+            let result = cmd_start(&BTreeMap::from([
+                ("command_id".to_string(), id),
+                ("cmd".to_string(), Value::from("true")),
+            ]));
+            assert_eq!(
+                field(&result, "error_code").as_str(),
+                Some("INVALID_ARGUMENT")
+            );
+        }
     }
 
     #[test]
