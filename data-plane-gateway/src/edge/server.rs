@@ -571,21 +571,13 @@ impl EdgeFrontend {
                     let tls_acceptor = tls_acceptor.clone();
                     tokio::spawn(async move {
                         match tls_acceptor {
-                            Some(acceptor) => match acceptor.accept(stream).await {
-                                Ok(stream) => gateway
-                                    .serve_http_connection(stream, peer, ingress_security)
-                                    .await,
-                                Err(error) => {
-                                    tracing::warn!(
-                                        target: "yr_audit",
-                                        event = "tls_handshake",
-                                        decision = "deny",
-                                        peer = %peer,
-                                        error = %error,
-                                        "Edge TLS handshake denied"
-                                    );
+                            Some(acceptor) => {
+                                if let Some(stream) = accept_ingress_tls(acceptor, stream, peer).await {
+                                    gateway
+                                        .serve_http_connection(stream, peer, ingress_security)
+                                        .await;
                                 }
-                            },
+                            }
                             None => gateway
                                 .serve_http_connection(stream, peer, ingress_security)
                                 .await,
@@ -1872,6 +1864,46 @@ fn ingress_security_name(security: IngressSecurity) -> &'static str {
     }
 }
 
+async fn accept_ingress_tls(
+    acceptor: TlsAcceptor,
+    stream: TcpStream,
+    peer: std::net::SocketAddr,
+) -> Option<tokio_rustls::server::TlsStream<TcpStream>> {
+    // TCP health checks may close without sending a ClientHello. Peek without
+    // consuming bytes so rustls still receives the complete TLS record.
+    let error = match stream.peek(&mut [0_u8; 1]).await {
+        Ok(0) => return None,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+            ) =>
+        {
+            tracing::debug!(
+                event = "tls_handshake",
+                peer = %peer,
+                error = %error,
+                "Edge TLS peer closed before sending data"
+            );
+            return None;
+        }
+        Err(error) => error,
+        Ok(_) => match acceptor.accept(stream).await {
+            Ok(stream) => return Some(stream),
+            Err(error) => error,
+        },
+    };
+    tracing::warn!(
+        target: "yr_audit",
+        event = "tls_handshake",
+        decision = "deny",
+        peer = %peer,
+        error = %error,
+        "Edge TLS handshake denied"
+    );
+    None
+}
+
 fn strip_token_query(query: &str) -> String {
     url::form_urlencoded::Serializer::new(String::new())
         .extend_pairs(
@@ -1937,6 +1969,244 @@ mod tests {
     use super::*;
     use crate::common::protocol::ConnectTarget;
     use crate::common::route::{DataPlaneAuthMode, DataPlaneSecurityMode};
+
+    #[derive(Clone)]
+    struct TlsTestLog(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for TlsTestLog {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn ingress_test_acceptor() -> TlsAcceptor {
+        crate::common::install_crypto_provider();
+        let certs = rustls_pemfile::certs(
+            &mut &include_bytes!("../../tests/fixtures/ingress-cert.pem")[..],
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+        let key = rustls_pemfile::private_key(
+            &mut &include_bytes!("../../tests/fixtures/ingress-key.pem")[..],
+        )
+        .unwrap()
+        .unwrap();
+        TlsAcceptor::from(Arc::new(
+            rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(certs, key)
+                .unwrap(),
+        ))
+    }
+
+    async fn ingress_test_pair() -> (TcpStream, TcpStream, std::net::SocketAddr) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (server, peer) = listener.accept().await.unwrap();
+        (client, server, peer)
+    }
+
+    async fn failed_ingress_log(payload: &[u8], reset: bool) -> String {
+        let log = TlsTestLog(Arc::new(Mutex::new(Vec::new())));
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        exercise_failed_ingress(payload, reset).await;
+        let bytes = log.0.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    async fn exercise_failed_ingress(payload: &[u8], reset: bool) {
+        use tokio::io::AsyncWriteExt;
+        let (mut client, server, peer) = ingress_test_pair().await;
+        client.write_all(payload).await.unwrap();
+        if reset {
+            use std::os::fd::AsRawFd;
+            let linger = libc::linger {
+                l_onoff: 1,
+                l_linger: 0,
+            };
+            // Closing with SO_LINGER=0 exercises a real TCP RST, not an EOF.
+            let result = unsafe {
+                libc::setsockopt(
+                    client.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_LINGER,
+                    &linger as *const _ as *const libc::c_void,
+                    std::mem::size_of_val(&linger) as libc::socklen_t,
+                )
+            };
+            assert_eq!(result, 0, "{}", io::Error::last_os_error());
+        } else {
+            client.shutdown().await.unwrap();
+        }
+        drop(client);
+        let accepted = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            accept_ingress_tls(ingress_test_acceptor(), server, peer),
+        )
+        .await
+        .unwrap();
+        assert!(accepted.is_none());
+    }
+
+    #[tokio::test]
+    async fn ingress_tls_empty_fin_is_silent() {
+        let log = failed_ingress_log(b"", false).await;
+        assert!(log.is_empty(), "{log}");
+    }
+
+    #[tokio::test]
+    async fn ingress_tls_empty_rst_is_debug() {
+        let log = failed_ingress_log(b"", true).await;
+        assert!(log.contains("DEBUG"), "{log}");
+        assert!(log.contains("closed before sending data"), "{log}");
+        assert!(
+            !log.contains("WARN") && !log.contains("decision=\"deny\""),
+            "{log}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingress_tls_partial_record_eof_stays_warn() {
+        let log = failed_ingress_log(b"\x16", false).await;
+        assert!(
+            log.contains("WARN") && log.contains("Edge TLS handshake denied"),
+            "{log}"
+        );
+        assert!(!log.contains("closed before sending data"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn ingress_tls_invalid_record_stays_warn() {
+        let log = failed_ingress_log(b"GET / HTTP/1.1\r\n\r\n", false).await;
+        assert!(
+            log.contains("WARN") && log.contains("Edge TLS handshake denied"),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn ingress_tls_file_logging_respects_level() {
+        const CHILD_ENV: &str = "YR_TEST_INGRESS_LOG_CHILD";
+        if std::env::var_os(CHILD_ENV).is_some() {
+            // Use the real logger and file writers, including the independent
+            // access/audit layer. A separate process isolates global tracing.
+            let guard = crate::common::logging::init("edge-frontend", true).unwrap();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    exercise_failed_ingress(b"", false).await;
+                    exercise_failed_ingress(b"", true).await;
+                    exercise_failed_ingress(b"\x16", false).await;
+                    exercise_failed_ingress(b"GET / HTTP/1.0\r\n\r\n", false).await;
+                    tracing::info!(target: "yr_access", "request-access-marker");
+                    tracing::warn!(target: "yr_audit", "authorization-denied-marker");
+                });
+            guard.shutdown().unwrap();
+            return;
+        }
+        for level in ["info", "debug"] {
+            let directory =
+                std::env::temp_dir().join(format!("yr-ingress-log-{}-{level}", std::process::id()));
+            std::fs::create_dir(&directory).unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "edge::server::tests::ingress_tls_file_logging_respects_level",
+                    "--nocapture",
+                ])
+                .env(CHILD_ENV, "1")
+                .env("RUST_LOG", level)
+                .env("YR_DATA_PLANE_LOG_DIR", &directory)
+                .env("YR_DATA_PLANE_LOG_STDOUT", "true")
+                .env("YR_DATA_PLANE_EDGE_FRONTEND_ACCESS_LOG_ENABLED", "true")
+                .env("YR_DATA_PLANE_EDGE_FRONTEND_AUDIT_LOG_ENABLED", "true")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let general = std::fs::read_to_string(directory.join("edge-frontend.log")).unwrap();
+            let access =
+                std::fs::read_to_string(directory.join("edge-frontend-access.log")).unwrap();
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let message = "closed before sending data";
+            assert!(!access.contains(message), "{access}");
+            assert_eq!(
+                general.matches(message).count(),
+                usize::from(level == "debug"),
+                "{general}"
+            );
+            assert_eq!(
+                stdout.matches(message).count(),
+                usize::from(level == "debug"),
+                "{stdout}"
+            );
+            assert_eq!(
+                access.matches("Edge TLS handshake denied").count(),
+                2,
+                "{access}"
+            );
+            assert!(access.contains("request-access-marker"), "{access}");
+            assert!(access.contains("authorization-denied-marker"), "{access}");
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn ingress_tls_success_preserves_client_hello_and_application_data() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let acceptor = ingress_test_acceptor();
+        let mut roots = rustls::RootCertStore::empty();
+        for cert in
+            rustls_pemfile::certs(&mut &include_bytes!("../../tests/fixtures/ingress-cert.pem")[..])
+        {
+            roots.add(cert.unwrap()).unwrap();
+        }
+        let connector = tokio_rustls::TlsConnector::from(Arc::new(
+            rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        ));
+        let (client, server, peer) = ingress_test_pair().await;
+        let exchange = async {
+            tokio::join!(
+                async {
+                    let mut stream = accept_ingress_tls(acceptor, server, peer).await.unwrap();
+                    let mut body = [0; 4];
+                    stream.read_exact(&mut body).await.unwrap();
+                    assert_eq!(&body, b"ping");
+                    stream.write_all(b"pong").await.unwrap();
+                },
+                async {
+                    let mut stream = connector
+                        .connect("localhost".try_into().unwrap(), client)
+                        .await
+                        .unwrap();
+                    stream.write_all(b"ping").await.unwrap();
+                    let mut body = [0; 4];
+                    stream.read_exact(&mut body).await.unwrap();
+                    assert_eq!(&body, b"pong");
+                }
+            );
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(3), exchange)
+            .await
+            .unwrap();
+    }
 
     fn route(tunnel: DataPlaneSecurityMode, port_forward: DataPlaneAuthMode) -> RouteHandle {
         RouteHandle {
