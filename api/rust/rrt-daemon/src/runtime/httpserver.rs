@@ -1274,7 +1274,6 @@ pub(crate) struct CheckpointHttpResponse {
 #[derive(Debug)]
 struct PendingCheckpointRequest {
     request_id: String,
-    proxy_acked: bool,
     handoff_complete: bool,
     snap_started: bool,
     completion: Option<oneshot::Sender<Result<(), String>>>,
@@ -1297,7 +1296,6 @@ impl CheckpointRequestCoordinator {
         let (completion, receiver) = oneshot::channel();
         *pending = Some(PendingCheckpointRequest {
             request_id,
-            proxy_acked: false,
             handoff_complete: false,
             snap_started: false,
             completion: Some(completion),
@@ -1322,22 +1320,6 @@ impl CheckpointRequestCoordinator {
     pub(crate) fn record_proxy_ack(&self, request_id: &str, code: i32, message: String) {
         if code != crate::posix::common::ErrorCode::ErrNone as i32 {
             self.fail(request_id, format!("proxy rejected checkpoint: {message}"));
-            return;
-        }
-        let Ok(mut pending) = self.pending.lock() else {
-            return;
-        };
-        let should_complete = if let Some(request) = pending.as_mut() {
-            if request.request_id != request_id {
-                return;
-            }
-            request.proxy_acked = true;
-            request.handoff_complete && request.snap_started
-        } else {
-            false
-        };
-        if should_complete {
-            complete_pending_checkpoint(&mut pending);
         }
     }
 
@@ -1351,16 +1333,15 @@ impl CheckpointRequestCoordinator {
         };
         // A restored runtime inherits the request that initiated the source
         // checkpoint. The target must still complete its own SnapStarted
-        // handshake, but the source request's KillRsp/proxy ACK is not
-        // replayed to the target. Drop that copied request so it cannot leave
-        // the restored coordinator permanently busy.
+        // handshake. Drop the copied source request so it cannot complete
+        // against the target's lifecycle events or leave the coordinator busy.
         if outcome == crate::startup::CheckpointOutcome::Restore {
             pending.take();
             return;
         }
         let should_complete = if let Some(request) = pending.as_mut() {
             request.handoff_complete = true;
-            request.proxy_acked && request.snap_started
+            request.snap_started
         } else {
             false
         };
@@ -1390,7 +1371,7 @@ impl CheckpointRequestCoordinator {
         };
         let should_complete = if let Some(request) = pending.as_mut() {
             request.snap_started = true;
-            request.proxy_acked && request.handoff_complete
+            request.handoff_complete
         } else {
             false
         };
@@ -1664,6 +1645,7 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::PathBuf;
     use std::process::Command;
+    use tokio::sync::oneshot;
 
     use crate::posix::runtime_rpc::streaming_message;
     use crate::startup::CheckpointOutcome;
@@ -1701,12 +1683,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn checkpoint_endpoint_waits_for_proxy_ack_handoff_and_snap_started() {
+    async fn checkpoint_endpoint_waits_for_handoff_and_snap_started() {
         const ISOLATED_ENV: &str = "YR_RRT_CHECKPOINT_ACTIVITY_TEST_ISOLATED";
         if std::env::var_os(ISOLATED_ENV).is_none() {
             let status = Command::new(std::env::current_exe().expect("current test executable"))
                 .arg(
-                    "runtime::httpserver::tests::checkpoint_endpoint_waits_for_proxy_ack_handoff_and_snap_started",
+                    "runtime::httpserver::tests::checkpoint_endpoint_waits_for_handoff_and_snap_started",
                 )
                 .arg("--exact")
                 .arg("--test-threads=1")
@@ -1729,13 +1711,6 @@ mod tests {
 
         let message = rx.recv().await.expect("checkpoint signal");
         assert_eq!(super::super::activity::active_count(), baseline + 1);
-        assert!(!request.is_finished(), "HTTP completed before proxy ACK");
-        coordinator.record_proxy_ack(
-            &message.message_id,
-            crate::posix::common::ErrorCode::ErrNone as i32,
-            String::new(),
-        );
-        tokio::task::yield_now().await;
         assert!(
             !request.is_finished(),
             "HTTP completed before checkpoint handoff"
@@ -1743,16 +1718,16 @@ mod tests {
 
         coordinator.record_handoff(CheckpointOutcome::Resume);
         tokio::task::yield_now().await;
-        assert!(
-            !request.is_finished(),
-            "HTTP completed before Proxy confirmed snapshot registration"
-        );
+        assert!(!request.is_finished(), "HTTP completed before SnapStarted");
 
         coordinator.record_snap_started(
             crate::posix::common::ErrorCode::ErrNone as i32,
             String::new(),
         );
-        let response = request.await.expect("checkpoint HTTP task");
+        let response = tokio::time::timeout(std::time::Duration::from_secs(1), request)
+            .await
+            .expect("checkpoint HTTP completion timed out")
+            .expect("checkpoint HTTP task");
         assert_eq!(super::super::activity::active_count(), baseline);
 
         assert_eq!(response.status, 200);
@@ -1763,6 +1738,64 @@ mod tests {
         assert_eq!(kill.instance_id, "sandbox-a");
         assert_eq!(kill.signal, 24);
         assert!(!kill.request_id.is_empty());
+    }
+
+    #[test]
+    fn checkpoint_completion_accepts_both_event_orders() {
+        for snap_started_first in [false, true] {
+            for proxy_ack_received in [false, true] {
+                let coordinator = CheckpointRequestCoordinator::default();
+                let mut completion = coordinator.begin("checkpoint-a".to_string()).unwrap();
+                if proxy_ack_received {
+                    coordinator.record_proxy_ack("checkpoint-a", 0, String::new());
+                }
+                assert!(matches!(
+                    completion.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ));
+                if snap_started_first {
+                    coordinator.record_snap_started(0, String::new());
+                } else {
+                    coordinator.record_handoff(CheckpointOutcome::Resume);
+                }
+                assert!(matches!(
+                    completion.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ));
+                if snap_started_first {
+                    coordinator.record_handoff(CheckpointOutcome::Resume);
+                } else {
+                    coordinator.record_snap_started(0, String::new());
+                }
+                assert_eq!(completion.try_recv(), Ok(Ok(())));
+
+                let mut next = coordinator.begin("checkpoint-b".to_string()).unwrap();
+                coordinator.record_proxy_ack("checkpoint-a", 1, "late reply".to_string());
+                assert!(matches!(
+                    next.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ));
+                coordinator.record_handoff(CheckpointOutcome::Resume);
+                coordinator.record_snap_started(0, String::new());
+                assert_eq!(next.try_recv(), Ok(Ok(())));
+            }
+        }
+    }
+
+    #[test]
+    fn checkpoint_completion_preserves_errors() {
+        for failure in ["proxy", "handoff", "snap_started"] {
+            let coordinator = CheckpointRequestCoordinator::default();
+            let mut completion = coordinator.begin("checkpoint-a".to_string()).unwrap();
+            match failure {
+                "proxy" => coordinator.record_proxy_ack("checkpoint-a", 1, "rejected".to_string()),
+                "handoff" => coordinator.record_handoff(CheckpointOutcome::Error),
+                "snap_started" => coordinator.record_snap_started(1, "rearm failed".to_string()),
+                _ => unreachable!(),
+            }
+            assert!(matches!(completion.try_recv(), Ok(Err(_))), "{failure}");
+            assert!(coordinator.begin("checkpoint-b".to_string()).is_ok());
+        }
     }
 
     #[tokio::test]
@@ -1789,20 +1822,17 @@ mod tests {
             tx,
             coordinator.clone(),
         ));
-        let restored_message = rx.recv().await.expect("restored checkpoint signal");
-        coordinator.record_proxy_ack(
-            &restored_message.message_id,
-            crate::posix::common::ErrorCode::ErrNone as i32,
-            String::new(),
-        );
+        rx.recv().await.expect("restored checkpoint signal");
         coordinator.record_handoff(CheckpointOutcome::Resume);
         coordinator.record_snap_started(
             crate::posix::common::ErrorCode::ErrNone as i32,
             String::new(),
         );
-        let restored_response = restored_request
-            .await
-            .expect("restored checkpoint HTTP task");
+        let restored_response =
+            tokio::time::timeout(std::time::Duration::from_secs(1), restored_request)
+                .await
+                .expect("restored checkpoint HTTP completion timed out")
+                .expect("restored checkpoint HTTP task");
         assert_eq!(restored_response.status, 200);
         assert_eq!(restored_response.body, r#"{"status":"completed"}"#);
     }
