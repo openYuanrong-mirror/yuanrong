@@ -195,6 +195,19 @@ impl NodeProxy {
     where
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        self.serve_h2_with_keepalive(io, Duration::from_secs(30), Duration::from_secs(10))
+            .await
+    }
+
+    async fn serve_h2_with_keepalive<T>(
+        &self,
+        io: T,
+        keepalive_interval: Duration,
+        keepalive_timeout: Duration,
+    ) -> Result<(), h2::Error>
+    where
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let mut builder = h2::server::Builder::new();
         builder
             .initial_window_size(H2_STREAM_WINDOW)
@@ -205,6 +218,14 @@ impl NodeProxy {
                 .max_concurrent_streams(u32::try_from(self.max_active_streams).unwrap_or(u32::MAX));
         }
         let mut connection = builder.handshake(io).await?;
+        let ping = connection
+            .ping_pong()
+            .expect("H2 ping handle already taken");
+        let keepalive = probe_h2_connection(ping, keepalive_interval, keepalive_timeout);
+        tokio::pin!(keepalive);
+        // Dropping the last sender ends every relay belonging to this physical
+        // connection, including when this serving future itself is cancelled.
+        let (_connection_lifetime, connection_closed) = watch::channel(());
         let gateway = Arc::new(self.clone());
         let mut drain_started = self.draining.load(Ordering::Acquire);
         if drain_started {
@@ -212,6 +233,7 @@ impl NodeProxy {
         }
         loop {
             tokio::select! {
+                result = &mut keepalive => return result,
                 _ = self.drain_notify.notified(), if !drain_started => {
                     connection.graceful_shutdown();
                     drain_started = true;
@@ -220,14 +242,22 @@ impl NodeProxy {
                     let Some(result) = result else { break };
                     let (request, respond) = result?;
                     let gateway = gateway.clone();
-                    tokio::spawn(async move { gateway.handle(request, respond).await });
+                    let connection_closed = connection_closed.clone();
+                    tokio::spawn(async move {
+                        gateway.handle(request, respond, connection_closed).await
+                    });
                 }
             }
         }
         Ok(())
     }
 
-    async fn handle(&self, request: Request<h2::RecvStream>, mut respond: SendResponse<Bytes>) {
+    async fn handle(
+        &self,
+        request: Request<h2::RecvStream>,
+        mut respond: SendResponse<Bytes>,
+        mut connection_closed: watch::Receiver<()>,
+    ) {
         if self.draining.load(Ordering::Acquire) {
             send_error(&mut respond, StatusCode::SERVICE_UNAVAILABLE);
             return;
@@ -309,7 +339,11 @@ impl NodeProxy {
         } else {
             None
         };
-        let tcp = match connect_within_budget(target.socket_addr(), self.connect_timeout).await {
+        let connect = tokio::select! {
+            result = connect_within_budget(target.socket_addr(), self.connect_timeout) => result,
+            _ = connection_closed.changed() => return,
+        };
+        let tcp = match connect {
             Ok(stream) => stream,
             Err(ConnectFailure::Io(error)) => {
                 self.metrics.connect_errors.fetch_add(1, Ordering::Relaxed);
@@ -343,6 +377,7 @@ impl NodeProxy {
         let relay_stats = RelayStats::default();
         let result = tokio::select! {
             result = relay_h2_tcp_with_stats(request.into_body(), send, tcp, relay_stats.clone()) => Some(result),
+            _ = connection_closed.changed() => None,
             _ = async {
                 if let Some(receiver) = route_rx.as_mut() {
                     let _ = receiver.changed().await;
@@ -370,6 +405,19 @@ impl NodeProxy {
         self.metrics
             .completed_streams
             .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+async fn probe_h2_connection(
+    mut ping: h2::PingPong,
+    interval: Duration,
+    response_timeout: Duration,
+) -> Result<(), h2::Error> {
+    loop {
+        tokio::time::sleep(interval).await;
+        timeout(response_timeout, ping.ping(h2::Ping::opaque()))
+            .await
+            .map_err(|_| h2::Reason::SETTINGS_TIMEOUT)??;
     }
 }
 
@@ -470,3 +518,6 @@ where
 pub fn io_error(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
 }
+
+#[cfg(all(test, feature = "mock-e2e"))]
+mod tests;
