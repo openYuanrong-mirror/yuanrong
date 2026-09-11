@@ -69,3 +69,4 @@ This section introduces the Function Service API for developing, managing, and i
 - [Invoke Agent Instance](./invoke_agent_instance.md)
 - [Delete Agent Instance](./delete_agent_instance.md)
 - [Agent Instance Protocol Invocation Channels](./agent_invoke_channels.md)
+- [Agent Instance Command Execution](./agent_exec.md)

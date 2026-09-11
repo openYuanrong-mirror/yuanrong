@@ -69,3 +69,4 @@
 - [驱动 Agent 实例执行](./invoke_agent_instance.md)
 - [删除 Agent 实例](./delete_agent_instance.md)
 - [Agent 实例协议调用通道](./agent_invoke_channels.md)
+- [Agent 实例命令执行](./agent_exec.md)
