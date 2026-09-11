@@ -75,3 +75,4 @@ This section introduces the Function Service API for developing, managing, and i
 - [List Agent Instances](./list_agent_instance.md)
 - [Agent Instance Protocol Invocation Channels](./agent_invoke_channels.md)
 - [Agent Instance File Operations](./agent_file_operations.md)
+- [Agent Instance Command Execution](./agent_exec.md)

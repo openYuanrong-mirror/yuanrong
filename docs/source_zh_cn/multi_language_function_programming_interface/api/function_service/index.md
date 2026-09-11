@@ -75,3 +75,4 @@
 - [查询 Agent 实例列表](./list_agent_instance.md)
 - [Agent 实例协议调用通道](./agent_invoke_channels.md)
 - [Agent 实例文件操作](./agent_file_operations.md)
+- [Agent 实例命令执行](./agent_exec.md)
