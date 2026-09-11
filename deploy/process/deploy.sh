@@ -980,7 +980,16 @@ function check_unique_lock() {
 function exit_all_processes()
 {
   log_info "exiting all processes"
+  # The proxy drains instances and unregisters through FunctionMaster and etcd.
+  # Keep those dependencies alive until its graceful shutdown has completed.
+  local function_proxy_pid="${pid_table[function_proxy]:-}"
+  if [[ -n "$function_proxy_pid" ]] && need_health_check function_proxy && is_child_process "$function_proxy_pid"; then
+    terminate_process "$function_proxy_pid"
+  fi
   for component in "${!pid_table[@]}"; do
+    if [[ "$component" == "function_proxy" ]]; then
+      continue
+    fi
     if ! need_health_check ${component}; then
       continue
     fi
