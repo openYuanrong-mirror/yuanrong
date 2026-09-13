@@ -82,6 +82,22 @@ const TERMINATED_STREAM_TTL: Duration = Duration::from_secs(30);
 const TERMINATED_STREAM_LIMIT: usize = 1024;
 
 type HeaderList = Vec<(String, String)>;
+
+fn deserialize_headers<'de, D>(deserializer: D) -> Result<HeaderList, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Headers {
+        Ordered(HeaderList),
+        Legacy(std::collections::BTreeMap<String, String>),
+    }
+    Ok(match Headers::deserialize(deserializer)? {
+        Headers::Ordered(headers) => headers,
+        Headers::Legacy(headers) => headers.into_iter().collect(),
+    })
+}
 type BoxError = Box<dyn StdError + Send + Sync>;
 type TunnelBody = UnsyncBoxBody<Bytes, BoxError>;
 
@@ -549,6 +565,7 @@ enum Frame {
         id: String,
         method: String,
         path: String,
+        #[serde(deserialize_with = "deserialize_headers")]
         headers: HeaderList,
         #[serde(default)]
         body: String,
@@ -557,7 +574,7 @@ enum Frame {
     HttpResp {
         id: String,
         status: u16,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_headers")]
         headers: HeaderList,
         #[serde(default)]
         body: String,
@@ -567,6 +584,7 @@ enum Frame {
         id: String,
         method: String,
         path: String,
+        #[serde(deserialize_with = "deserialize_headers")]
         headers: HeaderList,
         #[serde(default)]
         content_length: Option<u64>,
@@ -577,7 +595,7 @@ enum Frame {
     HttpRespBegin {
         id: String,
         status: u16,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "deserialize_headers")]
         headers: HeaderList,
         #[serde(default)]
         content_length: Option<u64>,
@@ -768,12 +786,27 @@ fn default_close_code() -> u16 {
 impl Frame {
     #[cfg(test)]
     fn to_msg(&self) -> Message {
-        control_message(self).expect("test frame must fit the control channel")
+        control_message(self, false).expect("test frame must fit the control channel")
     }
 }
 
-fn control_message(frame: &Frame) -> Result<Message, ()> {
-    let raw = serde_json::to_string(frame).map_err(|_| ())?;
+fn control_message(frame: &Frame, legacy_headers: bool) -> Result<Message, ()> {
+    let raw = if let Frame::HttpReq { id, method, path, headers, body } = frame {
+        if legacy_headers {
+            // A peer without hello negotiation expects the original map shape.
+            // Keep ordered pairs internally and for every negotiated V2 peer.
+            serde_json::to_string(&serde_json::json!({
+                "type": "http_req", "id": id, "method": method, "path": path,
+                "headers": headers.iter().map(|(name, value)| (name, value))
+                    .collect::<std::collections::BTreeMap<_, _>>(),
+                "body": body,
+            }))
+        } else {
+            serde_json::to_string(frame)
+        }
+    } else {
+        serde_json::to_string(frame)
+    }.map_err(|_| ())?;
     (raw.len() <= CONTROL_WS_MESSAGE_BYTES)
         .then_some(Message::Text(raw))
         .ok_or(())
@@ -896,11 +929,15 @@ impl State {
     }
 
     fn send_to_generation(&self, generation: u64, frame: &Frame) -> Result<(), ()> {
-        self.send_message_for_generation(generation, control_message(frame)?)
+        self.send_message_for_generation(generation, control_message(
+            frame, self.legacy_generation.load(Ordering::Acquire) == generation,
+        )?)
     }
 
     async fn send_to_generation_wait(&self, generation: u64, frame: Frame) -> Result<(), ()> {
-        let message = control_message(&frame)?;
+        let message = control_message(
+            &frame, self.legacy_generation.load(Ordering::Acquire) == generation,
+        )?;
         let sender = self
             .active_client
             .lock()
@@ -3352,6 +3389,47 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_tungstenite::connect_async;
+
+    #[test]
+    fn http_headers_decode_legacy_maps_and_preserve_ordered_duplicates() {
+        for kind in ["http_resp", "http_resp_begin"] {
+            for headers in [
+                serde_json::json!({"X-Legacy": "value"}),
+                serde_json::json!([["Set-Cookie", "a=1"], ["Set-Cookie", "b=2"]]),
+            ] {
+                let frame: Frame = serde_json::from_value(serde_json::json!({
+                    "type": kind, "id": "request", "status": 200, "headers": headers,
+                })).unwrap();
+                let decoded = match frame {
+                    Frame::HttpResp { headers, .. } | Frame::HttpRespBegin { headers, .. } => headers,
+                    _ => panic!("unexpected frame"),
+                };
+                if headers.is_object() {
+                    assert_eq!(decoded, vec![("X-Legacy".into(), "value".into())]);
+                } else {
+                    assert_eq!(decoded, vec![("Set-Cookie".into(), "a=1".into()),
+                                             ("Set-Cookie".into(), "b=2".into())]);
+                }
+            }
+            assert!(serde_json::from_value::<Frame>(serde_json::json!({
+                "type": kind, "id": "bad", "status": 200, "headers": {"X-Bad": 42},
+            })).is_err());
+        }
+    }
+
+    #[test]
+    fn legacy_request_encoding_is_selected_per_connection() {
+        let frame = Frame::HttpReq {
+            id: "request".into(), method: "GET".into(), path: "/".into(), body: String::new(),
+            headers: vec![("X-Tag".into(), "one".into()), ("X-Tag".into(), "two".into())],
+        };
+        let legacy: serde_json::Value = serde_json::from_str(
+            control_message(&frame, true).unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(legacy["headers"], serde_json::json!({"X-Tag": "two"}));
+        let current: serde_json::Value = serde_json::from_str(
+            control_message(&frame, false).unwrap().to_text().unwrap()).unwrap();
+        assert_eq!(current["headers"], serde_json::json!([["X-Tag", "one"], ["X-Tag", "two"]]));
+    }
 
     #[test]
     fn tunnel_http_timeout_accepts_positive_integer_and_fractional_seconds() {
