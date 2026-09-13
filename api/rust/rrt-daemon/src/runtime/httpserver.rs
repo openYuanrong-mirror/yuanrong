@@ -1507,6 +1507,18 @@ impl CheckpointRequestCoordinator {
         }
     }
 
+    pub(crate) fn reject_unstarted_checkpoint(&self, request_id: &str, message: String) -> bool {
+        let matches = self.pending.lock().ok().is_some_and(|pending| {
+            pending
+                .as_ref()
+                .is_some_and(|request| request.request_id == request_id)
+        });
+        if matches {
+            self.fail(request_id, format!("proxy rejected checkpoint: {message}"));
+        }
+        matches
+    }
+
     pub(crate) fn record_proxy_ack(&self, request_id: &str, code: i32, message: String) {
         if code != crate::posix::common::ErrorCode::ErrNone as i32 {
             self.fail(request_id, format!("proxy rejected checkpoint: {message}"));
@@ -1670,6 +1682,12 @@ impl CheckpointServerControl {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = instance_id.to_string();
     }
 
+    pub(crate) fn reject_unstarted_checkpoint(&self, request_id: &str, message: String) -> bool {
+        self.inner
+            .coordinator
+            .reject_unstarted_checkpoint(request_id, message)
+    }
+
     pub(crate) fn record_proxy_ack(&self, request_id: &str, code: i32, message: String) {
         self.inner
             .coordinator
@@ -1830,10 +1848,13 @@ mod tests {
         bind, checkpoint_socket_path_from_control_directory, handle_conn,
         invoke_checkpoint_handler, parse_content_length, parse_range_header, percent_decode,
         query_param, request_path, serve_listener, upload_part_path, upload_type,
-        CheckpointRequestCoordinator,
+        CheckpointRequestCoordinator, CheckpointServerControl,
     };
+    use crate::posix::runtime_rpc::StreamingMessage;
     use futures_util::{SinkExt, StreamExt};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixListener;
+    use tokio::sync::{mpsc, watch};
 
     async fn read_http_response(stream: &mut tokio::net::TcpStream) -> (String, Vec<u8>) {
         let mut bytes = Vec::new();
@@ -1882,6 +1903,7 @@ mod tests {
     use std::ffi::OsStr;
     use std::path::PathBuf;
     use std::process::Command;
+    use std::time::Duration;
     use tokio::sync::oneshot;
 
     use crate::posix::runtime_rpc::streaming_message;
@@ -1917,6 +1939,176 @@ mod tests {
         assert_eq!(parse_range_header(head, 20), Some((5, 9)));
         let head = "GET /download HTTP/1.1\r\nRange: bytes=5-\r\n\r\n";
         assert_eq!(parse_range_header(head, 20), Some((5, 19)));
+    }
+
+    #[tokio::test]
+    async fn checkpoint_pre_rpc_rejections_release_wait_and_reuse_one_handoff_reader() {
+        const ISOLATED: &str = "YR_RRT_REJECTED_HANDOFF_TEST_ISOLATED";
+        if std::env::var_os(ISOLATED).is_none() {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .arg("runtime::httpserver::tests::checkpoint_pre_rpc_rejections_release_wait_and_reuse_one_handoff_reader")
+                .arg("--exact").arg("--test-threads=1").env(ISOLATED, "1")
+                .status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        use super::super::{handle_prepare_snap_on_stream, CheckpointHandoffFuture};
+        use crate::posix::core_service::KillResponse;
+        use std::io::Write;
+        use std::os::unix::ffi::OsStrExt;
+        use tokio_stream::wrappers::ReceiverStream;
+
+        let directory = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(directory.path().join("checkpoint.sock")).unwrap();
+        let (tx, _rx) = mpsc::channel(8);
+        let (ready_tx, _ready_rx) = watch::channel(super::super::RuntimeReadyState::Ready);
+        let control =
+            CheckpointServerControl::start(listener, "sandbox".into(), tx, ready_tx).unwrap();
+        let barrier_path = directory.path().join("handoff");
+        let path = std::ffi::CString::new(barrier_path.as_os_str().as_bytes()).unwrap();
+        // A real blocking descriptor models the backend barrier. Keeping its
+        // writer open ensures rejected attempts receive no handoff event.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let mut writer = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&barrier_path)
+            .unwrap();
+        std::env::set_var("YR_CHECKPOINT_HANDOFF_FILE", &barrier_path);
+        let mut handoff: Option<CheckpointHandoffFuture> = None;
+        let (in_tx, in_rx) = mpsc::channel(8);
+        let mut inbound = ReceiverStream::new(in_rx);
+        let (response_tx, mut response_rx) = mpsc::channel(8);
+        let mut buffered = std::collections::VecDeque::new();
+
+        for attempt in 0..3 {
+            let request_id = format!("checkpoint-{attempt}");
+            let completion = control.inner.coordinator.begin(request_id.clone()).unwrap();
+            in_tx
+                .send(Ok(StreamingMessage {
+                    message_id: request_id,
+                    body: Some(streaming_message::Body::KillRsp(KillResponse {
+                        code: 80034,
+                        message: "sandbox runtime does not advertise checkpoint/restore capability"
+                            .into(),
+                        checkpoint_not_started: true,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                }))
+                .await
+                .unwrap();
+            let keep_stream = tokio::time::timeout(
+                Duration::from_secs(1),
+                handle_prepare_snap_on_stream(
+                    format!("prepare-{attempt}"),
+                    &response_tx,
+                    &mut inbound,
+                    &mut buffered,
+                    &mut handoff,
+                    Some(&control),
+                ),
+            )
+            .await
+            .expect("pre-RPC failure must not wait for handoff");
+            assert!(keep_stream);
+            assert!(
+                handoff.is_some(),
+                "reuse the next backend checkpoint generation"
+            );
+            assert!(buffered.is_empty());
+            assert!(completion
+                .await
+                .unwrap()
+                .unwrap_err()
+                .contains("does not advertise"));
+            assert!(matches!(
+                response_rx.recv().await.unwrap().body,
+                Some(streaming_message::Body::PrepareSnapRsp(_))
+            ));
+        }
+
+        let completion = control
+            .inner
+            .coordinator
+            .begin("checkpoint-success".into())
+            .unwrap();
+        writer.write_all(b"resume").unwrap();
+        drop(writer);
+        assert!(tokio::time::timeout(
+            Duration::from_secs(1),
+            handle_prepare_snap_on_stream(
+                "prepare-success".into(),
+                &response_tx,
+                &mut inbound,
+                &mut buffered,
+                &mut handoff,
+                Some(&control),
+            )
+        )
+        .await
+        .unwrap());
+        assert!(handoff.is_none());
+        control.record_snap_started(0, String::new());
+        assert_eq!(completion.await.unwrap(), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn checkpoint_handoff_ignores_unrelated_and_uncertain_rejections() {
+        use super::super::{handle_prepare_snap_on_stream, CheckpointHandoffFuture};
+        use crate::posix::core_service::KillResponse;
+        use tokio_stream::wrappers::ReceiverStream;
+
+        let directory = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(directory.path().join("checkpoint.sock")).unwrap();
+        let (tx, _rx) = mpsc::channel(8);
+        let (ready_tx, _ready_rx) = watch::channel(super::super::RuntimeReadyState::Ready);
+        let control =
+            CheckpointServerControl::start(listener, "sandbox".into(), tx, ready_tx).unwrap();
+        let mut completion = control
+            .inner
+            .coordinator
+            .begin("checkpoint".into())
+            .unwrap();
+        let mut handoff: Option<CheckpointHandoffFuture> = Some(Box::pin(std::future::pending()));
+        let (in_tx, in_rx) = mpsc::channel(8);
+        let mut inbound = ReceiverStream::new(in_rx);
+        for (id, not_started) in [("unrelated", true), ("checkpoint", false)] {
+            in_tx
+                .send(Ok(StreamingMessage {
+                    message_id: id.into(),
+                    body: Some(streaming_message::Body::KillRsp(KillResponse {
+                        code: 80034,
+                        checkpoint_not_started: not_started,
+                        ..Default::default()
+                    })),
+                    ..Default::default()
+                }))
+                .await
+                .unwrap();
+        }
+        let (response_tx, _response_rx) = mpsc::channel(8);
+        let mut buffered = std::collections::VecDeque::new();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(50),
+            handle_prepare_snap_on_stream(
+                "prepare".into(),
+                &response_tx,
+                &mut inbound,
+                &mut buffered,
+                &mut handoff,
+                Some(&control),
+            )
+        )
+        .await
+        .is_err());
+        assert_eq!(buffered.len(), 2);
+        assert!(handoff.is_some());
+        assert!(matches!(
+            completion.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        control.record_handoff(CheckpointOutcome::Restore);
     }
 
     #[tokio::test]
