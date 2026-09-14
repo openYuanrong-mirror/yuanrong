@@ -817,7 +817,8 @@ class Sandbox:
                 yr.get(self.cleanup())
                 self.terminate()
         except Exception:
-            logger.debug("ignore sandbox cleanup failure during destructor", exc_info=True)
+            if logger is not None:
+                logger.debug("ignore sandbox cleanup failure during destructor", exc_info=True)
 
     @property
     def filesystem(self) -> "SandboxFilesystem":
