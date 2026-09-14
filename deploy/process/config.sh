@@ -44,7 +44,7 @@ ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
 ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,quota_config_file:,\
+enable_faas_frontend:,faas_frontend_http_ip:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,quota_config_file:,\
 lite_scheduler_enable:,lite_scheduler_enable_all_tenants:,lite_scheduler_enabled_tenants:,lite_scheduler_enabled_functions:,lite_scheduler_acquire_wait_timeout_ms:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
@@ -334,6 +334,7 @@ META_STORE_MAX_FLUSH_BATCH_SIZE=50
 readonly JEMALLOC_LIB_PATH=$(readlink -m "${BASE_DIR}/../../functionsystem/lib/libjemalloc.so")
 # Faas-pattern Configuration
 ENABLE_FAAS_FRONTEND="false"
+FAAS_FRONTEND_HTTP_IP=""
 FAAS_FRONTEND_HTTP_PORT=8888
 FAAS_FRONTEND_GRPC_PORT=31223
 ENABLE_FUNCTION_SCHEDULER="false"
@@ -617,6 +618,7 @@ function usage() {
   echo -e "     --fc_agent_mgr_retry_times                          retry times of function agent manager (default 9)"
   echo -e "     --fc_agent_mgr_retry_cycle                          retry cycle of function agent manager, unit ms (default 20000)"
   echo -e "     --enable_faas_frontend                              enable faasfrontend, options:true/false (default false)"
+  echo -e "     --faas_frontend_http_ip                             faas frontend http listen ip (default: ip_address). Bind address only; clients reach the frontend via ip_address"
   echo -e "     --faas_frontend_http_port                           faas frontend http port (default 8888)"
   echo -e "     --faas_frontend_grpc_port                           faas frontend grpc port (default 31223)"
   echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
@@ -809,6 +811,7 @@ function parse_opt() {
     --enable_faas_frontend) ENABLE_FAAS_FRONTEND=$2 && shift 2 ;;
     --enable_event) ENABLE_EVENT=$2 && shift 2 ;;
     --frontend_lease_bypass) FRONTEND_LEASE_BYPASS=$2 && shift 2 ;;
+    --faas_frontend_http_ip) FAAS_FRONTEND_HTTP_IP=$2 && shift 2 ;;
     --faas_frontend_http_port) FAAS_FRONTEND_HTTP_PORT=$2 && port_policy_table["faas_frontend_http_port"]="FIX" && shift 2 ;;
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
@@ -1885,7 +1888,7 @@ function export_config() {
   # meta_service
   export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
-  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS QUOTA_CONFIG_FILE
+  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_IP FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS QUOTA_CONFIG_FILE
   export LITE_SCHEDULER_ENABLE LITE_SCHEDULER_ENABLE_ALL_TENANTS LITE_SCHEDULER_ENABLED_TENANTS LITE_SCHEDULER_ENABLED_FUNCTIONS LITE_SCHEDULER_ACQUIRE_WAIT_TIMEOUT_MS
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
