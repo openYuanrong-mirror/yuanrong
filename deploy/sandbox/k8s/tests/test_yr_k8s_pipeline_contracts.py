@@ -30,188 +30,62 @@ from test_yr_k8s_layout import (
 
 
 class YrK8sPipelineContractsTests(unittest.TestCase):
-    def test_python314_buildkite_execution_contract(self):
+    def test_sandbox_image_executors_and_dependencies(self):
         packager = "registry.example.com/openyuanrong/sandbox-packager:test"
-        bootstrap = emit_dynamic_pipeline(
-            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="true",
+        steps = index_pipeline_steps(emit_dynamic_pipeline(
             SANDBOX_PACKAGER_IMAGE=packager,
-        )
-        product = emit_dynamic_pipeline(
-            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="false",
-            SANDBOX_PACKAGER_IMAGE=packager,
-            ENABLE_MACOS_SDK="true",
-            ENABLE_LINUX_ARM="true",
-            ENABLE_RUNTIME_X86="true",
-            ENABLE_RUNTIME_ARM="true",
-            ENABLE_SANDBOX_PACKAGE="true",
             ENABLE_SANDBOX_K8S_TEST="false",
             ENABLE_TEST_PYPI_PUBLISH="false",
-            ENABLE_RUST_FUNCTIONSYSTEM_ST="false",
-        )
-        amd64_cp314_product = emit_dynamic_pipeline(
-            ENABLE_PYTHON314_BUILDER_BOOTSTRAP="false",
-            ENABLE_MACOS_SDK="true",
-            ENABLE_LINUX_ARM="false",
-            ENABLE_RUNTIME_X86="true",
-            ENABLE_RUNTIME_ARM="false",
-            ENABLE_SANDBOX_PACKAGE="true",
-            ENABLE_SANDBOX_MANIFEST="false",
-            ENABLE_SANDBOX_K8S_TEST="false",
-            ENABLE_TEST_PYPI_PUBLISH="false",
-            ENABLE_RUST_FUNCTIONSYSTEM_ST="false",
-            SDK_PYTHON_VERSIONS="python3.14",
-            SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="python3.14",
-        )
-        bootstrap_steps = index_pipeline_steps(bootstrap)
-        product_steps = index_pipeline_steps(product)
-        amd64_cp314_steps = index_pipeline_steps(amd64_cp314_product)
-        bootstrap_keys = {
-            "build-python314-builder-amd64",
-            "build-python314-builder-arm64",
-            "publish-python314-builder-manifest",
-        }
-        self.assertEqual(set(bootstrap_steps), bootstrap_keys)
-        self.assertTrue(bootstrap_keys.isdisjoint(product_steps))
-        self.assertIn(
-            "build-sdk-amd64-cp314",
-            amd64_cp314_steps["publish-sandbox-release-amd64"]["depends_on"],
-        )
-        self.assertNotIn(
-            "build-sdk-amd64-cp311",
-            amd64_cp314_steps["publish-sandbox-release-amd64"]["depends_on"],
-        )
-        self.assertIn("build-sdk-macos-arm64-cp314", amd64_cp314_steps)
-        self.assertFalse(any("arm64" in key and "macos" not in key for key in amd64_cp314_steps))
-        self.assertNotIn("publish-sandbox-manifest", amd64_cp314_steps)
-        self.assertEqual(
-            set(bootstrap_steps["publish-python314-builder-manifest"]["depends_on"]),
-            bootstrap_keys - {"publish-python314-builder-manifest"},
-        )
-        for key in {
-            "build-python314-builder-amd64",
-            "publish-python314-builder-manifest",
-        }:
-            with self.subTest(bootstrap_executor=key):
-                step = bootstrap_steps[key]
-                self.assertEqual(pipeline_step_container(step)["image"], packager)
+        ))
+        for arch in ("amd64", "arm64"):
+            step = steps[f"publish-sandbox-release-{arch}"]
+            self.assertEqual(set(step["depends_on"]), {
+                f"build-all-{arch}", f"build-rrt-{arch}", f"build-data-plane-gateway-{arch}",
+            })
+            minor = "3.11" if arch == "amd64" else "3.9"
+            self.assertEqual(step["env"]["YR_K8S_PYTHON_MAJOR_MINOR"], minor)
+            self.assertIn(f"/opt/buildtools/python{minor}/bin", steps[f"build-all-{arch}"]["command"])
+        self.assertEqual(pipeline_step_container(steps["publish-sandbox-release-amd64"])["image"], packager)
+        self.assertEqual(steps["publish-sandbox-release-arm64"]["agents"]["linux_arch"], "arm64")
+        self.assertEqual(set(steps["publish-sandbox-manifest"]["depends_on"]), {
+            "publish-sandbox-release-amd64", "publish-sandbox-release-arm64", "test-sandbox-sdk",
+        })
 
-        standard_base = (
-            "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/"
-            "compile-ubuntu2004:v20260428_cmake33110"
-        )
-        existing_rust_builder = (
-            "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/"
-            "compile-ubuntu2004-rust:v20260507_x86_64"
-        )
-        self.assertEqual(
-            bootstrap_steps["build-python314-builder-amd64"]["env"]["PYTHON314_BUILDER_BASE_IMAGE"],
-            standard_base,
-        )
-        self.assertEqual(
-            bootstrap_steps["build-python314-builder-arm64"]["env"]["PYTHON314_BUILDER_BASE_IMAGE"],
-            standard_base,
-        )
-        self.assertEqual(
-            pipeline_step_container(bootstrap_steps["build-python314-builder-arm64"])["image"],
-            standard_base,
-        )
-        python314_builder = standard_base.replace(
-            ":v20260428_cmake33110", ":v20260717_py3146_obs"
-        )
-        self.assertEqual(
-            pipeline_step_container(product_steps["build-all-amd64"])["image"],
-            python314_builder,
-        )
-        self.assertEqual(
-            pipeline_step_container(product_steps["build-sdk-amd64-cp314"])["image"],
-            python314_builder,
-        )
-        self.assertEqual(
-            pipeline_step_container(product_steps["build-rrt-amd64"])["image"],
-            existing_rust_builder,
-        )
-
-        amd64_docker_step_keys = {
-            "publish-sandbox-release-amd64",
-            "publish-sandbox-manifest",
-            *{
-                f"publish-runtime-amd64-{suffix}"
-                for suffix in ("cp39", "cp310", "cp311", "cp312", "cp313", "cp314")
-            },
-        }
-        for key in amd64_docker_step_keys:
-            with self.subTest(product_executor=key):
-                step = product_steps[key]
-                container = pipeline_step_container(step)
-                self.assertEqual(container["image"], packager)
-                secret_names = {entry["name"] for entry in container["env"]}
-                self.assertTrue(
-                    {"SWR_USERNAME", "SWR_PASSWORD", "SWR_DOCKER_CONFIG_JSON"}.issubset(secret_names)
+    def test_runtime_package_requires_current_arch_rrt_artifact(self):
+        source = (ROOT.parents[2] / ".buildkite/package_sandbox_release.sh").read_text()
+        for arch, wheel_arch, available in (("amd64", "x86_64", True),
+                                            ("arm64", "aarch64", True),
+                                            ("amd64", "x86_64", False)):
+            with self.subTest(arch=arch, available=available), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                scripts = root / ".buildkite"
+                scripts.mkdir()
+                library = scripts / "package_sandbox_release.sh"
+                library.write_text(source.rsplit('\nmain "$@"', 1)[0] + "\n")
+                fake = root / "buildkite-agent"
+                fake.write_text(
+                    "#!/bin/bash\nset -eu\nprintf '%s\\n' \"$*\" >> \"$CALL_LOG\"\n"
+                    'test "$1" = artifact && test "$2" = download\n'
+                    'if [ "$AVAILABLE" = true ]; then mkdir -p "$4"; touch "$4/$WHEEL"; fi\n'
                 )
-
-        for key in {
-            "publish-sandbox-release-arm64",
-            *{f"publish-runtime-arm64-{suffix}" for suffix in ("cp39", "cp310", "cp311", "cp312", "cp313", "cp314")},
-        }:
-            with self.subTest(arm64_product_step=key):
-                step = product_steps[key]
-                self.assertEqual(pipeline_step_container(step)["image"], python314_builder)
-                self.assertEqual(step["agents"]["linux_arch"], "arm64")
-                self.assertEqual(
-                    step["plugins"][0]["kubernetes"]["podSpec"]["nodeSelector"]["kubernetes.io/arch"],
-                    "arm64",
+                fake.chmod(0o755)
+                wheel = f"openyuanrong_rrt-0.10.3-py3-none-manylinux_2_17_{wheel_arch}.whl"
+                env = dict(os.environ, PATH=f"{root}:/usr/bin:/bin",
+                           YR_K8S_RUNTIME_ONLY="1", YR_K8S_IMAGE_ARCH=arch,
+                           AVAILABLE=str(available).lower(), WHEEL=wheel,
+                           BUILDKITE_COMMIT="a" * 40, BUILDKITE_BRANCH="test",
+                           CALL_LOG=str(root / "calls.log"))
+                result = subprocess.run(
+                    [str(BASH_BIN), "-c", 'source "$1"; download_release_artifacts', "bash", str(library)],
+                    cwd=root, env=env, capture_output=True, text=True,
                 )
-        bootstrap_arm = bootstrap_steps["build-python314-builder-arm64"]
-        self.assertEqual(bootstrap_arm["agents"]["linux_arch"], "arm64")
-        self.assertEqual(
-            bootstrap_arm["plugins"][0]["kubernetes"]["podSpec"]["nodeSelector"]["kubernetes.io/arch"],
-            "arm64",
-        )
-
-        cp314_sdk_keys = {
-            "build-sdk-amd64-cp314",
-            "build-sdk-arm64-cp314",
-            "build-sdk-macos-arm64-cp314",
-        }
-        self.assertTrue(cp314_sdk_keys.issubset(product_steps))
-        self.assertIn(
-            "build-sdk-amd64-cp314",
-            product_steps["publish-runtime-amd64-cp314"]["depends_on"],
-        )
-        self.assertIn(
-            "build-sdk-arm64-cp314",
-            product_steps["publish-runtime-arm64-cp314"]["depends_on"],
-        )
-        manifest_dependencies = set(product_steps["publish-sandbox-manifest"]["depends_on"])
-        self.assertTrue(cp314_sdk_keys.issubset(manifest_dependencies))
-        self.assertTrue(
-            {"publish-runtime-amd64-cp314", "publish-runtime-arm64-cp314"}.issubset(
-                manifest_dependencies
-            )
-        )
-
-        repo = ROOT.parents[2]
-        packager_dockerfile = (repo / "ci/sandbox-packager/Dockerfile").read_text()
-        helper = repo / ".buildkite/docker_job_helpers.sh"
-        manifest_script = (repo / ".buildkite/package_sandbox_manifest.sh").read_text()
-        release_script = (repo / ".buildkite/package_sandbox_release.sh").read_text()
-        sdk_verifier = (repo / ".buildkite/verify_python314_sdk_wheel.sh").read_text()
-        builder_script = (repo / ".buildkite/build_python314_builder_image.sh").read_text()
-        self.assertIn("ARG TARGETARCH", packager_dockerfile)
-        self.assertIn('arm64) HELM_ARCH="arm64"; KUBECTL_ARCH="arm64"', packager_dockerfile)
-        self.assertTrue(helper.is_file())
-        helper_text = helper.read_text()
-        self.assertIn("overlay2", helper_text)
-        self.assertIn("vfs", helper_text)
-        self.assertIn("Docker daemon failed", helper_text)
-        self.assertIn("verify_image_manifest.py", manifest_script)
-        self.assertIn("require_cp314_sdk_records", manifest_script)
-        self.assertIn("image-manifest-evidence.tsv", manifest_script)
-        self.assertIn("EXPECTED_SDK_VERSION", release_script)
-        self.assertIn('installed_version == expected_version', release_script)
-        self.assertIn('wheel_listing="$(unzip -l "${wheel}")"', sdk_verifier)
-        self.assertNotIn('unzip -l "${wheel}" |', sdk_verifier)
-        self.assertIn('if [ "${VARIANT}" = compile ]; then', builder_script)
+                self.assertEqual(result.returncode == 0, available, result.stderr)
+                self.assertEqual((root / "calls.log").read_text().splitlines(), [
+                    f"artifact download openyuanrong_rrt-*_{wheel_arch}.whl {root}/output/",
+                ])
+                self.assertEqual((root / "output" / wheel).is_file(), available)
+                if not available:
+                    self.assertIn("Missing required RRT wheel", result.stderr)
 
     def test_image_manifest_validator_rejects_wrong_platform_and_duplicates(self):
         verifier = ROOT.parents[2] / ".buildkite/verify_image_manifest.py"
@@ -303,41 +177,6 @@ class YrK8sPipelineContractsTests(unittest.TestCase):
             self.assertIn(final_digest, evidence_text)
             self.assertIn("linux/amd64,linux/arm64", evidence_text)
 
-    def test_manifest_publish_requires_cp314_metadata_before_registry_mutation(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = pathlib.Path(tmpdir)
-            docker_log = tmp / "docker.log"
-            fake_docker = tmp / "docker"
-            fake_docker.write_text(
-                "#!/usr/bin/env bash\n"
-                'printf "%s\\n" "$*" >>"${DOCKER_LOG}"\n'
-                "exit 0\n"
-            )
-            fake_docker.chmod(0o755)
-            fake_agent = tmp / "buildkite-agent"
-            fake_agent.write_text("#!/usr/bin/env bash\nexit 0\n")
-            fake_agent.chmod(0o755)
-            env = dict(os.environ)
-            env.update(
-                {
-                    "PATH": f"{tmp}:{env['PATH']}",
-                    "DOCKER_BIN": str(fake_docker),
-                    "DOCKER_LOG": str(docker_log),
-                    "SANDBOX_ARTIFACT_DIR": str(tmp / "artifacts"),
-                    "BUILDKITE_STEP_KEY": "publish-sandbox-manifest",
-                }
-            )
-            result = subprocess.run(
-                [str(BASH_BIN), ".buildkite/package_sandbox_manifest.sh"],
-                cwd=ROOT.parents[2],
-                check=False,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Required Python 3.14 SDK metadata is missing or empty", result.stderr)
-            self.assertFalse(docker_log.exists(), "registry mutation must not begin without cp314 records")
 
     def test_push_images_falls_back_when_platform_push_is_unsupported(self):
         with tempfile.TemporaryDirectory() as tmpdir:

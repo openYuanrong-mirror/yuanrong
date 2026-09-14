@@ -19,7 +19,7 @@ class SandboxK8SSmokeContractTest(unittest.TestCase):
     def test_failed_probe_cannot_turn_unexecuted_smoke_green(self):
         script = SMOKE_SCRIPT.read_text(encoding="utf-8")
         failure_block = script.split(
-            'if ! probe_sandbox_ready "${smoke_server_address}"; then',
+            'if ! probe_sandbox_ready "https://${router_tls_address}"; then',
             1,
         )[1].split(
             'if [[ "${YR_K8S_RUN_IDLE_TIMEOUT:-true}"',

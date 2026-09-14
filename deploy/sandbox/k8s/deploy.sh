@@ -553,6 +553,7 @@ prepull_runtime_image() {
   local -a runtime_images=()
   for suffix in ${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp39 cp310 cp311 cp312 cp313 cp314}; do
     case "${suffix}" in
+    rrt) tag="${RUNTIME_IMAGE_TAG}" ;;
     cp39) tag="${RUNTIME_IMAGE_TAG_CP39}" ;;
     cp310) tag="${RUNTIME_IMAGE_TAG_CP310}" ;;
     cp311) tag="${RUNTIME_IMAGE_TAG_CP311}" ;;

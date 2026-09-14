@@ -4,17 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
-SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
-SOURCE_BUILD_ID="${YR_K8S_SOURCE_BUILD_ID:-}"
-SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp311-*.whl}"
-DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS="openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl"
-SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-${DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS}}"
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
-SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
-OBS_URL_DIR="${ROOT_DIR}/artifacts/obs-urls"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 HELM_BIN="${HELM_BIN:-helm}"
 KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"
@@ -123,10 +115,6 @@ require_bin() {
 	fi
 }
 
-read_smoke_controlplane_wheel_patterns() {
-	read -r -a SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST <<<"${SMOKE_CONTROLPLANE_WHEEL_PATTERNS}"
-}
-
 buildkite_metadata_get() {
 	local key="$1"
 	if [ -n "${YR_K8S_SOURCE_BUILD_ID:-}" ]; then
@@ -136,59 +124,10 @@ buildkite_metadata_get() {
 	fi
 }
 
-download_obs_patterns() {
-	local urls_root="$1"
-	local output_dir="$2"
-	shift 2
-
-	local pattern
-	for pattern in "$@"; do
-		python3 .buildkite/download_obs_artifacts.py \
-			--urls-root "${urls_root}" \
-			--output-dir "${output_dir}" \
-			--pattern "${pattern}"
-	done
-}
-
-resolve_single_wheel() {
-	local pattern="$1"
-	local matches=()
-
-	mapfile -t matches < <(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name "${pattern}" -print | sort -V)
-	if [ "${#matches[@]}" -eq 0 ]; then
-		printf 'Missing smoke wheel matching %s under %s\n' "${pattern}" "${RELEASE_ARTIFACT_DIR}" >&2
-		exit 1
-	fi
-	if [ "${#matches[@]}" -ne 1 ]; then
-		printf 'Expected exactly one smoke wheel matching %s under %s, found %s\n' \
-			"${pattern}" "${RELEASE_ARTIFACT_DIR}" "${#matches[@]}" >&2
-		printf '%s\n' "${matches[@]}" >&2
-		exit 1
-	fi
-	printf '%s\n' "${matches[0]}"
-}
-
 download_artifacts() {
-	mkdir -p "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}" "$(dirname "${SANDBOX_METADATA}")"
-	read_smoke_controlplane_wheel_patterns
+	mkdir -p "${RELEASE_ARTIFACT_DIR}" "$(dirname "${SANDBOX_METADATA}")"
 	if command -v buildkite-agent >/dev/null 2>&1; then
 		buildkite_metadata_get "sandbox-release.${PACKAGE_STEP_KEY}" >"${SANDBOX_METADATA}"
-		mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}" "${OBS_URL_DIR}/${SDK_STEP_KEY}"
-		buildkite_metadata_get "obs-urls.${BUILD_STEP_KEY}" \
-			>"${OBS_URL_DIR}/${BUILD_STEP_KEY}/obs-urls.txt"
-		buildkite_metadata_get "obs-urls.${SDK_STEP_KEY}" \
-			>"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
-		download_obs_patterns \
-			"${OBS_URL_DIR}/${BUILD_STEP_KEY}" \
-			"${RELEASE_ARTIFACT_DIR}" \
-			"${SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
-		python3 .buildkite/download_obs_artifacts.py \
-			--urls-root "${OBS_URL_DIR}/${SDK_STEP_KEY}" \
-			--output-dir "${SDK_ARTIFACT_DIR}" \
-			--pattern "${SMOKE_SDK_WHEEL_PATTERN}"
-	fi
-	if compgen -G "${SDK_ARTIFACT_DIR}/${SMOKE_SDK_WHEEL_PATTERN}" >/dev/null; then
-		cp -af "${SDK_ARTIFACT_DIR}"/${SMOKE_SDK_WHEEL_PATTERN} "${RELEASE_ARTIFACT_DIR}/"
 	fi
 	if [ ! -f "${SANDBOX_METADATA}" ]; then
 		printf 'Missing sandbox metadata artifact: %s\n' "${SANDBOX_METADATA}" >&2
@@ -210,25 +149,22 @@ json_optional_field() {
 runtime_image_tag() {
 	python3 -c '
 import json
-import os
 import sys
 
 metadata = json.load(open(sys.argv[1]))
 image_tag = metadata["image_tag"]
-sdk_suffix = os.environ.get("YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX", "cp310")
 for image in metadata.get("images", []):
     if "/yr-runtime:" in image:
         print(image.rsplit(":", 1)[1])
         break
 else:
-    print(f"{image_tag}-{sdk_suffix}")
+    print(image_tag)
 ' "${SANDBOX_METADATA}"
 }
 
 configure_image_tags() {
 	local base_image_tag
 	local pushed_image_tag
-	local runtime_arch
 	base_image_tag="$(json_field image_tag)"
 	pushed_image_tag="$(json_optional_field pushed_image_tag)"
 
@@ -238,79 +174,6 @@ configure_image_tags() {
 	export YR_K8S_IMAGE_TAG="${YR_K8S_IMAGE_TAG:-${pushed_image_tag:-${base_image_tag}}}"
 	export YR_K8S_RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-$(runtime_image_tag)}"
 
-	# Per-Python runtime images retain their architecture suffix even when the
-	# controlplane and node use a multi-architecture manifest tag.
-	runtime_arch="${YR_K8S_RUNTIME_IMAGE_ARCH:-amd64}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${base_image_tag}-${runtime_arch}-cp39}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${base_image_tag}-${runtime_arch}-cp310}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${base_image_tag}-${runtime_arch}-cp311}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${base_image_tag}-${runtime_arch}-cp312}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${base_image_tag}-${runtime_arch}-cp313}"
-	export YR_K8S_RUNTIME_IMAGE_TAG_CP314="${YR_K8S_RUNTIME_IMAGE_TAG_CP314:-${base_image_tag}-${runtime_arch}-cp314}"
-}
-
-resolve_smoke_python() {
-	local sdk_wheel="$1"
-	local wheel_name
-	local python_minor
-	local candidate
-	wheel_name="$(basename "${sdk_wheel}")"
-
-	case "${wheel_name}" in
-	*-cp39-*) python_minor="3.9" ;;
-	*-cp310-*) python_minor="3.10" ;;
-	*-cp311-*) python_minor="3.11" ;;
-	*-cp312-*) python_minor="3.12" ;;
-	*-cp313-*) python_minor="3.13" ;;
-	*-cp314-*) python_minor="3.14" ;;
-	*) python_minor="" ;;
-	esac
-
-	if [ -n "${YR_K8S_SMOKE_PYTHON:-}" ]; then
-		printf '%s\n' "${YR_K8S_SMOKE_PYTHON}"
-		return 0
-	fi
-	if [ -n "${python_minor}" ]; then
-		for candidate in "/opt/buildtools/python${python_minor}/bin/python${python_minor}" "python${python_minor}"; do
-			if command -v "${candidate}" >/dev/null 2>&1; then
-				command -v "${candidate}"
-				return 0
-			fi
-		done
-	fi
-	command -v python3
-}
-
-install_smoke_wheels() {
-	local sdk_wheel
-	local pip_index_url
-	local pip_trusted_host
-	local -a pip_args
-	local -a smoke_wheels
-	local pattern
-	sdk_wheel="$(find "${RELEASE_ARTIFACT_DIR}" -maxdepth 1 -type f -name "${SMOKE_SDK_WHEEL_PATTERN}" | sort -V | tail -1)"
-	if [ -z "${sdk_wheel}" ]; then
-		printf 'Missing smoke wheels under %s\n' "${RELEASE_ARTIFACT_DIR}" >&2
-		exit 1
-	fi
-	read_smoke_controlplane_wheel_patterns
-	for pattern in "${SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"; do
-		smoke_wheels+=("$(resolve_single_wheel "${pattern}")")
-	done
-	smoke_wheels+=("${sdk_wheel}")
-
-	SMOKE_PYTHON="$(resolve_smoke_python "${sdk_wheel}")"
-	export SMOKE_PYTHON
-	pip_index_url="${YR_K8S_SMOKE_PIP_INDEX_URL:-https://repo.huaweicloud.com/repository/pypi/simple}"
-	pip_trusted_host="${YR_K8S_SMOKE_PIP_TRUSTED_HOST:-repo.huaweicloud.com}"
-	pip_args=(--force-reinstall)
-	if [ -n "${pip_index_url}" ]; then
-		pip_args+=(--index-url "${pip_index_url}")
-	fi
-	if [ -n "${pip_trusted_host}" ]; then
-		pip_args+=(--trusted-host "${pip_trusted_host}")
-	fi
-	PIP_BREAK_SYSTEM_PACKAGES=1 "${SMOKE_PYTHON}" -m pip install "${pip_args[@]}" "${smoke_wheels[@]}" pytest
 }
 
 wait_for_service_address() {
@@ -447,7 +310,6 @@ ensure_service_port_forwards() {
 	start_service_port_forwards
 }
 
-
 dump_k8s_diagnostics() {
 	local reason="${1:-unknown}"
 	local pod
@@ -479,57 +341,6 @@ on_k8s_test_term() {
 	exit 143
 }
 
-wait_for_smoke_ready() {
-	local server_address="$1"
-	local timeout="${YR_K8S_SMOKE_READY_TIMEOUT:-600}"
-	local deadline=$((SECONDS + timeout))
-	local attempt=1
-
-	printf 'Waiting for yr-k8s smoke readiness against %s\n' "${server_address}" >&2
-	while [ "${SECONDS}" -le "${deadline}" ]; do
-		if YR_ENABLE_TLS="${SMOKE_SERVER_TLS}" \
-			YR_SERVER_ADDRESS="${server_address}" \
-			YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
-			YR_K8S_SMOKE_TIMEOUT="${YR_K8S_SMOKE_READY_OPERATION_TIMEOUT:-120}" \
-			"${SMOKE_PYTHON}" deploy/sandbox/k8s/smoke.py \
-			>"${SMOKE_LOG_DIR}/ready-${attempt}.log" 2>&1; then
-			printf 'yr-k8s smoke readiness check passed on attempt %s.\n' "${attempt}" >&2
-			return 0
-		fi
-		printf 'yr-k8s smoke readiness attempt %s failed; retrying in 15s.\n' "${attempt}" >&2
-		tail -n 80 "${SMOKE_LOG_DIR}/ready-${attempt}.log" >&2 || true
-		sleep 15
-		attempt=$((attempt + 1))
-	done
-
-	printf 'Timed out waiting for yr-k8s smoke readiness after %ss.\n' "${timeout}" >&2
-	return 1
-}
-
-run_smoke() {
-	local server_address="$1"
-	local -a pytest_args
-	mkdir -p "${SMOKE_LOG_DIR}"
-	install_smoke_wheels
-	wait_for_smoke_ready "${server_address}"
-
-	if [ -n "${YR_K8S_SMOKE_PYTEST_ARGS:-}" ]; then
-		read -r -a pytest_args <<<"${YR_K8S_SMOKE_PYTEST_ARGS}"
-	else
-		pytest_args=(-m "smoke and not high_reliability_only")
-	fi
-
-	printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
-	YR_ENABLE_TLS="${SMOKE_SERVER_TLS}" \
-		YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
-		YR_OFF_CLUSTER_USE_UV_VENV=false \
-		YR_OFF_CLUSTER_TEST_TIMEOUT="${YR_OFF_CLUSTER_TEST_TIMEOUT:-1200}" \
-		UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}" \
-		YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
-		bash test/st/run_off_cluster_test.sh -a "${server_address}" --no-uv-venv -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
-		2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
-}
-
 # Live sandbox-sdk -> Rust data-plane verification: control APIs and /direct
 # enter through Edge TLS; /tunnel and standard CONNECT use the configured Edge
 # TLS/plain entry. Frontend remains a private Pod-local upstream without a
@@ -541,7 +352,6 @@ extract_sandbox_id() {
 import base64
 import json
 import sys
-
 
 def decode_data(value):
     if isinstance(value, dict):
@@ -740,7 +550,7 @@ run_rrt_direct_e2e() {
 	mkdir -p "${SMOKE_LOG_DIR}"
 	git submodule update --init --recursive sandbox-sdk >&2 || true
 	# sandbox-sdk requires Python >=3.10; the image's default python3 is 3.9.
-	# Reuse the smoke interpreter (cp311) or fall back to any >=3.10 build python,
+	# Select a Python >=3.10 interpreter for sandbox-sdk,
 	# and hand it to build.sh (which honors $PYTHON) so the wheel build/install
 	# don't 'requires a different Python' on 3.9.
 	py="${SMOKE_PYTHON:-$(command -v python3.11 || command -v python3.12 || command -v python3.10 || command -v python3.13 || command -v python3)}"
@@ -913,10 +723,8 @@ main() {
 	# token in CI, so the router accepts the structurally-valid unsigned JWT minted
 	# in run_rrt_direct_e2e. Production keeps validateIam=true (chart default).
 	export YR_K8S_VALIDATE_IAM="${YR_K8S_VALIDATE_IAM:-false}"
-	# K8S smoke uses the cp311 SDK/runtime. The all-version SDK/runtime build
-	# matrix is validated by dedicated Buildkite steps; pre-pulling every runtime
-	# image on every test node can exhaust the CI pod before tests start.
-	export YR_K8S_PREPULL_RUNTIME_SUFFIXES="${YR_K8S_PREPULL_RUNTIME_SUFFIXES:-cp311}"
+	# The sandbox suite uses the shared RRT image.
+	export YR_K8S_PREPULL_RUNTIME_SUFFIXES="rrt"
 	export YR_K8S_EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.buildkite-smoke.yaml}"
 	trap cleanup_port_forward EXIT
 
@@ -992,11 +800,6 @@ main() {
 	if [[ "${YR_K8S_RUN_IDLE_TIMEOUT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
 		ensure_service_port_forwards
 		run_idle_timeout_e2e "${smoke_server_address}"
-	fi
-
-	if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-		ensure_service_port_forwards
-		run_smoke "${smoke_server_address}"
 	fi
 
 	if [[ "${YR_K8S_RUN_RRT_DIRECT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then

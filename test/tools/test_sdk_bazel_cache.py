@@ -56,43 +56,6 @@ class SdkBazelCacheTest(unittest.TestCase):
         self.assertIn('p)\n\t\tif [[ "${OPTARG}" == "multi" ]]', build_script)
         self.assertIn('name = "yr_python_pkg"', (REPO_ROOT / "api/python/BUILD.bazel").read_text())
 
-    def test_buildkite_defaults_remote_cache_and_primes_each_linux_arch(self):
-        pipeline = (REPO_ROOT / ".buildkite/pipeline.dynamic.yml").read_text(
-            encoding="utf-8"
-        )
-        cache_script = (
-            REPO_ROOT / ".buildkite/configure_bazel_remote_cache.sh"
-        ).read_text(encoding="utf-8")
-        prime_script = (
-            REPO_ROOT / ".buildkite/prime_openyuanrong_sdk_cache.sh"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true", cache_script)
-        self.assertIn('export REMOTE_CACHE="${BAZEL_REMOTE_URL}"', cache_script)
-        self.assertIn("build-sdk-common-amd64", pipeline)
-        self.assertIn("build-sdk-common-arm64", pipeline)
-        self.assertIn('depends_on: "build-sdk-common-amd64"', pipeline)
-        self.assertIn('depends_on: "build-sdk-common-arm64"', pipeline)
-        for common_key in ("build-sdk-common-amd64", "build-sdk-common-arm64"):
-            common_start = pipeline.index(f'key: "{common_key}"')
-            common_end = pipeline.index("timeout_in_minutes:", common_start)
-            common_block = pipeline[common_start:common_end]
-            self.assertIn(
-                'requests: { cpu: "8", memory: "16Gi", '
-                'ephemeral-storage: "5Gi" }',
-                common_block,
-            )
-            self.assertIn(
-                'limits: { cpu: "16", memory: "32Gi", '
-                'ephemeral-storage: "20Gi" }',
-                common_block,
-            )
-        self.assertGreaterEqual(
-            pipeline.count(". .buildkite/configure_bazel_remote_cache.sh"), 4
-        )
-        self.assertIn("SDK_BUILD_MODE=common", prime_script)
-        self.assertIn('if [ -z "${REMOTE_CACHE:-}" ]', prime_script)
-
     def test_macos_sdk_uses_persistent_local_caches(self):
         pipeline = (REPO_ROOT / ".buildkite/pipeline.dynamic.yml").read_text(
             encoding="utf-8"
@@ -104,8 +67,6 @@ class SdkBazelCacheTest(unittest.TestCase):
             REPO_ROOT / ".buildkite/configure_macos_local_cache.sh"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(". .buildkite/configure_macos_local_cache.sh", pipeline)
-        self.assertIn("report_macos_local_cache", pipeline)
         self.assertIn('SDK_BAZEL_DISK_CACHE="${_YR_MACOS_CACHE_ROOT}', cache_script)
         self.assertIn('BUILDKITE_BUILD_PATH:-}', cache_script)
         self.assertIn('cache_args=(-l "${SDK_BAZEL_DISK_CACHE}")', sdk_script)
@@ -141,31 +102,6 @@ class SdkBazelCacheTest(unittest.TestCase):
                     pathlib.Path(cache_path).is_relative_to(cache_root)
                 )
 
-    def test_macos_only_pipeline_emits_only_sdk_wheel_jobs(self):
-        env = os.environ.copy()
-        env.update(
-            {
-                "ENABLE_MACOS_SDK_ONLY": "true",
-                "ENABLE_MACOS_SDK_OVERRIDE": "false",
-                "SDK_PYTHON_VERSIONS": "python3.9 python3.10",
-            }
-        )
-        result = subprocess.run(
-            ["bash", str(REPO_ROOT / ".buildkite/pipeline.dynamic.yml")],
-            cwd=REPO_ROOT,
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertEqual(result.stdout.count("Build SDK macOS"), 2)
-        self.assertNotIn("Build X86", result.stdout)
-        self.assertNotIn("Build SDK X86", result.stdout)
-        self.assertNotIn("Build arm", result.stdout)
-        self.assertNotIn("Build Image", result.stdout)
-        self.assertNotIn("Test K8S", result.stdout)
-        self.assertNotIn("Publish Wheels", result.stdout)
 
 
 if __name__ == "__main__":

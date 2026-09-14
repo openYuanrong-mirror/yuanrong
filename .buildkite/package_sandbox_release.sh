@@ -5,9 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
-SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp39}"
 DATA_PLANE_GATEWAY_STEP_KEY="${SANDBOX_DATA_PLANE_GATEWAY_STEP_KEY:-build-data-plane-gateway-amd64}"
-IMAGE_SDK_WHEEL_PATTERN="${YR_K8S_IMAGE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl}"
 CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl}"
 case "${YR_K8S_IMAGE_ARCH:-amd64}" in
 arm64 | aarch64) RRT_WHEEL_ARCH="aarch64"; DATA_PLANE_GATEWAY_ARCH="arm64" ;;
@@ -16,10 +14,8 @@ esac
 DATA_PLANE_GATEWAY_ARCHIVE="yr-data-plane-gateway-${DATA_PLANE_GATEWAY_ARCH}.tar.gz"
 IMAGE_RRT_WHEEL_PATTERN="${YR_K8S_IMAGE_RRT_WHEEL_PATTERN:-openyuanrong_rrt-*_${RRT_WHEEL_ARCH}.whl}"
 RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"
-RRT_OPTIONAL="${YR_K8S_RRT_OPTIONAL:-0}"
 OUTPUT_DIR="${ROOT_DIR}/output"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
-SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
 OBS_URL_DIR="${ROOT_DIR}/artifacts/obs-urls"
 SANDBOX_ARTIFACT_DIR="${ROOT_DIR}/artifacts/sandbox"
 HELM_DIR="${SANDBOX_ARTIFACT_DIR}/helm"
@@ -41,7 +37,6 @@ IMAGE_TAG_SUFFIX="${YR_K8S_IMAGE_TAG_SUFFIX:-${IMAGE_ARCH:+-${IMAGE_ARCH}}}"
 PUSH_IMAGE_TAG="${YR_K8S_PUSH_IMAGE_TAG:-${IMAGE_TAG}${IMAGE_TAG_SUFFIX}}"
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
-EXPECTED_SDK_VERSION="${YR_EXPECTED_SDK_VERSION:-${YR_BUILD_VERSION:-${BUILD_VERSION:-}}}"
 DOCKERD_PID=""
 
 is_enabled() {
@@ -161,12 +156,12 @@ copy_artifacts() {
 }
 
 download_release_artifacts() {
-	mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
+	mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${OBS_URL_DIR}"
 	read_controlplane_wheel_patterns
 
 	if command -v buildkite-agent >/dev/null 2>&1; then
-		rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
-		mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${SDK_ARTIFACT_DIR}" "${OBS_URL_DIR}"
+		rm -rf "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${OBS_URL_DIR}"
+		mkdir -p "${OUTPUT_DIR}" "${RELEASE_ARTIFACT_DIR}" "${OBS_URL_DIR}"
 		if ! is_enabled "${RUNTIME_ONLY}"; then
 			mkdir -p "${OBS_URL_DIR}/${BUILD_STEP_KEY}"
 			buildkite-agent meta-data get "obs-urls.${BUILD_STEP_KEY}" \
@@ -176,30 +171,11 @@ download_release_artifacts() {
 				"${RELEASE_ARTIFACT_DIR}" \
 				"${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
 		fi
-		mkdir -p "${OBS_URL_DIR}/${SDK_STEP_KEY}"
-		buildkite-agent meta-data get "obs-urls.${SDK_STEP_KEY}" \
-			>"${OBS_URL_DIR}/${SDK_STEP_KEY}/obs-urls.txt"
-		python3 .buildkite/download_obs_artifacts.py \
-			--urls-root "${OBS_URL_DIR}/${SDK_STEP_KEY}" \
-			--output-dir "${SDK_ARTIFACT_DIR}" \
-			--pattern "${IMAGE_SDK_WHEEL_PATTERN}"
-		# openyuanrong-rrt wheel: built once per arch in build-rrt-* and pushed to
-		# the buildkite artifact store. arm64 RRT can be temporarily optional while
-		# the Rust-capable arm64 builder image is unavailable; runtime images built
-		# without it are usable only for flows that do not select the rrt backend.
-		if ! buildkite-agent artifact download "${IMAGE_RRT_WHEEL_PATTERN}" "${OUTPUT_DIR}/"; then
-			if ! is_enabled "${RRT_OPTIONAL}"; then
-				echo "ERROR: failed to download required openyuanrong-rrt artifact (pattern: ${IMAGE_RRT_WHEEL_PATTERN})." >&2
-				exit 1
-			fi
-			printf 'WARNING: optional openyuanrong-rrt artifact is unavailable: %s\n' "${IMAGE_RRT_WHEEL_PATTERN}" >&2
-		fi
-		if ! compgen -G "${OUTPUT_DIR}/openyuanrong_rrt-*.whl" >/dev/null; then
-			if ! is_enabled "${RRT_OPTIONAL}"; then
-				echo "ERROR: openyuanrong-rrt wheel not found in ${OUTPUT_DIR} after download (pattern: ${IMAGE_RRT_WHEEL_PATTERN})." >&2
-				exit 1
-			fi
-			printf 'WARNING: building runtime image without optional openyuanrong-rrt wheel.\n' >&2
+		# The shared runtime image must contain this build's RRT wheel.
+		buildkite-agent artifact download "${IMAGE_RRT_WHEEL_PATTERN}" "${OUTPUT_DIR}/"
+		if ! compgen -G "${OUTPUT_DIR}/${IMAGE_RRT_WHEEL_PATTERN}" >/dev/null; then
+			printf 'Missing required RRT wheel: %s\n' "${IMAGE_RRT_WHEEL_PATTERN}" >&2
+			exit 1
 		fi
 		if ! is_enabled "${RUNTIME_ONLY}"; then
 			buildkite-agent artifact download "${DATA_PLANE_GATEWAY_ARCHIVE}" "${OUTPUT_DIR}/" \
@@ -235,48 +211,14 @@ download_release_artifacts() {
 			cp -f "${data_plane_wheels[0]}" "${OUTPUT_DIR}/"
 		fi
 	elif is_enabled "${RUNTIME_ONLY}" &&
-		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
+		compgen -G "${OUTPUT_DIR}/${IMAGE_RRT_WHEEL_PATTERN}" >/dev/null; then
 		return 0
 	elif has_artifacts "${OUTPUT_DIR}" "${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}" &&
-		compgen -G "${OUTPUT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null &&
 		compgen -G "${OUTPUT_DIR}/openyuanrong_data_plane-*.whl" >/dev/null; then
 		return 0
 	fi
 
 	copy_artifacts "${RELEASE_ARTIFACT_DIR}" "${OUTPUT_DIR}" "${CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"
-	if compgen -G "${SDK_ARTIFACT_DIR}/${IMAGE_SDK_WHEEL_PATTERN}" >/dev/null; then
-		cp -af "${SDK_ARTIFACT_DIR}"/${IMAGE_SDK_WHEEL_PATTERN} "${OUTPUT_DIR}/"
-	fi
-}
-
-resolve_expected_sdk_version() {
-	if [ -n "${EXPECTED_SDK_VERSION}" ]; then
-		return 0
-	fi
-	local sdk_wheel
-	sdk_wheel="$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "${IMAGE_SDK_WHEEL_PATTERN}" -print -quit)"
-	if [ -z "${sdk_wheel}" ]; then
-		printf 'Cannot resolve SDK version: no wheel matches %s in %s.\n' \
-			"${IMAGE_SDK_WHEEL_PATTERN}" "${OUTPUT_DIR}" >&2
-		exit 1
-	fi
-	EXPECTED_SDK_VERSION="$(python3 - "${sdk_wheel}" <<'PY'
-import sys
-import zipfile
-
-with zipfile.ZipFile(sys.argv[1]) as wheel:
-    metadata_files = [name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")]
-    if len(metadata_files) != 1:
-        raise SystemExit(f"expected one METADATA file, found {len(metadata_files)}")
-    for line in wheel.read(metadata_files[0]).decode("utf-8").splitlines():
-        if line.startswith("Version: "):
-            print(line.removeprefix("Version: "))
-            break
-    else:
-        raise SystemExit("wheel METADATA has no Version field")
-PY
-)"
-	printf 'Resolved SDK version from %s: %s\n' "$(basename "${sdk_wheel}")" "${EXPECTED_SDK_VERSION}"
 }
 
 write_runtime_metadata() {
@@ -291,9 +233,7 @@ write_runtime_metadata() {
   "image_tag": "${IMAGE_TAG}",
   "pushed_image_tag": "${PUSH_IMAGE_TAG}",
   "image_arch": "${IMAGE_ARCH}",
-  "sdk_step": "${SDK_STEP_KEY}",
-  "sdk_wheel_pattern": "${IMAGE_SDK_WHEEL_PATTERN}",
-  "sdk_version": "${EXPECTED_SDK_VERSION}"
+  "runtime": "rrt"
 }
 EOF
 	printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}" \
@@ -318,35 +258,6 @@ docker_login_if_configured() {
 	fi
 
 	printf '%s' "${SWR_PASSWORD}" | docker login "${REGISTRY_SERVER}" -u "${SWR_USERNAME}" --password-stdin
-}
-
-verify_python314_runtime_image() {
-	case "${IMAGE_SDK_WHEEL_PATTERN}" in
-	*cp314*) ;;
-	*) return 0 ;;
-	esac
-	if [ -z "${EXPECTED_SDK_VERSION}" ]; then
-		printf 'YR_EXPECTED_SDK_VERSION, YR_BUILD_VERSION, or BUILD_VERSION is required for cp314 runtime verification.\n' >&2
-		exit 1
-	fi
-	local image="${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}"
-	docker pull "${image}"
-	docker run --rm --env EXPECTED_SDK_VERSION="${EXPECTED_SDK_VERSION}" --entrypoint python "${image}" -c '
-import importlib.metadata
-import os
-import pathlib
-import platform
-import yr
-from yr.cli import scripts
-assert platform.python_version() == "3.14.6"
-assert callable(scripts.runtime_main)
-package_root = pathlib.Path(yr.__file__).resolve().parent
-assert not [path for path in package_root.rglob("*") if "cp313" in path.name or "cpython-313" in path.name]
-installed_version = importlib.metadata.version("openyuanrong-sdk")
-expected_version = os.environ["EXPECTED_SDK_VERSION"]
-assert installed_version == expected_version, (installed_version, expected_version)
-print(installed_version)
-'
 }
 
 write_values_override() {
@@ -431,7 +342,6 @@ main() {
 	require_bin python3
 
 	download_release_artifacts
-	resolve_expected_sdk_version
 	start_dockerd
 	docker_login_if_configured
 
@@ -439,14 +349,8 @@ main() {
 	export YR_K8S_REGISTRY_REPO="${REGISTRY_REPO}"
 	bash deploy/sandbox/k8s/build-images.sh
 	bash deploy/sandbox/k8s/push-images-swr.sh
-	verify_python314_runtime_image
-
 	if is_enabled "${RUNTIME_ONLY}"; then
 		write_runtime_metadata
-		if command -v buildkite-agent >/dev/null 2>&1; then
-			buildkite-agent annotate --style "success" --context "sandbox-runtime-image" \
-				"Sandbox runtime image pushed: ${REGISTRY_REPO}/yr-runtime:${PUSH_IMAGE_TAG}."
-		fi
 		return 0
 	fi
 

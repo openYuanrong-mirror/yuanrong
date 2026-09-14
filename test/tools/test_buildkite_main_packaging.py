@@ -7,6 +7,8 @@ import pathlib
 import subprocess
 import unittest
 
+import yaml
+
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIPELINE = REPO_ROOT / ".buildkite" / "pipeline.dynamic.yml"
@@ -19,31 +21,36 @@ COMPILE_IMAGE = REPO_ROOT / "ci" / "ubuntu" / "Dockerfile.ubuntu2004"
 
 
 class BuildkiteMainPackagingTest(unittest.TestCase):
-    def test_k8s_runtime_uses_selected_sdk_python_suffix(self):
-        env = os.environ.copy()
-        env.update(
-            {
-                "ENABLE_LINUX_ARM": "false",
-                "ENABLE_MACOS_SDK": "false",
-                "ENABLE_TEST_PYPI_PUBLISH": "false",
-                "SDK_PYTHON_VERSIONS": "python3.11",
-            }
-        )
-        result = subprocess.run(
-            ["bash", str(PIPELINE)],
-            cwd=REPO_ROOT,
-            env=env,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertIn('YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX: "cp311"', result.stdout)
-        self.assertIn("YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX", PIPELINE.read_text())
-        self.assertIn(
-            'os.environ.get("YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX", "cp310")',
-            (REPO_ROOT / ".buildkite" / "test_sandbox_k8s.sh").read_text(),
-        )
+    def test_pipeline_artifact_dependencies_are_complete(self):
+        cases = [
+            ({}, 12),
+            ({"ENABLE_LINUX_ARM": "false"}, 7),
+            ({"ENABLE_SANDBOX_PACKAGE": "false"}, 6),
+            ({"ENABLE_RRT_ONLY": "true"}, 2),
+            ({"ENABLE_SANDBOX_K8S_TEST_ONLY": "true"}, 1),
+            ({"ENABLE_SANDBOX_MANIFEST": "false"}, 10),
+        ]
+        for overrides, expected_count in cases:
+            with self.subTest(overrides=overrides):
+                env = {k: v for k, v in os.environ.items()
+                       if not k.startswith(("ENABLE_", "SDK_", "PUBLISH_"))}
+                env.update(overrides)
+                result = subprocess.run(["bash", str(PIPELINE)], cwd=REPO_ROOT,
+                                        env=env, check=True, capture_output=True, text=True)
+                steps = yaml.safe_load(result.stdout)["steps"]
+                keys = {step["key"] for step in steps}
+                self.assertEqual(len(steps), expected_count)
+                self.assertEqual(len(keys), len(steps))
+                self.assertFalse(any(key.startswith(("build-sdk-", "publish-runtime-")) for key in keys))
+                for step in steps:
+                    dependencies = step.get("depends_on", [])
+                    if isinstance(dependencies, str):
+                        dependencies = [dependencies]
+                    self.assertTrue(set(dependencies) <= keys, (step["key"], dependencies, keys))
+                    if step["key"].startswith("build-all-"):
+                        self.assertIn("export BUILD_PYTHON_SDK_WHEEL=0", step["command"])
+                if not overrides:
+                    self.assertTrue({"test-k8s", "test-sandbox-sdk", "build-data-plane-gateway-amd64", "build-rrt-amd64"} <= keys)
 
     def test_core_wheel_is_only_wired_into_buildkite(self):
         def tracked_references(needle):
@@ -83,7 +90,7 @@ class BuildkiteMainPackagingTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             pipeline.count(". .buildkite/configure_bazel_remote_cache.sh"),
-            4,
+            2,
         )
         self.assertIn(
             "YR_BUILDKITE_ENABLE_BAZEL_REMOTE_CACHE:-true",

@@ -19,12 +19,12 @@ DOCKER_BUILDKIT_MODE="${YR_K8S_DOCKER_BUILDKIT:-1}"
 DEPLOY_CONTEXT_DIR="${OUTPUT_DIR}/.yr-k8s-deploy"
 CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl openyuanrong_data_plane-*.whl}"
 
-required_patterns=("openyuanrong_sdk*.whl")
+required_patterns=("openyuanrong_rrt*.whl")
 case "${RUNTIME_ONLY}" in
   1|true|TRUE|yes|YES|on|ON) ;;
   *)
     read -r -a required_patterns <<<"${CONTROLPLANE_WHEEL_PATTERNS}"
-    required_patterns+=("openyuanrong_sdk*.whl")
+    required_patterns+=("openyuanrong_rrt*.whl")
     ;;
 esac
 
@@ -87,48 +87,8 @@ validate_required_artifacts() {
   esac
 }
 
-python_build_args_from_wheel() {
-  local wheel_path="$1"
-  local wheel_name
-  local python_tag
-  wheel_name="$(basename "${wheel_path}")"
-
-  if [[ ! "${wheel_name}" =~ -(cp[0-9]+)- ]]; then
-    printf 'Cannot infer Python ABI tag from wheel: %s\n' "${wheel_name}" >&2
-    exit 1
-  fi
-  python_tag="${BASH_REMATCH[1]}"
-
-  case "${python_tag}" in
-    cp39)
-      printf '%s\n' "3.9.18" "3.9"
-      ;;
-    cp310)
-      printf '%s\n' "3.10.13" "3.10"
-      ;;
-    cp311)
-      printf '%s\n' "3.11.9" "3.11"
-      ;;
-    cp312)
-      printf '%s\n' "3.12.10" "3.12"
-      ;;
-    cp313)
-      printf '%s\n' "3.13.2" "3.13"
-      ;;
-    cp314)
-      printf '%s\n' "3.14.6" "3.14"
-      ;;
-    *)
-      printf 'Unsupported Python ABI tag in wheel: %s\n' "${python_tag}" >&2
-      exit 1
-      ;;
-  esac
-}
-
 set_python_build_args() {
-  local sdk_wheel
-  sdk_wheel="$(resolve_artifact_path "openyuanrong_sdk*.whl")"
-  mapfile -t python_build_args < <(python_build_args_from_wheel "${sdk_wheel}")
+  python_build_args=("${YR_K8S_PYTHON_VERSION:-3.11.9}" "${YR_K8S_PYTHON_MAJOR_MINOR:-3.11}")
 }
 
 stage_runtime_wheels() {

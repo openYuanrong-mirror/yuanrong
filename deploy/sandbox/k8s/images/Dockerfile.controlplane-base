@@ -19,7 +19,6 @@ COPY openyuanrong_cpp_sdk-*.whl /tmp/pkg/
 COPY openyuanrong_functionsystem-*.whl /tmp/pkg/
 COPY openyuanrong_datasystem-*.whl /tmp/pkg/
 COPY openyuanrong_data_plane-*.whl /tmp/pkg/
-COPY openyuanrong_sdk*.whl /tmp/pkg/
 COPY .yr-k8s-deploy/bin/start-master.sh /usr/local/bin/start-master.sh
 COPY .yr-k8s-deploy/bin/start-frontend.sh /usr/local/bin/start-frontend.sh
 COPY .yr-k8s-deploy/bin/start-edge.sh /usr/local/bin/start-edge.sh
@@ -40,7 +39,6 @@ RUN set -euo pipefail \
         fi; \
         printf '/tmp/pkg/%s' "${matches[0]}"; \
     } \
-    && resolve_single_wheel 'openyuanrong_sdk*.whl' >/dev/null \
     && OPENYUANRONG_WHEEL="$(resolve_single_wheel 'openyuanrong-*.whl')" \
     && RUNTIME_WHEEL="$(resolve_single_wheel 'openyuanrong_runtime-*.whl')" \
     && FAAS_WHEEL="$(resolve_single_wheel 'openyuanrong_faas-*.whl')" \

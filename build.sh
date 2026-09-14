@@ -338,13 +338,18 @@ PY
         chmod 550 "$API_DIR/python/yr/fnruntime${py_ext_suffix}"
     fi
     package_timer_start=$(date +%s)
-    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    echo "[PACKAGE_TIMER] python-sdk-wheel-build python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
-    package_timer_start=$(date +%s)
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
-    chmod 750 $BASE_DIR/output/*.whl
-    echo "[PACKAGE_TIMER] python-sdk-wheel-publish python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    if [ "${BUILD_PYTHON_SDK_WHEEL:-1}" != "0" ]; then
+        SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+        echo "[PACKAGE_TIMER] python-sdk-wheel-build python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+        package_timer_start=$(date +%s)
+        cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+        cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
+        chmod 750 $BASE_DIR/output/*.whl
+        echo "[PACKAGE_TIMER] python-sdk-wheel-publish python=${PYTHON3_SDK_BIN_PATH} elapsed=$(($(date +%s)-package_timer_start))s"
+    else
+        rm -f "$BASE_DIR/output"/openyuanrong_sdk-*.whl
+        rm -f "$OUTPUT_BASE/runtime/sdk/python"/openyuanrong_sdk-*.whl
+    fi
     package_timer_start=$(date +%s)
     rm -f "$OUTPUT_BASE/runtime/service/python/yr"/fnruntime*.so
     if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then

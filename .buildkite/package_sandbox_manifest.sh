@@ -23,21 +23,13 @@ SANITIZED_BRANCH="$(printf '%s' "${BRANCH_NAME}" | tr '/:_@' '----' | tr -cd '[:
 [ -n "${SANITIZED_BRANCH}" ] || SANITIZED_BRANCH="build"
 IMAGE_TAG="${YR_K8S_IMAGE_TAG:-${SANITIZED_BRANCH}-${BUILD_NUMBER}-${SHORT_SHA}}"
 IMAGE_ARCHES="${YR_K8S_MANIFEST_ARCHES:-amd64 arm64}"
-DEFAULT_RUNTIME_SDK_SUFFIX="${YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX:-cp310}"
-RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}-${DEFAULT_RUNTIME_SDK_SUFFIX}}"
+RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}}"
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313 build-sdk-amd64-cp314}"
-LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313 build-sdk-arm64-cp314}"
-# An explicitly empty value means the current build disabled macOS SDK jobs.
-# Use `-` instead of `:-` so the pipeline can distinguish that from an unset
-# variable when invoking this script outside the dynamic pipeline.
-MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313 build-sdk-macos-arm64-cp314}"
 RRT_ARTIFACT_STEPS="${SANDBOX_RRT_ARTIFACT_STEPS:-build-rrt-amd64 build-rrt-arm64}"
 SANDBOX_SDK_ARTIFACT_STEPS="${SANDBOX_SANDBOX_SDK_STEPS:-test-sandbox-sdk}"
 EXTRA_ARTIFACT_STEPS="${SANDBOX_EXTRA_ARTIFACT_STEPS:-}"
-RUNTIME_IMAGE_STEPS="${SANDBOX_RUNTIME_IMAGE_STEPS:-}"
 
 local_images=(yr-base yr-compile yr-runtime yr-controlplane yr-node)
 
@@ -130,28 +122,6 @@ create_manifest() {
         --evidence "${MANIFEST_EVIDENCE_FILE}"
 }
 
-runtime_sdk_suffixes() {
-    local step_key
-    local sdk_suffix
-    local seen=" "
-
-    for step_key in ${RUNTIME_IMAGE_STEPS}; do
-        case "${step_key}" in
-            publish-runtime-*-*)
-                sdk_suffix="${step_key##*-}"
-                ;;
-            *)
-                continue
-                ;;
-        esac
-        case "${seen}" in
-            *" ${sdk_suffix} "*) continue ;;
-        esac
-        seen="${seen}${sdk_suffix} "
-        printf '%s\n' "${sdk_suffix}"
-    done
-}
-
 write_values_override() {
     cat >"${METADATA_DIR}/yr-k8s-image-values.yaml" <<EOF
 global:
@@ -195,10 +165,7 @@ collect_artifact_archive() {
     rm -rf "${ARCHIVE_DIR}"
     mkdir -p \
         "${ARCHIVE_DIR}/linux-amd64" \
-        "${ARCHIVE_DIR}/linux-amd64-sdk" \
         "${ARCHIVE_DIR}/linux-arm64" \
-        "${ARCHIVE_DIR}/linux-arm64-sdk" \
-        "${ARCHIVE_DIR}/macos-arm64-sdk" \
         "${ARCHIVE_DIR}/sandbox-sdk" \
         "${ARCHIVE_DIR}/rrt" \
         "${ARCHIVE_DIR}/extra" \
@@ -210,23 +177,10 @@ collect_artifact_archive() {
 
     buildkite-agent meta-data get "obs-urls.build-all-amd64" \
         >"${ARCHIVE_DIR}/linux-amd64/obs-urls.txt" || true
-    for step_key in ${LINUX_AMD64_SDK_STEPS}; do
-        mkdir -p "${ARCHIVE_DIR}/linux-amd64-sdk/${step_key}"
-        buildkite-agent meta-data get "obs-urls.${step_key}" \
-            >"${ARCHIVE_DIR}/linux-amd64-sdk/${step_key}/obs-urls.txt" || true
-    done
+
     buildkite-agent meta-data get "obs-urls.build-all-arm64" \
         >"${ARCHIVE_DIR}/linux-arm64/obs-urls.txt" || true
-    for step_key in ${LINUX_ARM64_SDK_STEPS}; do
-        mkdir -p "${ARCHIVE_DIR}/linux-arm64-sdk/${step_key}"
-        buildkite-agent meta-data get "obs-urls.${step_key}" \
-            >"${ARCHIVE_DIR}/linux-arm64-sdk/${step_key}/obs-urls.txt" || true
-    done
-    for step_key in ${MACOS_ARM64_SDK_STEPS}; do
-        mkdir -p "${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}"
-        buildkite-agent meta-data get "obs-urls.${step_key}" \
-            >"${ARCHIVE_DIR}/macos-arm64-sdk/${step_key}/obs-urls.txt" || true
-    done
+
     for step_key in ${SANDBOX_SDK_ARTIFACT_STEPS}; do
         mkdir -p "${ARCHIVE_DIR}/sandbox-sdk/${step_key}"
         buildkite-agent meta-data get "obs-urls.${step_key}" \
@@ -242,38 +196,7 @@ collect_artifact_archive() {
         buildkite-agent meta-data get "obs-urls.${step_key}" \
             >"${ARCHIVE_DIR}/extra/${step_key}/obs-urls.txt" || true
     done
-    for step_key in ${RUNTIME_IMAGE_STEPS}; do
-        case "${step_key}" in
-            publish-runtime-amd64-*)
-                printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}-amd64-${step_key##*-}" \
-                    >"${ARCHIVE_DIR}/runtime-images/${IMAGE_TAG}-amd64-${step_key##*-}.txt"
-                ;;
-            publish-runtime-arm64-*)
-                printf '%s\n' "${REGISTRY_REPO}/yr-runtime:${IMAGE_TAG}-arm64-${step_key##*-}" \
-                    >"${ARCHIVE_DIR}/runtime-images/${IMAGE_TAG}-arm64-${step_key##*-}.txt"
-                ;;
-        esac
-    done
-}
 
-require_cp314_sdk_records() {
-    if ! command -v buildkite-agent >/dev/null 2>&1; then
-        return 0
-    fi
-    local required_records=(
-        "linux-amd64-sdk/build-sdk-amd64-cp314/obs-urls.txt"
-        "linux-arm64-sdk/build-sdk-arm64-cp314/obs-urls.txt"
-    )
-    if [[ " ${MACOS_ARM64_SDK_STEPS} " == *" build-sdk-macos-arm64-cp314 "* ]]; then
-        required_records+=("macos-arm64-sdk/build-sdk-macos-arm64-cp314/obs-urls.txt")
-    fi
-    local record
-    for record in "${required_records[@]}"; do
-        if [ ! -s "${ARCHIVE_DIR}/${record}" ]; then
-            printf 'Required Python 3.14 SDK metadata is missing or empty: %s\n' "${record}" >&2
-            exit 1
-        fi
-    done
 }
 
 write_artifact_summary_json() {
@@ -450,7 +373,6 @@ main() {
     require_bin python3
 
     collect_artifact_archive
-    require_cp314_sdk_records
 
     export DOCKER_CLI_EXPERIMENTAL="${DOCKER_CLI_EXPERIMENTAL:-enabled}"
     docker_login_if_configured
@@ -459,12 +381,6 @@ main() {
     for image_name in "${local_images[@]}"; do
         create_manifest "${image_name}"
     done
-
-    local sdk_suffix
-    while IFS= read -r sdk_suffix; do
-        [ -n "${sdk_suffix}" ] || continue
-        create_manifest "yr-runtime" "${IMAGE_TAG}-${sdk_suffix}" "-${sdk_suffix}"
-    done < <(runtime_sdk_suffixes)
 
     write_values_override
     write_metadata
