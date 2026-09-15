@@ -591,7 +591,6 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
             ("error", Value::from("command registry is full")),
         ]);
     }
-    let command_activity = super::activity::enter_command();
 
     // Reserve the stable identity before spawn. Holding the registry lock
     // serializes the PENDING -> RUNNING/FAILED transition with duplicate starts.
@@ -658,7 +657,6 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
             exit.state_version.fetch_add(1, Ordering::AcqRel);
             exit.cond.notify_all();
             COMMAND_COMPLETED.fetch_add(1, Ordering::Relaxed);
-            drop(command_activity);
             let record = records.get(&command_id).expect("pending command exists");
             let snapshot = CommandSnapshot::from(record);
             drop(records);
@@ -678,7 +676,6 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
         .filter(|value| *value > 0.0)
         .map(Duration::from_secs_f64);
     std::thread::spawn(move || {
-        let _command_activity = command_activity;
         let deadline = command_timeout.map(|timeout| Instant::now() + timeout);
         loop {
             let signal_guard = waiter_exit.signal_guard.lock().unwrap();

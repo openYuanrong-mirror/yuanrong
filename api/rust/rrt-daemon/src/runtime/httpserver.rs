@@ -230,7 +230,6 @@ async fn handle_one_request(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let _active = super::activity::enter(super::activity::ActivitySource::DirectHttp);
     // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
     let mut tmp = [0u8; IO_BUFFER_SIZE];
@@ -2297,7 +2296,7 @@ mod tests {
             return;
         }
 
-        let baseline = super::super::activity::active_command_count();
+        let baseline = super::super::activity::active_count();
         let mut start = std::collections::BTreeMap::new();
         start.insert(
             "command_id".to_string(),
@@ -2315,7 +2314,7 @@ mod tests {
                 })
             })
             .expect("started process pid");
-        assert_eq!(super::super::activity::active_command_count(), baseline + 1);
+        assert_eq!(super::super::activity::active_count(), baseline);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -2345,9 +2344,9 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         assert_eq!(
-            super::super::activity::active_command_count(),
+            super::super::activity::active_count(),
             baseline + 1,
-            "process.poll observes the launched process and must not add another busy unit"
+            "process.poll keeps the sandbox busy while its request is in flight"
         );
 
         let (response_head, _) = read_http_response(&mut client).await;
@@ -2358,6 +2357,19 @@ mod tests {
 
     #[tokio::test]
     async fn command_watch_returns_initial_and_terminal_state() {
+        const ISOLATED_ENV: &str = "YR_RRT_COMMAND_WATCH_ACTIVITY_TEST_ISOLATED";
+        if std::env::var_os(ISOLATED_ENV).is_none() {
+            let status = Command::new(std::env::current_exe().expect("current test executable"))
+                .arg("runtime::httpserver::tests::command_watch_returns_initial_and_terminal_state")
+                .arg("--exact")
+                .arg("--test-threads=1")
+                .env(ISOLATED_ENV, "1")
+                .status()
+                .expect("run isolated command watch activity test");
+            assert!(status.success(), "isolated command watch activity test failed");
+            return;
+        }
+        let baseline = super::super::activity::active_count();
         let listener = bind(0).await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -2405,6 +2417,11 @@ mod tests {
             }
         }
         assert!(observed_terminal);
+        assert_eq!(
+            super::super::activity::active_count(),
+            baseline,
+            "a passive command watch must not prevent idle recycling"
+        );
 
         websocket
             .send(tokio_tungstenite::tungstenite::Message::Text(

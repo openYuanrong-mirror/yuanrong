@@ -139,7 +139,8 @@ RRT reconnects to the RuntimeRPC endpoint with exponential backoff from 200 ms t
 Outbound retry policy:
 
 - `CallResultReq` is retained and retried on stream send failure.
-- busy/idle `KillReq(signal=23)` and heartbeat responses are not retried.
+- busy/idle `KillReq(signal=23)` messages are refreshed from the current activity state every 10 seconds, so a dropped transition is repaired by a later snapshot. Historical activity messages are not replayed.
+- Heartbeat responses are not retried.
 - other outbound runtime messages are retryable.
 
 ### 5.4 Return serialization
@@ -242,22 +243,28 @@ The tunnel route is authorized by the sandbox create action and frontend route p
 
 ## 9. Busy/idle and graceful shutdown
 
-RRT maintains one global activity counter across:
+RRT counts RuntimeRPC calls, direct HTTP requests, reverse tunnel WS connections, and checkpoint operations as activity. This count determines busy/idle reporting and graceful shutdown drain.
 
-- RuntimeRPC call handling;
-- HTTP direct requests;
-- reverse tunnel WS connections.
+Background processes are tracked by the process table for polling, waiting, stdin, and termination. A running background process alone does not keep the sandbox busy or delay `ShutdownReq`. After the launching request finishes, `idle_timeout` can reclaim the sandbox if no other activity remains. Calls that execute or wait for a command, including `process.poll` and `process.wait`, count as activity while in flight. Remaining background processes are cleaned up when the sandbox is stopped.
 
-An `ActiveGuard` increments the counter on entry and decrements it on drop. RRT reports activity state to function-proxy only when the counter crosses the zero boundary:
+An `ActiveGuard` increments activity on entry and decrements it on drop. Busy is reported when activity crosses from zero and on each direct HTTP or tunnel entry. The final transition to zero schedules an idle report after an 800 ms debounce. The reporter captures the running Tokio runtime handle during initialization, so guards can schedule reports when dropped on ordinary threads.
+
+A periodic task also sends the current state every 10 seconds. Periodic idle reports respect the same debounce window; state changes and report enqueueing are serialized. This repairs dropped reports without requiring new traffic. Function-proxy keeps an existing idle timer when another idle report arrives. RuntimeRPC reconnect and snapshot restoration synchronize this same state.
+
+When command recovery is enabled, the `command:<count>` compatibility report uses the same request/connection activity count. Its configured heartbeat remains available to FunctionSystem. Command IDs, result retention, and watch subscriptions remain managed by the command registry. Passive `/commands/watch` subscriptions and detached child lifetime do not add an activity unit.
+
+Activity reports:
 
 | Transition | Message |
 |------------|---------|
 | `0 -> 1` | `KillRequest{signal=23,payload="busy"}` |
+| Direct HTTP or tunnel entry | `KillRequest{signal=23,payload="busy"}` |
 | `1 -> 0` | debounced `KillRequest{signal=23,payload="idle"}` |
+| Every 10 seconds | Current busy/idle state, with idle debounce preserved |
 
 Function-proxy maps signal `23` (`RRT_IDLE_REPORT_SIGNAL`) to IdleMgr traffic reporting. RRT does not own the idle timeout timer.
 
-On `ShutdownReq`, RRT waits up to the requested grace period for in-flight activity to finish:
+On `ShutdownReq`, RRT waits up to the requested grace period for in-flight requests, connections, and checkpoint operations to finish:
 
 - if drained, reply success;
 - if still busy, reply `ErrInstanceBusy` with the active request count;
