@@ -74,6 +74,9 @@ def get_frontend_address_from_session(session_file: Path) -> Optional[tuple[str,
     """Extract frontend address from session file.
 
     Returns tuple of (frontend_ip, frontend_port) or None if not available.
+    Prefers the frontend's own bind IP (frontend.ip) recorded by the launcher;
+    falls back to function_master.ip for sessions written before that key
+    existed (they are identical whenever frontend.ip is not overridden).
     """
     if not session_file.exists():
         return None
@@ -82,9 +85,9 @@ def get_frontend_address_from_session(session_file: Path) -> Optional[tuple[str,
             session = json.load(f)
         cluster_info = session.get("cluster_info", {}).get("for-join", {})
         frontend_port = cluster_info.get("frontend.port")
-        function_master_ip = cluster_info.get("function_master.ip")
-        if frontend_port and function_master_ip:
-            return function_master_ip, int(frontend_port)
+        frontend_ip = cluster_info.get("frontend.ip") or cluster_info.get("function_master.ip")
+        if frontend_port and frontend_ip:
+            return frontend_ip, int(frontend_port)
     except (json.JSONDecodeError, IOError) as e:
         logger.warning(f"Failed to read session file: {e}")
     return None

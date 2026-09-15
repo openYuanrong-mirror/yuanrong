@@ -233,7 +233,14 @@ class SessionManager:
         ds_worker_port = None
         if config["mode"][self.mode.value].get("ds_worker", False):
             _, ds_worker_port = _parse_addr(config["ds_worker"]["args"]["worker_address"])
-        frontend_port = config["frontend"].get("port") if config["mode"][self.mode.value].get("frontend") else None
+        frontend_ip = frontend_port = None
+        if config["mode"][self.mode.value].get("frontend", False):
+            # Must read values.frontend.ip (the override-aware bind address that
+            # FrontendLauncher renders into init_frontend_args.json
+            # serverListenIP), NOT the component-level config["frontend"]["ip"]
+            # which is hardcoded to host_ip in the template.
+            frontend_ip = config["values"]["frontend"].get("ip")
+            frontend_port = config["frontend"].get("port")
         agent_ip = None
         if config["mode"][self.mode.value].get("function_agent", False):
             agent_ip = config["function_agent"]["args"]["ip"]
@@ -253,6 +260,7 @@ class SessionManager:
                 "function_proxy.grpc_port": fp_grpc_port,
                 "ds_worker.port": ds_worker_port,
                 "agent.ip": agent_ip,
+                "frontend.ip": frontend_ip,
                 "frontend.port": frontend_port,
             },
             "daemon": {
