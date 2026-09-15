@@ -1,10 +1,9 @@
 //! Rust implementation of akernel `cmd_start/cmd_poll/cmd_wait/cmd_kill/cmd_list/cmd_send_stdin`.
 //! Semantics match `akernel_sdk/instance.py`, including response dict fields, error messages, and DEVNULL default stdin.
 //!
-//! Process-table design: the whole Child is moved to a waiter thread that owns wait(); kill sends signals directly to the OS pid,
-//! avoiding wait/kill contention over the same &mut Child in Rust. The waiter also owns a process activity guard until the child
-//! exits. Exit codes are broadcast through (Mutex<Option<i32>>, Condvar), and cmd_poll/cmd_wait wait on the Condvar with timeouts,
-//! matching Python's background waiter thread plus Event.
+//! The waiter thread owns Child::wait(), while kill sends signals to the OS pid.
+//! Exit codes are broadcast through a Condvar for cmd_poll/cmd_wait. Background
+//! process lifetime is independent of request/connection activity accounting.
 
 use super::codec::{kw_str, map_value};
 use rmpv::Value;
@@ -175,13 +174,10 @@ pub fn cmd_start(kw: &BTreeMap<String, Value>) -> Value {
         cond: Condvar::new(),
     });
     let exit2 = exit.clone();
-    let process_activity = super::activity::enter(super::activity::ActivitySource::Process);
-    // Move the whole Child and its activity guard to the waiter thread. The
-    // process remains busy after cmd_start returns and becomes idle only after
-    // wait() observes its exit.
+    // The waiter owns Child::wait() and publishes exit status for poll/wait.
+    // Request handlers own activity guards for their own in-flight work.
     std::thread::spawn(move || {
         let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1) as i64;
-        drop(process_activity);
         *exit2.code.lock().unwrap() = Some(code);
         exit2.cond.notify_all();
     });
@@ -368,11 +364,11 @@ mod tests {
     }
 
     #[test]
-    fn started_process_holds_activity_until_exit() {
+    fn started_process_does_not_hold_request_activity() {
         const ISOLATED_ENV: &str = "YR_RRT_CMD_ACTIVITY_TEST_ISOLATED";
         if std::env::var_os(ISOLATED_ENV).is_none() {
             let status = Command::new(std::env::current_exe().expect("current test executable"))
-                .arg("runtime::cmd::tests::started_process_holds_activity_until_exit")
+                .arg("runtime::cmd::tests::started_process_does_not_hold_request_activity")
                 .arg("--exact")
                 .arg("--test-threads=1")
                 .env(ISOLATED_ENV, "1")
@@ -390,7 +386,7 @@ mod tests {
         let started = cmd_start(&start);
         let pid = map_i64(&started, "pid");
         assert!(pid > 0, "cmd_start response: {started:?}");
-        assert_eq!(super::super::activity::active_count(), baseline + 1);
+        assert_eq!(super::super::activity::active_count(), baseline);
 
         let mut close_stdin = BTreeMap::new();
         close_stdin.insert("pid".to_string(), Value::from(pid));

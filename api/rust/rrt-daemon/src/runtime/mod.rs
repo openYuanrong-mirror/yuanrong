@@ -1709,10 +1709,10 @@ mod checkpoint_prepare_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn snap_started_success_publishes_busy_before_response() {
+    async fn snap_started_success_publishes_current_traffic_state_before_response() {
         const ENV: &str = "YR_RRT_SNAP_STARTED_ACTIVITY_ISOLATED";
         const TEST: &str =
-            "runtime::checkpoint_prepare_tests::snap_started_success_publishes_busy_before_response";
+            "runtime::checkpoint_prepare_tests::snap_started_success_publishes_current_traffic_state_before_response";
         if std::env::var_os(ENV).is_none() {
             let status = Command::new(std::env::current_exe().expect("current test executable"))
                 .arg(TEST)
@@ -1728,34 +1728,39 @@ mod checkpoint_prepare_tests {
             return;
         }
 
-        let active = activity::enter(activity::ActivitySource::Process);
-        let (tx, mut rx) = mpsc::channel(2);
+        for (source, expected_state) in [
+            (None, "idle"),
+            (Some(activity::ActivitySource::RuntimeRpc), "busy"),
+        ] {
+            let active = source.map(activity::enter);
+            let (tx, mut rx) = mpsc::channel(2);
 
-        assert!(
-            send_snap_started_activity_and_response(
-                &tx,
-                "snap-started".to_string(),
-                "restored-sandbox",
-                crate::posix::common::ErrorCode::ErrNone,
-                "ok".to_string(),
-            )
-            .await
-        );
+            assert!(
+                send_snap_started_activity_and_response(
+                    &tx,
+                    "snap-started".to_string(),
+                    "restored-sandbox",
+                    crate::posix::common::ErrorCode::ErrNone,
+                    "ok".to_string(),
+                )
+                .await
+            );
 
-        let activity = rx.recv().await.expect("SnapStarted activity report");
-        let Some(streaming_message::Body::KillReq(kill)) = activity.body else {
-            panic!("expected activity KillReq before SnapStarted response")
-        };
-        assert_eq!(kill.instance_id, "restored-sandbox");
-        assert_eq!(kill.signal, IDLE_REPORT_SIGNAL);
-        assert_eq!(kill.payload, b"busy");
-        let response = rx.recv().await.expect("SnapStarted response");
-        assert!(matches!(
-            response.body,
-            Some(streaming_message::Body::SnapStartedRsp(_))
-        ));
+            let activity = rx.recv().await.expect("SnapStarted activity report");
+            let Some(streaming_message::Body::KillReq(kill)) = activity.body else {
+                panic!("expected activity KillReq before SnapStarted response")
+            };
+            assert_eq!(kill.instance_id, "restored-sandbox");
+            assert_eq!(kill.signal, IDLE_REPORT_SIGNAL);
+            assert_eq!(kill.payload, expected_state.as_bytes());
+            let response = rx.recv().await.expect("SnapStarted response");
+            assert!(matches!(
+                response.body,
+                Some(streaming_message::Body::SnapStartedRsp(_))
+            ));
 
-        drop(active);
+            drop(active);
+        }
     }
 }
 
