@@ -2074,7 +2074,7 @@ mod tests {
                 })
             })
             .expect("started process pid");
-        assert_eq!(super::super::activity::active_count(), baseline + 1);
+        assert_eq!(super::super::activity::active_count(), baseline);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -2105,8 +2105,8 @@ mod tests {
 
         assert_eq!(
             super::super::activity::active_count(),
-            baseline + 2,
-            "process.poll must count as request activity while the launched process remains busy"
+            baseline + 1,
+            "process.poll keeps the sandbox busy while its request is in flight"
         );
 
         let mut response = Vec::new();
@@ -2114,6 +2114,7 @@ mod tests {
             .await
             .expect("read process.poll response");
         server.await.expect("process.poll server task");
+        assert_eq!(super::super::activity::active_count(), baseline);
         assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
     }
 }
