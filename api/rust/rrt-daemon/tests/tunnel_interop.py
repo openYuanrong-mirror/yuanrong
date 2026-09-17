@@ -163,6 +163,7 @@ def main():
         [os.environ.get("RRT_RUNTIME", "rrt-runtime")],
         env={
             **os.environ,
+            "INSTANCE_ID": "interop.sandbox@tenant/1",
             "RRT_TUNNEL_ONLY": "1",
             "RRT_TUNNEL_WS_PORT": str(ws_port),
             "RRT_TUNNEL_HTTP_PORT": str(http_port),
@@ -172,7 +173,10 @@ def main():
     passed = []
     try:
         wait_for_runtime(http_port)
-        tunnel_client = TunnelClient(upstream=f"127.0.0.1:{upstream.server_port}")
+        tunnel_client = TunnelClient(
+            upstream=f"127.0.0.1:{upstream.server_port}",
+            sandbox_id="interop.sandbox@tenant/1",
+        )
         if not tunnel_client.start(
             f"ws://127.0.0.1:{ws_port}",
             timeout=10,
@@ -189,6 +193,38 @@ def main():
             f"status={status} body={body!r}",
             passed,
         )
+
+        wrong_client = TunnelClient(
+            upstream=f"127.0.0.1:{upstream.server_port}", sandbox_id="different-sandbox",
+        )
+        try:
+            connected = wrong_client.start(f"ws://127.0.0.1:{ws_port}", timeout=1.5)
+            check("mismatched sandbox rejected", not connected, "start=False", passed)
+            status, _, body = raw_request(
+                http_port,
+                b"GET /identity-control HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n",
+            )
+            check("existing client survives rejected handshake",
+                  status == 200 and body == b"UPSTREAM-OK:/identity-control",
+                  f"status={status}", passed)
+        finally:
+            wrong_client.stop()
+
+        # A legacy SDK with no identity still connects to an identity-aware RRT.
+        tunnel_client.stop()
+        tunnel_client = TunnelClient(upstream=f"127.0.0.1:{upstream.server_port}")
+        check("legacy client handshake", tunnel_client.start(f"ws://127.0.0.1:{ws_port}", timeout=10),
+              "no sandbox ID header", passed)
+
+        status, _, body = raw_request(
+            http_port,
+            b"GET /legacy-identity-control HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n",
+        )
+        check("legacy client forwards requests", status == 200 and body == b"UPSTREAM-OK:/legacy-identity-control",
+              f"status={status}", passed)
+        if os.environ.get("TUNNEL_INTEROP_IDENTITY_ONLY") == "1":
+            LOG.info("IDENTITY INTEROP RESULT pass=%s", len(passed))
+            return
 
         payload = b'{"message":"chunked-through-rrt"}'
         chunked = (

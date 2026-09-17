@@ -128,6 +128,7 @@ impl RuntimeServiceControls {
     }
 
     fn rebind_instance_id(&self, instance_id: &str) {
+        tunnel::rebind_instance_id(instance_id);
         if let Some(control) = &self.checkpoint {
             control.rebind_instance_id(instance_id);
         }

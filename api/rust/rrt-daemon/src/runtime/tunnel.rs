@@ -47,6 +47,19 @@ use tokio::task::AbortHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::tungstenite::protocol::{Message, WebSocketConfig};
 
+const SANDBOX_ID_HEADER: &str = "x-sandbox-id";
+
+// Shared by configured and legacy invoke-started tunnels. Snapshot restore
+// rebinds the logical identity before listeners are rearmed.
+fn sandbox_identity() -> &'static Arc<Mutex<String>> {
+    static IDENTITY: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
+    IDENTITY.get_or_init(|| Arc::new(Mutex::new(super::load_args_from_env().instance_id)))
+}
+
+pub(super) fn rebind_instance_id(instance_id: &str) {
+    *sandbox_identity().lock().unwrap() = instance_id.to_owned();
+}
+
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(600);
 const WS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Legacy V1 in-flight HTTP requests keep the historical bounded replay TTL.
@@ -824,6 +837,7 @@ fn headers_within_limits(headers: &HeaderList) -> bool {
 
 // ───────────────────────── shared state ─────────────────────────
 struct State {
+    sandbox_id: Arc<Mutex<String>>,
     /// Maximum wait for one reverse-tunnel HTTP exchange.
     http_timeout: Duration,
     /// Outbound bounded channel and generation of the active TunnelClient WS.
@@ -855,6 +869,7 @@ struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            sandbox_id: sandbox_identity().clone(),
             http_timeout: configured_http_timeout(),
             active_client: Mutex::new(None),
             pending_http: Mutex::new(HashMap::new()),
@@ -1722,9 +1737,31 @@ async fn accept_port_a(listener: TcpListener, state: Arc<State>) {
 }
 
 async fn handle_client(stream: TcpStream, state: Arc<State>) -> Result<(), String> {
-    let ws = tokio_tungstenite::accept_async(stream)
-        .await
-        .map_err(|e| format!("ws accept: {e}"))?;
+    // Reject a misrouted client before publishing a generation, replacing an
+    // existing client, or replaying any pending request to the new socket.
+    let ws = tokio_tungstenite::accept_hdr_async(
+        stream,
+        |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+         response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            let mut ids = request.headers().get_all(SANDBOX_ID_HEADER).iter();
+            if let Some(id) = ids.next() {
+                let expected = state.sandbox_id.lock().unwrap();
+                if ids.next().is_some()
+                    || expected.is_empty()
+                    || id.to_str().ok() != Some(expected.as_str())
+                {
+                    return Err(Response::builder()
+                        .status(StatusCode::CONFLICT)
+                        .body(Some("tunnel sandbox ID mismatch".to_owned()))
+                        .unwrap());
+                }
+            }
+            // Absence alone is the compatibility path for older SDKs.
+            Ok(response)
+        },
+    )
+    .await
+    .map_err(|e| format!("ws accept: {e}"))?;
     let (mut sink, mut rx_ws) = ws.split();
     let _active = super::activity::enter(super::activity::ActivitySource::Tunnel);
     let (tx, mut rx) = mpsc::channel::<OutboundMessage>(OUTBOUND_QUEUE_FRAMES);
@@ -3457,6 +3494,74 @@ mod tests {
                 "raw={raw:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn sandbox_identity_handshake_rejects_before_replacing_client() {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let porta = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let portb = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = porta.local_addr().unwrap().port();
+        let identity = Arc::new(Mutex::new("raw.id@tenant/sandbox".to_owned()));
+        let state = Arc::new(State { sandbox_id: identity.clone(), ..State::default() });
+        let server = tokio::spawn(serve(porta, portb, state.clone()));
+
+        // An older client without an identity remains usable.
+        let mut existing = connect_client(port).await;
+        let generation = state.active_generation.load(Ordering::Acquire);
+        for ids in [
+            vec![HeaderValue::from_static("wrong-sandbox")],
+            vec![HeaderValue::from_static("")],
+            vec![HeaderValue::from_static("raw.id@tenant/sandbox"); 2],
+        ] {
+            let mut request = format!("ws://127.0.0.1:{port}/").into_client_request().unwrap();
+            for id in ids {
+                request.headers_mut().append(SANDBOX_ID_HEADER, id);
+            }
+            let error = connect_async(request).await.unwrap_err();
+            match error {
+                tokio_tungstenite::tungstenite::Error::Http(response) => {
+                    assert_eq!(response.status(), StatusCode::CONFLICT);
+                }
+                error => panic!("unexpected rejection: {error}"),
+            }
+            assert_eq!(state.active_generation.load(Ordering::Acquire), generation);
+            existing.send(Frame::Ping { id: "still-connected".into(), timestamp: 1.0 }.to_msg()).await.unwrap();
+            assert!(matches!(next_frame(&mut existing).await, Frame::Pong { .. }));
+        }
+
+        // Send a malformed value as raw HTTP: the WS client library itself
+        // refuses to serialize non-UTF8 headers.
+        let mut raw = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        raw.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nX-Sandbox-ID: \xff\r\n\r\n").await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), raw.read_to_end(&mut response)).await.unwrap().unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 409"));
+        assert_eq!(state.active_generation.load(Ordering::Acquire), generation);
+
+        // A matching raw (not router-sanitized) identity is accepted.
+        let mut request = format!("ws://127.0.0.1:{port}/").into_client_request().unwrap();
+        request.headers_mut().insert(SANDBOX_ID_HEADER, HeaderValue::from_static("raw.id@tenant/sandbox"));
+        let (mut matching, _) = connect_async(request.clone()).await.unwrap();
+        assert!(matches!(next_frame(&mut matching).await, Frame::Hello { .. }));
+
+        // Restore changes the trusted logical identity used by later handshakes.
+        *identity.lock().unwrap() = "clone-sandbox".into();
+        let error = connect_async(request.clone()).await.unwrap_err();
+        assert!(matches!(error, tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == StatusCode::CONFLICT));
+        request.headers_mut().insert(SANDBOX_ID_HEADER, HeaderValue::from_static("clone-sandbox"));
+        let (mut clone, _) = connect_async(request.clone()).await.unwrap();
+        assert!(matches!(next_frame(&mut clone).await, Frame::Hello { .. }));
+
+        // A supplied ID cannot be checked against an unknown runtime identity.
+        *identity.lock().unwrap() = String::new();
+        let error = connect_async(request).await.unwrap_err();
+        assert!(matches!(error, tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == StatusCode::CONFLICT));
+        let mut legacy = connect_client(port).await;
+        legacy.close(None).await.unwrap();
+        server.abort();
     }
 
     async fn spawn_test_server() -> (u16, u16) {
