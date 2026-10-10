@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import select
 import signal
 import ssl
@@ -44,6 +45,15 @@ from yr.cli.utils import fetch_url, wait_pid_exit
 
 logger = logging.getLogger(__name__)
 print_logger = logging.getLogger("print")
+
+# Stop flag written by `yr stop --no-reschedule` before any stop signal; read by
+# the master-side gate (InstanceManagerActor::ProcessInstanceOnFaultLocal).
+STOP_FLAG_PREFIX = "/yr/stopflags/"
+STOP_FLAG_TTL_S = 1800
+LEASE_ID_PATTERN = re.compile(
+    r"^lease\s+([0-9a-fA-F]+)\s+granted\b",
+    re.MULTILINE,
+)
 
 # Only keep address-related fields in join hints.
 JOIN_VALUES_EXPORT_FIELDS: dict[str, tuple[str, ...]] = {
@@ -494,14 +504,52 @@ class SystemLauncher:
             order.remove("function_proxy")
             agent_idx = order.index("function_agent")
             order.insert(agent_idx, "function_proxy")
-        
         for comp_name in order:
             launcher = self.components.get(comp_name)
             if launcher is None:
                 continue
+            if comp_name == "function_master" and not force:
+                logger.info("Delaying function_master shutdown by 5 seconds")
+                time.sleep(5)
             launcher.terminate(force=force)
         self.session_manager.clear_session()
         logger.info("✅ All components stopped.")
+
+    def write_stop_flag(self) -> bool:
+        """Write the no-reschedule stop flag to etcd (lease-bound, TTL 1800s).
+
+        Called by `yr stop --no-reschedule` BEFORE any stop signal is sent. Must
+        never abort the stop itself: on failure log ERROR and return False;
+        main.py folds the result into the exit code. Missing flag == plain stop.
+
+        node_id and etcd address come from the function_proxy launch args stored
+        in the session file (no change to the start path). etcdctl ships inside
+        the yr package. No TLS support: matches non-auth etcd deployments; any
+        lookup failure fails open to a plain stop.
+        """
+        try:
+            session = self.session_manager.load_session()
+            cmd = session["components"]["function_proxy"]["cmd"]
+            node_id = next(a for a in cmd if a.startswith("--node_id=")).split("=", 1)[1]
+            endpoint = next(a for a in cmd if a.startswith("--etcd_address=")).split("=", 1)[1]
+            etcdctl = Path(__file__).resolve().parent.parent / "third_party" / "etcd" / "etcdctl"
+            args = [str(etcdctl), "--endpoints", f"http://{endpoint}"]
+            grant = subprocess.run(args + ["lease", "grant", str(STOP_FLAG_TTL_S)],
+                                   capture_output=True, text=True, timeout=5, check=True)
+            match = LEASE_ID_PATTERN.search(grant.stdout)
+            if match is None:
+                raise ValueError(
+                    f"unexpected etcdctl lease grant output: {grant.stdout!r}"
+                )
+            lease_id = match.group(1)
+            key = f"{STOP_FLAG_PREFIX}{node_id}"
+            subprocess.run(args + ["put", key, "no_reschedule", "--lease", lease_id],
+                           capture_output=True, text=True, timeout=5, check=True)
+            logger.info("stop flag written: %s (TTL %ss)", key, STOP_FLAG_TTL_S)
+            return True
+        except Exception as e:  # flag write must never block the stop
+            logger.error("write stop flag failed (%s); continuing as plain stop", e)
+            return False
 
     def stop_daemon_from_session(self, force: bool = False):
         if not Path(self.session_manager.session_file).exists():
@@ -524,7 +572,7 @@ class SystemLauncher:
                 logger.info(f"Killed daemon process (PID: {daemon_pid})")
             else:
                 os.kill(daemon_pid, signal.SIGTERM)
-                timeout_s = 60  
+                timeout_s = 70  
                 logger.info(f"Sent SIGTERM to daemon process (PID: {daemon_pid}) with timeout {timeout_s} seconds")
                 exited = wait_pid_exit(daemon_pid, time.time() + timeout_s)
                 if exited:
