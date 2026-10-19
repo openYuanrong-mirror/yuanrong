@@ -432,6 +432,12 @@ def status(
     help="Force stop components (SIGKILL instead of SIGTERM).",
 )
 @click.option(
+    "--no-reschedule",
+    is_flag=True,
+    help="Write a stop flag to etcd first so surviving nodes will not reschedule "
+    "this node's instances (flag auto-expires after 30 minutes).",
+)
+@click.option(
     "-f",
     "--file",
     "session_file",
@@ -454,7 +460,11 @@ def status(
 )
 @click.pass_context
 def stop(
-    ctx: click.Context, force: bool, session_file: Optional[str], log_dir_prefix: Optional[str]
+    ctx: click.Context,
+    force: bool,
+    no_reschedule: bool,
+    session_file: Optional[str],
+    log_dir_prefix: Optional[str],
 ) -> None:
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
@@ -467,6 +477,11 @@ def stop(
         render=None,
         sessions_dir=sessions_dir,
     )
+    flag_ok = True
+    if no_reschedule:
+        # Must run BEFORE any stop signal: once the proxy dies, this etcd key is
+        # the only thing telling the master "planned stop, do not reschedule".
+        flag_ok = launcher.write_stop_flag()
     if force:
         logger.warning("Force stopping components...")
         daemon_ok = launcher.stop_daemon_from_session(force)
@@ -474,7 +489,7 @@ def stop(
         ok = daemon_ok and components_ok
     else:
         ok = launcher.stop_daemon_from_session()
-    ctx.exit(0 if ok else 1)
+    ctx.exit(0 if (ok and flag_ok) else 1)
 
 
 @cli.group(help="Config related commands")

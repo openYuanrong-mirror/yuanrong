@@ -62,6 +62,6 @@ class FunctionProxyLauncher(ComponentLauncher):
         fs_log_path = json.loads(log_config).get("filepath", f"{DEFAULT_LOG_DIR}/function_system")
         Path(fs_log_path).mkdir(parents=True, exist_ok=True)
 
-    def terminate(self, force: bool = False, timeout: int = 25):
+    def terminate(self, force: bool = False, timeout: int = 30):
         # proxy 停止时给足驱逐链时间（实例 graceful 15s + 余量）
         super().terminate(force=force, timeout=timeout)
