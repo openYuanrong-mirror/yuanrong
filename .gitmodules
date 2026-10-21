@@ -5,7 +5,7 @@
 [submodule "datasystem"]
 	path = datasystem
 	url = ../yuanrong-datasystem.git
-	branch = master
+	branch = 0.10.0
 [submodule "functionsystem"]
 	path = functionsystem
 	url = ../yuanrong-functionsystem.git
